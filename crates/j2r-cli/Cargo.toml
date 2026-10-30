@@ -1,0 +1,19 @@
+[package]
+name = "j2r-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Command line driver for the J2R Java-to-Rust compiler (j2r compile / build / test)"
+repository = "https://github.com/WasewaseX/j2r"
+
+[[bin]]
+name = "j2r"
+path = "src/main.rs"
+
+[dependencies]
+j2r-classfile = { path = "../j2r-classfile" }
+j2r-codegen = { path = "../j2r-codegen" }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+j2r-runtime = { path = "../j2r-runtime" }

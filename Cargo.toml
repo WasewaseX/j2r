@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/j2r-classfile",
+    "crates/j2r-runtime",
+    "crates/j2r-codegen",
+    "crates/j2r-cli",
+]
+
+# NOTE: crates use standalone manifests (no workspace inheritance) on purpose:
+# `j2r build` vendors the j2r-runtime crate source into generated projects,
+# so every member manifest must be valid when copied outside this workspace.
+
+[profile.release]
+debug = false

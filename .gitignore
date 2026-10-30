@@ -1,0 +1,7 @@
+/target
+**/target
+Cargo.lock.bak
+j2r-out/
+*.class
+!crates/j2r-codegen/tests/fixtures/*.class
+tools/

@@ -1,0 +1,11 @@
+[package]
+name = "j2r-codegen"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "JVM bytecode to Rust code generator for the J2R compiler"
+repository = "https://github.com/WasewaseX/j2r"
+
+[dependencies]
+j2r-classfile = { path = "../j2r-classfile" }
+j2r-runtime = { path = "../j2r-runtime" }

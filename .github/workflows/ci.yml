@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    name: gate-1-fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Formatting (rustfmt, zero tolerance)
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: gate-2-clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (all targets, all features, warnings are errors)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: gate-3-test-jvm-differential
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Tests (unit + e2e + 14-fixture differential vs real JVM)
+        run: cargo test --workspace --all-features
+
+  build-release:
+    name: gate-4-build-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Clean release build
+        run: cargo build --release
+
+  standalone:
+    name: gate-5-standalone-generated-crate
+    runs-on: ubuntu-latest
+    env:
+      # generated code may warn; the compiler itself is still gated by jobs 1-4
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build j2r
+        run: cargo build --release
+      - name: Compile a fixture to a Rust crate
+        run: |
+          javac -d /tmp/st crates/j2r-cli/tests/suite/Strings.java
+          ./target/release/j2r compile /tmp/st/Strings.class -o /tmp/st/out
+      - name: Build the generated crate away from this workspace (offline)
+        run: |
+          cp -r /tmp/st/out "$RUNNER_TEMP/isolated-app"
+          cargo build --release --offline --manifest-path "$RUNNER_TEMP/isolated-app/Cargo.toml"
+      - name: Run the standalone native binary
+        run: '"$RUNNER_TEMP/isolated-app/target/release/j2r_app"'
+
+  doc:
+    name: gate-6-doc-lint
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Docs build without warnings
+        run: cargo doc --no-deps
+
+  security:
+    name: gate-7-security-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: RustSec audit (any advisory fails the gate)
+        run: cargo audit
+
+  all-gates:
+    name: gate-8-all-gates-green
+    needs: [fmt, clippy, test, build-release, standalone, doc, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: echo "All 7 upstream gates are green."

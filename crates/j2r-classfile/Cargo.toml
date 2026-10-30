@@ -1,0 +1,9 @@
+[package]
+name = "j2r-classfile"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Java .class file parser for the J2R Java-to-Rust compiler"
+repository = "https://github.com/WasewaseX/j2r"
+
+[dependencies]
