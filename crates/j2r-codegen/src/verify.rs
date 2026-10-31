@@ -965,6 +965,40 @@ impl<'a> Sim<'a> {
                 self.pop_exact(VTy::Int)?;
                 self.push(VTy::Array(ElemKind::Ref))?;
             }
+            MultiNewArray { desc, dims } => {
+                if *dims == 0 {
+                    return Err(self.e("multianewarray with zero dimensions"));
+                }
+                if !desc.starts_with('[') {
+                    return Err(self.e(format!(
+                        "multianewarray descriptor {desc} is not an array class"
+                    )));
+                }
+                let depth = desc.chars().take_while(|&c| c == '[').count();
+                if *dims as usize > depth {
+                    return Err(self.e(format!(
+                        "multianewarray descriptor {desc} has {depth} array levels but {dims} dimension sizes are consumed"
+                    )));
+                }
+                for _ in 0..*dims {
+                    self.pop_exact(VTy::Int)?;
+                }
+                if *dims as usize == depth {
+                    // Fully allocated: the element kind is the descriptor's
+                    // component tag — a primitive keeps its precise kind;
+                    // `L`/`[` components (classes and sub-arrays) are refs.
+                    match &desc[1..2] {
+                        "J" => self.push(VTy::Array(ElemKind::Long))?,
+                        "F" => self.push(VTy::Array(ElemKind::Float))?,
+                        "D" => self.push(VTy::Array(ElemKind::Double))?,
+                        "I" | "Z" | "C" | "B" | "S" => self.push(VTy::Array(ElemKind::IntGroup))?,
+                        _ => self.push(VTy::Array(ElemKind::Ref))?,
+                    }
+                } else {
+                    // Partially allocated: elements are null or sub-arrays.
+                    self.push(VTy::Array(ElemKind::Ref))?;
+                }
+            }
             AThrow => {
                 self.pop_ref()?;
                 return Ok(Vec::new());

@@ -15,9 +15,11 @@
 //! * string lengths, indices and hashes follow Java's UTF-16 semantics.
 
 use crate::concat;
-use crate::object::{self, is_string, JRef};
+use crate::object::{self, is_string, new_obj, JRef};
 use crate::Value;
 use crate::{internal_error, javafmt, throw_new, Dispatch, NativeFn, Throw};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 fn this<'a>(recv: Option<&'a JRef>, who: &str) -> &'a JRef {
@@ -507,6 +509,61 @@ fn n_throwable_to_string(
 //
 // Every boxed class stores its payload in slot 0. valueOf boxes, xValue
 // unboxes, toString renders with Java's formatting rules.
+//
+// JLS 7 §5.1.7 requires `valueOf` to return **cached, identical** objects
+// for Integer/Long/Short/Byte in [-128, 127], Character in [0, 127] and
+// Boolean (TRUE/FALSE); `==` on boxed values inside those ranges must be
+// true. Float and Double are exempt (fresh object each time). Boxed
+// `equals` compares payloads and rejects mixed types; `hashCode` follows
+// the JDK contract (Long folds high/low, Boolean 1231/1237, Float/Double
+// use canonicalized IEEE bits).
+
+thread_local! {
+    /// (class, payload-as-i64) -> cached boxed object. Only classes with a
+    /// mandatory cache are inserted; Float/Double never consult this.
+    static BOXED_CACHE: RefCell<HashMap<(&'static str, i64), JRef>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Returns the shared boxed object for `(class, v)` when `v` is inside the
+/// class's mandatory identity range, allocating it on first use.
+fn boxed_cached(class: &'static str, v: i64, lo: i64, hi: i64) -> Option<JRef> {
+    if v < lo || v > hi {
+        return None;
+    }
+    BOXED_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(existing) = cache.get(&(class, v)) {
+            return Some(existing.clone());
+        }
+        let slot = if class == "java/lang/Long" {
+            Value::Long(v)
+        } else {
+            Value::Int(v as i32)
+        };
+        let r = new_obj(class, 1).ok()?;
+        object::obj_set(&r, 0, slot);
+        cache.insert((class, v), r.clone());
+        Some(r)
+    })
+}
+
+/// Canonicalizes an f32 the way `Float.floatToIntBits` does: all NaNs become
+/// the canonical 0x7fc00000 pattern (negative zero is preserved).
+fn float_to_int_bits(v: f32) -> i32 {
+    if v.is_nan() {
+        return 0x7fc00000u32 as i32;
+    }
+    v.to_bits() as i32
+}
+
+/// Canonicalizes an f64 the way `Double.doubleToLongBits` does.
+fn double_to_long_bits(v: f64) -> i64 {
+    if v.is_nan() {
+        return 0x7ff8000000000000u64 as i64;
+    }
+    v.to_bits() as i64
+}
 
 macro_rules! boxed_class {
     (
@@ -514,9 +571,15 @@ macro_rules! boxed_class {
         value_of: $value_of:ident, slot_get: $slot_get:ident,
         unbox: $unbox:ident, $slot_ret:ident,
         to_string: $to_string:ident, $kind:expr
+        $(, cache: $lo:expr, $hi:expr)?
     ) => {
         fn $value_of(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
             let v = arg(args, "valueOf").$slot_get();
+            $(
+                if let Some(r) = boxed_cached($class, v as i64, $lo, $hi) {
+                    return Ok(Value::Ref(Some(r)));
+                }
+            )?
             let r = object::new_obj($class, 1)?;
             object::obj_set(&r, 0, Value::$slot_ret(v));
             Ok(Value::Ref(Some(r)))
@@ -538,17 +601,138 @@ macro_rules! boxed_class {
     };
 }
 
+/// `equals` for a boxed class: the argument must be an object of exactly the
+/// same class with the same payload (`Integer(1).equals(Long(1L))` is false,
+/// like the JDK, because the classes differ).
+macro_rules! boxed_equals {
+    ($name:ident, $class:expr, $pat:pat => $conv:expr) => {
+        fn $name(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+            let r = this(recv, "boxed equals");
+            let mine = r.borrow().slots[0].clone();
+            let other = match &arg(args, "equals") {
+                Value::Ref(Some(o)) if &*o.borrow().jclass == $class => o.borrow().slots[0].clone(),
+                _ => return Ok(Value::Int(0)),
+            };
+            let a: i64 = match mine {
+                $pat => $conv,
+                _ => return Ok(Value::Int(0)),
+            };
+            let b: i64 = match other {
+                $pat => $conv,
+                _ => return Ok(Value::Int(0)),
+            };
+            Ok(Value::Int((a == b) as i32))
+        }
+    };
+}
+
+boxed_equals!(n_integer_equals, "java/lang/Integer", Value::Int(v) => v as i64);
+boxed_equals!(n_long_equals, "java/lang/Long", Value::Long(v) => v);
+boxed_equals!(n_byte_equals, "java/lang/Byte", Value::Int(v) => v as i64);
+boxed_equals!(n_short_equals, "java/lang/Short", Value::Int(v) => v as i64);
+boxed_equals!(n_boolean_equals, "java/lang/Boolean", Value::Int(v) => v as i64);
+boxed_equals!(n_character_equals, "java/lang/Character", Value::Int(v) => v as i64);
+
+fn n_float_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Float.equals");
+    let mine = r.borrow().slots[0].clone();
+    let other = match &arg(args, "equals") {
+        Value::Ref(Some(o)) if &*o.borrow().jclass == "java/lang/Float" => {
+            o.borrow().slots[0].clone()
+        }
+        _ => return Ok(Value::Int(0)),
+    };
+    let (a, b) = match (mine, other) {
+        (Value::Float(a), Value::Float(b)) => (a, b),
+        _ => return Ok(Value::Int(0)),
+    };
+    // Float.equals compares floatToIntBits: NaN==NaN, +0.0 != -0.0
+    Ok(Value::Int(
+        (float_to_int_bits(a) == float_to_int_bits(b)) as i32,
+    ))
+}
+
+fn n_double_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Double.equals");
+    let mine = r.borrow().slots[0].clone();
+    let other = match &arg(args, "equals") {
+        Value::Ref(Some(o)) if &*o.borrow().jclass == "java/lang/Double" => {
+            o.borrow().slots[0].clone()
+        }
+        _ => return Ok(Value::Int(0)),
+    };
+    let (a, b) = match (mine, other) {
+        (Value::Double(a), Value::Double(b)) => (a, b),
+        _ => return Ok(Value::Int(0)),
+    };
+    Ok(Value::Int(
+        (double_to_long_bits(a) == double_to_long_bits(b)) as i32,
+    ))
+}
+
+/// `hashCode` for a boxed class holding an Int payload (Integer, Short,
+/// Byte, Boolean, Character): the value itself, except Boolean (1231/1237).
+macro_rules! boxed_int_hash_code {
+    ($name:ident) => {
+        fn $name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+            let r = this(recv, "boxed hashCode");
+            Ok(Value::Int(r.borrow().slots[0].expect_int()))
+        }
+    };
+}
+
+boxed_int_hash_code!(n_integer_hash_code);
+boxed_int_hash_code!(n_byte_hash_code);
+boxed_int_hash_code!(n_short_hash_code);
+boxed_int_hash_code!(n_character_hash_code);
+
+fn n_boolean_hash_code(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Boolean.hashCode");
+    Ok(Value::Int(if r.borrow().slots[0].expect_int() != 0 {
+        1231
+    } else {
+        1237
+    }))
+}
+
+fn n_long_hash_code(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Long.hashCode");
+    let v = r.borrow().slots[0].expect_long();
+    Ok(Value::Int((v ^ (v >> 32)) as i32))
+}
+
+fn n_float_hash_code(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Float.hashCode");
+    Ok(Value::Int(float_to_int_bits(
+        r.borrow().slots[0].expect_float(),
+    )))
+}
+
+fn n_double_hash_code(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Double.hashCode");
+    let bits = double_to_long_bits(r.borrow().slots[0].expect_double());
+    Ok(Value::Int((bits ^ (bits >> 32)) as i32))
+}
+
 boxed_class! {
     "java/lang/Integer", "I",
     value_of: n_integer_value_of, slot_get: expect_int,
     unbox: n_integer_int_value, Int,
-    to_string: n_integer_to_string, 'I'
+    to_string: n_integer_to_string, 'I', cache: -128, 127
 }
 boxed_class! {
     "java/lang/Long", "J",
     value_of: n_long_value_of, slot_get: expect_long,
     unbox: n_long_long_value, Long,
-    to_string: n_long_to_string, 'J'
+    to_string: n_long_to_string, 'J', cache: -128, 127
 }
 boxed_class! {
     "java/lang/Float", "F",
@@ -566,25 +750,25 @@ boxed_class! {
     "java/lang/Byte", "B",
     value_of: n_byte_value_of, slot_get: expect_int,
     unbox: n_byte_byte_value, Int,
-    to_string: n_byte_to_string, 'I'
+    to_string: n_byte_to_string, 'I', cache: -128, 127
 }
 boxed_class! {
     "java/lang/Short", "S",
     value_of: n_short_value_of, slot_get: expect_int,
     unbox: n_short_short_value, Int,
-    to_string: n_short_to_string, 'I'
+    to_string: n_short_to_string, 'I', cache: -128, 127
 }
 boxed_class! {
     "java/lang/Boolean", "Z",
     value_of: n_boolean_value_of, slot_get: expect_int,
     unbox: n_boolean_boolean_value, Int,
-    to_string: n_boolean_to_string, 'Z'
+    to_string: n_boolean_to_string, 'Z', cache: 0, 1
 }
 boxed_class! {
     "java/lang/Character", "C",
     value_of: n_character_value_of, slot_get: expect_int,
     unbox: n_character_char_value, Int,
-    to_string: n_character_to_string, 'C'
+    to_string: n_character_to_string, 'C', cache: 0, 127
 }
 
 fn n_integer_to_string_static(
@@ -956,6 +1140,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ("java/lang/Integer", "intValue", "()I", n_integer_int_value),
     (
         "java/lang/Integer",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_integer_equals,
+    ),
+    ("java/lang/Integer", "hashCode", "()I", n_integer_hash_code),
+    (
+        "java/lang/Integer",
         "toString",
         "()Ljava/lang/String;",
         n_integer_to_string,
@@ -979,6 +1170,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_long_value_of,
     ),
     ("java/lang/Long", "longValue", "()J", n_long_long_value),
+    (
+        "java/lang/Long",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_long_equals,
+    ),
+    ("java/lang/Long", "hashCode", "()I", n_long_hash_code),
     (
         "java/lang/Long",
         "toString",
@@ -1006,6 +1204,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ("java/lang/Float", "floatValue", "()F", n_float_float_value),
     (
         "java/lang/Float",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_float_equals,
+    ),
+    ("java/lang/Float", "hashCode", "()I", n_float_hash_code),
+    (
+        "java/lang/Float",
         "toString",
         "()Ljava/lang/String;",
         n_float_to_string,
@@ -1030,6 +1235,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ),
     (
         "java/lang/Double",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_double_equals,
+    ),
+    ("java/lang/Double", "hashCode", "()I", n_double_hash_code),
+    (
+        "java/lang/Double",
         "toString",
         "()Ljava/lang/String;",
         n_double_to_string,
@@ -1049,6 +1261,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ("java/lang/Byte", "byteValue", "()B", n_byte_byte_value),
     (
         "java/lang/Byte",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_byte_equals,
+    ),
+    ("java/lang/Byte", "hashCode", "()I", n_byte_hash_code),
+    (
+        "java/lang/Byte",
         "toString",
         "()Ljava/lang/String;",
         n_byte_to_string,
@@ -1060,6 +1279,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_short_value_of,
     ),
     ("java/lang/Short", "shortValue", "()S", n_short_short_value),
+    (
+        "java/lang/Short",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_short_equals,
+    ),
+    ("java/lang/Short", "hashCode", "()I", n_short_hash_code),
     (
         "java/lang/Short",
         "toString",
@@ -1078,6 +1304,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()Z",
         n_boolean_boolean_value,
     ),
+    (
+        "java/lang/Boolean",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_boolean_equals,
+    ),
+    ("java/lang/Boolean", "hashCode", "()I", n_boolean_hash_code),
     (
         "java/lang/Boolean",
         "toString",
@@ -1101,6 +1334,18 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "charValue",
         "()C",
         n_character_char_value,
+    ),
+    (
+        "java/lang/Character",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_character_equals,
+    ),
+    (
+        "java/lang/Character",
+        "hashCode",
+        "()I",
+        n_character_hash_code,
     ),
     (
         "java/lang/Character",
@@ -1159,6 +1404,102 @@ mod tests {
 
     fn no_ctx() -> Dispatch {
         Dispatch::default()
+    }
+
+    fn boxed(class: &str, v: Value) -> JRef {
+        let r = new_obj(class, 1).unwrap();
+        object::obj_set(&r, 0, v);
+        r
+    }
+
+    #[test]
+    fn integer_value_of_caches_minus128_to_127() {
+        let f = |args: &[Value]| match n_integer_value_of(None, args, no_ctx()).unwrap() {
+            Value::Ref(Some(r)) => r,
+            other => panic!("expected a reference, got {other:?}"),
+        };
+        let a = f(&[Value::Int(127)]);
+        let b = f(&[Value::Int(127)]);
+        assert!(crate::ref_eq(
+            &Value::Ref(Some(a.clone())),
+            &Value::Ref(Some(b))
+        ));
+        let c = f(&[Value::Int(128)]);
+        let d = f(&[Value::Int(128)]);
+        assert!(!crate::ref_eq(
+            &Value::Ref(Some(c.clone())),
+            &Value::Ref(Some(d))
+        ));
+        let neg = f(&[Value::Int(-128)]);
+        let neg2 = f(&[Value::Int(-128)]);
+        assert!(crate::ref_eq(
+            &Value::Ref(Some(neg)),
+            &Value::Ref(Some(neg2))
+        ));
+    }
+
+    #[test]
+    fn boxed_equals_compares_payload_and_type() {
+        let i1 = boxed("java/lang/Integer", Value::Int(1000));
+        let i2 = boxed("java/lang/Integer", Value::Int(1000));
+        let r = n_integer_equals(Some(&i1), &[Value::Ref(Some(i2))], no_ctx()).unwrap();
+        assert_eq!(r.expect_int(), 1);
+        let l = boxed("java/lang/Long", Value::Long(1000));
+        let r = n_integer_equals(Some(&i1), &[Value::Ref(Some(l))], no_ctx()).unwrap();
+        // Integer(1000).equals(Long(1000)) is false in the JDK
+        assert_eq!(r.expect_int(), 0);
+        let i3 = boxed("java/lang/Integer", Value::Int(7));
+        let r = n_integer_equals(Some(&i1), &[Value::Ref(Some(i3))], no_ctx()).unwrap();
+        assert_eq!(r.expect_int(), 0);
+    }
+
+    #[test]
+    fn float_equals_uses_bits_nan_is_nan() {
+        let nan: f32 = f32::NAN;
+        let a = boxed("java/lang/Float", Value::Float(nan));
+        let b = boxed("java/lang/Float", Value::Float(nan));
+        let r = n_float_equals(Some(&a), &[Value::Ref(Some(b))], no_ctx()).unwrap();
+        // Float.equals: NaN equals NaN
+        assert_eq!(r.expect_int(), 1);
+        let z = boxed("java/lang/Float", Value::Float(0.0));
+        let nz = boxed("java/lang/Float", Value::Float(-0.0));
+        let r = n_float_equals(Some(&z), &[Value::Ref(Some(nz))], no_ctx()).unwrap();
+        // +0.0 and -0.0 are NOT equal under Float.equals
+        assert_eq!(r.expect_int(), 0);
+    }
+
+    #[test]
+    fn boxed_hash_codes_match_jdk_contract() {
+        let i = boxed("java/lang/Integer", Value::Int(42));
+        assert_eq!(
+            n_integer_hash_code(Some(&i), &[], no_ctx())
+                .unwrap()
+                .expect_int(),
+            42
+        );
+        let l = boxed("java/lang/Long", Value::Long(0x1_0000_0042));
+        // Long.hashCode: (int)(v ^ (v >>> 32))
+        let v: i64 = 0x1_0000_0042;
+        assert_eq!(
+            n_long_hash_code(Some(&l), &[], no_ctx())
+                .unwrap()
+                .expect_int(),
+            (v ^ (v >> 32)) as i32
+        );
+        let t = boxed("java/lang/Boolean", Value::Int(1));
+        assert_eq!(
+            n_boolean_hash_code(Some(&t), &[], no_ctx())
+                .unwrap()
+                .expect_int(),
+            1231
+        );
+        let f = boxed("java/lang/Boolean", Value::Int(0));
+        assert_eq!(
+            n_boolean_hash_code(Some(&f), &[], no_ctx())
+                .unwrap()
+                .expect_int(),
+            1237
+        );
     }
 
     #[test]

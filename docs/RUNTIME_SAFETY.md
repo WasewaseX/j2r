@@ -51,7 +51,8 @@ JObj { jclass: Rc<str>,           // runtime class / array descriptor
    and is exactly why the roadmap puts a tracing, cycle-collecting GC
    before any long-running or threaded workload (M2).
 5. **Single-threaded execution is an architectural invariant, not an
-   accident.** The statics pool, init flags, intern cache and `System.out`
+   accident.** The statics pool, init flags, intern cache, boxed-value
+   cache (the JLS-mandated `-128..127` identity objects) and `System.out`
    handle are all `thread_local`; the generated `main` runs the whole
    program on one spawned worker thread (512 MB stack for deep recursion).
    Java-level `Thread`/`synchronized` are *compile errors*, so no generated
@@ -95,15 +96,17 @@ the JVM.
 A `RefCell` panic would require a borrow held *across* a call that can
 re-enter the same object. The runtime was audited site by site; the census
 below counts non-test `.borrow()` / `.borrow_mut()` sites per file
-(natives.rs 15, object.rs 6, array.rs 4, lib.rs 5; concat.rs has no direct
+(natives.rs 30, object.rs 6, array.rs 4, lib.rs 5; concat.rs has no direct
 borrow — its 4 string reads borrow through `object::string_value`, counted
-under object.rs):
+under object.rs; the `intern_string`/`BOXED_CACHE` RefCells cache
+`Rc<str>`/`JRef` keys and cannot re-enter user code):
 
 * every borrow scope is statement-local or ends before the function
   dispatches into user code (`format_ref` releases the string borrow before
   calling `toString`; `PrintStream` natives read the sink id, drop the
   borrow, then format; `checkcast`/`instanceof`/`invoke_virtual` clone the
-  `jclass` string and drop the borrow before dispatching);
+  `jclass` string and drop the borrow before dispatching; boxed `equals`
+  clones both payloads and drops both borrows before comparing);
 * user code runs only through `invoke_virtual` / generated calls, none of
   which hold a runtime borrow;
 * `StringBuilder`/`String` sharing uses `Rc::make_mut` (ownership transfer,

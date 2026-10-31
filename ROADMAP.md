@@ -30,7 +30,7 @@ Findings and fixes, each with regression tests:
   agreement, `max_stack`/`max_locals`, exception-table structure and
   catch-type resolution. Malformed bytecode is a structured
   `CodegenError::Verify` with the faulting pc — never a runtime panic.
-  35 unit tests + 8 malformed-classfile e2e tests.
+  36 unit tests + 12 malformed-classfile e2e tests.
 * **Internal ids widened to `u32`** (class ids, static-pool slots, generated
   registries); constant-pool indexes stay `u16` (a JVM-spec limit, not
   ours). Regression test compiles a synthetic two-class, 80,000-slot

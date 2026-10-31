@@ -14,12 +14,15 @@ Milestone 1 compiles JVM bytecode to a standalone Rust crate and runs it
 natively. Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM, compiled with J2R, run natively,
 and **stdout, stderr and exit codes** must match (stderr with JVM
-stack-trace frames — and nothing else — normalized away). 18 fixture
-programs cover arithmetic, control flow, strings, arrays, inheritance,
-exceptions (`finally`, multi-catch, rethrow), boxing, recursion, statics,
-interfaces, long edge cases, `System.err`, uncaught exceptions, runtime
-exceptions and default-valued statics — all green, plus 100 unit tests and
-a JDK-free end-to-end test.
+stack-trace frames — and nothing else — normalized away). 34 fixture
+programs cover arithmetic and integer/long edge cases, shifts, casts and
+saturating conversions, control flow (switch fallthrough, labeled
+break/continue), strings, string building, one- and two-dimensional arrays,
+inheritance, constructor/initializer ordering, static-initialization order,
+exceptions (`finally` ordering, multi-catch, rethrow, uncaught), boxing
+identity, `instanceof` dispatch, recursion and mutual recursion, `System.err`,
+and runtime exceptions with exact OpenJDK messages — all green, plus 110
+unit tests, 12 malformed-classfile tests and a JDK-free end-to-end test.
 
 A dedicated **hardening milestone** (post-audit) added:
 
@@ -27,7 +30,7 @@ A dedicated **hardening milestone** (post-audit) added:
   correctness, control-flow joins, branch targets, local-variable bounds
   and array element kinds. Malformed class files now fail with a structured
   `verification error ... at pc N` diagnostic instead of reaching
-  panic-prone runtime paths (35 verifier unit tests + 8 malformed-classfile
+  panic-prone runtime paths (36 verifier unit tests + 12 malformed-classfile
   e2e tests).
 * **Wider internal identifiers** — class ids and static-pool slots are
   `u32`, tested with a synthetic 80,000-slot program (past the old 65,535
@@ -38,6 +41,23 @@ A dedicated **hardening milestone** (post-audit) added:
 * `synchronized` methods are compile errors instead of silent miscompiles.
 * A precise statement of runtime guarantees and panic-path guards:
   [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).
+
+A **coverage & robustness pass** (M1.6) added on top:
+
+* **JLS §5.1.7 boxing identity** — `valueOf` returns the mandatory cached
+  objects for `Integer`/`Long`/`Short`/`Byte`/`Character`/`Boolean` (a
+  differential probe caught `Integer(127) == Integer(127)` being `false`),
+  plus value-based `equals` and JDK-contract `hashCode` for all boxed
+  classes (`Float.equals` compares canonicalized IEEE bits: NaN equals NaN,
+  `+0.0` differs from `-0.0`).
+* **`multianewarray`** — full multidimensional array allocation
+  (`new int[r][c]`, jagged `new int[3][]`, negative dimension →
+  `NegativeArraySizeException`), with verifier rules, canonical array
+  descriptors at every level (`[[I`, not the broken `[L[I;`) and array-store
+  subtype checks for nested element types. Rejected inputs are structured
+  compile errors, never runtime panics.
+* Differential suite grown from 18 to 34 fixtures; a shrink-guard asserts
+  the count never regresses.
 
 ### What works today
 
@@ -140,7 +160,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 100 unit tests + JDK-free e2e + differential suite
+$ cargo test                       # 110 unit tests + malformed/e2e + 34-fixture differential suite
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 ```
 

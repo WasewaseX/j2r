@@ -1005,6 +1005,18 @@ fn emit_instr(
                 "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_new_ref({elem:?}, __len)))));"
             ));
         }
+        Instr::MultiNewArray { desc, dims } => {
+            // The dimension sizes were pushed outermost-first, so pop them
+            // back-to-front into __dim0..__dim(n-1).
+            for i in (0..*dims).rev() {
+                out.push(format!("let __dim{i} = ::j2r_runtime::pop_int(&mut stack);"));
+            }
+            let list: Vec<String> = (0..*dims).map(|i| format!("__dim{i}")).collect();
+            out.push(format!(
+                "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_new_multi({desc:?}, &[{}])))));",
+                list.join(", ")
+            ));
+        }
         Instr::AThrow => {
             // pop the exception object; on success record the pending throw
             // (the Ok path of j2r_try! would otherwise fall through!)

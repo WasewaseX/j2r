@@ -54,13 +54,16 @@ fn differential_suite_matches_jvm() {
         "no fixtures found in {}",
         suite_dir.display()
     );
-    // The suite must keep growing with the milestone; 18 = 14 original
-    // fixtures + ErrStream (System.err) + Uncaught (stderr frames + exit
-    // code) + Runtimes (runtime exceptions, uncaught AIOOBE) + ZeroInit
-    // (default values of statics without <clinit>).
+    // The suite must keep growing with the milestone; 34 = the 18 fixtures
+    // of the hardening milestone (ErrStream/Uncaught/Runtimes/ZeroInit and
+    // friends) + 16 M1.6 coverage fixtures: Shifts, Casts, IntOverflow,
+    // FloatEdge, FinallyOrder, LabeledLoop, Instanceof, CompoundAssign,
+    // StringOps, BoxingIdentity (JLS boxing cache + boxed equals),
+    // DispatchOrder, StaticOrder, SwitchFallthrough, MutualRecursion,
+    // Arrays2D and JaggedNew (multianewarray + array-of-array descriptors).
     assert!(
-        fixtures.len() >= 18,
-        "differential suite shrank: {} fixtures (expected >= 18)",
+        fixtures.len() >= 34,
+        "differential suite shrank: {} fixtures (expected >= 34)",
         fixtures.len()
     );
 

@@ -132,6 +132,174 @@ fn falling_off_the_end_is_a_compile_error() {
     expect_verify_error("fallsoff", &[0x10, 0x01, 0x57], 2, 1, "falls off");
 }
 
+/// Assembles a class whose main runs `multianewarray` on the CP class
+/// named `desc` with the given dims byte, preceded by `stack_depth` ints.
+fn multianewarray_code(b: &mut Builder, desc: &str, dims: u8, stack_depth: u8) -> Vec<u8> {
+    let desc_idx = b.utf8(desc);
+    let desc_cls = b.class(desc_idx);
+    let mut code = vec![0x04; stack_depth as usize]; // iconst_1 x stack_depth
+    code.push(0xc5);
+    code.extend_from_slice(&desc_cls.to_be_bytes());
+    code.push(dims);
+    code.push(0x57); // pop the result
+    code.push(0xb1); // return
+    code
+}
+
+#[test]
+fn multianewarray_zero_dims_is_a_compile_error() {
+    let dir = fresh_dir("multi0");
+    let mut b = Builder::new();
+    let cn = b.utf8("T");
+    let this = b.class(cn);
+    let obj_n = b.utf8("java/lang/Object");
+    let super_cls = b.class(obj_n);
+    let main_n = b.utf8("main");
+    let main_d = b.utf8("([Ljava/lang/String;)V");
+    let code_n = b.utf8("Code");
+    let code = multianewarray_code(&mut b, "[[I", 0, 0);
+    let main = method(
+        ACC_PUBLIC | ACC_STATIC,
+        main_n,
+        main_d,
+        2,
+        1,
+        &code,
+        &[],
+        code_n,
+    );
+    let bytes = b.finish(ACC_PUBLIC, this, super_cls, &[], &[], &[&main], &[]);
+    let path = dir.join("T.class");
+    std::fs::write(&path, &bytes).unwrap();
+    let res = j2r_codegen::compile_to_crate(&j2r_codegen::Options {
+        inputs: vec![path],
+        main_class: None,
+        crate_name: "j2r-multi0".to_string(),
+        out_dir: dir.join("out"),
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    let msg = res
+        .expect_err("zero-dim multianewarray must be rejected")
+        .to_string();
+    assert!(msg.contains("verification error"), "{msg}");
+    assert!(msg.contains("zero dimensions"), "{msg}");
+}
+
+#[test]
+fn multianewarray_more_dims_than_descriptor_is_a_compile_error() {
+    let dir = fresh_dir("multidepth");
+    let mut b = Builder::new();
+    let cn = b.utf8("T");
+    let this = b.class(cn);
+    let obj_n = b.utf8("java/lang/Object");
+    let super_cls = b.class(obj_n);
+    let main_n = b.utf8("main");
+    let main_d = b.utf8("([Ljava/lang/String;)V");
+    let code_n = b.utf8("Code");
+    // `[I` has one array level but the instruction consumes 2 sizes
+    let code = multianewarray_code(&mut b, "[I", 2, 2);
+    let main = method(
+        ACC_PUBLIC | ACC_STATIC,
+        main_n,
+        main_d,
+        3,
+        1,
+        &code,
+        &[],
+        code_n,
+    );
+    let bytes = b.finish(ACC_PUBLIC, this, super_cls, &[], &[], &[&main], &[]);
+    let path = dir.join("T.class");
+    std::fs::write(&path, &bytes).unwrap();
+    let res = j2r_codegen::compile_to_crate(&j2r_codegen::Options {
+        inputs: vec![path],
+        main_class: None,
+        crate_name: "j2r-multidepth".to_string(),
+        out_dir: dir.join("out"),
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    let msg = res
+        .expect_err("dims beyond descriptor depth must be rejected")
+        .to_string();
+    assert!(msg.contains("verification error"), "{msg}");
+    assert!(msg.contains("array levels"), "{msg}");
+}
+
+#[test]
+fn multianewarray_on_a_non_array_class_is_a_compile_error() {
+    let dir = fresh_dir("multicls");
+    let mut b = Builder::new();
+    let cn = b.utf8("T");
+    let this = b.class(cn);
+    let obj_n = b.utf8("java/lang/Object");
+    let super_cls = b.class(obj_n);
+    let main_n = b.utf8("main");
+    let main_d = b.utf8("([Ljava/lang/String;)V");
+    let code_n = b.utf8("Code");
+    let code = multianewarray_code(&mut b, "java/lang/Object", 1, 1);
+    let main = method(
+        ACC_PUBLIC | ACC_STATIC,
+        main_n,
+        main_d,
+        2,
+        1,
+        &code,
+        &[],
+        code_n,
+    );
+    let bytes = b.finish(ACC_PUBLIC, this, super_cls, &[], &[], &[&main], &[]);
+    let path = dir.join("T.class");
+    std::fs::write(&path, &bytes).unwrap();
+    let res = j2r_codegen::compile_to_crate(&j2r_codegen::Options {
+        inputs: vec![path],
+        main_class: None,
+        crate_name: "j2r-multicls".to_string(),
+        out_dir: dir.join("out"),
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    let msg = res
+        .expect_err("multianewarray on a class must be rejected")
+        .to_string();
+    assert!(msg.contains("verification error"), "{msg}");
+    assert!(msg.contains("not an array class"), "{msg}");
+}
+
+#[test]
+fn well_formed_multianewarray_still_compiles() {
+    // sanity: iconst_1, iconst_2, multianewarray [[I 2, pop, return
+    let dir = fresh_dir("multigood");
+    let mut b = Builder::new();
+    let cn = b.utf8("T");
+    let this = b.class(cn);
+    let obj_n = b.utf8("java/lang/Object");
+    let super_cls = b.class(obj_n);
+    let main_n = b.utf8("main");
+    let main_d = b.utf8("([Ljava/lang/String;)V");
+    let code_n = b.utf8("Code");
+    let code = multianewarray_code(&mut b, "[[I", 2, 2);
+    let main = method(
+        ACC_PUBLIC | ACC_STATIC,
+        main_n,
+        main_d,
+        3,
+        1,
+        &code,
+        &[],
+        code_n,
+    );
+    let bytes = b.finish(ACC_PUBLIC, this, super_cls, &[], &[], &[&main], &[]);
+    let path = dir.join("T.class");
+    std::fs::write(&path, &bytes).unwrap();
+    let res = j2r_codegen::compile_to_crate(&j2r_codegen::Options {
+        inputs: vec![path],
+        main_class: None,
+        crate_name: "j2r-multigood".to_string(),
+        out_dir: dir.join("out"),
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    res.expect("well-formed multianewarray must compile");
+}
+
 #[test]
 fn well_formed_code_still_compiles() {
     // sanity: iconst_1 iconst_1 iadd pop return — must succeed

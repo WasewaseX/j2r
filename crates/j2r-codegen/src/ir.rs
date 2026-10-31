@@ -116,6 +116,13 @@ pub enum Instr {
     ANewArray {
         elem: String,
     },
+    /// `multianewarray`: `desc` is the full array-class descriptor from the
+    /// constant pool (`[[I`, `[[Ljava/lang/String;`), `dims` how many leading
+    /// dimension sizes are consumed from the operand stack (outermost first).
+    MultiNewArray {
+        desc: String,
+        dims: u8,
+    },
     AThrow,
     CheckCast {
         class: String,
@@ -546,12 +553,9 @@ pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<Vec<(u32, Instr)>>
                 }
             }
             0xc5 => {
-                return Err(DecodeError {
-                    pc: at,
-                    message:
-                        "multianewarray is not supported yet (allocate the outer array, then loop)"
-                            .to_string(),
-                });
+                let desc = d.class_at(at)?;
+                let dims = d.u1()?;
+                Instr::MultiNewArray { desc, dims }
             }
             0xc6 => {
                 let t = branch_s2(&mut d, at)?;
