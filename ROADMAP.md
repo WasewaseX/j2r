@@ -42,6 +42,13 @@ Findings and fixes, each with regression tests:
 
 ## M2 — Quality of the generated code
 
+The full implementation plan — architecture audit, `Rc` risk register,
+tracing-GC design, `StackOverflowError` design, typed-stack
+specialization, CFG-reconstruction investigation and the ordered wave
+breakdown with acceptance criteria — is
+[docs/M2_PLAN.md](docs/M2_PLAN.md) (awaiting architectural review; no
+M2 code is written before that review passes).
+
 * Lift the pc-dispatch loops into structured Rust control flow
   (`if`/`loop`/`match`) via condition-based CFG reconstruction
 * Specialize operand stacks and locals per method (drop the `Value` enum on
