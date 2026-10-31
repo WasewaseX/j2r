@@ -22,6 +22,7 @@
 
 use crate::ir::{ArithOp, CmpKind, Conv, Instr, Ldc, Ldc2, NumKind};
 use crate::{CallTarget, ClassPlan, MainInfo, MethodPlan, Options, Program};
+use j2r_classfile::ConstantValue;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -140,7 +141,10 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
 //! Static field pool and per-class initialization flags.
 //!
 //! Both are thread-local (the milestone-1 runtime is single-threaded) and
-//! initialized by `init_pool` from the generated `main`.
+//! initialized by `init_pool` from the generated `main`. `apply_defaults`
+//! gives every static slot its Java default value (0, 0.0, false, null)
+//! — the JVM does this at class initialization, and javac emits no
+//! `<clinit>` for fields without initializers.
 
 use ::std::cell::RefCell;
 
@@ -149,23 +153,74 @@ thread_local! {
     static FLAGS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
 }
 
+/// The Java default value kind of a static field's descriptor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Df {
+    /// boolean/byte/short/char/int → 0
+    Int,
+    /// long → 0L
+    Long,
+    /// float → 0.0f
+    Float,
+    /// double → 0.0d
+    Double,
+    /// references → null
+    Ref,
+}
+
 /// Must be called once before any generated code runs.
 pub fn init_pool(statics: usize, classes: usize) {
     POOL.with(|p| *p.borrow_mut() = vec![::j2r_runtime::Value::Void; statics]);
     FLAGS.with(|f| *f.borrow_mut() = vec![false; classes]);
 }
 
-pub fn get(idx: u16) -> ::j2r_runtime::Value {
+/// Fills slot ranges with their Java default values (run-length encoded by
+/// the generator; a pool of 80,000 same-typed slots is one range).
+pub fn apply_defaults(ranges: &[(u32, u32, Df)]) {
+    let v_of = |d: Df| match d {
+        Df::Int => ::j2r_runtime::Value::Int(0),
+        Df::Long => ::j2r_runtime::Value::Long(0),
+        Df::Float => ::j2r_runtime::Value::Float(0.0),
+        Df::Double => ::j2r_runtime::Value::Double(0.0),
+        Df::Ref => ::j2r_runtime::Value::Ref(::core::option::Option::None),
+    };
+    POOL.with(|p| {
+        let mut pool = p.borrow_mut();
+        for (start, len, d) in ranges {
+            let v = v_of(*d);
+            for slot in *start as usize..(*start + *len) as usize {
+                if let Some(cell) = pool.get_mut(slot) {
+                    *cell = v.clone();
+                }
+            }
+        }
+    });
+}
+
+/// Sets `ConstantValue` static finals (JVMS preparation-phase semantics:
+/// these hold before any `<clinit>` code runs). Emitted as a literal table.
+pub fn set_constants(constants: &[(u32, ::j2r_runtime::Value)]) {
+    POOL.with(|p| {
+        let mut pool = p.borrow_mut();
+        for (slot, v) in constants {
+            if let Some(cell) = pool.get_mut(*slot as usize) {
+                *cell = v.clone();
+            }
+        }
+    });
+}
+
+pub fn get(idx: u32) -> ::j2r_runtime::Value {
     POOL.with(|p| p.borrow()[idx as usize].clone())
 }
 
-pub fn set(idx: u16, v: ::j2r_runtime::Value) {
+pub fn set(idx: u32, v: ::j2r_runtime::Value) {
     POOL.with(|p| p.borrow_mut()[idx as usize] = v);
 }
 
 /// Runs `<clinit>` for the class (by id) exactly once, before first use of
 /// its statics / first instantiation. Repeats are cheap (a flag check).
-pub fn ensure(class_id: u16, clinit: ::core::option::Option<::j2r_runtime::MethodFn>) {
+pub fn ensure(class_id: u32, clinit: ::core::option::Option<::j2r_runtime::MethodFn>) {
     let already = FLAGS.with(|f| {
         let mut b = f.borrow_mut();
         let was = b[class_id as usize];
@@ -215,6 +270,8 @@ fn main() {{
 
 fn main_run() -> i32 {{
     {lib_crate}::statics::init_pool({statics}usize, {classes}usize);
+    {lib_crate}::statics::apply_defaults({defaults});
+    {lib_crate}::statics::set_constants({constants});
     let args: ::std::vec::Vec<::std::string::String> = ::std::env::args().skip(1).collect();
     let args_array = ::j2r_runtime::object::new_string_array(&args);
     match {lib_crate}::classes::{module}::{main_fn}(
@@ -236,11 +293,121 @@ fn main_run() -> i32 {{
             classes = prog.classes.len(),
             module = m.module,
             main_fn = m.fn_name,
+            defaults = static_defaults_literal(prog, &lib_crate),
+            constants = static_constants_literal(prog),
         );
         std::fs::write(src.join("main.rs"), main_rs)?;
     }
 
     Ok(())
+}
+
+/// The Java default value kind of a static field descriptor.
+pub(crate) fn static_default_of(desc: &str) -> DfKind {
+    match desc {
+        "J" => DfKind::Long,
+        "F" => DfKind::Float,
+        "D" => DfKind::Double,
+        d if d.starts_with('L') || d.starts_with('[') => DfKind::Ref,
+        _ => DfKind::Int, // I Z B C S all default to 0
+    }
+}
+
+pub(crate) enum DfKind {
+    Int,
+    Long,
+    Float,
+    Double,
+    Ref,
+}
+
+/// Run-length-encoded default values for the static pool, in slot order.
+/// A program whose statics are all ints (the common case) is a single range.
+fn static_default_ranges(prog: &Program) -> Vec<(u32, u32, DfKind)> {
+    let mut slots: Vec<(u32, &str)> = Vec::new();
+    for c in &prog.classes {
+        for f in &c.fields {
+            if f.is_static {
+                slots.push((f.static_slot.expect("static slot"), f.desc.as_str()));
+            }
+        }
+    }
+    slots.sort_unstable_by_key(|(s, _)| *s);
+    let mut ranges: Vec<(u32, u32, DfKind)> = Vec::new();
+    for (slot, desc) in slots {
+        let kind = static_default_of(desc);
+        match ranges.last_mut() {
+            // run-length: consecutive slots of the same kind merge
+            Some((start, len, last)) if *start + *len == slot && same_kind(last, &kind) => {
+                *len += 1;
+            }
+            _ => ranges.push((slot, 1, kind)),
+        }
+    }
+    ranges
+}
+
+fn same_kind(a: &DfKind, b: &DfKind) -> bool {
+    matches!(
+        (a, b),
+        (DfKind::Int, DfKind::Int)
+            | (DfKind::Long, DfKind::Long)
+            | (DfKind::Float, DfKind::Float)
+            | (DfKind::Double, DfKind::Double)
+            | (DfKind::Ref, DfKind::Ref)
+    )
+}
+
+/// The `&[(u32, u32, Df)]` literal for the generated `main.rs` (the
+/// template calls `apply_defaults({defaults})`; `Df` is fully qualified
+/// because `main.rs` is a separate crate root from the `statics` module).
+fn static_defaults_literal(prog: &Program, lib_crate: &str) -> String {
+    let mut out = String::from("&[");
+    for (start, len, kind) in static_default_ranges(prog) {
+        let k = match kind {
+            DfKind::Int => "Int",
+            DfKind::Long => "Long",
+            DfKind::Float => "Float",
+            DfKind::Double => "Double",
+            DfKind::Ref => "Ref",
+        };
+        out.push_str(&format!(
+            "({start}u32, {len}u32, {lib_crate}::statics::Df::{k}), "
+        ));
+    }
+    out.push(']');
+    out
+}
+
+/// The `&[(u32, Value)]` literal of `ConstantValue` static finals, in slot
+/// order — the JVM's preparation-phase initialization.
+fn static_constants_literal(prog: &Program) -> String {
+    let mut out = String::from("&[");
+    let mut slots: Vec<(u32, &ConstantValue)> = Vec::new();
+    for c in &prog.classes {
+        for f in &c.fields {
+            if f.is_static {
+                if let Some(cv) = &f.constant_value {
+                    slots.push((f.static_slot.expect("static slot"), cv));
+                }
+            }
+        }
+    }
+    slots.sort_unstable_by_key(|(s, _)| *s);
+    for (slot, cv) in slots {
+        let v = match cv {
+            ConstantValue::Int(v) => format!("{RT}::Value::Int({v})"),
+            ConstantValue::Long(v) => format!("{RT}::Value::Long({v}i64)"),
+            ConstantValue::Float(v) => format!("{RT}::Value::Float({})", f32_lit(*v)),
+            ConstantValue::Double(v) => format!("{RT}::Value::Double({})", f64_lit(*v)),
+            ConstantValue::String(s) => {
+                format!("{RT}::Value::Str(::std::rc::Rc::new({s:?}.to_string()))")
+            }
+        };
+        out.push_str(&format!("({slot}u32, {v}), "));
+    }
+    out.push(']');
+    out
 }
 
 fn sanitize_crate_ident(name: &str) -> String {
@@ -572,7 +739,7 @@ fn emit_instr(
         Instr::Store(idx) => out.push(format!(
             "locals[{idx}usize] = {RT}::stack::stack_pop(&mut stack);"
         )),
-        Instr::ArrayLoad => {
+        Instr::ALoad(_) => {
             out.push("let __idx = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
                 "let __arr = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
@@ -582,7 +749,7 @@ fn emit_instr(
             ));
             out.push("stack.push(__v);".into());
         }
-        Instr::ArrayStore => {
+        Instr::AStore(_) => {
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push("let __idx = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
@@ -699,9 +866,9 @@ fn emit_instr(
                     .expect("validated static field");
                 let slot = f.static_slot.expect("static field");
                 for (id, expr) in ensure_calls(prog, class) {
-                    out.push(format!("crate::statics::ensure({id}u16, {expr});"));
+                    out.push(format!("crate::statics::ensure({id}u32, {expr});"));
                 }
-                out.push(format!("stack.push(crate::statics::get({slot}u16));"));
+                out.push(format!("stack.push(crate::statics::get({slot}u32));"));
             }
         }
         Instr::PutStatic { class, field, .. } => {
@@ -710,9 +877,9 @@ fn emit_instr(
             let slot = f.static_slot.expect("static field");
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             for (id, expr) in ensure_calls(prog, class) {
-                out.push(format!("crate::statics::ensure({id}u16, {expr});"));
+                out.push(format!("crate::statics::ensure({id}u32, {expr});"));
             }
-            out.push(format!("crate::statics::set({slot}u16, __v);"));
+            out.push(format!("crate::statics::set({slot}u32, __v);"));
         }
         Instr::GetField { class, field, .. } => {
             let f = crate::resolve_field_pub(prog, class, field, false)
@@ -755,7 +922,7 @@ fn emit_instr(
             match crate::resolve_call_pub(prog, class, name, desc).expect("validated call") {
                 CallTarget::User { module, fn_name } => {
                     for (id, expr) in ensure_calls(prog, class) {
-                        out.push(format!("crate::statics::ensure({id}u16, {expr});"));
+                        out.push(format!("crate::statics::ensure({id}u32, {expr});"));
                     }
                     out.push(format!(
                         "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, crate::classes::{module}::{fn_name}(::core::option::Option::None, &__a));"
@@ -814,7 +981,7 @@ fn emit_instr(
                 let target = prog.class(class).unwrap();
                 let total = target.total_slots;
                 for (id, expr) in ensure_calls(prog, class) {
-                    out.push(format!("crate::statics::ensure({id}u16, {expr});"));
+                    out.push(format!("crate::statics::ensure({id}u32, {expr});"));
                 }
                 out.push(format!(
                     "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize)))));"
@@ -932,7 +1099,7 @@ fn constant_literal(v: &j2r_runtime::Value) -> String {
 /// `ensure` calls for the user-class chain from the topmost user ancestor
 /// down to `start` — mirrors Java's rule that initializing a class first
 /// initializes its superclasses.
-fn ensure_calls(prog: &Program, start: &str) -> Vec<(u16, String)> {
+fn ensure_calls(prog: &Program, start: &str) -> Vec<(u32, String)> {
     let mut chain: Vec<String> = Vec::new();
     let mut cur = start.to_string();
     for _ in 0..64 {

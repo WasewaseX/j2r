@@ -1,5 +1,8 @@
 //! Minimal `.class` file builder used by tests (the test counterpart of
 //! javac). Produces valid Java 8 class files (major 52, no StackMapTable).
+//!
+//! Not every test binary uses every helper, hence the dead_code allowance.
+#![allow(dead_code)]
 
 pub const ACC_PUBLIC: u16 = 0x0001;
 pub const ACC_STATIC: u16 = 0x0008;

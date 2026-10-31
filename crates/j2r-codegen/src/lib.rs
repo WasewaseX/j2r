@@ -8,11 +8,16 @@
 //! 3. compute flattened field-slot layouts across class hierarchies and
 //!    assign static-field pool slots,
 //! 4. decode every method body to IR ([`ir`]),
-//! 5. emit Rust sources ([`emit`]) plus a vendored copy of `j2r-runtime`,
+//! 5. **verify every method body** ([`verify`]): abstract stack shape,
+//!    category-1/2 correctness, local-variable bounds, branch-target and
+//!    join consistency — malformed bytecode is a structured compile error,
+//!    never a runtime panic,
+//! 6. emit Rust sources ([`emit`]) plus a vendored copy of `j2r-runtime`,
 //!    producing a crate that builds standalone with `cargo`.
 
 pub mod emit;
 pub mod ir;
+pub mod verify;
 
 /// Method plans + clinit fn name + concat sites for one class.
 pub type MethodPlans = (
@@ -43,6 +48,14 @@ pub enum CodegenError {
         class: String,
         message: String,
     },
+    /// Bytecode verification failure: malformed input rejected at compile
+    /// time with the faulting `pc` (see [`verify`]).
+    Verify {
+        class: String,
+        method: String,
+        pc: u32,
+        message: String,
+    },
 }
 
 impl fmt::Display for CodegenError {
@@ -62,6 +75,15 @@ impl fmt::Display for CodegenError {
             CodegenError::Semantic { class, message } => {
                 write!(f, "error in class {class}: {message}")
             }
+            CodegenError::Verify {
+                class,
+                method,
+                pc,
+                message,
+            } => write!(
+                f,
+                "verification error in {class}.{method} at pc {pc}: {message}"
+            ),
         }
     }
 }
@@ -121,7 +143,10 @@ pub struct FieldPlan {
     pub name: String,
     pub desc: String,
     pub is_static: bool,
-    pub static_slot: Option<u16>,
+    /// Index into the generated crate's static-field pool. `u32` so that
+    /// codebases far beyond 65,535 static fields compile correctly (the
+    /// `u16`s that remain are constant-pool indexes, a JVM-spec limit).
+    pub static_slot: Option<u32>,
     /// Absolute slot index in the flattened object layout.
     pub instance_slot: Option<usize>,
     pub constant_value: Option<ConstantValue>,
@@ -155,7 +180,9 @@ pub struct ClassPlan {
     pub is_interface: bool,
     pub is_abstract: bool,
     pub module: String,
-    pub id: u16,
+    /// Internal class id used by the generated `statics` registry (`u32`,
+    /// same rationale as [`FieldPlan::static_slot`]).
+    pub id: u32,
     /// Slot index where this class's own instance fields begin.
     pub base_slots: usize,
     /// Total instance slots (including inherited ones).
@@ -274,7 +301,7 @@ pub fn compile(opts: &Options) -> Result<Program> {
     // 1. parse ------------------------------------------------------------
     let mut classes: Vec<ClassPlan> = Vec::new();
     let mut user_index: BTreeMap<String, usize> = BTreeMap::new();
-    let mut static_slots = 0u16;
+    let mut static_slots = 0u32;
 
     for path in &opts.inputs {
         let bytes = std::fs::read(path).map_err(CodegenError::Io)?;
@@ -309,7 +336,7 @@ pub fn compile(opts: &Options) -> Result<Program> {
         }
         let is_interface = cf.is_interface();
         let is_abstract = cf.is_abstract() || is_interface;
-        let id = classes.len() as u16;
+        let id = classes.len() as u32;
 
         // fields: layout + static slots
         let mut fields = Vec::new();
@@ -408,12 +435,19 @@ pub fn compile(opts: &Options) -> Result<Program> {
         plan.concats = concats;
     }
 
-    // 5. validate every instruction ----------------------------------------
+    // 5. verify every method body (before emitting any code) ---------------
+    // Malformed bytecode must fail here with a structured diagnostic, not
+    // reach the panic paths of the generated code or runtime.
+    for c in &prog.classes {
+        verify::verify_class(&prog, c)?;
+    }
+
+    // 6. validate every instruction ----------------------------------------
     for c in &prog.classes {
         validate_class(&prog, c)?;
     }
 
-    // 6. main class ---------------------------------------------------------
+    // 7. main class ---------------------------------------------------------
     let main_class = match &opts.main_class {
         Some(m) => {
             let internal = to_internal(m);
@@ -526,6 +560,17 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
     let mut concats = BTreeMap::new();
 
     for m in &c.cf.methods {
+        // ACC_SYNCHRONIZED on a method (0x0020). A synchronized method would
+        // silently compile without locking — an unsupported feature must be
+        // a loud compile error, never a silent miscompile.
+        if !c.is_interface && m.access & j2r_classfile::flags::ACC_SYNCHRONIZED != 0 {
+            return Err(CodegenError::Unsupported {
+                class: c.name.clone(),
+                method: format!("{}{}", m.name, m.descriptor),
+                pc: 0,
+                what: "synchronized methods are not supported yet (no monitor support)".to_string(),
+            });
+        }
         if m.code.is_none() {
             if m.is_abstract() {
                 continue; // abstract: no body to compile
@@ -588,81 +633,14 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
         });
     }
 
-    // Synthesize <clinit> work for ConstantValue static finals: append
-    // Ldc + PutStatic to the existing clinit, or create a new one.
-    let constant_fields: Vec<&FieldPlan> = c
-        .fields
-        .iter()
-        .filter(|f| f.is_static && f.constant_value.is_some())
-        .collect();
-    if !constant_fields.is_empty() {
-        let mut synth: Vec<(u32, ir::Instr)> = Vec::new();
-        let mut pc = 0u32;
-        for f in constant_fields {
-            let value = match f.constant_value.as_ref().unwrap() {
-                ConstantValue::Int(v) => ir::Ldc::Int(*v),
-                ConstantValue::Float(v) => ir::Ldc::Float(*v),
-                ConstantValue::Long(v) => {
-                    synth.push((pc, ir::Instr::Ldc2W(ir::Ldc2::Long(*v))));
-                    pc += 1;
-                    synth.push((
-                        pc,
-                        ir::Instr::PutStatic {
-                            class: c.name.clone(),
-                            field: f.name.clone(),
-                            desc: f.desc.clone(),
-                        },
-                    ));
-                    pc += 1;
-                    continue;
-                }
-                ConstantValue::Double(v) => {
-                    synth.push((pc, ir::Instr::Ldc2W(ir::Ldc2::Double(*v))));
-                    pc += 1;
-                    synth.push((
-                        pc,
-                        ir::Instr::PutStatic {
-                            class: c.name.clone(),
-                            field: f.name.clone(),
-                            desc: f.desc.clone(),
-                        },
-                    ));
-                    pc += 1;
-                    continue;
-                }
-                ConstantValue::String(s) => ir::Ldc::String(s.clone()),
-            };
-            synth.push((pc, ir::Instr::Ldc(value)));
-            pc += 1;
-            synth.push((
-                pc,
-                ir::Instr::PutStatic {
-                    class: c.name.clone(),
-                    field: f.name.clone(),
-                    desc: f.desc.clone(),
-                },
-            ));
-            pc += 1;
-        }
-        match methods.iter_mut().find(|m| m.name == "<clinit>") {
-            Some(clinit) => {
-                clinit.instrs.extend(synth);
-            }
-            None => {
-                clinit_fn = Some(method_fn_name("<clinit>", "()V"));
-                methods.push(MethodPlan {
-                    name: "<clinit>".to_string(),
-                    desc: "()V".to_string(),
-                    is_static: true,
-                    fn_name: method_fn_name("<clinit>", "()V"),
-                    instrs: synth,
-                    exception_table: Vec::new(),
-                    max_locals: 0,
-                    max_stack: 2,
-                });
-            }
-        }
-    }
+    // ConstantValue static finals are NOT compiled into <clinit> code.
+    // javac records their value in the ConstantValue attribute and inlines
+    // reads; the JVM sets them during class preparation, before any
+    // <clinit> code runs. J2R mirrors that by placing the values in the
+    // generated crate's static pool at startup (see `statics::set_constants`
+    // in the emitter). Synthesizing clinit *code* here was incorrect: the
+    // appended stores landed after the method's `return` (dead code), and
+    // ConstantValue-only classes produced a clinit without a terminator.
 
     Ok((methods, clinit_fn, concats))
 }

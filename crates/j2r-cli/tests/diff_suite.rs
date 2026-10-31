@@ -53,6 +53,15 @@ fn differential_suite_matches_jvm() {
         "no fixtures found in {}",
         suite_dir.display()
     );
+    // The suite must keep growing with the milestone; 18 = 14 original
+    // fixtures + ErrStream (System.err) + Uncaught (stderr frames + exit
+    // code) + Runtimes (runtime exceptions, uncaught AIOOBE) + ZeroInit
+    // (default values of statics without <clinit>).
+    assert!(
+        fixtures.len() >= 18,
+        "differential suite shrank: {} fixtures (expected >= 18)",
+        fixtures.len()
+    );
 
     let mut failures = Vec::new();
     for fixture in &fixtures {

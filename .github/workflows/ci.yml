@@ -44,7 +44,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Tests (unit + e2e + 14-fixture differential vs real JVM)
+      - name: Tests (unit + e2e + differential suite vs real JVM)
         run: cargo test --workspace --all-features
 
   build-release:

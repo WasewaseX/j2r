@@ -5,8 +5,12 @@
 //! * `j2r build <inputs...> -o DIR` — translate *and* build a native binary.
 //! * `j2r test <File.java>` — differential test: compile with `javac`, run
 //!   with `java`, compile the class files with j2r, run the native binary,
-//!   compare stdout and exit code.
+//!   and compare **stdout, stderr and exit code** (stderr with JVM
+//!   stack-trace frames normalized away — see [`compare`]).
 
+mod compare;
+
+use compare::{streams_match, RunResult};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -58,8 +62,8 @@ enum Cmd {
         #[arg(long)]
         release: bool,
     },
-    /// Differential test: javac + java vs j2r + cargo, comparing stdout and
-    /// exit code.
+    /// Differential test: javac + java vs j2r + cargo, comparing stdout,
+    /// stderr and exit code.
     Test {
         /// Java source file to test.
         file: PathBuf,
@@ -195,7 +199,7 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
     let out_dir = work.join("out");
     std::fs::create_dir_all(&classes_dir).expect("create work dir");
 
-    let run_java = || -> Result<(Vec<u8>, i32), String> {
+    let run_java = || -> Result<RunResult, String> {
         // 1. javac
         let status = Command::new(&javac)
             .arg("-d")
@@ -212,7 +216,7 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
         run_java_program(&java, &classes_dir, &main_class, args)
     };
 
-    let run_rust = || -> Result<(Vec<u8>, i32), String> {
+    let run_rust = || -> Result<RunResult, String> {
         // 1. collect class files
         let mut class_files = Vec::new();
         collect_class_files(&classes_dir, &mut class_files);
@@ -243,25 +247,21 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
             .args(args)
             .output()
             .map_err(|e| format!("failed to run {}: {e}", bin.display()))?;
-        Ok((output.stdout, exit_code(&output.status)))
+        Ok(RunResult {
+            stdout: output.stdout,
+            stderr: output.stderr,
+            code: exit_code(&output.status),
+        })
     };
 
     let java_res = run_java();
     let rust_res = run_rust();
 
     let (ok, report) = match (java_res, rust_res) {
-        (Ok((j_out, j_code)), Ok((r_out, r_code))) => {
-            let out_ok = j_out == r_out;
-            let code_ok = j_code == r_code;
-            let mut report = String::new();
-            if !out_ok {
-                report.push_str(&stdout_diff(&j_out, &r_out));
-            }
-            if !code_ok {
-                report.push_str(&format!("exit codes differ: java={j_code} rust={r_code}\n"));
-            }
-            (out_ok && code_ok, report)
-        }
+        (Ok(j), Ok(r)) => match streams_match(&j, &r) {
+            Ok(()) => (true, String::new()),
+            Err(report) => (false, report),
+        },
         (Err(e), _) | (_, Err(e)) => (false, format!("{e}\n")),
     };
 
@@ -282,7 +282,7 @@ fn run_java_program(
     classes_dir: &Path,
     main_class: &str,
     args: &[String],
-) -> Result<(Vec<u8>, i32), String> {
+) -> Result<RunResult, String> {
     let dotted = main_class.replace('/', ".");
     let output = Command::new(java)
         .arg("-XX:+EnableDynamicAgentLoading")
@@ -292,7 +292,11 @@ fn run_java_program(
         .args(args)
         .output()
         .map_err(|e| format!("failed to run java: {e}"))?;
-    Ok((output.stdout, exit_code(&output.status)))
+    Ok(RunResult {
+        stdout: output.stdout,
+        stderr: output.stderr,
+        code: exit_code(&output.status),
+    })
 }
 
 fn exit_code(status: &std::process::ExitStatus) -> i32 {
@@ -334,31 +338,6 @@ fn collect_class_files(dir: &Path, out: &mut Vec<PathBuf>) {
             }
         }
     }
-}
-
-fn stdout_diff(expected: &[u8], actual: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let exp = String::from_utf8_lossy(expected);
-    let act = String::from_utf8_lossy(actual);
-    let exp_lines: Vec<&str> = exp.lines().collect();
-    let act_lines: Vec<&str> = act.lines().collect();
-    let mut out = String::from("stdout differs:\n");
-    let n = exp_lines.len().max(act_lines.len());
-    let mut shown = 0;
-    for i in 0..n {
-        let e = exp_lines.get(i).copied().unwrap_or("<missing>");
-        let a = act_lines.get(i).copied().unwrap_or("<missing>");
-        if e != a {
-            let _ = writeln!(out, "  line {}: expected: {e:?}", i + 1);
-            let _ = writeln!(out, "  line {}: actual:   {a:?}", i + 1);
-            shown += 1;
-            if shown >= 10 {
-                let _ = writeln!(out, "  ...");
-                break;
-            }
-        }
-    }
-    out
 }
 
 fn locate_java() -> Result<(PathBuf, PathBuf), String> {

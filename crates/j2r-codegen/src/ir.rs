@@ -1,10 +1,12 @@
 //! JVM bytecode decoder: turns a `Code` attribute's raw bytes into a typed,
 //! pc-annotated instruction list ([`Instr`]).
 //!
-//! The decoder is intentionally mechanical — no stack simulation, no
-//! verification: the runtime's uniform `Value` representation makes the
-//! typed/untyped opcode distinction irrelevant, and unverified input fails
-//! loudly at run time or at the code generator's reference resolution.
+//! The decoder is intentionally mechanical — no stack simulation: the typed
+//! judgement happens in [`crate::verify`], which runs before any Rust is
+//! emitted. What the decoder *does* preserve is operand-width information
+//! the verifier needs: array loads/stores keep their element kind
+//! ([`ElemKind`]), so e.g. `lastore` consuming an `int` is a compile-time
+//! verification error, never a runtime type panic.
 
 use j2r_classfile::ConstantPool;
 use j2r_runtime::TypeDesc;
@@ -21,8 +23,10 @@ pub enum Instr {
     Ldc2W(Ldc2),
     Load(u16),
     Store(u16),
-    ArrayLoad,
-    ArrayStore,
+    /// `xXaload`; carries the element kind the verifier checks against.
+    ALoad(ElemKind),
+    /// `xXastore`; carries the element kind the verifier checks against.
+    AStore(ElemKind),
     ArrayLength,
     Pop,
     Pop2,
@@ -214,6 +218,19 @@ pub enum PrimType {
     Long,
 }
 
+/// The element kind of an `xXaload`/`xXastore` opcode, as the verifier sees
+/// it (`baload`/`caload`/`saload` operate on ints in this runtime).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElemKind {
+    /// `iaload`, `baload`, `caload`, `saload` (and stores)
+    IntGroup,
+    Long,
+    Float,
+    Double,
+    /// `aaload` / `aastore`
+    Ref,
+}
+
 impl PrimType {
     pub fn array_desc(self) -> &'static str {
         match self {
@@ -335,10 +352,10 @@ pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<Vec<(u32, Instr)>>
             }
             0x15..=0x19 => Instr::Load(d.u1()? as u16),
             0x1a..=0x2d => Instr::Load(((op - 0x1a) % 4) as u16),
-            0x2e..=0x35 => Instr::ArrayLoad,
+            0x2e..=0x35 => Instr::ALoad(elem_kind(op - 0x2e)?),
             0x36..=0x3a => Instr::Store(d.u1()? as u16),
             0x3b..=0x4e => Instr::Store(((op - 0x3b) % 4) as u16),
-            0x4f..=0x56 => Instr::ArrayStore,
+            0x4f..=0x56 => Instr::AStore(elem_kind(op - 0x4f)?),
             0x57 => Instr::Pop,
             0x58 => Instr::Pop2,
             0x59 => Instr::Dup,
@@ -569,6 +586,26 @@ pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<Vec<(u32, Instr)>>
 fn branch_s2(d: &mut Decoder<'_>, at: u32) -> DecodeResult<u32> {
     let off = d.s2()?;
     Ok((at as i64 + off as i64) as u32)
+}
+
+/// Opcode delta (0..=7) → array element kind, for both the load
+/// (0x2e `iaload` .. 0x35 `saload`) and store (0x4f `iastore` .. 0x56
+/// `sastore`) families, which share their ordering.
+fn elem_kind(delta: u8) -> DecodeResult<ElemKind> {
+    Ok(match delta {
+        0 => ElemKind::IntGroup,     // i
+        1 => ElemKind::Long,         // l
+        2 => ElemKind::Float,        // f
+        3 => ElemKind::Double,       // d
+        4 => ElemKind::Ref,          // a
+        5..=7 => ElemKind::IntGroup, // b, c, s
+        other => {
+            return Err(DecodeError {
+                pc: 0,
+                message: format!("not an array-access opcode delta: {other}"),
+            })
+        }
+    })
 }
 
 fn cmp_op(delta: u8) -> DecodeResult<CmpOp> {

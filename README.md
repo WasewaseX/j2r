@@ -8,16 +8,36 @@ mods, to native code.
 [![CI](https://github.com/WasewaseX/j2r/actions/workflows/ci.yml/badge.svg)](https://github.com/WasewaseX/j2r/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Status: Milestone 1 — a working, tested compiler
+## Status: Milestone 1 + hardening — a working, tested compiler
 
 Milestone 1 compiles JVM bytecode to a standalone Rust crate and runs it
 natively. Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM, compiled with J2R, run natively,
-and stdout + exit codes must match byte-for-byte. 14 fixture programs cover
-arithmetic, control flow, strings, arrays, inheritance, exceptions
-(`finally`, multi-catch, rethrow), boxing, recursion, statics, interfaces
-and long edge cases — all green, plus 56 unit tests and a JDK-free
-end-to-end test.
+and **stdout, stderr and exit codes** must match (stderr with JVM
+stack-trace frames — and nothing else — normalized away). 18 fixture
+programs cover arithmetic, control flow, strings, arrays, inheritance,
+exceptions (`finally`, multi-catch, rethrow), boxing, recursion, statics,
+interfaces, long edge cases, `System.err`, uncaught exceptions, runtime
+exceptions and default-valued statics — all green, plus 100 unit tests and
+a JDK-free end-to-end test.
+
+A dedicated **hardening milestone** (post-audit) added:
+
+* **Bytecode verification** before codegen — stack shape, category-1/2
+  correctness, control-flow joins, branch targets, local-variable bounds
+  and array element kinds. Malformed class files now fail with a structured
+  `verification error ... at pc N` diagnostic instead of reaching
+  panic-prone runtime paths (35 verifier unit tests + 8 malformed-classfile
+  e2e tests).
+* **Wider internal identifiers** — class ids and static-pool slots are
+  `u32`, tested with a synthetic 80,000-slot program (past the old 65,535
+  `u16` boundary).
+* **Java default values for statics** without `<clinit>` (`0`, `false`,
+  `null`) — a real semantic bug the wide-identifier test uncovered, now
+  fixed and differentially tested (`ZeroInit` fixture).
+* `synchronized` methods are compile errors instead of silent miscompiles.
+* A precise statement of runtime guarantees and panic-path guards:
+  [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).
 
 ### What works today
 
@@ -47,8 +67,9 @@ end-to-end test.
 
 Unsupported features are **compile errors with a precise message** — never
 silent miscompiles. Currently: `jsr`/`ret` (pre-Java-6 bytecode),
-`multianewarray`, `monitorenter`/`exit`, `ldc` of class constants, native
-methods, most of the JDK beyond the natives list, and true threads.
+`multianewarray`, `monitorenter`/`exit`, `synchronized` methods, `ldc` of
+class constants, native methods, most of the JDK beyond the natives list,
+and true threads.
 
 See [ROADMAP.md](ROADMAP.md) for the plan to close these gaps and reach
 Minecraft.
@@ -89,12 +110,15 @@ and builds with plain `cargo`, no JVM required at run time.
 
 * **`j2r-classfile`** — dependency-free `.class` parser with byte-offset
   error reporting.
-* **`j2r-codegen`** — bytecode → typed IR → Rust source. Validates every
-  symbolic reference (classes, methods, fields, bootstrap methods) against
-  the combined universe of compiled classes + runtime natives *at compile
-  time*. Computes flattened field-slot layouts across whole class
-  hierarchies, assigns static-pool slots, synthesizes `<clinit>` bodies for
-  `ConstantValue` fields.
+* **`j2r-codegen`** — bytecode → typed IR → Rust source. Runs a **bytecode
+  verifier** (stack heights, category-1/2 correctness, control-flow joins,
+  branch targets, local indices, array element kinds) before emitting any
+  code, so malformed class files are structured compile errors, never
+  runtime panics. Validates every symbolic reference (classes, methods,
+  fields, bootstrap methods) against the combined universe of compiled
+  classes + runtime natives *at compile time*. Computes flattened
+  field-slot layouts across whole class hierarchies, assigns static-pool
+  slots (`u32`), synthesizes `<clinit>` bodies for `ConstantValue` fields.
 * **`j2r-runtime`** — the Java-semantics runtime generated code links
   against: the `Value` model, the heap, arrays, strings/interning,
   Java-exact number formatting, the natives table, builtin JDK hierarchy
@@ -116,12 +140,14 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 56 unit tests + JDK-free e2e + differential suite
+$ cargo test                       # 100 unit tests + JDK-free e2e + differential suite
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 ```
 
-The differential suite (`crates/j2r-cli/tests/suite/*.java`) skips itself
-gracefully when no JDK is present; CI installs Temurin 21.
+The differential suite (`crates/j2r-cli/tests/suite/*.java`, 18 programs)
+skips itself gracefully when no JDK is present; CI installs Temurin 21.
+Runtime guarantees and the panic-path inventory live in
+[docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).
 
 ## License
 
