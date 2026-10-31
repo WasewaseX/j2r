@@ -11,6 +11,11 @@ suite against Temurin 21 (three-channel compare: stdout, stderr, exit
 status), zero `unsafe` in the workspace, `j2r-runtime` and `j2r-classfile`
 have zero external dependencies.
 
+The fine-grained working todolist for all M2 work — 22 tasks (T01–T22)
+with statuses and the dependency chain — lives in `docs/ROADMAP.md` §4.
+This document carries the design depth and the per-change specifications
+the review demands; the roadmap carries the ordering and the status.
+
 M2 scope (per the review and ROADMAP.md):
 
 1. `StackOverflowError` instead of process abort on deep recursion
@@ -496,12 +501,12 @@ before the previous one's CI evidence exists. **Every existing M1/M1.5/
 M1.6 test stays green at every wave** — that sentence is an acceptance
 criterion of each wave, not a hope.
 
-| Wave | Delivers | Depends on | New CI coverage |
-| --- | --- | --- | --- |
-| 1 | Catchable `StackOverflowError`, frame registry | — | +2 fixtures (suite = 36) |
-| 2 | Arena tracing GC (mark-sweep, cycle-collecting) | Wave 1 frames (roots) | +3 fixtures (suite = 39), gate-9 forced-GC suite |
-| 3 | Typed stack specialization with per-method fallback | Wave 2 (FrameGuard scan of typed frames) | benchmark evidence, unit checks |
-| 4 | CFG report + optional default-off prototype | Waves 1–3 stable | output-equivalence test |
+| Wave | Tasks (ROADMAP.md §4) | Delivers | Depends on | New CI coverage |
+| --- | --- | --- | --- | --- |
+| 1 | T07–T10 | Catchable `StackOverflowError`, frame registry | — | +2 fixtures (suite = 36) |
+| 2 | T11–T18 | Arena tracing GC (mark-sweep, cycle-collecting) | Wave 1 frames (roots) | +3 fixtures (suite = 39), gate-9 forced-GC suite |
+| 3 | T19–T20 | Typed stack specialization with per-method fallback | Wave 2 (FrameGuard scan of typed frames) | benchmark evidence, unit checks |
+| 4 | T21–T22 | CFG report + optional default-off prototype; completion review package | Waves 1–3 stable | output-equivalence test |
 
 Global invariants at every wave:
 
