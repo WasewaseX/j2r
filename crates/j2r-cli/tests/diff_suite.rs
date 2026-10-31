@@ -1,6 +1,7 @@
 //! Differential test suite: every fixture in `tests/suite/*.java` is
 //! compiled with javac, run with java, compiled with j2r, run natively, and
-//! the stdout + exit codes must match exactly.
+//! stdout, stderr and the exit status must all match (stderr with JVM
+//! stack-trace frames normalized away — see j2r-cli/src/compare.rs).
 //!
 //! Skips silently when no JDK is available (CI installs one).
 

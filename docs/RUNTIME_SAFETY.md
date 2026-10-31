@@ -93,13 +93,17 @@ the JVM.
 ## 4. Reentrancy (RefCell double-borrow) audit
 
 A `RefCell` panic would require a borrow held *across* a call that can
-re-enter the same object. The runtime was audited site by site
-(natives.rs: 16 borrow sites, object.rs: 6, concat.rs: 4, array.rs: 5):
+re-enter the same object. The runtime was audited site by site; the census
+below counts non-test `.borrow()` / `.borrow_mut()` sites per file
+(natives.rs 15, object.rs 6, array.rs 4, lib.rs 5; concat.rs has no direct
+borrow — its 4 string reads borrow through `object::string_value`, counted
+under object.rs):
 
 * every borrow scope is statement-local or ends before the function
   dispatches into user code (`format_ref` releases the string borrow before
   calling `toString`; `PrintStream` natives read the sink id, drop the
-  borrow, then format);
+  borrow, then format; `checkcast`/`instanceof`/`invoke_virtual` clone the
+  `jclass` string and drop the borrow before dispatching);
 * user code runs only through `invoke_virtual` / generated calls, none of
   which hold a runtime borrow;
 * `StringBuilder`/`String` sharing uses `Rc::make_mut` (ownership transfer,
