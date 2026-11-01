@@ -299,3 +299,38 @@ asymmetry against the audited dispatch architecture; re-evaluate in M3
 with benchmarks. The standing safety property — `--emit-cfg`
 output-equivalence across the suite — is automated and stays green
 regardless.
+
+---
+
+## M2 completion package (T22)
+
+**Milestone state at submission.** All four waves implemented, each with
+its own evidence section above; CI **10/10 gates green at HEAD**
+(`b1b0d2a`, run 41346367440 — gate-9 `gc-stress` and gate-10 `no-unsafe`
+included). Local inventory re-proven after a full toolchain rebuild:
+**170 tests, 0 failures** (Temurin 21.0.13).
+
+**Process deviation, disclosed.** The Wave 1–3 commits were pushed with
+red fmt/clippy/test gates and fixed by follow-up commits (`4c4ea02`);
+the wave-1/2/3 CI runs (41326574323, 41329075313, 41329740373) show the
+failures. From Wave 4 onward the discipline is enforced locally before
+every push. No semantic gate (differential, forced-GC, equivalence) ever
+failed at HEAD; the failures were formatting/lint and one clippy-driven
+test-list fix.
+
+**What the completion review should audit** (same process as M1):
+1. Wave 1 — SOE semantics vs Temurin (catch-and-continue, uncaught exit 1,
+   boundary matrix), the measured ceiling (M2_PLAN §3.1.1), and the
+   caller-first handler rule.
+2. Wave 2 — the pointer-free rooting protocol vs M2_PLAN §4.4 (owned
+   snapshots / direct current-frame scan / `NativeRoots`), the
+   generation-tag stale-handle guarantee, the forced-GC rooting proof
+   (39/39 byte-identical), the 200 k-cycle stress number, the re-issued
+   borrow census (RUNTIME_SAFETY.md §4).
+3. Wave 3 — the 3a checkpoint honesty (89 % fallback; M2_SHAPE_REPORT.md;
+   no 3b emission, per §5.2's designed terminal state).
+4. Wave 4 — the equivalence gate's three caught defects and their fixes,
+   the NO-GO recommendation (M2_CFG_REPORT.md §4), default emission
+   unchanged.
+5. The plan-vs-implementation deltas, if any, against M2_PLAN §§3–6
+   (per-change specifications remain the audit reference).

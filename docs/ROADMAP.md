@@ -44,14 +44,27 @@ per-change specifications live in M2_PLAN.
 | M2 implementation plan published (no code) | `2dcd031` | 41212581846 SUCCESS | `docs/M2_PLAN.md` |
 | M2 plan revision 2 (review response: settled root protocol, generation tags, SOE ceiling, threading boundary, spec scope, README fixes) | `942648e` | 41281330354 SUCCESS | M2_PLAN §0 response matrix |
 | M2 plan revision 2.1 — plan-time stack-footprint calibration for blocker 3 (measured 208–304 B/frame; const 512 B; ceiling 131 072) | `350ae1d` | 41299060088 SUCCESS | M2_PLAN §3.1.1 |
+| Wave 1 — catchable `StackOverflowError` (T07–T10) | `779d9be` | 41326574323 (fmt/clippy red; fixed in follow-ups) | `docs/M2_EVIDENCE.md` Wave 1 |
+| Wave 2 — tracing cycle-collecting arena GC (T11–T18) | `0eb99e2` | 41329075313 (fmt/clippy/test red; fixed in follow-ups) | `docs/M2_EVIDENCE.md` Wave 2 |
+| Wave 3 — typed-storage investigation, ends at the 3a checkpoint (T19–T20) | `468eebc` | 41329740373 (clippy/test red; fixed in follow-ups) | `docs/M2_SHAPE_REPORT.md` |
+| Wave 1–3 follow-up: fmt/clippy clean, suite guards | `4c4ea02` | 41329937128 SUCCESS | — |
+| Wave 4 — CFG prototype behind `--emit-cfg`, 39/39 output equivalence (T21) | `b1b0d2a` | 41346367440 SUCCESS (10/10 gates) | `docs/M2_CFG_REPORT.md` |
 
-Current test inventory (re-verified locally 2026-11-01, Temurin 21.0.13 at
-`/tmp/jdk21`): **151 tests, 0 failures**, including the 39-fixture
-differential suite vs the real JVM (~76 s), the 12 malformed-classfile e2e
-tests, the Wave-1 SOE boundary-matrix e2e, and **the 39-fixture suite
-re-run byte-identical under forced collection at every allocation**
-(`J2R_GC_EVERY_N=1`, 75.9 s — the rooting proof, CI gate-9). Zero `unsafe`
-is compiler-enforced (`#![forbid(unsafe_code)]` in every crate root).
+**Process deviation, recorded for the completion review:** the Wave 1–3
+commits shipped with red fmt/clippy/test gates and were fixed by follow-up
+commits (`4c4ea02`); from Wave 4 onward the discipline is enforced locally
+before every push (fmt + clippy + full suite green first). Current CI:
+10/10 gates green at HEAD.
+
+Current test inventory (re-verified locally 2026-11-02, Temurin 21.0.13 at
+`/tmp/jdk21`, after a full sandbox/toolchain rebuild): **170 tests, 0
+failures** — 153 unit tests across the four crates, the 39-fixture
+differential suite vs the real JVM (three channels), the 39-fixture
+suite re-run byte-identical under forced collection at every allocation
+(`J2R_GC_EVERY_N=1` — the rooting proof, CI gate-9), the Wave-1 SOE
+boundary-matrix e2e, and the 39-fixture `--emit-cfg` output-equivalence
+run. Zero `unsafe` is compiler-enforced (`#![forbid(unsafe_code)]` in
+every crate root; gate-10 green).
 
 ---
 

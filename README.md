@@ -23,8 +23,8 @@ exceptions (`finally` ordering, multi-catch, rethrow, uncaught), boxing
 identity, `instanceof` dispatch, recursion and mutual recursion, catchable
 `StackOverflowError`, cyclic graphs, aliasing across collections, interning
 across GC churn, `System.err`,
-and runtime exceptions with exact OpenJDK messages — all green, plus 135
-unit tests, 12 malformed-classfile tests and a JDK-free end-to-end test.
+and runtime exceptions with exact OpenJDK messages — all green, plus 153
+unit tests, 12 malformed-classfile tests and JDK-free end-to-end tests.
 
 A dedicated **hardening milestone** (post-audit) added:
 
@@ -84,6 +84,14 @@ A **coverage & robustness pass** (M1.6) added on top:
   mechanically enforced by `#![forbid(unsafe_code)]` in every crate root
   plus a CI grep gate. The re-issued borrow census shows zero direct object
   borrows outside the heap kernel (`docs/RUNTIME_SAFETY.md` §4).
+* **Waves 3–4 of M2 — investigations with recorded decisions**: the
+  typed-storage pass kept the verifier's per-pc shapes and measured the
+  specialization opportunity (`j2r shape-report`: 89 % of fixture methods
+  are kind-unstable per position, so the wave ended honestly at its
+  designed checkpoint); the CFG prototype lifts 127/161 fixture methods
+  into structured bodies behind `--emit-cfg` (default off) with
+  **39/39 fixtures byte-identical in both emission modes** and a NO-GO
+  recommendation for changing the default (`docs/M2_CFG_REPORT.md`).
 
 ### What works today
 
@@ -108,6 +116,11 @@ A **coverage & robustness pass** (M1.6) added on top:
   `Integer.parseInt`, `System.exit`, …
 * Java-exact `Double.toString`/`Float.toString` including the subnormal
   digit-count quirk (`4.9E-324`, not `5e-324`) — verified against OpenJDK 21
+* Catchable `StackOverflowError` and a tracing, cycle-collecting GC with
+  generation-tagged handles (M2 Waves 1–2; see the milestone section above)
+* Investigation tooling: `j2r shape-report` (typed-storage decisions) and
+  `j2r cfg-report` / `--emit-cfg` (CFG lift prototype, default off —
+  39/39 fixtures output-identical in both modes)
 
 ### What is intentionally not supported (yet)
 
@@ -186,7 +199,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 135 unit tests + malformed/e2e/SOE-e2e + 39-fixture differential suite
+$ cargo test                       # 170 tests: 153 unit + differential/forced-GC/SOE-e2e/cfg-equivalence suites
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 ```

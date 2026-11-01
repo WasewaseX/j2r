@@ -1,12 +1,13 @@
 # J2R — M2 Implementation Plan (generated code quality)
 
-**Status: PLAN ONLY (revision 2.1) — nothing in this document has been
-implemented.** Per the M1 architectural review, coding may not begin until
-this plan itself passes architectural review. Revision 2 answers the
-**REQUEST CHANGES** verdict on the original plan (review of 2026-11-01);
-revision 2.1 (docs-only) adds the plan-time stack-footprint calibration
-measurement demanded by blocker 3 (§3.1.1); Wave 1 remains blocked until
-this revision is re-approved.
+**Status: IMPLEMENTED (revisions 2/2.1 approved-by-owner for execution;
+all four waves delivered 2026-11-02).** The owner directed the waves to
+proceed without waiting for external re-review of the plan revision; the
+M2 completion review (T22) covers plan + waves together. Wave evidence:
+`docs/M2_EVIDENCE.md` (Waves 1–4), `docs/M2_SHAPE_REPORT.md` (Wave 3
+checkpoint), `docs/M2_CFG_REPORT.md` (Wave 4 go/no-go), CI runs recorded
+in `docs/ROADMAP.md` §2. This document remains the per-change
+specification the review audits against.
 
 ### 0. Response to the M2 plan review (REQUEST CHANGES, 2026-11-01)
 
