@@ -5,8 +5,11 @@ M1 architecture review: **APPROVE** ("PARTIALLY COMPLETE / Promising Milestone 1
 M2 plan: `docs/M2_PLAN.md` — **PLAN ONLY; coding is blocked until that plan passes
 architectural review** (M2_PLAN §11). Revision 2 (2026-11-01) answers the
 REQUEST CHANGES verdict on the original plan — all six blockers resolved in
-M2_PLAN §0; awaiting re-review. This file is the top-level map and the
-working todolist; the per-change specifications live in M2_PLAN.
+M2_PLAN §0; revision 2.1 (docs-only) adds the plan-time stack-footprint
+calibration measurement (M2_PLAN §3.1.1: measured 208–304 B/frame, const
+512 B, ceiling 131 072 frames). Awaiting re-review. This file is the
+top-level map and the working todolist; the per-change specifications
+live in M2_PLAN.
 
 ---
 
@@ -91,7 +94,10 @@ acceptance criteria) live in the M2_PLAN section shown in each wave heading.
 - [x] **T23** M2 plan revision 2 submitted in response to the REQUEST
   CHANGES review: settled pointer-free GC root protocol, generation-tagged
   handles, SOE hard ceiling, threading boundary statement, stacks-and-
-  locals specialization scope, README contradictions fixed. Awaiting
+  locals specialization scope, README contradictions fixed. Revision 2.1
+  added the plan-time calibration measurement for the SOE ceiling
+  (blocker 3's "measured native-stack budget": worst shape 304 B/frame,
+  const 512 B, ceiling 131 072 — M2_PLAN §3.1.1). Awaiting
   architectural re-approval before Wave 1.
 
 ### Wave 1 — catchable `StackOverflowError` (M2_PLAN §3)

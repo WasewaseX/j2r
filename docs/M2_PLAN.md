@@ -1,10 +1,12 @@
 # J2R — M2 Implementation Plan (generated code quality)
 
-**Status: PLAN ONLY (revision 2) — nothing in this document has been
+**Status: PLAN ONLY (revision 2.1) — nothing in this document has been
 implemented.** Per the M1 architectural review, coding may not begin until
 this plan itself passes architectural review. Revision 2 answers the
 **REQUEST CHANGES** verdict on the original plan (review of 2026-11-01);
-Wave 1 remains blocked until this revision is re-approved.
+revision 2.1 (docs-only) adds the plan-time stack-footprint calibration
+measurement demanded by blocker 3 (§3.1.1); Wave 1 remains blocked until
+this revision is re-approved.
 
 ### 0. Response to the M2 plan review (REQUEST CHANGES, 2026-11-01)
 
@@ -12,7 +14,7 @@ Wave 1 remains blocked until this revision is re-approved.
 | --- | --- | --- | --- |
 | 1 | GC root safety not sufficiently specified; scoped-access vs raw pointers unresolved | **SETTLED — zero raw pointers.** Owned root snapshots for suspended caller frames (refreshed at every emitted call boundary), direct scan of the current frame at each safepoint, `NativeRoots` scopes for native→Java re-entry. The raw-pointer alternative is withdrawn. | §4.4 |
 | 2 | Recycled handles could alias a different object | **Generation-tagged handles adopted:** `JRef { idx, gen }`; sweep bumps `gen`; stale dereference is a loud VM-internal panic in all builds — silent aliasing impossible by construction | §4.1, §4.5, §4.6 |
-| 3 | `J2R_MAX_JAVA_FRAMES` needs a hard safety limit | **Hard ceiling derived from a measured per-frame native footprint** (calibration test, const-folded); override accepted only in `1..=MAX_FRAMES_ABS`; `0`, `>ceiling`, non-numeric rejected with exit 2; boundary-value test matrix (default/min/max/max+1/0/invalid) | §3.1, §3.2 |
+| 3 | `J2R_MAX_JAVA_FRAMES` needs a hard safety limit | **Hard ceiling derived from a measured per-frame native footprint** — measured at plan time: worst shape 304 B/frame, const 512 B, ceiling `131 072` (§3.1.1); override accepted only in `1..=MAX_FRAMES_ABS`; `0`, `>ceiling`, non-numeric rejected with exit 2; boundary-value test matrix (default/min/max/max+1/0/invalid) | §3.1, §3.1.1, §3.2 |
 | 4 | Threading architecture preliminary; Copy handles ≠ thread safety | **Boundary stated:** M2 delivers no concurrency and claims none; the M3 migration checklist (shared heap, shared statics, stop-the-world coordination, per-thread root registration, monitor word, shared identity caches) is enumerated for future review | §7 |
 | 5 | Typed locals vs operand stacks ambiguous | **Scope settled:** specialization covers operand-stack positions *and* local-variable slots for primitives; references never leave `Vec<Value>` storage (GC scan surface unchanged); per-method all-or-nothing decision; explicit reduced-scope fallback at the 3a checkpoint | §5.1–§5.3 |
 | 6 | README contradictions (`multianewarray`, fixture count) | **FIXED** in README.md: `multianewarray` removed from the unsupported list (it was implemented in M1.6), differential suite count corrected to 34 | README.md |
@@ -209,10 +211,13 @@ ABI). Add an explicit Java-frame registry with a depth counter:
   stack budget** (review blocker 3): `MAX_FRAMES_ABS = WORKER_STACK_BYTES
   / (FRAME_FOOTPRINT × 8)`, where `FRAME_FOOTPRINT` is the per-Java-frame
   native-stack usage **measured by a calibration test** — a recursive
-  chain on a fixed-size thread, footprint = (base-pointer delta across
-  the chain) / depth, recorded in the evidence doc and hard-coded as a
-  `const` (expected well under 1 KB; the ceiling is then two orders of
-  magnitude above any realistic need). Accepted override range is
+  chain on a fixed-size thread, footprint = (stack-address delta across
+  the chain) / depth. The measurement has already been performed at plan
+  time (§3.1.1): worst measured shape 304 B/frame, `FRAME_FOOTPRINT` const
+  set to **512 B** (1.68× headroom), giving `MAX_FRAMES_ABS = 512 MiB /
+  (512 × 8) = 131 072` frames; the Wave-1 CI calibration test re-measures
+  and fails the build if the live footprint exceeds 1.25× the const
+  (640 B). Accepted override range is
   `1..=MAX_FRAMES_ABS`. `0`, values above the ceiling, and non-numeric
   strings are rejected **before `main` runs**: the process prints
   `j2r: invalid J2R_MAX_JAVA_FRAMES=<v>` and exits 2 — an operator error,
@@ -228,12 +233,47 @@ ABI). Add an explicit Java-frame registry with a depth counter:
 Why this is safe against real native-stack exhaustion: the 512 MB worker
 stack gives a budget of 64 KB of native stack per Java frame at the
 8192 limit. A generated frame's native footprint is small (three `Vec`s
-are heap-allocated; the dispatch `match` does not recurse), measured at
-well under 1 KB today; natives add comparable, bounded frames. The limit
-is therefore two orders of magnitude away from danger, and the default
-mirrors the order of magnitude of HotSpot's default (~10–20 k frames on
-a 1 MB thread stack). The hard ceiling above turns this argument from an
-assumption into a measured, const-checked invariant.
+are heap-allocated; the dispatch `match` does not recurse): **measured
+at 208–304 B/frame** on real M1.6-generated code (§3.1.1), natives and
+native→generated re-entry included in the 304 B shape. The default limit
+therefore runs with a 216× native-stack margin, mirrors the order of
+magnitude of HotSpot's default (~10–20 k frames on a 1 MB thread stack),
+and sits 16× below the measured-derived ceiling. The hard ceiling above
+turns this argument from an assumption into a measured, const-checked
+invariant.
+
+#### 3.1.1 Plan-time calibration measurement (2026-11-01, evidence for blocker 3)
+
+Method (exactly the §3.1 formula, executed against the current M1.6
+compiler — no repository code was modified; the harness instruments only
+throwaway generated crates under /tmp): a probe records the address of a
+stack local at every generated method entry; the fixture recurses to a
+known depth D on the standard 512 MB worker thread; per-frame footprint =
+(outermost probe address − innermost probe address) / D. Toolchain:
+rustc 1.99.1 release, Temurin 21.0.13 for `javac`.
+
+| Frame shape | Depth | Footprint |
+| --- | --- | --- |
+| A — pure arithmetic recursion (`down(n-1)+n`) | 100 000 | **208 B** |
+| B — one native dispatch per level (`"" + n`, `String.length`) | 50 000 | **304 B** |
+| C — fat frame: 8 locals + operand temporaries + try/catch + native dispatch | 50 000 | **304 B** |
+
+All three chains completed normally (the deepest used 20.8 MB of
+512 MB — under 4 %). Interpretation: the per-level cost is dominated by
+the native-dispatch path (B == C), not by local count; the worst shape
+measured is 304 B/frame. Constants derived for Wave 1 (all const-checked
+at compile time, re-measured in CI):
+
+* `FRAME_FOOTPRINT = 512` (worst measured 304 B, 1.68× headroom; CI
+  assertion measured ≤ 640 B = 1.25× const)
+* `MAX_FRAMES_ABS = 536 870 912 / (512 × 8) = 131 072` (= 2¹⁷)
+* `DEFAULT_FRAMES = 8192` — 16× below the ceiling, 216× native-stack
+  margin at the default limit
+
+Applicability note: Wave 1 adds a `FrameGuard` carrying a depth counter
+(≤ 32 B of extra stack), Wave 2 adds the owned snapshot-slot handle
+(≤ 16 B) — both well inside the const's headroom, and the CI calibration
+test re-measures the real shipped shape at every merge anyway.
 
 ### 3.2 Per-change specification
 
@@ -245,7 +285,7 @@ assumption into a measured, const-checked invariant.
 | Performance tradeoffs | One `thread_local` push/pop and one counter check per call. Expected effect on the differential suite: within noise (< 5 %). Measured and recorded in the evidence doc; if a regression shows up, the fallback is checking depth only every K frames (K=8) with the guarantee that the native-stack budget still holds at K granularity. |
 | Differential tests vs OpenJDK | New fixtures: (1) `StackDepth.java` — unbounded recursion, `catch (StackOverflowError e)` prints `caught-soe` and returns normally; (2) `UncaughtSOE.java` — unbounded recursion with no handler; expected stderr is the uncaught-SOE line (frame lines normalized by the existing harness), exit status 1. Both run against Temurin 21 through the unchanged three-channel harness. **Override-boundary matrix** (runtime-level e2e, not differential — the env var does not exist in HotSpot): default (8192 accepted), minimum (`1` accepted; any recursion deeper than one frame SOEs), maximum (`MAX_FRAMES_ABS` accepted; a chain of exactly `MAX_FRAMES_ABS − 1` frames completes), `MAX_FRAMES_ABS + 1` rejected, `0` rejected, `abc` rejected — acceptances run the program to normal completion; rejections assert the `j2r: invalid J2R_MAX_JAVA_FRAMES=…` message and exit 2. |
 | Regression tests | Unit tests in `frame.rs`: depth accounting across normal return / throw / panic; limit validation (accepted at default/min/max, rejected at `0`/`>MAX`/non-numeric); SOE object shape (class, no message, subtype of `VirtualMachineError`); native re-entry counted (concat → `toString` recursion builds frames); calibration test re-run in CI asserting the measured footprint stays within 1.25× of the hard-coded const (footprint drift fails the build, never the margin). Existing `Recursion.java` fixture must stay green unchanged. |
-| Measurable acceptance criteria | (a) All 8 CI gates green with the suite grown to 36 fixtures. (b) A dedicated e2e test compiles and runs a recursive program with a deliberately tiny `J2R_MAX_JAVA_FRAMES=64` and asserts the process exits 0 with `caught-soe` on stdout — i.e. the process **never aborts** (no SIGSEGV/101) at any limit. (c) Frame accounting unit test: after `main` returns, registry depth is 0. (d) The six-case boundary matrix (default/min/max/max+1/0/invalid) is green: no accepted value ever aborts the process, every rejected value exits 2 with the diagnostic. (e) Calibration CI check: measured `FRAME_FOOTPRINT` ≤ 1.25× the const used in the ceiling formula. |
+| Measurable acceptance criteria | (a) All 8 CI gates green with the suite grown to 36 fixtures. (b) A dedicated e2e test compiles and runs a recursive program with a deliberately tiny `J2R_MAX_JAVA_FRAMES=64` and asserts the process exits 0 with `caught-soe` on stdout — i.e. the process **never aborts** (no SIGSEGV/101) at any limit. (c) Frame accounting unit test: after `main` returns, registry depth is 0. (d) The six-case boundary matrix (default/min/max/max+1/0/invalid) is green: no accepted value ever aborts the process, every rejected value exits 2 with the diagnostic. (e) Calibration CI check: measured `FRAME_FOOTPRINT` ≤ 1.25× the const used in the ceiling formula (≤ 640 B against the 512 B const; plan-time measured value 304 B, §3.1.1). |
 
 ---
 
@@ -702,10 +742,15 @@ with its own evidence record and green CI, and the completed milestone
 receives the same external review M1 received.
 
 **Revision history.** Revision 1 (commit `2dcd031`): original plan,
-verdict REQUEST CHANGES with six blockers. Revision 2 (this commit):
+verdict REQUEST CHANGES with six blockers. Revision 2 (commit `942648e`):
 blockers 1–6 resolved — settled pointer-free root protocol (§4.4),
 generation-tagged handles (§4.1/§4.5/§4.6), SOE hard ceiling + boundary
 tests (§3), threading boundary + M3 checklist (§7), stacks-and-locals
-specialization scope (§5), README contradictions fixed. Wave 1 remains
+specialization scope (§5), README contradictions fixed. Revision 2.1
+(docs-only): plan-time calibration measurement recorded (§3.1.1) —
+per-frame native footprint measured 208–304 B across three frame shapes
+on M1.6-generated code; `FRAME_FOOTPRINT` const 512 B, `MAX_FRAMES_ABS`
+131 072 — turning blocker 3's "measured" requirement from a promise
+into recorded numbers. No design decision changed. Wave 1 remains
 blocked until this revision passes architectural re-review; M1/M1.5/
 M1.6 code and tests are untouched and stay green.
