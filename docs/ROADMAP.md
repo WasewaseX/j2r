@@ -1,6 +1,6 @@
 # J2R Roadmap — Java → Rust compiler, M1 → M5
 
-Updated 2026-11-01 · HEAD `10d7b5e` (+ this commit) · every commit so far CI-green
+Updated 2026-11-01 · every commit CI-green (runs recorded for substantive commits below)
 M1 architecture review: **APPROVE** ("PARTIALLY COMPLETE / Promising Milestone 1")
 M2 plan: `docs/M2_PLAN.md` — **PLAN ONLY; coding is blocked until that plan passes
 architectural review** (M2_PLAN §11). Revision 2 (2026-11-01) answers the
@@ -37,7 +37,7 @@ working todolist; the per-change specifications live in M2_PLAN.
 | Hardening evidence record + reentrancy census | `cda8e41` | 41191658892 SUCCESS | `docs/RUNTIME_SAFETY.md` |
 | M1.6 coverage (boxing identity, multianewarray, suite → 34 fixtures) | `c07a10f` | 41201763892 SUCCESS | diff suite count guard in CI |
 | M2 implementation plan published (no code) | `2dcd031` | 41212581846 SUCCESS | `docs/M2_PLAN.md` |
-| M2 plan revision 2 (review response: settled root protocol, generation tags, SOE ceiling, threading boundary, spec scope, README fixes) | this commit | (recorded after CI) | M2_PLAN §0 response matrix |
+| M2 plan revision 2 (review response: settled root protocol, generation tags, SOE ceiling, threading boundary, spec scope, README fixes) | `942648e` | 41281330354 SUCCESS | M2_PLAN §0 response matrix |
 
 Current test inventory (re-verified locally 2026-11-01, Temurin 21.0.13 at
 `/tmp/jdk21`, after a full sandbox/toolchain rebuild): **125 tests, 0
