@@ -45,6 +45,11 @@ enum Cmd {
         /// Name of the generated crate.
         #[arg(long, default_value = "j2r-app")]
         crate_name: String,
+        /// Wave-4 investigation (M2_PLAN §6, default OFF): attempt
+        /// structured CFG method bodies; unsupported shapes fall back to
+        /// the approved pc-dispatch body per method.
+        #[arg(long)]
+        emit_cfg: bool,
     },
     /// Translate .class files and build a native binary with cargo.
     Build {
@@ -62,6 +67,11 @@ enum Cmd {
         /// Build in release mode.
         #[arg(long)]
         release: bool,
+        /// Wave-4 investigation (M2_PLAN §6, default OFF): attempt
+        /// structured CFG method bodies; unsupported shapes fall back to
+        /// the approved pc-dispatch body per method.
+        #[arg(long)]
+        emit_cfg: bool,
     },
     /// Differential test: javac + java vs j2r + cargo, comparing stdout,
     /// stderr and exit code.
@@ -74,6 +84,13 @@ enum Cmd {
         /// Program arguments passed to both runs (after `--`).
         #[arg(last = true)]
         args: Vec<String>,
+    },
+    /// Wave-4 lift report (M2_PLAN §6): for each input class, print the
+    /// per-method CFG-lift decision (structured body vs dispatch fallback
+    /// with the exact unsupported-shape reason).
+    CfgReport {
+        /// Input .class files.
+        inputs: Vec<PathBuf>,
     },
     /// Wave-3 shape report (M2_PLAN §5.2): verify each input class and
     /// print the per-method typed-storage specialization decision table.
@@ -91,19 +108,22 @@ fn main() {
             out,
             main_class,
             crate_name,
-        } => cmd_compile(&inputs, &out, main_class, &crate_name),
+            emit_cfg,
+        } => cmd_compile(&inputs, &out, main_class, &crate_name, emit_cfg),
         Cmd::Build {
             inputs,
             out,
             main_class,
             crate_name,
             release,
-        } => cmd_build(&inputs, &out, main_class, &crate_name, release),
+            emit_cfg,
+        } => cmd_build(&inputs, &out, main_class, &crate_name, release, emit_cfg),
         Cmd::Test {
             file,
             release,
             args,
         } => cmd_test(&file, release, &args),
+        Cmd::CfgReport { inputs } => cmd_cfg_report(&inputs),
         Cmd::ShapeReport { inputs } => cmd_shape_report(&inputs),
     };
     std::process::exit(code);
@@ -111,12 +131,45 @@ fn main() {
 
 /// Wave-3 step 3a: the per-method specialization decision table over whole
 /// compiled classes (written evidence, never a silent claim).
+fn cmd_cfg_report(inputs: &[PathBuf]) -> i32 {
+    let opts = j2r_codegen::Options {
+        inputs: inputs.to_vec(),
+        main_class: None,
+        crate_name: "j2r-cfg-report".to_string(),
+        out_dir: std::env::temp_dir().join("j2r-cfg-report"),
+        emit_cfg: false,
+    };
+    match j2r_codegen::compile(&opts) {
+        Ok(prog) => {
+            let rows = j2r_codegen::cfg::plan_program(&prog);
+            print!("{}", j2r_codegen::cfg::render_report(&rows));
+            for r in &rows {
+                println!(
+                    "| {} | {} | {} | {} |",
+                    r.class,
+                    r.method,
+                    if r.lifted { "LIFT" } else { "DISPATCH" },
+                    r.reason
+                        .map(|x| format!("{x:?}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                );
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("j2r: {e}");
+            1
+        }
+    }
+}
+
 fn cmd_shape_report(inputs: &[PathBuf]) -> i32 {
     let opts = j2r_codegen::Options {
         inputs: inputs.to_vec(),
         main_class: None,
         crate_name: "j2r-shape-report".to_string(),
         out_dir: std::env::temp_dir().join("j2r-shape-report"),
+        emit_cfg: false,
     };
     match j2r_codegen::compile(&opts) {
         Ok(prog) => {
@@ -153,12 +206,14 @@ fn compile_crate(
     out: &Path,
     main_class: Option<String>,
     crate_name: &str,
+    emit_cfg: bool,
 ) -> Result<PathBuf, String> {
     let opts = Options {
         inputs: inputs.to_vec(),
         main_class,
         crate_name: crate_name.to_string(),
         out_dir: out.to_path_buf(),
+        emit_cfg,
     };
     j2r_codegen::compile_to_crate(&opts).map_err(|e| e.to_string())
 }
@@ -168,8 +223,9 @@ fn cmd_compile(
     out: &Path,
     main_class: Option<String>,
     crate_name: &str,
+    emit_cfg: bool,
 ) -> i32 {
-    match compile_crate(inputs, out, main_class, crate_name) {
+    match compile_crate(inputs, out, main_class, crate_name, emit_cfg) {
         Ok(dir) => {
             println!("generated Rust crate: {}", dir.display());
             println!(
@@ -195,8 +251,9 @@ fn cmd_build(
     main_class: Option<String>,
     crate_name: &str,
     release: bool,
+    emit_cfg: bool,
 ) -> i32 {
-    let dir = match compile_crate(inputs, out, main_class, crate_name) {
+    let dir = match compile_crate(inputs, out, main_class, crate_name, emit_cfg) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("j2r: error: {e}");
@@ -268,7 +325,7 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
         let mut class_files = Vec::new();
         collect_class_files(&classes_dir, &mut class_files);
         // 2. j2r compile
-        let dir = compile_crate(&class_files, &out_dir, None, "j2r-test-app")?;
+        let dir = compile_crate(&class_files, &out_dir, None, "j2r-test-app", false)?;
         // 3. cargo build
         let mut cmd = Command::new(cargo_binary());
         cmd.arg("build")

@@ -185,13 +185,17 @@ acceptance criteria) live in the M2_PLAN section shown in each wave heading.
   (`j2r shape-report`), so a future pass with per-live-range analysis can
   re-decide with data, not assumption.
 
-### Wave 4 — CFG reconstruction investigation (M2_PLAN §6)
+### Wave 4 — CFG reconstruction investigation (M2_PLAN §6) — DONE
 
-- [ ] **T21** `crates/j2r-codegen/src/cfg.rs` prototype behind `--emit-cfg`
-  (default **off**; default emission unchanged) + `docs/M2_CFG_REPORT.md`
-  (dominator-region lifting, irreducible-loop fallback, handler edges,
-  switch lowering, go/no-go recommendation) + automated output-equivalence
-  test across the whole suite.
+- [x] **T21** `crates/j2r-codegen/src/cfg.rs` prototype (12 unit tests)
+  behind `--emit-cfg` (default **off**; default emission byte-for-byte
+  unchanged) + `docs/M2_CFG_REPORT.md` (design, subset, 127/161 lift
+  statistics, go/no-go) + `j2r cfg-report` subcommand + automated
+  output-equivalence test: **39/39 fixtures byte-identical stdout/
+  stderr/exit between default and `--emit-cfg`**. The gate caught three
+  real defects during development (labeled-continue E0695, walk-meet
+  index-type panic, dropped last instruction) — all fixed, all pinned by
+  regression tests (M2_EVIDENCE.md Wave-4 section).
 - [ ] **T22** M2 completion package: milestone evidence, all gates green,
   external architecture review submission for the milestone (same process
   M1 went through).

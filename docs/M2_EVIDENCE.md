@@ -243,3 +243,59 @@ shape report.
 40 → 48 tests; the full workspace run (gate-3) and the forced-GC gate-9
 run stay green; emission is byte-identical to Wave 2 (no codegen change —
 asserted by the unchanged 39-fixture differential suite).
+
+---
+
+## Wave 4 — CFG reconstruction investigation (T21–T22)
+
+**Bug-or-risk addressed.** M2_PLAN §6: the reviewer asked for *safe CFG
+reconstruction* to be investigated, with the pc-dispatch architecture
+staying the default. The risk under investigation is the dispatch
+`match`'s per-block indirect jump; the risk introduced by the
+investigation is a second body-emission path that could change semantics.
+
+**Change.** `crates/j2r-codegen/src/cfg.rs` (904 → ~1050 lines): CFG
+construction (leaders→blocks, successor remap), iterative dominators,
+reducibility check (DFS retreating edges vs dominators), natural-loop
+detection (single exit, pure exit), if/else diamond lifting with
+labeled-block joins (empty-arm root-edge rule), labeled `loop` lifting
+(`continue`/`break` to header/exit). `Options::emit_cfg` (default
+**false**) threads through `emit_crate` → `emit_class` → `emit_method`;
+the lift is attempted per method and any `Unsupported` reason silently
+falls back to the identical dispatch body. CLI: `--emit-cfg` on
+`compile`/`build`, `j2r cfg-report` subcommand, `render_report`/`plan_program`
+mirroring the Wave-3 shape report.
+
+**The output-equivalence gate caught three real defects during
+development** (full write-up in M2_CFG_REPORT.md §3):
+1. `j2r_try!`'s unlabeled `continue` is E0695 inside the lift's labeled
+   blocks — the macro now takes the `'run` label as an explicit parameter
+   (`macro_rules!` label hygiene); default emission semantics unchanged.
+2. `walk_meet` passed an instruction index where a block index was
+   required — panic (`len 7, index 9`) on a real fixture method; now a
+   conservative `ImpureJoin` refusal, never a panic.
+3. A region block ending at a leader boundary dropped its final
+   instruction (the `iconst_0` arm of a boolean comparison vanished —
+   operand-stack underflow at `println`). `LongOps`, `Recursion` and
+   `StringOps` went from divergent to byte-identical.
+
+**Tests.** 12 unit tests in `cfg.rs` (straight-line, diamonds, loops,
+irreducible/switch/exception-table/impure-join fallbacks, dominator
+sanity, walk-meet index regression, empty-arm lift with an
+instruction-completeness recorder). New `crates/j2r-cli/tests/cfg_equiv.rs`:
+**39/39 fixtures byte-identical stdout/stderr/exit between default and
+`--emit-cfg`**. Workspace total after the wave: **170 tests, 0 failures**
+locally (release, Temurin 21.0.13), including the 39-fixture differential
+suite and the forced-GC run.
+
+**Statistics.** 127/161 fixture methods (78.9 %) lift; fallbacks:
+15 exception tables, 13 irreducible, 5 switches, 1 impure join (full
+inventory regenerable via `j2r cfg-report`).
+
+**Decision.** Go/no-go recorded in `docs/M2_CFG_REPORT.md` §4:
+**NO-GO for default emission in M2** — no measured benefit, the subset
+excludes exactly the hard code (21 % here, more in real libraries), risk
+asymmetry against the audited dispatch architecture; re-evaluate in M3
+with benchmarks. The standing safety property — `--emit-cfg`
+output-equivalence across the suite — is automated and stays green
+regardless.

@@ -341,16 +341,21 @@ pub fn throwable_display(t: &Throw, ctx: Dispatch) -> String {
 ///
 /// The caller passes its own `thrown` / `fault_pc` bindings explicitly —
 /// `macro_rules!` hygiene would otherwise give the macro's local-variable
-/// references a fresh, unresolvable scope.
+/// references a fresh, unresolvable scope. The `'run` label is passed
+/// explicitly for the same hygiene reason: a label defined at the call
+/// site is *not* referenceable inside the macro body.
 #[macro_export]
 macro_rules! j2r_try {
-    ($thrown:ident, $fault_pc:ident, $fault:expr, $e:expr) => {
+    ($run:lifetime, $thrown:ident, $fault_pc:ident, $fault:expr, $e:expr) => {
         match $e {
             ::core::result::Result::Ok(v) => v,
             ::core::result::Result::Err(t) => {
                 $thrown = ::core::option::Option::Some(t);
                 $fault_pc = $fault;
-                continue;
+                // Labeled: the lifted body (Wave-4 `--emit-cfg`) wraps arms
+                // in labeled *blocks*, and an unlabeled `continue` that
+                // diverges through a labeled block is E0695.
+                continue $run;
             }
         }
     };

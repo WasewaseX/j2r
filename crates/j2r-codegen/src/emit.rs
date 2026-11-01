@@ -257,7 +257,7 @@ pub fn gc_scan_roots(out: &mut ::std::vec::Vec<u32>) {
 
     // per-class modules -----------------------------------------------------------
     for c in &prog.classes {
-        let code = emit_class(prog, c);
+        let code = emit_class(prog, c, opts.emit_cfg);
         std::fs::write(src.join("classes").join(format!("{}.rs", c.module)), code)?;
     }
 
@@ -465,7 +465,7 @@ fn copy_runtime(out: &Path) -> crate::Result<()> {
 
 // ---------------------------------------------------------------- class module
 
-fn emit_class(prog: &Program, c: &ClassPlan) -> String {
+fn emit_class(prog: &Program, c: &ClassPlan, emit_cfg: bool) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -478,12 +478,12 @@ fn emit_class(prog: &Program, c: &ClassPlan) -> String {
     );
     for m in &c.methods {
         let _ = writeln!(out);
-        let _ = writeln!(out, "{}", emit_method(prog, c, m));
+        let _ = writeln!(out, "{}", emit_method(prog, c, m, emit_cfg));
     }
     out
 }
 
-fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan) -> String {
+fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) -> String {
     let mut out = String::new();
     let instance = !m.is_static;
     let unmarshal_start = if instance { 1usize } else { 0usize };
@@ -598,26 +598,47 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan) -> String {
         let _ = writeln!(out, "        }}");
     }
 
-    // pc dispatch over basic blocks
-    let leaders = compute_leaders(m);
-    let mut sorted: Vec<u32> = leaders.iter().copied().collect();
-    sorted.sort_unstable();
-
-    let _ = writeln!(out, "        match pc {{");
-    for (i, &leader) in sorted.iter().enumerate() {
-        let next_leader = sorted.get(i + 1).copied();
-        let block = emit_block(prog, c, m, leader, next_leader);
-        let _ = writeln!(out, "            {leader}u32 => {{");
-        for line in block {
-            let _ = writeln!(out, "                {line}");
+    // Body emission. Default (approved M1 architecture): pc dispatch over
+    // basic blocks. With `emit_cfg` (Wave-4 investigation, M2_PLAN §6, off
+    // by default): try a structured lift for the conservative subset; any
+    // unsupported shape silently falls back to the identical dispatch body,
+    // so `--emit-cfg` can never change semantics — only the shape of the
+    // bodies it successfully lifts.
+    let lifted = if emit_cfg {
+        crate::cfg::lift(m, |idx, tmp| {
+            let (pc, instr) = &m.instrs[idx];
+            emit_instr(prog, c, m, *pc, instr, tmp);
+        })
+        .ok()
+    } else {
+        None
+    };
+    if let Some(body) = lifted {
+        for line in body.lines() {
+            let _ = writeln!(out, "        {line}");
         }
-        let _ = writeln!(out, "            }}");
+    } else {
+        // pc dispatch over basic blocks
+        let leaders = compute_leaders(m);
+        let mut sorted: Vec<u32> = leaders.iter().copied().collect();
+        sorted.sort_unstable();
+
+        let _ = writeln!(out, "        match pc {{");
+        for (i, &leader) in sorted.iter().enumerate() {
+            let next_leader = sorted.get(i + 1).copied();
+            let block = emit_block(prog, c, m, leader, next_leader);
+            let _ = writeln!(out, "            {leader}u32 => {{");
+            for line in block {
+                let _ = writeln!(out, "                {line}");
+            }
+            let _ = writeln!(out, "            }}");
+        }
+        let _ = writeln!(
+            out,
+            "            _ => ::core::panic!(\"j2r internal: pc out of range\"),"
+        );
+        let _ = writeln!(out, "        }}");
     }
-    let _ = writeln!(
-        out,
-        "            _ => ::core::panic!(\"j2r internal: pc out of range\"),"
-    );
-    let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");
     out
@@ -776,10 +797,10 @@ fn emit_instr(
         Instr::ALoad(_) => {
             out.push("let __idx = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
-                "let __arr = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+                "let __arr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             out.push(format!(
-                "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_load(&__arr, __idx));"
+                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_load(&__arr, __idx));"
             ));
             out.push("stack.push(__v);".into());
         }
@@ -787,18 +808,18 @@ fn emit_instr(
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push("let __idx = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
-                "let __arr = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+                "let __arr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             out.push(format!(
-                "{RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_store(&__arr, __idx, __v, crate::j2r_dispatch()));"
+                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_store(&__arr, __idx, __v, crate::j2r_dispatch()));"
             ));
         }
         Instr::ArrayLength => {
             out.push(format!(
-                "let __arr = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+                "let __arr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             out.push(format!(
-                "stack.push({RT}::Value::Int({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_length(&__arr))));"
+                "stack.push({RT}::Value::Int({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_length(&__arr))));"
             ));
         }
         Instr::Pop => out.push("let _ = stack.pop();".into()),
@@ -929,7 +950,7 @@ fn emit_instr(
                 .expect("validated instance field");
             let slot = f.instance_slot.expect("instance field");
             out.push(format!(
-                "let __r = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             out.push(format!(
                 "stack.push({RT}::object::obj_get(&__r, {slot}usize));"
@@ -941,7 +962,7 @@ fn emit_instr(
             let slot = f.instance_slot.expect("instance field");
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push(format!(
-                "let __r = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             out.push(format!("{RT}::object::obj_set(&__r, {slot}usize, __v);"));
         }
@@ -954,10 +975,10 @@ fn emit_instr(
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             out.push(format!(
-                "let __r = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             out.push(format!(
-                "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch()));"
+                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch()));"
             ));
             if !returns_void(desc) {
                 out.push("stack.push(__v);".into());
@@ -973,12 +994,12 @@ fn emit_instr(
                         out.push(format!("crate::statics::ensure({id}u32, {expr});"));
                     }
                     out.push(format!(
-                        "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, crate::classes::{module}::{fn_name}(::core::option::Option::None, &__a));"
+                        "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::classes::{module}::{fn_name}(::core::option::Option::None, &__a));"
                     ));
                 }
                 CallTarget::Native { class: ncls } => {
                     out.push(format!(
-                        "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::None, &__a, crate::j2r_dispatch()));"
+                        "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::None, &__a, crate::j2r_dispatch()));"
                     ));
                 }
             }
@@ -991,17 +1012,17 @@ fn emit_instr(
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             out.push(format!(
-                "let __r = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             match crate::resolve_call_pub(prog, class, name, desc).expect("validated call") {
                 CallTarget::User { module, fn_name } => {
                     out.push(format!(
-                        "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, crate::classes::{module}::{fn_name}(::core::option::Option::Some(&__r), &__a));"
+                        "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::classes::{module}::{fn_name}(::core::option::Option::Some(&__r), &__a));"
                     ));
                 }
                 CallTarget::Native { class: ncls } => {
                     out.push(format!(
-                        "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::Some(&__r), &__a, crate::j2r_dispatch()));"
+                        "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::Some(&__r), &__a, crate::j2r_dispatch()));"
                     ));
                 }
             }
@@ -1021,7 +1042,7 @@ fn emit_instr(
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push(format!(
-                "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::concat::string_concat({:?}, &[{}], &__a, {:?}, crate::j2r_dispatch()));",
+                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::concat::string_concat({:?}, &[{}], &__a, {:?}, crate::j2r_dispatch()));",
                 plan.recipe, consts, plan.kinds
             ));
             out.push("stack.push(__v);".into());
@@ -1039,11 +1060,11 @@ fn emit_instr(
                     out.push(format!("crate::statics::ensure({id}u32, {expr});"));
                 }
                 out.push(format!(
-                    "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize)))));"
+                    "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize)))));"
                 ));
             } else {
                 out.push(format!(
-                    "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::object::new_builtin({class:?})))));"
+                    "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_builtin({class:?})))));"
                 ));
             }
         }
@@ -1053,7 +1074,7 @@ fn emit_instr(
             let desc = prim.array_desc();
             out.push("let __len = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
-                "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_new_prim({desc:?}, __len)))));"
+                "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_new_prim({desc:?}, __len)))));"
             ));
         }
         Instr::ANewArray { elem } => {
@@ -1061,7 +1082,7 @@ fn emit_instr(
             out.push(format!("{RT}::heap::gc_point();"));
             out.push("let __len = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
-                "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_new_ref({elem:?}, __len)))));"
+                "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_new_ref({elem:?}, __len)))));"
             ));
         }
         Instr::MultiNewArray { desc, dims } => {
@@ -1074,7 +1095,7 @@ fn emit_instr(
             }
             let list: Vec<String> = (0..*dims).map(|i| format!("__dim{i}")).collect();
             out.push(format!(
-                "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_new_multi({desc:?}, &[{}])))));",
+                "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_new_multi({desc:?}, &[{}])))));",
                 list.join(", ")
             ));
         }
@@ -1082,7 +1103,7 @@ fn emit_instr(
             // pop the exception object; on success record the pending throw
             // (the Ok path of j2r_try! would otherwise fall through!)
             out.push(format!(
-                "let __thr = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::object::take_thrown(&mut stack));"
+                "let __thr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::take_thrown(&mut stack));"
             ));
             out.push(format!(
                 "thrown = ::core::option::Option::Some({RT}::Throw {{ obj: __thr }});"
@@ -1093,7 +1114,7 @@ fn emit_instr(
         }
         Instr::CheckCast { class } => {
             out.push(format!(
-                "let __v = {RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::checkcast(::j2r_runtime::stack::stack_pop(&mut stack), {class:?}, crate::j2r_dispatch()));"
+                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::checkcast(::j2r_runtime::stack::stack_pop(&mut stack), {class:?}, crate::j2r_dispatch()));"
             ));
             out.push("stack.push(__v);".into());
         }
@@ -1265,11 +1286,11 @@ fn emit_int_or_long_arith(op: ArithOp, is_long: bool, fault: &str, out: &mut Vec
             "let __b = {pop_self}(&mut stack); let __a = {pop_self}(&mut stack); stack.push({RT}::Value::{ctor}(__a.wrapping_mul(__b)));"
         )),
         ArithOp::Div => out.push(format!(
-            "let __b = {pop_self}(&mut stack); let __a = {pop_self}(&mut stack); stack.push({RT}::Value::{ctor}({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::{}(__a, __b))));",
+            "let __b = {pop_self}(&mut stack); let __a = {pop_self}(&mut stack); stack.push({RT}::Value::{ctor}({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::{}(__a, __b))));",
             if is_long { "long_div" } else { "int_div" }
         )),
         ArithOp::Rem => out.push(format!(
-            "let __b = {pop_self}(&mut stack); let __a = {pop_self}(&mut stack); stack.push({RT}::Value::{ctor}({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::{}(__a, __b))));",
+            "let __b = {pop_self}(&mut stack); let __a = {pop_self}(&mut stack); stack.push({RT}::Value::{ctor}({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::{}(__a, __b))));",
             if is_long { "long_rem" } else { "int_rem" }
         )),
         ArithOp::And | ArithOp::Or | ArithOp::Xor => {

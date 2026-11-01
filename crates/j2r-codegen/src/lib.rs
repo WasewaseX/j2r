@@ -17,6 +17,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cfg;
 pub mod emit;
 pub mod ir;
 pub mod specialize;
@@ -117,6 +118,11 @@ pub struct Options {
     pub crate_name: String,
     /// Directory the generated crate is written to.
     pub out_dir: PathBuf,
+    /// Wave-4 investigation flag (M2_PLAN §6): attempt structured CFG-based
+    /// method bodies where a conservative analysis permits it, falling back
+    /// to the approved pc-dispatch body per method otherwise. Default
+    /// **off** — the dispatch emission is the approved default.
+    pub emit_cfg: bool,
 }
 
 impl Options {
@@ -126,6 +132,7 @@ impl Options {
             main_class: None,
             crate_name: "j2r-app".to_string(),
             out_dir,
+            emit_cfg: false,
         }
     }
 }
