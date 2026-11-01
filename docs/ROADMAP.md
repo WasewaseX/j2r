@@ -41,6 +41,7 @@ live in M2_PLAN.
 | M1.6 coverage (boxing identity, multianewarray, suite → 34 fixtures) | `c07a10f` | 41201763892 SUCCESS | diff suite count guard in CI |
 | M2 implementation plan published (no code) | `2dcd031` | 41212581846 SUCCESS | `docs/M2_PLAN.md` |
 | M2 plan revision 2 (review response: settled root protocol, generation tags, SOE ceiling, threading boundary, spec scope, README fixes) | `942648e` | 41281330354 SUCCESS | M2_PLAN §0 response matrix |
+| M2 plan revision 2.1 — plan-time stack-footprint calibration for blocker 3 (measured 208–304 B/frame; const 512 B; ceiling 131 072) | `350ae1d` | 41299060088 SUCCESS | M2_PLAN §3.1.1 |
 
 Current test inventory (re-verified locally 2026-11-01, Temurin 21.0.13 at
 `/tmp/jdk21`, after a full sandbox/toolchain rebuild): **125 tests, 0
