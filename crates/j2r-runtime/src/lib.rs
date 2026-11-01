@@ -24,6 +24,7 @@ pub mod array;
 pub mod builtin;
 pub mod concat;
 pub mod desc;
+pub mod frame;
 pub mod javafmt;
 pub mod natives;
 pub mod object;

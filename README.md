@@ -14,14 +14,15 @@ Milestone 1 compiles JVM bytecode to a standalone Rust crate and runs it
 natively. Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM, compiled with J2R, run natively,
 and **stdout, stderr and exit codes** must match (stderr with JVM
-stack-trace frames — and nothing else — normalized away). 34 fixture
+stack-trace frames — and nothing else — normalized away). 36 fixture
 programs cover arithmetic and integer/long edge cases, shifts, casts and
 saturating conversions, control flow (switch fallthrough, labeled
 break/continue), strings, string building, one- and two-dimensional arrays,
 inheritance, constructor/initializer ordering, static-initialization order,
 exceptions (`finally` ordering, multi-catch, rethrow, uncaught), boxing
-identity, `instanceof` dispatch, recursion and mutual recursion, `System.err`,
-and runtime exceptions with exact OpenJDK messages — all green, plus 110
+identity, `instanceof` dispatch, recursion and mutual recursion, catchable
+`StackOverflowError`, `System.err`,
+and runtime exceptions with exact OpenJDK messages — all green, plus 117
 unit tests, 12 malformed-classfile tests and a JDK-free end-to-end test.
 
 A dedicated **hardening milestone** (post-audit) added:
@@ -58,6 +59,16 @@ A **coverage & robustness pass** (M1.6) added on top:
   compile errors, never runtime panics.
 * Differential suite grown from 18 to 34 fixtures; a shrink-guard asserts
   the count never regresses.
+* **Wave 1 of M2 — catchable `StackOverflowError`**: deep recursion now
+  throws a real, catchable `StackOverflowError` (never a process abort).
+  Every generated method registers a `FrameGuard`; the depth limit
+  defaults to 8192 and is overridable via `J2R_MAX_JAVA_FRAMES` up to a
+  hard ceiling of 131,072 derived from a *measured* per-frame native-stack
+  footprint (208–304 B measured; see `docs/M2_PLAN.md` §3.1.1). Invalid
+  override values (`0`, over-ceiling, non-numeric) are rejected with exit
+  2 before any Java code runs. Differential fixtures `StackDepth` (caught
+  SOE, thread continues) and `UncaughtSOE` (uncaught, exit 1) pin the
+  JVM-exact behaviour; the suite is now 36 fixtures.
 
 ### What works today
 
@@ -160,11 +171,11 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 110 unit tests + malformed/e2e + 34-fixture differential suite
+$ cargo test                       # 117 unit tests + malformed/e2e/SOE-e2e + 36-fixture differential suite
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 ```
 
-The differential suite (`crates/j2r-cli/tests/suite/*.java`, 34 programs)
+The differential suite (`crates/j2r-cli/tests/suite/*.java`, 36 programs)
 skips itself gracefully when no JDK is present; CI installs Temurin 21.
 Runtime guarantees and the panic-path inventory live in
 [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).

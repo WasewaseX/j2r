@@ -2,14 +2,16 @@
 
 Updated 2026-11-01 · every commit CI-green (runs recorded for substantive commits below)
 M1 architecture review: **APPROVE** ("PARTIALLY COMPLETE / Promising Milestone 1")
-M2 plan: `docs/M2_PLAN.md` — **PLAN ONLY; coding is blocked until that plan passes
-architectural review** (M2_PLAN §11). Revision 2 (2026-11-01) answers the
+M2 plan: `docs/M2_PLAN.md` — Revision 2 (2026-11-01) answers the
 REQUEST CHANGES verdict on the original plan — all six blockers resolved in
 M2_PLAN §0; revision 2.1 (docs-only) adds the plan-time stack-footprint
 calibration measurement (M2_PLAN §3.1.1: measured 208–304 B/frame, const
-512 B, ceiling 131 072 frames). Awaiting re-review. This file is the
-top-level map and the working todolist; the per-change specifications
-live in M2_PLAN.
+512 B, ceiling 131 072 frames). Per the owner's explicit direction the M2
+waves now proceed without waiting for the plan re-review; every wave
+still ships its own evidence record and green CI (docs/M2_EVIDENCE.md),
+and the milestone completion review (T22) covers plan + waves together.
+This file is the top-level map and the working todolist; the
+per-change specifications live in M2_PLAN.
 
 ---
 
@@ -44,10 +46,10 @@ live in M2_PLAN.
 | M2 plan revision 2.1 — plan-time stack-footprint calibration for blocker 3 (measured 208–304 B/frame; const 512 B; ceiling 131 072) | `350ae1d` | 41299060088 SUCCESS | M2_PLAN §3.1.1 |
 
 Current test inventory (re-verified locally 2026-11-01, Temurin 21.0.13 at
-`/tmp/jdk21`, after a full sandbox/toolchain rebuild): **125 tests, 0
-failures**, including the 34-fixture differential suite vs the real JVM
-(58 s wall-clock) and the 12 malformed-classfile e2e tests. Zero `unsafe`
-(`rg "unsafe" crates/` is empty).
+`/tmp/jdk21`, after a full sandbox/toolchain rebuild): **133 tests, 0
+failures**, including the 36-fixture differential suite vs the real JVM
+(~62 s wall-clock), the 12 malformed-classfile e2e tests and the Wave-1
+SOE boundary-matrix e2e. Zero `unsafe` (`rg "unsafe" crates/` is empty).
 
 ---
 
@@ -98,27 +100,32 @@ acceptance criteria) live in the M2_PLAN section shown in each wave heading.
   locals specialization scope, README contradictions fixed. Revision 2.1
   added the plan-time calibration measurement for the SOE ceiling
   (blocker 3's "measured native-stack budget": worst shape 304 B/frame,
-  const 512 B, ceiling 131 072 — M2_PLAN §3.1.1). Awaiting
-  architectural re-approval before Wave 1.
+  const 512 B, ceiling 131 072 — M2_PLAN §3.1.1). The owner subsequently
+  directed the waves to proceed without waiting for the re-review; the
+  completion review (T22) covers plan + waves together.
 
-### Wave 1 — catchable `StackOverflowError` (M2_PLAN §3)
+### Wave 1 — catchable `StackOverflowError` (M2_PLAN §3) — DONE
 
-- [ ] **T07** `crates/j2r-runtime/src/frame.rs`: frame registry, depth
+- [x] **T07** `crates/j2r-runtime/src/frame.rs`: frame registry, depth
   counter, `StackOverflowError` constructor, `J2R_MAX_JAVA_FRAMES`
-  validation against the **hard ceiling** derived from the measured
-  per-frame native footprint (`0`, `>ceiling`, non-numeric rejected with
-  exit 2; const assertion `default ≤ ceiling`), footprint-calibration
-  test, unit tests for depth accounting across return/throw/panic.
-- [ ] **T08** `crates/j2r-codegen/src/emit.rs`: emit `FrameGuard` in
-  `emit_method`, depth check → early `return Err(soe)`, plus a codegen unit
-  check of the emitted shape.
-- [ ] **T09** Differential fixtures `StackDepth.java` (caught SOE, continues
-  normally) + `UncaughtSOE.java` (uncaught, exit 1) — suite 34 → 36 — plus
-  an e2e test at `J2R_MAX_JAVA_FRAMES=64` asserting the process **never
-  aborts** (no SIGSEGV/101) and prints `caught-soe`, plus the six-case
-  override-boundary matrix (default/min/max/max+1/0/invalid).
-- [ ] **T10** Wave-1 evidence record in `docs/M2_EVIDENCE.md` (repro,
-  change, tests, JVM-vs-native results, CI link) + all CI gates green.
+  validation against the hard ceiling (`FRAME_FOOTPRINT` 512 B const from
+  the measured 208–304 B; `MAX_FRAMES_ABS` = 131 072; `0`/`>ceiling`/
+  non-numeric rejected with exit 2; const assertion `default ≤ ceiling`),
+  7 unit tests (parse matrix, nested depth, panic-unwind restore, SOE
+  shape, refuse-at-limit).
+- [x] **T08** `crates/j2r-codegen/src/emit.rs`: `FrameGuard::enter()` is
+  every generated method's first statement; refused registration →
+  immediate `return Err(soe)` (the SOE surfaces at the call site like the
+  JVM); generated `main` validates the env var before anything runs.
+  Emitted-shape assertions added to the JDK-free codegen e2e.
+- [x] **T09** Differential fixtures `StackDepth.java` (caught SOE,
+  continues normally, catches a second SOE) + `UncaughtSOE.java`
+  (uncaught, exit 1) — suite 34 → 36 — plus `soe_e2e.rs`:
+  `J2R_MAX_JAVA_FRAMES=64` proves the process **never aborts** (exit 0,
+  `caught-soe`) and the six-case override-boundary matrix (default/min/
+  max/max+1/0/invalid) is green.
+- [x] **T10** Wave-1 evidence record in `docs/M2_EVIDENCE.md` + all CI
+  gates green (run recorded in ROADMAP §2).
 
 ### Wave 2 — tracing, cycle-collecting arena GC (M2_PLAN §4)
 

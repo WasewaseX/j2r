@@ -118,6 +118,26 @@ fn handcrafted_class_runs_natively() {
     };
     j2r_codegen::compile_to_crate(&opts).expect("codegen succeeds");
 
+    // Wave-1 emitted-shape check (M2_PLAN §3.2): every generated method
+    // registers a FrameGuard as its first statement and turns a refused
+    // registration into an immediate `return Err(..)`.
+    let hello_rs = std::fs::read_to_string(dir.join("out/src/classes/Hello.rs")).unwrap();
+    assert!(
+        hello_rs.contains("::j2r_runtime::frame::FrameGuard::enter()"),
+        "generated method must enter a FrameGuard first"
+    );
+    assert!(
+        hello_rs.contains(
+            "::core::result::Result::Err(t) => return ::core::result::Result::Err(t),"
+        ),
+        "a refused frame registration must return Err immediately"
+    );
+    let main_rs = std::fs::read_to_string(dir.join("out/src/main.rs")).unwrap();
+    assert!(
+        main_rs.contains("validate_env_or_exit"),
+        "generated main must validate J2R_MAX_JAVA_FRAMES before Java code runs"
+    );
+
     // build
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let status = Command::new(&cargo)

@@ -256,6 +256,10 @@ pub fn ensure(class_id: u32, clinit: ::core::option::Option<::j2r_runtime::Metho
 #![allow(dead_code, unused_variables, unused_mut, unused_assignments, unused_labels, unreachable_code, non_snake_case)]
 
 fn main() {{
+    // J2R_MAX_JAVA_FRAMES is an operator knob, not a Java-observable one:
+    // an invalid value is rejected (exit 2) before any Java code runs
+    // (M2_PLAN §3.1).
+    ::j2r_runtime::frame::validate_env_or_exit();
     // A large stack: Java programs recurse deeply (the JVM grows its thread
     // stack automatically; we pre-allocate instead).
     let child = ::std::thread::Builder::new()
@@ -476,6 +480,19 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan) -> String {
         "pub fn {}(recv: ::core::option::Option<&{RT}::JRef>, args: &[{RT}::Value]) -> ::core::result::Result<{RT}::Value, {RT}::Throw> {{",
         m.fn_name
     );
+    // FrameGuard first — before any work (M2_PLAN §3.1): past the frame
+    // limit it yields the catchable StackOverflowError and the emitted
+    // match turns it into `return Err(..)` immediately. The JVM throws SOE
+    // at the call site, so propagating the Err through the caller's
+    // j2r_try! gives the caller's exception table first crack — the
+    // callee's own handlers must not see it, and they don't.
+    let _ = writeln!(out, "    let __frame = match {RT}::frame::FrameGuard::enter() {{");
+    let _ = writeln!(out, "        ::core::result::Result::Ok(f) => f,");
+    let _ = writeln!(
+        out,
+        "        ::core::result::Result::Err(t) => return ::core::result::Result::Err(t),"
+    );
+    let _ = writeln!(out, "    }};");
     let _ = writeln!(
         out,
         "    let mut locals: ::std::vec::Vec<{RT}::Value> = ::std::vec![{RT}::Value::Void; {locals_len}usize];"
