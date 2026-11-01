@@ -1,9 +1,11 @@
 # J2R Roadmap — Java → Rust compiler, M1 → M5
 
-Updated 2026-11-01 · HEAD `2dcd031` (+ this commit) · every commit so far CI-green
+Updated 2026-11-01 · HEAD `10d7b5e` (+ this commit) · every commit so far CI-green
 M1 architecture review: **APPROVE** ("PARTIALLY COMPLETE / Promising Milestone 1")
 M2 plan: `docs/M2_PLAN.md` — **PLAN ONLY; coding is blocked until that plan passes
-architectural review** (M2_PLAN §11). This file is the top-level map and the
+architectural review** (M2_PLAN §11). Revision 2 (2026-11-01) answers the
+REQUEST CHANGES verdict on the original plan — all six blockers resolved in
+M2_PLAN §0; awaiting re-review. This file is the top-level map and the
 working todolist; the per-change specifications live in M2_PLAN.
 
 ---
@@ -35,6 +37,7 @@ working todolist; the per-change specifications live in M2_PLAN.
 | Hardening evidence record + reentrancy census | `cda8e41` | 41191658892 SUCCESS | `docs/RUNTIME_SAFETY.md` |
 | M1.6 coverage (boxing identity, multianewarray, suite → 34 fixtures) | `c07a10f` | 41201763892 SUCCESS | diff suite count guard in CI |
 | M2 implementation plan published (no code) | `2dcd031` | 41212581846 SUCCESS | `docs/M2_PLAN.md` |
+| M2 plan revision 2 (review response: settled root protocol, generation tags, SOE ceiling, threading boundary, spec scope, README fixes) | this commit | (recorded after CI) | M2_PLAN §0 response matrix |
 
 Current test inventory (re-verified locally 2026-11-01, Temurin 21.0.13 at
 `/tmp/jdk21`, after a full sandbox/toolchain rebuild): **125 tests, 0
@@ -59,7 +62,7 @@ milestone is ordered by its own task register (§4 for M2).
 
 ---
 
-## 4. M2 task register — the working todolist (22 tasks)
+## 4. M2 task register — the working todolist (23 tasks)
 
 Status: `[x]` done · `[~]` in progress · `[ ]` pending (blocked on plan review).
 Design detail + the 7 required per-change specifications (files, Java
@@ -84,33 +87,48 @@ acceptance criteria) live in the M2_PLAN section shown in each wave heading.
   rustup + Temurin 21 reinstalled; 125 tests + 34-fixture differential green
   (2026-11-01). This todo exists because environments rot; the baseline
   claim is re-proven, not assumed.
-- [x] **T06** Roadmap published with ≥15-task register (this commit).
+- [x] **T06** Roadmap published with ≥15-task register (commit `10d7b5e`).
+- [x] **T23** M2 plan revision 2 submitted in response to the REQUEST
+  CHANGES review: settled pointer-free GC root protocol, generation-tagged
+  handles, SOE hard ceiling, threading boundary statement, stacks-and-
+  locals specialization scope, README contradictions fixed. Awaiting
+  architectural re-approval before Wave 1.
 
 ### Wave 1 — catchable `StackOverflowError` (M2_PLAN §3)
 
 - [ ] **T07** `crates/j2r-runtime/src/frame.rs`: frame registry, depth
-  counter, `StackOverflowError` constructor, `J2R_MAX_JAVA_FRAMES` override
-  (0 rejected), unit tests for depth accounting across return/throw/panic.
+  counter, `StackOverflowError` constructor, `J2R_MAX_JAVA_FRAMES`
+  validation against the **hard ceiling** derived from the measured
+  per-frame native footprint (`0`, `>ceiling`, non-numeric rejected with
+  exit 2; const assertion `default ≤ ceiling`), footprint-calibration
+  test, unit tests for depth accounting across return/throw/panic.
 - [ ] **T08** `crates/j2r-codegen/src/emit.rs`: emit `FrameGuard` in
   `emit_method`, depth check → early `return Err(soe)`, plus a codegen unit
   check of the emitted shape.
 - [ ] **T09** Differential fixtures `StackDepth.java` (caught SOE, continues
   normally) + `UncaughtSOE.java` (uncaught, exit 1) — suite 34 → 36 — plus
   an e2e test at `J2R_MAX_JAVA_FRAMES=64` asserting the process **never
-  aborts** (no SIGSEGV/101) and prints `caught-soe`.
+  aborts** (no SIGSEGV/101) and prints `caught-soe`, plus the six-case
+  override-boundary matrix (default/min/max/max+1/0/invalid).
 - [ ] **T10** Wave-1 evidence record in `docs/M2_EVIDENCE.md` (repro,
   change, tests, JVM-vs-native results, CI link) + all CI gates green.
 
 ### Wave 2 — tracing, cycle-collecting arena GC (M2_PLAN §4)
 
 - [ ] **T11** `crates/j2r-runtime/src/heap.rs`: `Vec<Entry>` arena,
-  `NonZeroU32` `JRef` (Copy), free list, non-recursive worklist mark/sweep,
-  collection thresholds, `J2R_GC_EVERY_N` forced-GC mode; unit tests
-  (cycle collected/kept, array children, root classes, free-list reuse,
-  1 M-node worklist, re-entrancy assertion, threshold math).
-- [ ] **T12** Root plumbing: `FrameGuard::scan` over locals/stack/thrown;
-  emitted `statics.rs` gains `gc_scan_roots`; runtime roots (intern cache,
-  boxed cache, `System.out`) scanned; registration in emitted `main`.
+  generation-tagged `JRef { idx, gen }` (Copy; stale dereference panics
+  loudly — no silent aliasing), free list, non-recursive worklist
+  mark/sweep, collection thresholds, `J2R_GC_EVERY_N` forced-GC mode; unit
+  tests (cycle collected/kept, array children, root classes, stale-handle
+  detection + free-list reuse non-aliasing, 1 M-node worklist, re-entrancy
+  assertion, threshold math).
+- [ ] **T12** Root plumbing (pointer-free protocol, M2_PLAN §4.4):
+  `FrameGuard`-owned `RootStack` snapshot slots refreshed at every emitted
+  call boundary; direct current-frame scan via
+  `GcFrame::current(&locals, &stack, &thrown)`; `NativeRoots` scopes at
+  every native→Java dispatch site; emitted `statics.rs` gains
+  `gc_scan_roots`; runtime roots (intern cache, boxed cache,
+  `System.out`) scanned; registration in emitted `main`.
 - [ ] **T13** Ownership conversion: `JRef` → Copy handle, ~45
   `.borrow()/.borrow_mut()` sites → scoped `with_obj` accessors across
   `lib.rs, object.rs, array.rs, natives.rs, concat.rs`; re-issued borrow
@@ -133,14 +151,18 @@ acceptance criteria) live in the M2_PLAN section shown in each wave heading.
 
 ### Wave 3 — typed operand-stack specialization (M2_PLAN §5)
 
-- [ ] **T19** `verify.rs` exports per-pc stack/local shapes (`StackShape`);
-  new `specialize.rs` decision pass + **written shape report** (share of
-  methods that specialize; go/no-go checkpoint 3a — if complexity is out of
-  proportion, the wave ends here honestly).
-- [ ] **T20** Hybrid emission (3b): typed slot arrays for kind-stable
-  methods, per-method fallback to uniform emission; FrameGuard scans
-  specialized frames; "no `Value::` on hot path" unit check; deterministic
-  benchmark ≥ 1.3× on arithmetic fixtures **or** an honest no-gain finding.
+- [ ] **T19** `verify.rs` exports per-pc stack *and* locals shapes
+  (`StackShape`); new `specialize.rs` decision pass (per-method
+  all-or-nothing over stack positions and local slots) + **written shape
+  report** (per-method: stack positions, local slots, fallback reason;
+  go/no-go checkpoint 3a — if complexity is out of proportion, the wave
+  ends here honestly, or records the reduced scope: stacks-only).
+- [ ] **T20** Hybrid emission (3b): typed primitive pools for kind-stable
+  stack positions and local slots (references stay in `Vec<Value>` — the
+  GC scan surface is unchanged), per-method fallback to uniform emission;
+  GcFrame scans specialized frames; "no `Value::` on hot path" unit
+  check; deterministic benchmark ≥ 1.3× on arithmetic fixtures **or** an
+  honest no-gain finding.
 
 ### Wave 4 — CFG reconstruction investigation (M2_PLAN §6)
 
@@ -187,7 +209,7 @@ skipped gate is impossible.
 | R5 | Identity hash = raw address, unstable under reuse | handle-value identity hash, stable for live objects (T14) |
 | R6 | `RefCell` reentrancy panics | audited census; re-issued after T13; statement-local borrows only |
 | R7 | String payloads outside the object graph | non-moving collector + COW semantics pinned by tests (T16) |
-| R8 | No rooting discipline under tracing GC | Wave-1 frames are the root infrastructure; forced-GC mode is the proof (T12, T16) |
+| R8 | No rooting discipline under tracing GC; stale handles could alias recycled objects | Wave-1 frame registry + owned root snapshots are the root infrastructure (pointer-free, M2_PLAN §4.4); generation tags make stale handles loud; forced-GC mode is the proof (T12, T16) |
 
 ---
 

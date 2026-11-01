@@ -1,8 +1,21 @@
 # J2R — M2 Implementation Plan (generated code quality)
 
-**Status: PLAN ONLY — nothing in this document has been implemented.**
-**Per the M1 architectural review, coding may not begin until this plan
-itself passes architectural review.**
+**Status: PLAN ONLY (revision 2) — nothing in this document has been
+implemented.** Per the M1 architectural review, coding may not begin until
+this plan itself passes architectural review. Revision 2 answers the
+**REQUEST CHANGES** verdict on the original plan (review of 2026-11-01);
+Wave 1 remains blocked until this revision is re-approved.
+
+### 0. Response to the M2 plan review (REQUEST CHANGES, 2026-11-01)
+
+| # | Blocker | Resolution | Where |
+| --- | --- | --- | --- |
+| 1 | GC root safety not sufficiently specified; scoped-access vs raw pointers unresolved | **SETTLED — zero raw pointers.** Owned root snapshots for suspended caller frames (refreshed at every emitted call boundary), direct scan of the current frame at each safepoint, `NativeRoots` scopes for native→Java re-entry. The raw-pointer alternative is withdrawn. | §4.4 |
+| 2 | Recycled handles could alias a different object | **Generation-tagged handles adopted:** `JRef { idx, gen }`; sweep bumps `gen`; stale dereference is a loud VM-internal panic in all builds — silent aliasing impossible by construction | §4.1, §4.5, §4.6 |
+| 3 | `J2R_MAX_JAVA_FRAMES` needs a hard safety limit | **Hard ceiling derived from a measured per-frame native footprint** (calibration test, const-folded); override accepted only in `1..=MAX_FRAMES_ABS`; `0`, `>ceiling`, non-numeric rejected with exit 2; boundary-value test matrix (default/min/max/max+1/0/invalid) | §3.1, §3.2 |
+| 4 | Threading architecture preliminary; Copy handles ≠ thread safety | **Boundary stated:** M2 delivers no concurrency and claims none; the M3 migration checklist (shared heap, shared statics, stop-the-world coordination, per-thread root registration, monitor word, shared identity caches) is enumerated for future review | §7 |
+| 5 | Typed locals vs operand stacks ambiguous | **Scope settled:** specialization covers operand-stack positions *and* local-variable slots for primitives; references never leave `Vec<Value>` storage (GC scan surface unchanged); per-method all-or-nothing decision; explicit reduced-scope fallback at the 3a checkpoint | §5.1–§5.3 |
+| 6 | README contradictions (`multianewarray`, fixture count) | **FIXED** in README.md: `multianewarray` removed from the unsupported list (it was implemented in M1.6), differential suite count corrected to 34 | README.md |
 
 Approved baseline this plan builds on: commit `c07a10f` (M1.6), CI run
 `41201763892` SUCCESS on all 8 gates (2026-10-31): 110 unit tests, 12
@@ -11,7 +24,7 @@ suite against Temurin 21 (three-channel compare: stdout, stderr, exit
 status), zero `unsafe` in the workspace, `j2r-runtime` and `j2r-classfile`
 have zero external dependencies.
 
-The fine-grained working todolist for all M2 work — 22 tasks (T01–T22)
+The fine-grained working todolist for all M2 work — 23 tasks (T01–T23)
 with statuses and the dependency chain — lives in `docs/ROADMAP.md` §4.
 This document carries the design depth and the per-change specifications
 the review demands; the roadmap carries the ordering and the status.
@@ -191,8 +204,23 @@ ABI). Add an explicit Java-frame registry with a depth counter:
 * Construction first checks the depth: if `depth + 1 > limit`, it returns
   the `Throw` for `java/lang/StackOverflowError` instead of registering —
   emitted code turns that into `return Err(...)` before doing any work.
-  The limit defaults to 8192 and is overridable via
-  `J2R_MAX_JAVA_FRAMES` (used by tests; 0 is rejected as unsafe).
+  The limit defaults to 8192 and is overridable via `J2R_MAX_JAVA_FRAMES`,
+  but only within a **hard safety ceiling derived from a measured native-
+  stack budget** (review blocker 3): `MAX_FRAMES_ABS = WORKER_STACK_BYTES
+  / (FRAME_FOOTPRINT × 8)`, where `FRAME_FOOTPRINT` is the per-Java-frame
+  native-stack usage **measured by a calibration test** — a recursive
+  chain on a fixed-size thread, footprint = (base-pointer delta across
+  the chain) / depth, recorded in the evidence doc and hard-coded as a
+  `const` (expected well under 1 KB; the ceiling is then two orders of
+  magnitude above any realistic need). Accepted override range is
+  `1..=MAX_FRAMES_ABS`. `0`, values above the ceiling, and non-numeric
+  strings are rejected **before `main` runs**: the process prints
+  `j2r: invalid J2R_MAX_JAVA_FRAMES=<v>` and exits 2 — an operator error,
+  never a Java-observable result (the env var does not exist in HotSpot,
+  so rejections are runtime-level e2e tests, not differential fixtures).
+  A compile-time `const` assertion pins `DEFAULT_FRAMES ≤ MAX_FRAMES_ABS`,
+  so a future footprint regression fails the build instead of silently
+  eroding the safety margin.
 * Native→user re-entry (`toString` during concatenation, future
   comparators) passes through `invoke_virtual` into a generated method,
   so it is counted by the same mechanism with no extra instrumentation.
@@ -204,19 +232,20 @@ are heap-allocated; the dispatch `match` does not recurse), measured at
 well under 1 KB today; natives add comparable, bounded frames. The limit
 is therefore two orders of magnitude away from danger, and the default
 mirrors the order of magnitude of HotSpot's default (~10–20 k frames on
-a 1 MB thread stack).
+a 1 MB thread stack). The hard ceiling above turns this argument from an
+assumption into a measured, const-checked invariant.
 
 ### 3.2 Per-change specification
 
 | Requirement | Detail |
 | --- | --- |
-| Files/modules affected | New `crates/j2r-runtime/src/frame.rs` (registry, depth counter, `StackOverflowError` constructor); `crates/j2r-runtime/src/lib.rs` (module + `builtin.rs` already maps `StackOverflowError → VirtualMachineError`, no change); `crates/j2r-codegen/src/emit.rs` (`emit_method`: emit guard, depth check, early `return Err`); `crates/j2r-cli/tests/diff_suite.rs` (fixture-count guard 34 → 36) |
+| Files/modules affected | New `crates/j2r-runtime/src/frame.rs` (registry, depth counter, `StackOverflowError` constructor, hard-ceiling constant + limit validation, footprint calibration); `crates/j2r-runtime/src/lib.rs` (module + `builtin.rs` already maps `StackOverflowError → VirtualMachineError`, no change); `crates/j2r-codegen/src/emit.rs` (`emit_method`: emit guard, depth check, early `return Err`); `crates/j2r-cli/tests/diff_suite.rs` (fixture-count guard 34 → 36) |
 | Java semantic requirements | JLS/JVMS: `StackOverflowError` is a `VirtualMachineError`, thrown asynchronously-ish on thread-stack exhaustion, **catchable**; after a caught SOE the thread continues normally; uncaught SOE prints `Exception in thread "main" java.lang.StackOverflowError` (no message) and exits 1. Depth at which it fires is *not specified* (depends on JVM stack size) — differential fixtures must therefore never assert a depth. |
-| Memory-safety implications | In Wave 1 the registry needs **no pointers at all**: the record is a depth counter (push/increment, pop/decrement via `Drop`), so there is nothing to dereference and nothing to leak — Wave 1 introduces no new memory-safety surface beyond a `thread_local usize`. Scanning frame *contents* is a Wave 2 requirement (§4.4); that extension's safety design — preference order (1) scoped-lifetime access during marking, (2) quarantined raw pointers with the LIFO + collection-point argument — is specified in §4.8 and reviewed as part of Wave 2, not smuggled in here |
+| Memory-safety implications | In Wave 1 the registry needs **no pointers at all**: the record is a depth counter (push/increment, pop/decrement via `Drop`), so there is nothing to dereference and nothing to leak — Wave 1 introduces no new memory-safety surface beyond a `thread_local usize`. Scanning frame *contents* is a Wave 2 requirement (§4.4); its mechanism is now **settled** — owned root snapshots for suspended frames plus direct scan of the current frame (§4.4) — and contains **no raw pointers of any kind**; the previously open "quarantined raw pointers" alternative is withdrawn |
 | Performance tradeoffs | One `thread_local` push/pop and one counter check per call. Expected effect on the differential suite: within noise (< 5 %). Measured and recorded in the evidence doc; if a regression shows up, the fallback is checking depth only every K frames (K=8) with the guarantee that the native-stack budget still holds at K granularity. |
-| Differential tests vs OpenJDK | New fixtures: (1) `StackDepth.java` — unbounded recursion, `catch (StackOverflowError e)` prints `caught-soe` and returns normally; (2) `UncaughtSOE.java` — unbounded recursion with no handler; expected stderr is the uncaught-SOE line (frame lines normalized by the existing harness), exit status 1. Both run against Temurin 21 through the unchanged three-channel harness. |
-| Regression tests | Unit tests in `frame.rs`: depth accounting across normal return / throw / panic; limit override via env; SOE object shape (class, no message, subtype of `VirtualMachineError`); native re-entry counted (concat → `toString` recursion builds frames). Existing `Recursion.java` fixture must stay green unchanged. |
-| Measurable acceptance criteria | (a) All 8 CI gates green with the suite grown to 36 fixtures. (b) A dedicated e2e test compiles and runs a recursive program with a deliberately tiny `J2R_MAX_JAVA_FRAMES=64` and asserts the process exits 0 with `caught-soe` on stdout — i.e. the process **never aborts** (no SIGSEGV/101) at any limit. (c) Frame accounting unit test: after `main` returns, registry depth is 0. |
+| Differential tests vs OpenJDK | New fixtures: (1) `StackDepth.java` — unbounded recursion, `catch (StackOverflowError e)` prints `caught-soe` and returns normally; (2) `UncaughtSOE.java` — unbounded recursion with no handler; expected stderr is the uncaught-SOE line (frame lines normalized by the existing harness), exit status 1. Both run against Temurin 21 through the unchanged three-channel harness. **Override-boundary matrix** (runtime-level e2e, not differential — the env var does not exist in HotSpot): default (8192 accepted), minimum (`1` accepted; any recursion deeper than one frame SOEs), maximum (`MAX_FRAMES_ABS` accepted; a chain of exactly `MAX_FRAMES_ABS − 1` frames completes), `MAX_FRAMES_ABS + 1` rejected, `0` rejected, `abc` rejected — acceptances run the program to normal completion; rejections assert the `j2r: invalid J2R_MAX_JAVA_FRAMES=…` message and exit 2. |
+| Regression tests | Unit tests in `frame.rs`: depth accounting across normal return / throw / panic; limit validation (accepted at default/min/max, rejected at `0`/`>MAX`/non-numeric); SOE object shape (class, no message, subtype of `VirtualMachineError`); native re-entry counted (concat → `toString` recursion builds frames); calibration test re-run in CI asserting the measured footprint stays within 1.25× of the hard-coded const (footprint drift fails the build, never the margin). Existing `Recursion.java` fixture must stay green unchanged. |
+| Measurable acceptance criteria | (a) All 8 CI gates green with the suite grown to 36 fixtures. (b) A dedicated e2e test compiles and runs a recursive program with a deliberately tiny `J2R_MAX_JAVA_FRAMES=64` and asserts the process exits 0 with `caught-soe` on stdout — i.e. the process **never aborts** (no SIGSEGV/101) at any limit. (c) Frame accounting unit test: after `main` returns, registry depth is 0. (d) The six-case boundary matrix (default/min/max/max+1/0/invalid) is green: no accepted value ever aborts the process, every rejected value exits 2 with the diagnostic. (e) Calibration CI check: measured `FRAME_FOOTPRINT` ≤ 1.25× the const used in the ceiling formula. |
 
 ---
 
@@ -228,14 +257,31 @@ A **precise, non-moving, mark-and-sweep arena GC** with index handles:
 
 ```rust
 // crates/j2r-runtime/src/heap.rs (new)
-pub struct JRef(NonZeroU32);            // Copy; Java identity == handle equality
-struct Entry { obj: RefCell<JObj>, mark: Cell<bool> }
+pub struct JRef { idx: NonZeroU32, gen: u32 }  // Copy; identity == (idx, gen)
+struct Entry { obj: RefCell<JObj>, mark: Cell<bool>, gen: u32 }
 pub struct Heap { entries: Vec<Entry>, free: Vec<u32>, live: usize, ... }
 ```
 
+* **Generation-tagged handles — stale references cannot alias (review
+  blocker 2).** When sweep frees an entry it increments that entry's
+  `gen`; allocation stamps the new handle with the entry's current `gen`.
+  Every heap access (`with_obj`, `obj_get`, `obj_set`, array element
+  access, every native helper that touches object state) first checks
+  `entry.gen == handle.gen`; a mismatch means the holder roots nothing —
+  a rooting bug — and the runtime **panics with a diagnostic
+  (`j2r: stale JRef (idx=…, gen=…) — GC rooting bug`) in all builds**.
+  Silent aliasing onto a recycled object is therefore impossible by
+  construction, not just by testing. Generation wrap-around is argued
+  unreachable for *rooted* handles: a rooted handle keeps its entry out
+  of the free list, so its `gen` never advances; an unrooted handle is a
+  bug the `gen` check turns loud long before 2^32 reuse cycles could
+  matter. Cost: one integer compare per object access (not per handle
+  copy — handles are `Copy` and circulate freely).
+
 * **Handles, not pointers.** `JRef` becomes `Copy`; `Option<JRef>` is
-  4 bytes; `Value` drops its refcount traffic (R3). `JRef::ptr_eq` becomes
-  integer equality. `MethodFn` keeps its shape with `Option<JRef>` passed
+  8 bytes (`idx` + `gen` — the price of stale-handle detection); `Value`
+  drops its refcount traffic (R3). `JRef::ptr_eq` becomes `(idx, gen)`
+  pair equality. `MethodFn` keeps its shape with `Option<JRef>` passed
   by value (a mechanical, compiler-enforced change across generated code
   and the ~30 native signatures).
 * **Non-moving** is chosen deliberately: object storage never relocates,
@@ -292,31 +338,84 @@ Why this is sound without a write barrier or read barrier:
    debug assertion in `Heap` counts `gc_point()` vs `alloc()` re-entrancy
    so a future native that calls `gc_point` fails tests (§4.8).
 2. **Between generated instructions, every reachable handle is either in
-   a registered frame, in the statics pool, or in a runtime root** —
+   the current frame's scanned storage, in a suspended caller's root
+   snapshot, in the statics pool, or in a runtime root** —
    there is nowhere else (verified below).
 3. **The window between a caller popping args and the callee registering
    its frame contains no collection point**: `pop_n`/`unmarshal_args`
    allocate no Java objects, and `gc_point()` only precedes allocation
    opcodes inside a method body whose frame is already registered.
 
-### 4.4 Root set
+### 4.4 Root set (settled — owned root snapshots, zero raw pointers)
 
-1. **Java frames** — the Wave 1 registry. `FrameGuard` extends to expose
-   `scan(&mut dyn FnMut(u32))` over `locals`, `stack` and `thrown`
-   (a pending throw holds a live `JRef` across handler dispatch).
-2. **Statics pool** — the generated crate's `statics.rs` gains
-   `gc_scan_roots(f: &mut dyn FnMut(u32))`; the emitted `main_run`
-   registers it with the runtime at startup. (The same hook later serves
-   shared statics when threads arrive, §7.)
-3. **Runtime roots** — intern cache, boxed-identity cache, `System.out`
-   handle (all already `thread_local` structures in the runtime; scanned
-   by the heap module directly).
-4. **In-flight arguments**: none — per §4.3.3, no collection point
-   exists outside registered frames.
+**Decision (review blocker 1).** The choice left open in revision 1 —
+scoped-lifetime access vs quarantined raw pointers — is resolved: **the
+root mechanism contains no pointers and no `unsafe` at all.** The GC
+obtains roots through exactly three channels:
+
+1. **The current frame — scanned directly.** `gc_point()` is emitted only
+   inside a method body (before the 4 allocating opcodes, §4.3), where
+   `locals`, `stack` and `thrown` are ordinary in-scope bindings. The
+   emitted call is
+   `heap::gc_point(GcFrame::current(&locals, &stack, &thrown))`: the heap
+   module receives shared references to the live frame's storage and
+   reads ref handles out of them. No registry lookup, no pointer, nothing
+   that can dangle.
+2. **Suspended caller frames — owned root snapshots.** Each `FrameGuard`
+   owns one slot in a `thread_local` LIFO registry
+   (`RootStack { slots: Vec<Vec<u32>> }`; each slot is an owned
+   `Vec<u32>` of ref handles, capacity reused across calls, so the
+   steady state is allocation-free). At **every generated call boundary**
+   the emitted code refreshes the frame's slot from its current
+   `locals`/`stack`/`thrown` **before** popping arguments, then transfers
+   control. A suspended caller's Rust state cannot change while it is
+   suspended (execution is sequential), so its snapshot is exact for the
+   entire suspension. Over-approximation — the snapshot lists a handle
+   that has died by the time some later collection runs — is safe by
+   definition: it only delays reclamation, which Java does not allow a
+   program to observe.
+3. **Statics pool and runtime roots** — `statics.rs::gc_scan_roots`
+   (registered by the emitted `main_run` at startup) and the intern
+   cache, boxed-identity cache and `System.out` handle, scanned by the
+   heap module directly.
+
+**Native→Java re-entry.** A native dispatching into generated code
+(concat → `toString`, future comparators) is a call boundary like any
+other: the dispatching native must wrap its live refs in a `NativeRoots`
+RAII scope — an owned `Vec<u32>` pushed onto the same `RootStack`
+registry, popped by `Drop`. The Wave-2 census (§4.7) enumerates **every**
+native→generated dispatch site and proves each one scopes its refs.
+
+**In-flight arguments.** The caller's snapshot is refreshed before args
+are popped, so argument handles stay rooted from the pop through the
+callee's `FrameGuard` registration — a window in which no collection
+point exists anyway (§4.3.3), and one where the snapshot still names
+them even if one existed.
+
+**Reviewer-required failure scenarios, and how each is caught:**
+
+* (a) *A call boundary emitted without a snapshot refresh* (a codegen
+  bug) → under-rooting → with `J2R_GC_EVERY_N=1` a collection runs at
+  **every allocation**, so the missed root dies within one allocation and
+  the differential suite fails loudly; a codegen unit test additionally
+  asserts that every emitted `invoke*` is immediately preceded by a
+  snapshot refresh.
+* (b) *A frame that never registers its slot* → same forced-GC proof.
+* (c) *A native dispatching into user code without a `NativeRoots`
+  scope* → census (§4.7) + forced-GC proof.
+* (d) *LIFO violation under panic unwind* → guards drop in
+  reverse-construction order; a debug assertion checks
+  `pop depth == push depth` on every frame exit.
+* (e) *A stale handle that survives an incomplete root scan* → the
+  generation check (§4.1) converts what was silent corruption in
+  revision 1 into a loud VM-internal panic with the culprit `(idx, gen)`;
+  the stale-handle unit test (§4.8) pins this.
 
 ### 4.5 What sweep does
 
-An unmarked entry is removed, its index goes to the free list, and
+An unmarked entry is removed, its generation counter is incremented
+(invalidating every outstanding handle to it — §4.1), its index goes to
+the free list, and
 dropping its `JObj` releases the `jclass` string and the slots vector
 (which recursively drops `Value`s — pure field drops, no recursive
 object destruction, since handles are plain integers). Free-list reuse
@@ -325,14 +424,18 @@ gives handle reuse after death — permitted by Java identity-hash rules
 
 ### 4.6 Identity and hashing
 
-* `==` (`if_acmpeq/ne`, `Object.equals`): handle equality — unchanged
-  semantics.
-* `Object.hashCode` / `System.identityHashCode`: **the handle value**
-  (natives.rs 107–113 changes from `Rc::as_ptr`). Stable for a live
-  object regardless of collection; distinct live objects have distinct
-  handles by construction. (HotSpot's identity hash is likewise
-  unspecified numerically; differential tests may only assert
-  self-consistency, which the fixture does — §4.8.)
+* `==` (`if_acmpeq/ne`, `Object.equals`): handle equality — `(idx, gen)`
+  pair equality; for a live object `gen` is constant (a rooted entry
+  never re-enters the free list), so equality semantics are exactly the
+  old reference equality.
+* `Object.hashCode` / `System.identityHashCode`: **the index component
+  `idx as i32`** (natives.rs 107–113 changes from `Rc::as_ptr`). Distinct
+  live objects have distinct indices by construction, and the value is
+  stable for a live object regardless of collection; `gen` is
+  deliberately excluded because hash stability is required only for
+  *live* objects, and a live object never shares its index. (HotSpot's
+  identity hash is likewise unspecified numerically; differential tests
+  may only assert self-consistency, which the fixture does — §4.8.)
 * String interning: interned literals are strong roots; `ldc` twice
   yields the same handle forever — matches the constant-pool guarantee
   and the existing `intern_returns_same_object` test.
@@ -353,13 +456,13 @@ argument for the new accessors.
 
 | Requirement | Detail |
 | --- | --- |
-| Files/modules affected | New `crates/j2r-runtime/src/heap.rs` (heap, mark/sweep, roots, thresholds, `JRef`); rewrite of `crates/j2r-runtime/src/{lib.rs, object.rs, array.rs, natives.rs, concat.rs}` (handle mechanics, closure accessors); `crates/j2r-codegen/src/emit.rs` (`gc_point()` emission before the 4 allocating opcodes; `statics.rs` template gains `gc_scan_roots`; `main.rs` template registers it); `crates/j2r-cli/tests/diff_suite.rs` (guard bump 36 → 39); `.github/workflows/ci.yml` (new gate-9, §9); docs RUNTIME_SAFETY.md §1/§2/§4 rewritten for the new ownership model |
+| Files/modules affected | New `crates/j2r-runtime/src/heap.rs` (heap, mark/sweep, generation tags, roots, thresholds, `JRef`, `GcFrame`); new `frame.rs` additions: `RootStack` registry + `NativeRoots` scopes; rewrite of `crates/j2r-runtime/src/{lib.rs, object.rs, array.rs, natives.rs, concat.rs}` (handle mechanics, gen-checked closure accessors); `crates/j2r-codegen/src/emit.rs` (`gc_point(GcFrame::current(...))` emission before the 4 allocating opcodes **and** root-snapshot refresh at every emitted call boundary; `statics.rs` template gains `gc_scan_roots`; `main.rs` template registers it); `crates/j2r-cli/tests/diff_suite.rs` (guard bump 36 → 39); `.github/workflows/ci.yml` (new gate-9, §9); docs RUNTIME_SAFETY.md §1/§2/§4 rewritten for the new ownership model |
 | Java semantic requirements | JLS: object reachability is the only observable; GC timing is not. Must preserve: reference identity and mutation visibility through any alias at any time (including across collections); interned-literal identity (JLS 3.10.5 / `String.intern`); JLS 5.1.7 boxed-cache identity; `Throwable` cause/suppressed graphs (cycles are ordinary objects — currently unimplementable via the two-arg constructor, but the object model must not preclude M3); array element aliasing; `StringBuilder`/`String` COW sharing |
-| Memory-safety implications | All safe Rust: `Vec<Entry>` (stable addresses, non-moving), `NonZeroU32` handles, `Cell<bool>` mark bits, explicit worklist. The rooting discipline is the safety kernel: §4.3's three-point argument + forced-GC mode. Dangling handles are impossible in safe code (lookup by index always yields a valid entry or the object is unreachable and the handle provably dead); stale-handle *reuse* is ordinary Java memory-model behaviour. The Wave 2 frame-scan extension follows the safe-Rust preference order specified in §3.2/§4.4 (scoped-lifetime access during marking first); if quarantined raw pointers survive review they live only in `frame.rs` with the LIFO + collection-point argument written above their definition |
-| Performance tradeoffs | Wins: no refcount traffic on any `Value` clone (operand stack, locals, args); `Option<JRef>` becomes `Copy` (4 B); allocation is a free-list pop instead of `malloc`. Costs: mark pauses proportional to live objects; non-moving arena retains free-list fragmentation; ~1 word header per object. Expected net: neutral to faster on the fixture suite; the evidence doc records wall-clock before/after with a ±20 % acceptance band (§8) |
+| Memory-safety implications | All safe Rust: `Vec<Entry>` (stable addresses, non-moving), generation-tagged handles (`idx` + `gen`), `Cell<bool>` mark bits, explicit worklist. The rooting discipline is the safety kernel and is now **settled and pointer-free** (§4.4): direct current-frame scan, owned per-frame snapshot slots, `NativeRoots` scopes — zero raw pointers, zero `unsafe` (mechanically enforced by gate-10). A stale handle can never silently alias: the `gen` check in every heap accessor panics with a diagnostic in all builds (§4.1) |
+| Performance tradeoffs | Wins: no refcount traffic on any `Value` clone (operand stack, locals, args); `Option<JRef>` becomes `Copy` (8 B with generation tag); allocation is a free-list pop instead of `malloc`. Costs: one `gen` compare per object access; mark pauses proportional to live objects; non-moving arena retains free-list fragmentation; ~1 word header per object; root-snapshot refresh (copy the frame's ref handles into the owned slot) at every call boundary — linear in the frame's live ref count, expected single-digit ns on typical frames. Expected net: neutral to faster on the fixture suite; the evidence doc records wall-clock before/after with a ±20 % acceptance band (§8) |
 | Differential tests vs OpenJDK | New fixtures: (1) `Cycles.java` — builds and drops cyclic graphs (linked ring + `Throwable`-shaped mutual graph via fields) in a deterministic loop, prints progress values; identical output on both JVMs proves cycle *semantics* (reachability) are unaffected; (2) `GcIdentity.java` — aliases one object through an array and a field, mutates via one path, reads via the other after printing checkpoints (collections may or may not have fired — output identical either way, which is the point); (3) `InternAcrossGc.java` — `ldc` identity asserted before/after churn-heavy code (`x == y` stays true). Plus the **same 39-fixture suite re-run in forced-GC mode** (`J2R_GC_EVERY_N=1`) as a CI gate: every fixture must produce byte-identical output with a collection at every allocation — the rooting proof |
-| Regression tests | Unit tests in `heap.rs`: unreachable cycle collected / reachable cycle kept; array children marked; intern + boxed + `System.out` roots kept; statics-scan hook keeps a static-referenced object; free-list reuse does not resurrect (a stale handle's index is reused, and old handles held by *dead* frames can never be dereferenced because frames pop LIFO before sweep); worklist marking on a 1 M-node list does not overflow; `gc_point` re-entrancy debug assertion fires; threshold policy math. Census re-issue (§4.7). All 125 existing tests stay green |
-| Measurable acceptance criteria | (a) All existing gates green + new gate-9 (forced-GC differential suite) green. (b) A native stress test loops 200 000 build-and-drop cycle allocations with 10 live objects and asserts `Heap::high_water() < 64` entries — the R1 leak is gone, numerically. (c) Differential suite wall-clock within ±20 % of the Wave 1 baseline, recorded in the evidence doc. (d) `rg "unsafe"` over the workspace returns nothing (or only the reviewed, documented exception if the Wave 2 frame scan required one — stated, not hidden). (e) native unit test: `Object.hashCode` returns the same value for a live object before and after forced collections (the differential side is covered by `InternAcrossGc.java`) |
+| Regression tests | Unit tests in `heap.rs`: unreachable cycle collected / reachable cycle kept; array children marked; intern + boxed + `System.out` roots kept; statics-scan hook keeps a static-referenced object; **stale handles cannot alias**: an object dies, its index is reused by a new object, the old handle's `(idx, gen)` mismatches — dereferencing it panics with the stale-handle diagnostic (pinned via `catch_unwind`), and the new object's fields are untouched; a *rooted* object's handle survives any number of forced collections with `gen` unchanged; a suspended-caller snapshot keeps a handle alive across a collection fired inside the callee; worklist marking on a 1 M-node list does not overflow; `gc_point` re-entrancy debug assertion fires; threshold policy math. Census re-issue (§4.7) including the `NativeRoots` dispatch-site inventory. All 125 existing tests stay green |
+| Measurable acceptance criteria | (a) All existing gates green + new gate-9 (forced-GC differential suite) green. (b) A native stress test loops 200 000 build-and-drop cycle allocations with 10 live objects and asserts `Heap::high_water() < 64` entries — the R1 leak is gone, numerically. (c) Differential suite wall-clock within ±20 % of the Wave 1 baseline, recorded in the evidence doc. (d) `rg "unsafe"` over the workspace returns nothing — there is no documented exception: the root mechanism is pointer-free (§4.4). (e) Native unit test: `Object.hashCode` returns the same value for a live object before and after forced collections (the differential side is covered by `InternAcrossGc.java`). (f) Stale-handle unit test green: reuse with bumped `gen` panics on dereference; new object intact. (g) Codegen unit test: every emitted `invoke*` site is immediately preceded by a root-snapshot refresh. (h) `rg "as_ptr|from_raw"` over `crates/` returns nothing (the last `Rc::as_ptr`, in `Object.hashCode`, is removed by §4.6). |
 
 ---
 
@@ -371,17 +474,25 @@ The verifier already computes exactly what is needed: for every pc, the
 `VTy` of every stack slot and local (§1.2). Wave 3 *retains* that shape
 instead of discarding it and emits specialized storage:
 
-* For a method where every stack position's primitive kind is stable
-  across all pcs where that position is live, emit typed slot arrays
-  (`stack_i: [i32; k]`, `stack_l: [i64; m]`, `stack_f`, `stack_d`; refs
-  stay in the existing `Vec<Value>` shape) and direct typed operations —
-  `pop_int` becomes an indexed read, `Value::Int` boxing disappears from
-  the hot path entirely.
-* Where a position's kind varies by pc (the verifier's kind-stable-join
-  rule allows different positions to change kind between program
-  points), or anything else is unclear, **the method falls back to the
-  current uniform emission**. The decision is per-method, made by a new
-  `specialize.rs` pass whose inputs and invariants are unit-tested;
+* **Scope (review blocker 5): specialization covers operand-stack
+  positions *and* local-variable slots.** For a method where every stack
+  position's and every live local slot's primitive kind is stable across
+  all pcs where it is live, emit typed primitive storage
+  (`p_i: [i32; k]`, `p_l: [i64; m]`, `p_f`, `p_d` — stack positions and
+  locals share the per-kind pools, indexed by a mapping precomputed by
+  `specialize.rs`) and direct typed operations — `pop_int` becomes an
+  indexed read, `Value::Int` boxing disappears from the hot path
+  entirely. **References never leave `Vec<Value>` storage** (ref stack
+  positions, ref locals and `thrown` stay exactly as they are), so the
+  Wave-2 GC scan surface `GcFrame::current(&locals, &stack, &thrown)`
+  is unchanged by construction.
+* Where any stack position's or local slot's kind varies by pc (the
+  verifier's kind-stable-join rule allows different slots to change kind
+  between program points), or anything else is unclear, **the whole
+  method falls back to the current uniform emission** — the decision is
+  per-method all-or-nothing, never a partial mix, so there is exactly one
+  frame shape per method and one scan surface. The decision is made by a
+  new `specialize.rs` pass whose inputs and invariants are unit-tested;
   correctness never depends on specialization succeeding.
 * This is a codegen-only change: the runtime, ABI and heap are untouched,
   so it cannot regress GC or semantics beyond codegen bugs — which the
@@ -392,23 +503,29 @@ instead of discarding it and emits specialized storage:
 Sub-step 3a delivers the shape-extraction and representation
 infrastructure plus the decision logic **and a written report** of how
 many fixture methods specialize (expected: the arithmetic-heavy
-majority). Sub-step 3b delivers the emission. If 3a's report shows the
-coloring complexity is out of proportion (e.g. half the methods fall
-back), the wave ends after 3a with the recommendation recorded and
-unspecialized emission unchanged — M2 remains complete without it, since
-§3 and §4 carry the semantic weight of the milestone.
+majority). The report tabulates, per method: stack positions
+specialized, local slots specialized, and the fallback reason code —
+so the delivered scope (stacks *and* locals, §5.1) is always visible
+and never overstated. Sub-step 3b delivers the emission. If 3a's report
+shows the combined complexity is out of proportion (e.g. half the
+methods fall back), the documented **reduced scope** is operand-stack-
+only specialization with locals left uniform — decided and recorded at
+the 3a checkpoint, never silently. The wave may also end after 3a with
+the recommendation recorded and unspecialized emission unchanged — M2
+remains complete without it, since §3 and §4 carry the semantic weight
+of the milestone.
 
 ### 5.3 Per-change specification
 
 | Requirement | Detail |
 | --- | --- |
-| Files/modules affected | `crates/j2r-codegen/src/verify.rs` (export the per-pc `State` shapes behind a `pub struct StackShape`); new `crates/j2r-codegen/src/specialize.rs` (slot analysis + decision); `crates/j2r-codegen/src/emit.rs` (hybrid emission, per-method dispatch to specialized or uniform body) |
+| Files/modules affected | `crates/j2r-codegen/src/verify.rs` (export the per-pc `State` shapes — stack *and* locals — behind a `pub struct StackShape`); new `crates/j2r-codegen/src/specialize.rs` (stack+locals slot analysis, pool mapping, per-method decision); `crates/j2r-codegen/src/emit.rs` (hybrid emission, per-method dispatch to specialized or uniform body) |
 | Java semantic requirements | None new — this wave changes *representation only*. Every observable (overflow wrapping, NaN behaviour, int/long shifts, category-2 slot semantics) must be bit-identical, enforced by the unchanged differential suite |
-| Memory-safety implications | Typed slot arrays are plain Rust values in the frame; the FrameGuard scan (GC roots) must scan whichever representation a method uses — the specialized frame exposes the same `scan` surface, so the GC invariant of §4.3 is preserved by construction. Unit test: a specialized method holding the only reference to an object across a forced collection keeps it alive |
+| Memory-safety implications | Typed primitive pools are plain Rust values in the frame; **references never leave `Vec<Value>` storage**, so `GcFrame::current(&locals, &stack, &thrown)` scans identical shapes with or without specialization — the GC invariant of §4.4 is preserved by construction, not by a second scan implementation. Unit tests: a specialized method holding the only reference to an object across a forced collection keeps it alive; a specialized method's local slot round-trips values across a loop back-edge |
 | Performance tradeoffs | Removes `Value` boxing/tag checks from arithmetic, local traffic and dup families on specialized methods. Measured via a deterministic benchmark (see acceptance); target ≥ 1.3× on arithmetic-recursion fixtures (e.g. fib(28)-shaped), *with the explicit understanding that if the gain does not materialize the wave's value is still the shape infrastructure* (recorded honestly) |
 | Differential tests vs OpenJDK | No new fixtures required — the 39-fixture suite (including `IntOverflow`, `FloatEdge`, `Shifts`, `LongOps`, `Casts`, `Arith`, `Arrays2D`, `JaggedNew`) is the test: byte-identical output with specialization on, which is the default path |
-| Regression tests | Unit tests in `specialize.rs`: kind-stability detection (a method whose slot 0 is `Int` at one pc and `Ref` at another falls back); category-2 slots occupy exactly one typed slot (our `Value` model) and never alias the wrong pool; fallback methods compile and run identically; FrameGuard scans specialized frames (see above) |
-| Measurable acceptance criteria | (a) All gates green; suite output byte-identical. (b) ≥ 60 % of fixture methods take the specialized path (recorded per fixture in the evidence doc). (c) Benchmark: repeated-run median ratio recorded; ≥ 1.3× on arithmetic fixtures or an honest no-gain finding with analysis. (d) A unit check asserts the generated Rust for a known arithmetic method contains no `Value::` construction on its hot path |
+| Regression tests | Unit tests in `specialize.rs`: kind-stability detection for stack positions *and* local slots (a method whose stack position or local slot is `Int` at one pc and `Ref` at another falls back); category-2 values occupy exactly one pool entry (our `Value` model) and never alias the wrong pool; local→pool index mapping matches the verifier's slot numbering; fallback methods compile and run identically; GcFrame scans specialized frames (see above) |
+| Measurable acceptance criteria | (a) All gates green; suite output byte-identical. (b) ≥ 60 % of fixture methods take the specialized path (recorded per fixture in the evidence doc, with per-method stack-position and local-slot counts). (c) Benchmark: repeated-run median ratio recorded; ≥ 1.3× on arithmetic fixtures or an honest no-gain finding with analysis. (d) A unit check asserts the generated Rust for a known arithmetic method contains no `Value::` construction on its hot path. (e) The 3a report states the delivered scope explicitly: "stacks + locals" or the documented reduced scope |
 
 ---
 
@@ -453,12 +570,18 @@ produces:
 ## 7. How the GC architecture supports real Java threads (evaluation required by the review)
 
 No thread code is written in M2 (`Thread`, `synchronized`, `wait`/`notify`
-remain loud compile errors). What M2 *must* do is shape the architecture
-so M3's threading is an extension, not a rewrite:
+remain loud compile errors). **Boundary statement (review blocker 4):
+M2 delivers no concurrency and claims none.** A `Copy` integer handle is
+necessary for a shared heap but nowhere near sufficient: it does not make
+the *heap* thread-safe. What M2 does is (a) keep the single-threaded heap
+correct and (b) leave architecture-shaped hooks so M3's migration is an
+extension rather than a rewrite. The M3 checklist below is a **plan for
+future review, not delivered capability**:
 
-* **Handles are the thread interface.** A `JRef` is a plain `u32` with no
-  thread affinity, so a second thread can hold references to shared
-  objects the same way the first one does — the opposite of the `Rc`
+* **Handles are the thread interface.** A `JRef` is a plain 8-byte
+  `(idx, gen)` value with no thread affinity, so a second thread can hold
+  references to shared objects the same way the first one does — the
+  opposite of the `Rc`
   world, where `!Send` forecloses sharing (risk R4).
 * **Roots are per-thread by design.** The Wave 1 frame registry is a
   `thread_local` stack of frame records; with N threads it becomes N such
@@ -482,6 +605,25 @@ so M3's threading is an extension, not a rewrite:
   in M3 (synchronized over the GC heap; happens-before via
   acquire/release on monitor enter/exit). Reserving *layout thought*
   now costs nothing; reserving *code* now would be speculative sloppiness.
+* **Shared statics (M3).** Java `static` fields are process-global; M2's
+  generated statics pool is `thread_local` — correct only because M2 is
+  single-threaded, an acknowledged deviation that becomes a defect the
+  moment a second thread exists. M3 moves the pool behind the shared heap
+  container; the `gc_scan_roots` hook (§4.4) is the seam it plugs into.
+* **Stop-the-world coordination (M3).** `gc_point` becomes a safepoint
+  poll: a global "GC requested" flag; arriving threads park; the collector
+  scans **all registered threads'** `RootStack` registries plus the shared
+  roots, then releases. M2's single-threaded poll shape (§4.3) is exactly
+  this minus the parking.
+* **Shared identity structures (M3).** The intern cache and the boxed-
+  value identity cache must become process-global with internal locking,
+  because JLS 5.1.7 boxed identity and `String.intern` identity must hold
+  **across** threads. Per-thread caches would be a semantic bug; M2's
+  thread-local versions are correct only single-threaded.
+* **Per-thread root registration (M3).** Each Java thread registers its
+  `RootStack` in a runtime-side thread registry at birth and unregisters
+  at death; the collector iterates it. Nothing in Wave 1/2 hard-codes
+  "exactly one registry" (§4.4).
 
 ---
 
@@ -558,3 +700,12 @@ for architectural review before coding"* — implementation of Wave 1 does
 not begin until this plan is approved. After approval, each wave ships
 with its own evidence record and green CI, and the completed milestone
 receives the same external review M1 received.
+
+**Revision history.** Revision 1 (commit `2dcd031`): original plan,
+verdict REQUEST CHANGES with six blockers. Revision 2 (this commit):
+blockers 1–6 resolved — settled pointer-free root protocol (§4.4),
+generation-tagged handles (§4.1/§4.5/§4.6), SOE hard ceiling + boundary
+tests (§3), threading boundary + M3 checklist (§7), stacks-and-locals
+specialization scope (§5), README contradictions fixed. Wave 1 remains
+blocked until this revision passes architectural re-review; M1/M1.5/
+M1.6 code and tests are untouched and stay green.

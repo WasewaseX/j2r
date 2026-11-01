@@ -87,9 +87,9 @@ A **coverage & robustness pass** (M1.6) added on top:
 
 Unsupported features are **compile errors with a precise message** — never
 silent miscompiles. Currently: `jsr`/`ret` (pre-Java-6 bytecode),
-`multianewarray`, `monitorenter`/`exit`, `synchronized` methods, `ldc` of
-class constants, native methods, most of the JDK beyond the natives list,
-and true threads.
+`monitorenter`/`exit`, `synchronized` methods, `ldc` of class constants,
+native methods, most of the JDK beyond the natives list, and true threads.
+(`multianewarray` was implemented in M1.6 — see the feature list above.)
 
 See [ROADMAP.md](ROADMAP.md) for the plan to close these gaps and reach
 Minecraft.
@@ -164,7 +164,7 @@ $ cargo test                       # 110 unit tests + malformed/e2e + 34-fixture
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 ```
 
-The differential suite (`crates/j2r-cli/tests/suite/*.java`, 18 programs)
+The differential suite (`crates/j2r-cli/tests/suite/*.java`, 34 programs)
 skips itself gracefully when no JDK is present; CI installs Temurin 21.
 Runtime guarantees and the panic-path inventory live in
 [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).
