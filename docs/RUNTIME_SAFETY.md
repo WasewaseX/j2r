@@ -1,33 +1,55 @@
 # Runtime safety — ownership, cycles, and panic paths
 
-This document states precisely what the milestone-1 runtime (`j2r-runtime`)
-guarantees, what it deliberately does not, and how every panic path is
-prevented from being reachable. It is the reference for the claims that may
-be made about the current **single-threaded** milestone, and it will be
-revised — not silently widened — when threads and the tracing GC land.
+This document states precisely what the runtime (`j2r-runtime`) guarantees,
+what it deliberately does not, and how every panic path is prevented from
+being reachable. It is the reference for the claims that may be made about
+the current **single-threaded** milestone, and it will be revised — not
+silently widened — when threads land. **M2 Wave 2 revision (arena tracing
+GC):** the `Rc` heap was replaced by a generation-tagged handle arena
+(`docs/M2_PLAN.md` §4); the census in §4 below was re-issued for the new
+access model.
 
 ## 1. The ownership model
 
 Every Java object lives in exactly one shape:
 
 ```text
-JRef = Rc<RefCell<JObj>>          // shared, mutable, single-threaded
-JObj { jclass: Rc<str>,           // runtime class / array descriptor
-       slots:  Vec<Value> }       // flattened field slots
+JRef = { idx: NonZeroU32, gen: u32 }      // Copy handle into the arena
+JObj { jclass: Rc<str>,                   // runtime class / array descriptor
+       slots:  Vec<Value> }               // flattened field slots
+heap:  thread_local Vec<Option<Entry>>    // non-moving arena, mark-sweep GC
 ```
 
-* **Sharing** models Java reference semantics: two variables can point at
-  the same object, and `Rc::ptr_eq` is Java's `==`.
-* **Interior mutability** (`RefCell`) models Java's mutable fields; every
-  access is dynamically checked, so there is no `unsafe`, no aliasing UB,
-  and a mis-nested borrow is a controlled panic — never memory corruption.
+* **Handles, not pointers.** A `JRef` is an 8-byte `(idx, gen)` pair —
+  `Copy`, so `Value` drops its refcount traffic. Java identity (`==`) is
+  `(idx, gen)` pair equality; for a live object `gen` never advances.
+* **Stale handles cannot alias.** Sweep bumps a freed slot's generation;
+  every object access (`heap::with_obj` / `with_obj_mut` and every helper
+  built on them) checks the generation first and **panics loudly on
+  mismatch in all builds** (`j2r: stale JRef (idx=.., gen=..) — GC rooting
+  bug`). A recycled slot can never silently serve an old handle
+  (M2_PLAN §4.1).
+* **Interior mutability** (`RefCell` per object) models Java's mutable
+  fields; every access is dynamically checked, so there is no `unsafe`
+  (mechanically enforced by `#![forbid(unsafe_code)]` in every crate root),
+  no aliasing UB, and a mis-nested borrow is a controlled panic — never
+  memory corruption.
+* **Collection** runs only at explicit collection points emitted before the
+  four allocating opcodes; roots come from frame snapshots, the statics
+  pool and the runtime caches (M2_PLAN §4.3/§4.4). Marking is an iterative
+  worklist — never recursion — and marks are `Cell<bool>` beside, not
+  inside, the object's `RefCell`.
 * **`Value::Str(Rc<String>)`** is the character payload of `String` /
   `StringBuilder` objects. Mutations go through `Rc::make_mut`
   (copy-on-write), so a `String` aliasing a `StringBuilder` buffer is never
   mutated in place — `sb.toString()` then `sb.append(...)` behaves exactly
-  like the JDK.
+  like the JDK. Payloads are not in the object graph; a dying String
+  object's payload dies with its slot vector, and any `StringBuilder`
+  alias keeps it alive by refcount — pinned by the `Cycles`/
+  `InternAcrossGc` fixtures and the forced-GC suite (gate-9).
 * Interning (`object::intern_string`) maps equal literals to one object,
-  matching constant-pool identity; the cache is `thread_local`.
+  matching constant-pool identity; the cache is `thread_local` and is
+  scanned as a permanent root set.
 
 ## 2. What is safe to claim today (single-threaded milestone)
 
@@ -39,17 +61,14 @@ JObj { jclass: Rc<str>,           // runtime class / array descriptor
    identity hashing behave like the JVM.
 3. **Determinism.** With one thread and no external state, a compiled
    program is deterministic for a given input.
-4. **Cycles leak memory — they do not corrupt behavior.** An object graph
-   with a reference cycle is never collected by `Rc`. Precisely: the
-   objects stay reachable (correct semantics — the program can still read
-   them), the memory is freed only at process exit, and *nothing else*
-   changes: no double-free, no resurrection, no wrong values. The honest
-   boundary: a long-running program that allocates unbounded cyclic graphs
-   will eventually exhaust memory — at that point the process aborts like
-   any out-of-memory native program. For the milestone's target
-   (correctness of bounded, batch-style Java programs) this is acceptable
-   and is exactly why the roadmap puts a tracing, cycle-collecting GC
-   before any long-running or threaded workload (M2).
+4. **Cycles are reclaimed.** (Revised in Wave 2: this was the `Rc` heap's
+   documented leak.) The tracing mark-sweep collector reclaims unreachable
+   cyclic graphs; the 200 000-cycle stress test asserts the arena stays
+   under 64 live slots with 10 live objects, and the `Cycles` differential
+   fixture pins the observable semantics (identical output on HotSpot and
+   J2R, which is all Java lets a program observe). A configurable heap
+   limit with catchable `OutOfMemoryError` remains out of scope (M2_PLAN
+   §10).
 5. **Single-threaded execution is an architectural invariant, not an
    accident.** The statics pool, init flags, intern cache, boxed-value
    cache (the JLS-mandated `-128..127` identity objects) and `System.out`
@@ -91,26 +110,36 @@ compiler accepts. Malformed bytecode is rejected earlier as a structured
 on the runtime's exception tables), catchable by compiled code exactly like
 the JVM.
 
-## 4. Reentrancy (RefCell double-borrow) audit
+## 4. Reentrancy (RefCell double-borrow) audit — re-issued for the arena heap
 
 A `RefCell` panic would require a borrow held *across* a call that can
-re-enter the same object. The runtime was audited site by site; the census
-below counts non-test `.borrow()` / `.borrow_mut()` sites per file
-(natives.rs 30, object.rs 6, array.rs 4, lib.rs 5; concat.rs has no direct
-borrow — its 4 string reads borrow through `object::string_value`, counted
-under object.rs; the `intern_string`/`BOXED_CACHE` RefCells cache
-`Rc<str>`/`JRef` keys and cannot re-enter user code):
+re-enter the same object. The census below counts non-test
+`.borrow()` / `.borrow_mut()` sites per file after the Wave-2 conversion
+(object accesses now go through `heap::with_obj` / `with_obj_mut`):
 
-* every borrow scope is statement-local or ends before the function
-  dispatches into user code (`format_ref` releases the string borrow before
-  calling `toString`; `PrintStream` natives read the sink id, drop the
-  borrow, then format; `checkcast`/`instanceof`/`invoke_virtual` clone the
-  `jclass` string and drop the borrow before dispatching; boxed `equals`
-  clones both payloads and drops both borrows before comparing);
-* user code runs only through `invoke_virtual` / generated calls, none of
-  which hold a runtime borrow;
+* **JObj borrows: 3, all inside the heap kernel** (`heap.rs`):
+  `with_obj` (shared), `with_obj_mut` (exclusive) and the mark loop's child
+  scan during collection. Every runtime and native access to object state
+  goes through those two scoped accessors — **zero direct object borrows
+  remain in `natives.rs`, `object.rs`, `array.rs`, `concat.rs` or `lib.rs`**
+  (verified by grep; the pre-Wave-2 census counted 45 sites).
+* The remaining borrow sites are plain non-object containers: the frame
+  slot registry (frame.rs 16), the heap/stats containers (heap.rs), the
+  intern cache and `System.out` handle (object.rs 4) and the boxed-identity
+  cache (natives.rs 2). None of them can re-enter user code: their values
+  are indices, handles and cached map entries.
+* Every object-access closure is statement-local by construction (the
+  accessor takes `FnOnce(&JObj) -> T` and returns before the next
+  instruction), so the old discipline — no borrow held across a dispatch
+  into user code — is now enforced by the type system rather than by
+  audit.
+* User code runs only through `invoke_virtual` / generated calls, which
+  hold no heap borrow.
 * `StringBuilder`/`String` sharing uses `Rc::make_mut` (ownership transfer,
   no borrow held).
+* Nested `with_obj` on the *same* handle inside a closure panics exactly
+  like the old `RefCell` discipline — and no such site exists (the
+  accessors' closures never call accessors).
 
 No reentrancy path exists in the current instruction set. This audit must
 be repeated whenever a native gains a callback into user code (e.g. future
@@ -118,11 +147,17 @@ be repeated whenever a native gains a callback into user code (e.g. future
 
 ## 5. Known, documented gaps (not silent)
 
-* **No tracing GC** — cyclic graphs leak (see §2.4). Tracked as M2.
-* **No `StackOverflowError`** — deep recursion exhausts the (large)
-  pre-allocated thread stack and aborts the process. Tracked as M2.
+* ~~**No tracing GC** — cyclic graphs leak~~ — **resolved in M2 Wave 2**
+  (arena mark-sweep collector; see §2.4 and `docs/M2_EVIDENCE.md`).
+* ~~**No `StackOverflowError`**~~ — **resolved in M2 Wave 1**: deep
+  recursion throws a catchable `StackOverflowError`; the frame registry's
+  hard ceiling is derived from the measured per-frame native-stack
+  footprint (`frame.rs`, M2_PLAN §3.1.1).
 * **No threads / monitors** — `Thread`, `synchronized` (blocks and
-  methods), `wait`/`notify` are compile errors with precise messages.
+  methods), `wait`/`notify` are compile errors with precise messages. M2
+  delivers no concurrency and claims none (M2_PLAN §7); the M3 migration
+  checklist (shared heap, shared statics, stop-the-world coordination,
+  per-thread root registration) is a plan for future review.
 * **Uncaught-exception reporting** prints the type and message exactly, but
   not JVM stack frames (no `LineNumberTable` support yet); the
   differential harness normalizes frame lines and nothing else.

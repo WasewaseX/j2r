@@ -48,7 +48,7 @@ fn bool_string(i: i32) -> String {
 }
 
 /// Renders a reference: `null`, string contents, or `toString()` dispatch.
-pub fn format_ref(r: Option<&crate::object::JRef>, ctx: Dispatch) -> Result<String, Throw> {
+pub fn format_ref(r: Option<&crate::heap::JRef>, ctx: Dispatch) -> Result<String, Throw> {
     match r {
         None => Ok("null".to_string()),
         Some(obj) => {

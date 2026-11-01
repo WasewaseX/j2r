@@ -15,7 +15,8 @@
 //! * string lengths, indices and hashes follow Java's UTF-16 semantics.
 
 use crate::concat;
-use crate::object::{self, is_string, new_obj, JRef};
+use crate::heap::JRef;
+use crate::object::{self, is_string, new_obj};
 use crate::Value;
 use crate::{internal_error, javafmt, throw_new, Dispatch, NativeFn, Throw};
 use std::cell::RefCell;
@@ -63,7 +64,9 @@ fn println_print(
     newline: bool,
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
-    let sink = this(recv, "PrintStream method").borrow().slots[0].expect_int();
+    let sink = crate::heap::with_obj(*this(recv, "PrintStream method"), |o| {
+        o.slots[0].expect_int()
+    });
     let text = match kind {
         'N' => String::new(),
         _ => concat::format_value(arg(args, "PrintStream"), kind, ctx)?,
@@ -110,7 +113,9 @@ fn n_object_hash_code(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "Object.hashCode");
-    Ok(Value::Int(Rc::as_ptr(r) as *const u8 as usize as i32))
+    // Identity hash = the arena index: distinct for distinct live objects,
+    // stable for a live object across collections (M2_PLAN §4.6).
+    Ok(Value::Int(r.index() as i32))
 }
 
 fn n_object_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
@@ -128,12 +133,17 @@ fn n_object_to_string(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "Object.toString");
-    let cls = dotted(&r.borrow().jclass);
-    let hash = Rc::as_ptr(r) as *const u8 as usize as i32;
+    let (cls, hash) = crate::heap::with_obj(*r, |o| (dotted(&o.jclass), o_slots_identity(r)));
     Ok(Value::Ref(Some(object::new_string(&format!(
         "{cls}@{}",
         javafmt::int_to_hex_string(hash)
     )))))
+}
+
+/// The identity-hash component for `Object.toString` (`Class@hash`): the
+/// arena index, stable for a live object (M2_PLAN §4.6).
+fn o_slots_identity(r: &JRef) -> i32 {
+    r.index() as i32
 }
 
 // ---------------------------------------------------------------- System
@@ -283,7 +293,7 @@ fn utf16_units(s: &str) -> Vec<u16> {
 
 fn n_string_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "String.<init>");
-    r.borrow_mut().slots[0] = Value::Str(Rc::new(String::new()));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(String::new())));
     Ok(Value::Void)
 }
 
@@ -294,7 +304,7 @@ fn n_string_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resul
         _ => return Err(internal_error("String.<init>(String) needs a String")),
     };
     let text = object::string_value(o).to_string();
-    r.borrow_mut().slots[0] = Value::Str(Rc::new(text));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
     Ok(Value::Void)
 }
 
@@ -393,24 +403,22 @@ fn n_string_value_of_l(_r: Option<&JRef>, args: &[Value], c: Dispatch) -> Result
 // ---------------------------------------------------------------- StringBuilder
 
 fn sb_text(r: &JRef) -> Rc<String> {
-    let b = r.borrow();
-    match &b.slots[0] {
+    crate::heap::with_obj(*r, |b| match &b.slots[0] {
         Value::Str(s) => s.clone(),
         other => panic!("j2r internal: StringBuilder slot0 is {other:?}"),
-    }
+    })
 }
 
 fn sb_push_str(r: &JRef, text: &str) {
-    let mut b = r.borrow_mut();
-    match &mut b.slots[0] {
+    crate::heap::with_obj_mut(*r, |b| match &mut b.slots[0] {
         Value::Str(s) => Rc::make_mut(s).push_str(text),
         other => panic!("j2r internal: StringBuilder slot0 is {other:?}"),
-    }
+    })
 }
 
 fn n_sb_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "StringBuilder.<init>");
-    r.borrow_mut().slots[0] = Value::Str(Rc::new(String::new()));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(String::new())));
     Ok(Value::Void)
 }
 
@@ -425,7 +433,7 @@ fn n_sb_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Va
         }
     };
     let text = object::string_value(o).to_string();
-    r.borrow_mut().slots[0] = Value::Str(Rc::new(text));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
     Ok(Value::Void)
 }
 
@@ -463,7 +471,7 @@ fn n_sb_length(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<V
 
 fn n_throwable_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "Throwable.<init>");
-    r.borrow_mut().slots[0] = Value::Ref(None);
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Ref(None));
     Ok(Value::Void)
 }
 
@@ -474,7 +482,7 @@ fn n_throwable_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Re
         Value::Ref(Some(o)) if is_string(o) => Value::Ref(Some(o.clone())),
         other => return Err(internal_error(&format!("Throwable.<init> arg {other:?}"))),
     };
-    r.borrow_mut().slots[0] = msg;
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = msg);
     Ok(Value::Void)
 }
 
@@ -484,7 +492,7 @@ fn n_throwable_get_message(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "Throwable.getMessage");
-    Ok(r.borrow().slots[0].clone())
+    Ok(crate::heap::with_obj(*r, |o| o.slots[0].clone()))
 }
 
 fn n_throwable_to_string(
@@ -493,8 +501,8 @@ fn n_throwable_to_string(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "Throwable.toString");
-    let cls = dotted(&r.borrow().jclass);
-    let msg = match &r.borrow().slots[0] {
+    let cls = dotted(&crate::heap::with_obj(*r, |o| o.jclass.clone()));
+    let msg = match &crate::heap::with_obj(*r, |o| o.slots[0].clone()) {
         Value::Ref(Some(o)) if is_string(o) => Some(object::string_value(o).to_string()),
         _ => None,
     };
@@ -586,7 +594,9 @@ macro_rules! boxed_class {
         }
         fn $unbox(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
             let r = this(recv, "unboxing");
-            Ok(Value::$slot_ret(r.borrow().slots[0].$slot_get()))
+            Ok(Value::$slot_ret(
+                crate::heap::with_obj(*r, |o| o.slots[0].clone()).$slot_get(),
+            ))
         }
         fn $to_string(
             recv: Option<&JRef>,
@@ -594,7 +604,7 @@ macro_rules! boxed_class {
             _ctx: Dispatch,
         ) -> Result<Value, Throw> {
             let r = this(recv, "boxed toString");
-            let v = r.borrow().slots[0].clone();
+            let v = crate::heap::with_obj(*r, |o| o.slots[0].clone());
             let text = concat::format_value(&v, $kind, Dispatch::default())?;
             Ok(Value::Ref(Some(object::new_string(&text))))
         }
@@ -608,9 +618,11 @@ macro_rules! boxed_equals {
     ($name:ident, $class:expr, $pat:pat => $conv:expr) => {
         fn $name(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
             let r = this(recv, "boxed equals");
-            let mine = r.borrow().slots[0].clone();
+            let mine = crate::heap::with_obj(*r, |o| o.slots[0].clone());
             let other = match &arg(args, "equals") {
-                Value::Ref(Some(o)) if &*o.borrow().jclass == $class => o.borrow().slots[0].clone(),
+                Value::Ref(Some(o)) if crate::heap::with_obj(*o, |obj| &*obj.jclass == $class) => {
+                    crate::heap::with_obj(*o, |obj| obj.slots[0].clone())
+                }
                 _ => return Ok(Value::Int(0)),
             };
             let a: i64 = match mine {
@@ -635,10 +647,12 @@ boxed_equals!(n_character_equals, "java/lang/Character", Value::Int(v) => v as i
 
 fn n_float_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "Float.equals");
-    let mine = r.borrow().slots[0].clone();
+    let mine = crate::heap::with_obj(*r, |o| o.slots[0].clone());
     let other = match &arg(args, "equals") {
-        Value::Ref(Some(o)) if &*o.borrow().jclass == "java/lang/Float" => {
-            o.borrow().slots[0].clone()
+        Value::Ref(Some(o))
+            if crate::heap::with_obj(*o, |obj| &*obj.jclass == "java/lang/Float") =>
+        {
+            crate::heap::with_obj(*o, |obj| obj.slots[0].clone())
         }
         _ => return Ok(Value::Int(0)),
     };
@@ -654,10 +668,12 @@ fn n_float_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result
 
 fn n_double_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "Double.equals");
-    let mine = r.borrow().slots[0].clone();
+    let mine = crate::heap::with_obj(*r, |o| o.slots[0].clone());
     let other = match &arg(args, "equals") {
-        Value::Ref(Some(o)) if &*o.borrow().jclass == "java/lang/Double" => {
-            o.borrow().slots[0].clone()
+        Value::Ref(Some(o))
+            if crate::heap::with_obj(*o, |obj| &*obj.jclass == "java/lang/Double") =>
+        {
+            crate::heap::with_obj(*o, |obj| obj.slots[0].clone())
         }
         _ => return Ok(Value::Int(0)),
     };
@@ -676,7 +692,9 @@ macro_rules! boxed_int_hash_code {
     ($name:ident) => {
         fn $name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
             let r = this(recv, "boxed hashCode");
-            Ok(Value::Int(r.borrow().slots[0].expect_int()))
+            Ok(Value::Int(
+                crate::heap::with_obj(*r, |o| o.slots[0].clone()).expect_int(),
+            ))
         }
     };
 }
@@ -692,23 +710,25 @@ fn n_boolean_hash_code(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "Boolean.hashCode");
-    Ok(Value::Int(if r.borrow().slots[0].expect_int() != 0 {
-        1231
-    } else {
-        1237
-    }))
+    Ok(Value::Int(
+        if crate::heap::with_obj(*r, |o| o.slots[0].clone()).expect_int() != 0 {
+            1231
+        } else {
+            1237
+        },
+    ))
 }
 
 fn n_long_hash_code(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "Long.hashCode");
-    let v = r.borrow().slots[0].expect_long();
+    let v = crate::heap::with_obj(*r, |o| o.slots[0].clone()).expect_long();
     Ok(Value::Int((v ^ (v >> 32)) as i32))
 }
 
 fn n_float_hash_code(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "Float.hashCode");
     Ok(Value::Int(float_to_int_bits(
-        r.borrow().slots[0].expect_float(),
+        crate::heap::with_obj(*r, |o| o.slots[0].clone()).expect_float(),
     )))
 }
 
@@ -718,7 +738,8 @@ fn n_double_hash_code(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "Double.hashCode");
-    let bits = double_to_long_bits(r.borrow().slots[0].expect_double());
+    let bits =
+        double_to_long_bits(crate::heap::with_obj(*r, |o| o.slots[0].clone()).expect_double());
     Ok(Value::Int((bits ^ (bits >> 32)) as i32))
 }
 
@@ -1398,6 +1419,25 @@ pub fn system_err() -> Value {
     Value::Ref(Some(object::system_err_ref()))
 }
 
+/// Collector hook: pushes the indices of every object held by the runtime's
+/// own permanent structures. The JLS 5.1.7 boxed-identity cache entries are
+/// permanent roots — `Integer.valueOf(127)` must return the same object for
+/// the whole process lifetime, across any number of collections.
+pub fn scan_runtime_roots(out: &mut Vec<u32>) {
+    BOXED_CACHE.with(|c| {
+        for r in c.borrow().values() {
+            out.push(r.index());
+        }
+    });
+}
+
+/// Test-only access to the boxed cache (heap unit tests use it to prove the
+/// cache is scanned as a root set).
+#[cfg(test)]
+pub fn boxed_cached_for_test(v: i64) -> Option<crate::heap::JRef> {
+    boxed_cached("java/lang/Integer", v, -128, 127)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1577,7 +1617,10 @@ mod tests {
     fn boxed_roundtrip() {
         let b = n_integer_value_of(None, &[Value::Int(5)], no_ctx()).unwrap();
         let r = b.expect_ref().unwrap();
-        assert_eq!(&*r.borrow().jclass, "java/lang/Integer");
+        assert_eq!(
+            crate::heap::with_obj(r, |o| o.jclass.to_string()),
+            "java/lang/Integer"
+        );
         assert_eq!(
             n_integer_int_value(Some(&r), &[], no_ctx())
                 .unwrap()

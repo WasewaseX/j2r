@@ -8,6 +8,7 @@
 //!   and compare **stdout, stderr and exit code** (stderr with JVM
 //!   stack-trace frames normalized away — see [`compare`]).
 
+#![forbid(unsafe_code)]
 mod compare;
 
 use compare::{streams_match, RunResult};

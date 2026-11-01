@@ -11,6 +11,8 @@
 //! `long`/`double` entries) and reports precise errors with the byte offset
 //! where parsing failed.
 
+#![forbid(unsafe_code)]
+
 use std::fmt;
 
 pub mod flags {

@@ -1,11 +1,18 @@
 //! Heap object model.
 //!
 //! Every Java object (including strings, boxed values, arrays and native
-//! JDK objects) is a [`JObj`] behind `Rc<RefCell<..>>` ([`JRef`]). Instance
-//! fields live in flattened `slots`, one slot per field regardless of the
-//! field's JVM width; the code generator assigns absolute slot indices
-//! across whole class hierarchies, so field access is a direct index.
+//! JDK objects) is a [`JObj`] living in the arena heap ([`crate::heap`]),
+//! addressed by generation-tagged `Copy` handles ([`JRef`], defined in
+//! `crate::heap`). Instance fields live in flattened `slots`, one slot per
+//! field regardless of the field's JVM width; the code generator assigns
+//! absolute slot indices across whole class hierarchies, so field access is
+//! a direct index.
+//!
+//! Object access goes through `crate::heap::with_obj` / `with_obj_mut` —
+//! the arena is a `thread_local`, so a `Ref` must never escape it
+//! (M2_PLAN §4.7).
 
+use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
 use crate::Value;
 use crate::{throw_new, Throw};
 use std::cell::RefCell;
@@ -22,14 +29,12 @@ pub struct JObj {
     pub slots: Vec<Value>,
 }
 
-pub type JRef = Rc<RefCell<JObj>>;
-
 /// Allocates a new object with `slots` default (Void) slots.
 pub fn new_obj(class: &str, slots: usize) -> Result<JRef, Throw> {
-    Ok(JRef::new(RefCell::new(JObj {
+    Ok(alloc(JObj {
         jclass: Rc::from(class),
         slots: vec![Value::Void; slots],
-    })))
+    }))
 }
 
 /// Allocates an object of a builtin JDK class with the right slot count.
@@ -45,30 +50,30 @@ pub fn new_builtin(class: &str) -> Result<JRef, Throw> {
 /// Reads a field slot (panics on out-of-range: a codegen bug, never a Java
 /// program error).
 pub fn obj_get(r: &JRef, idx: usize) -> Value {
-    r.borrow().slots[idx].clone()
+    with_obj(*r, |o| o.slots[idx].clone())
 }
 
 /// Writes a field slot.
 pub fn obj_set(r: &JRef, idx: usize, v: Value) {
-    r.borrow_mut().slots[idx] = v;
+    with_obj_mut(*r, |o| o.slots[idx] = v);
 }
 
 /// Creates a `java/lang/String` object.
 pub fn new_string(s: &str) -> JRef {
-    JRef::new(RefCell::new(JObj {
+    alloc(JObj {
         jclass: Rc::from("java/lang/String"),
         slots: vec![Value::Str(Rc::new(s.to_string()))],
-    }))
+    })
 }
 
 /// Creates a `java/lang/String` object sharing an existing character buffer
 /// (used by `StringBuilder.toString`, which is safe because `StringBuilder`
 /// mutations copy-on-write through `Rc::make_mut`).
 pub fn string_from_rc(s: Rc<String>) -> JRef {
-    JRef::new(RefCell::new(JObj {
+    alloc(JObj {
         jclass: Rc::from("java/lang/String"),
         slots: vec![Value::Str(s)],
-    }))
+    })
 }
 
 thread_local! {
@@ -81,29 +86,28 @@ pub fn intern_string(s: &str) -> JRef {
     INTERNED.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(existing) = cache.get(s) {
-            return existing.clone();
+            return *existing;
         }
         let r = new_string(s);
-        cache.insert(Rc::from(s), r.clone());
+        cache.insert(Rc::from(s), r);
         r
     })
 }
 
 /// True when `r` is a `java/lang/String` object.
 pub fn is_string(r: &JRef) -> bool {
-    &*r.borrow().jclass == "java/lang/String"
+    with_obj(*r, |o| &*o.jclass == "java/lang/String")
 }
 
 /// Extracts the character data of a String object (panics otherwise).
 pub fn string_value(r: &JRef) -> Rc<String> {
-    let b = r.borrow();
-    match &b.slots[0] {
+    with_obj(*r, |b| match &b.slots[0] {
         Value::Str(s) => s.clone(),
         other => panic!(
             "j2r internal: object {} is not a String: {other:?}",
             b.jclass
         ),
-    }
+    })
 }
 
 /// Builds a `String[]` for `main(String[] args)`.
@@ -113,10 +117,10 @@ pub fn new_string_array(items: &[String]) -> JRef {
     for item in items {
         slots.push(Value::Ref(Some(new_string(item))));
     }
-    JRef::new(RefCell::new(JObj {
+    alloc(JObj {
         jclass: Rc::from("[Ljava/lang/String;"),
         slots,
-    }))
+    })
 }
 
 /// `athrow`: pops the reference and turns it into a pending throw.
@@ -134,10 +138,10 @@ thread_local! {
 }
 
 fn native_stream(sink: i32) -> JRef {
-    JRef::new(RefCell::new(JObj {
+    alloc(JObj {
         jclass: Rc::from("java/io/PrintStream"),
         slots: vec![Value::Int(sink)],
-    }))
+    })
 }
 
 /// `java/lang/System.out` (sink id 1). Lazily created, process-wide.
@@ -147,7 +151,7 @@ pub fn system_out_ref() -> JRef {
         if r.is_none() {
             *r = Some(native_stream(1));
         }
-        r.clone().expect("just initialized")
+        r.expect("just initialized")
     })
 }
 
@@ -156,17 +160,35 @@ pub fn system_err_ref() -> JRef {
     native_stream(2)
 }
 
+/// Collector hook: pushes the indices of every object held by the runtime's
+/// own permanent structures (intern cache, `System.out`) into the root
+/// vector. Interned literals and the shared stdout stream are permanent
+/// roots, matching the JVM's constant-pool lifetime.
+pub fn scan_runtime_roots(out: &mut Vec<u32>) {
+    INTERNED.with(|c| {
+        for r in c.borrow().values() {
+            out.push(r.index());
+        }
+    });
+    OUT_REF.with(|r| {
+        if let Some(x) = r.borrow().as_ref() {
+            out.push(x.index());
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::heap::{with_obj, with_obj_mut};
 
     #[test]
     fn intern_returns_same_object() {
         let a = intern_string("hello-intern");
         let b = intern_string("hello-intern");
-        assert!(Rc::ptr_eq(&a, &b));
+        assert!(JRef::ptr_eq(&a, &b));
         let c = intern_string("other");
-        assert!(!Rc::ptr_eq(&a, &c));
+        assert!(!JRef::ptr_eq(&a, &c));
     }
 
     #[test]
@@ -179,7 +201,17 @@ mod tests {
     #[test]
     fn string_array_layout() {
         let arr = new_string_array(&["a".into(), "b".into()]);
-        assert_eq!(&*arr.borrow().jclass, "[Ljava/lang/String;");
-        assert_eq!(arr.borrow().slots[0].expect_int(), 2);
+        let cls = with_obj(arr, |o| o.jclass.to_string());
+        assert_eq!(cls, "[Ljava/lang/String;");
+        assert_eq!(with_obj(arr, |o| o.slots[0].clone()).expect_int(), 2);
+    }
+
+    #[test]
+    fn obj_mut_writes_are_visible() {
+        let r = new_obj("test/M", 2).unwrap();
+        obj_set(&r, 0, Value::Int(7));
+        with_obj_mut(r, |o| o.slots[1] = Value::Int(9));
+        assert_eq!(obj_get(&r, 0).expect_int(), 7);
+        assert_eq!(obj_get(&r, 1).expect_int(), 9);
     }
 }

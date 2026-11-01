@@ -46,10 +46,12 @@ per-change specifications live in M2_PLAN.
 | M2 plan revision 2.1 — plan-time stack-footprint calibration for blocker 3 (measured 208–304 B/frame; const 512 B; ceiling 131 072) | `350ae1d` | 41299060088 SUCCESS | M2_PLAN §3.1.1 |
 
 Current test inventory (re-verified locally 2026-11-01, Temurin 21.0.13 at
-`/tmp/jdk21`, after a full sandbox/toolchain rebuild): **133 tests, 0
-failures**, including the 36-fixture differential suite vs the real JVM
-(~62 s wall-clock), the 12 malformed-classfile e2e tests and the Wave-1
-SOE boundary-matrix e2e. Zero `unsafe` (`rg "unsafe" crates/` is empty).
+`/tmp/jdk21`): **151 tests, 0 failures**, including the 39-fixture
+differential suite vs the real JVM (~76 s), the 12 malformed-classfile e2e
+tests, the Wave-1 SOE boundary-matrix e2e, and **the 39-fixture suite
+re-run byte-identical under forced collection at every allocation**
+(`J2R_GC_EVERY_N=1`, 75.9 s — the rooting proof, CI gate-9). Zero `unsafe`
+is compiler-enforced (`#![forbid(unsafe_code)]` in every crate root).
 
 ---
 
@@ -127,40 +129,40 @@ acceptance criteria) live in the M2_PLAN section shown in each wave heading.
 - [x] **T10** Wave-1 evidence record in `docs/M2_EVIDENCE.md` + all CI
   gates green (run recorded in ROADMAP §2).
 
-### Wave 2 — tracing, cycle-collecting arena GC (M2_PLAN §4)
+### Wave 2 — tracing, cycle-collecting arena GC (M2_PLAN §4) — DONE
 
-- [ ] **T11** `crates/j2r-runtime/src/heap.rs`: `Vec<Entry>` arena,
+- [x] **T11** `crates/j2r-runtime/src/heap.rs`: `Vec<Entry>` arena,
   generation-tagged `JRef { idx, gen }` (Copy; stale dereference panics
   loudly — no silent aliasing), free list, non-recursive worklist
   mark/sweep, collection thresholds, `J2R_GC_EVERY_N` forced-GC mode; unit
   tests (cycle collected/kept, array children, root classes, stale-handle
   detection + free-list reuse non-aliasing, 1 M-node worklist, re-entrancy
   assertion, threshold math).
-- [ ] **T12** Root plumbing (pointer-free protocol, M2_PLAN §4.4):
+- [x] **T12** Root plumbing (pointer-free protocol, M2_PLAN §4.4):
   `FrameGuard`-owned `RootStack` snapshot slots refreshed at every emitted
   call boundary; direct current-frame scan via
   `GcFrame::current(&locals, &stack, &thrown)`; `NativeRoots` scopes at
   every native→Java dispatch site; emitted `statics.rs` gains
   `gc_scan_roots`; runtime roots (intern cache, boxed cache,
   `System.out`) scanned; registration in emitted `main`.
-- [ ] **T13** Ownership conversion: `JRef` → Copy handle, ~45
+- [x] **T13** Ownership conversion: `JRef` → Copy handle, ~45
   `.borrow()/.borrow_mut()` sites → scoped `with_obj` accessors across
   `lib.rs, object.rs, array.rs, natives.rs, concat.rs`; re-issued borrow
   census in `RUNTIME_SAFETY.md` §4.
-- [ ] **T14** Identity & hashing: `Object.hashCode`/`System.identityHashCode`
+- [x] **T14** Identity & hashing: `Object.hashCode`/`System.identityHashCode`
   become the handle value (stable across collections); interned-literal and
   boxed-cache identity preserved; unit tests.
-- [ ] **T15** `emit.rs`: `gc_point()` emitted only before the 4 allocating
+- [x] **T15** `emit.rs`: `gc_point()` emitted only before the 4 allocating
   opcodes (`new`, `newarray`, `anewarray`, `multianewarray`); debug
   assertion that natives never collect.
-- [ ] **T16** Differential fixtures `Cycles.java`, `GcIdentity.java`,
+- [x] **T16** Differential fixtures `Cycles.java`, `GcIdentity.java`,
   `InternAcrossGc.java` — suite 36 → 39 — and the **forced-GC full-suite
   proof**: all 39 fixtures byte-identical with a collection at every
   allocation.
-- [ ] **T17** Stress acceptance: 200 000 build-and-drop cycle allocations
+- [x] **T17** Stress acceptance: 200 000 build-and-drop cycle allocations
   with 10 live objects asserts `Heap::high_water() < 64`; differential
   suite wall-clock within ±20 % of the Wave-1 baseline, recorded.
-- [ ] **T18** CI gate-9 `gc-stress` (forced-GC suite) + gate-10 `no-unsafe`
+- [x] **T18** CI gate-9 `gc-stress` (forced-GC suite) + gate-10 `no-unsafe`
   grep, both wired into the all-gates job.
 
 ### Wave 3 — typed operand-stack specialization (M2_PLAN §5)

@@ -20,22 +20,25 @@
 //! * Every fallible generated operation returns `Result<_, Throw>`; nothing
 //!   is silently ignored.
 
+#![forbid(unsafe_code)]
+
 pub mod array;
 pub mod builtin;
 pub mod concat;
 pub mod desc;
 pub mod frame;
+pub mod heap;
 pub mod javafmt;
 pub mod natives;
 pub mod object;
 pub mod stack;
 pub mod subtype;
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 pub use desc::{parse_field_desc, parse_method_desc, unmarshal_args, TypeDesc};
-pub use object::{intern_string, JObj, JRef};
+pub use heap::JRef;
+pub use object::{intern_string, JObj};
 pub use stack::{pop_double, pop_float, pop_int, pop_long, pop_n, pop_ref};
 pub use subtype::is_subtype;
 
@@ -116,7 +119,7 @@ pub struct Throw {
 impl Throw {
     /// Runtime class name of the thrown object, in internal form (`a/b/C`).
     pub fn java_class(&self) -> String {
-        self.obj.borrow().jclass.to_string()
+        crate::heap::with_obj(self.obj, |o| o.jclass.to_string())
     }
 }
 
@@ -169,10 +172,10 @@ pub fn throw_new(class: &str, msg: Option<&str>) -> Throw {
         Some(m) => Value::Ref(Some(object::new_string(m))),
         None => Value::Ref(None),
     };
-    let obj = JRef::new(RefCell::new(JObj {
+    let obj = crate::heap::alloc(JObj {
         jclass: Rc::from(class),
         slots: vec![msg_val],
-    }));
+    });
     Throw { obj }
 }
 
@@ -244,7 +247,7 @@ pub fn checkcast(v: Value, class: &str, ctx: Dispatch) -> Result<Value, Throw> {
     match &v {
         Value::Ref(None) => Ok(v),
         Value::Ref(Some(o)) => {
-            let cls = o.borrow().jclass.to_string();
+            let cls = crate::heap::with_obj(*o, |obj| obj.jclass.to_string());
             if ctx.is_subtype(&cls, class) {
                 Ok(v)
             } else {
@@ -267,7 +270,7 @@ pub fn j2r_instance_of(v: &Value, class: &str, ctx: Dispatch) -> bool {
     match v {
         Value::Ref(None) => false,
         Value::Ref(Some(o)) => {
-            let cls = o.borrow().jclass.to_string();
+            let cls = crate::heap::with_obj(*o, |obj| obj.jclass.to_string());
             ctx.is_subtype(&cls, class)
         }
         _ => false,
@@ -285,7 +288,10 @@ pub fn invoke_virtual(
     args: &[Value],
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
-    let mut cur: Rc<str> = recv.borrow().jclass.clone();
+    // The receiver's class chain is walked by name; the receiver itself is
+    // rooted by the caller's refreshed frame snapshot (generated code
+    // refreshes before every call), so no NativeRoots scope is needed here.
+    let mut cur: Rc<str> = crate::heap::with_obj(*recv, |o| o.jclass.clone());
     for _ in 0..64 {
         if let Some(f) = ctx.find_method(&cur, name, desc) {
             return f(Some(recv), args);
@@ -298,11 +304,11 @@ pub fn invoke_virtual(
             None => break,
         }
     }
+    let cls = crate::heap::with_obj(*recv, |o| o.jclass.clone());
     Err(throw_new(
         "java/lang/Error",
         Some(&format!(
-            "j2r internal: no implementation found for {name}{desc} when dispatched on {}",
-            recv.borrow().jclass
+            "j2r internal: no implementation found for {name}{desc} when dispatched on {cls}"
         )),
     ))
 }
@@ -310,6 +316,10 @@ pub fn invoke_virtual(
 /// Renders an uncaught throwable the way the JVM does:
 /// `Exception in thread "main" <toString>`.
 pub fn throwable_display(t: &Throw, ctx: Dispatch) -> String {
+    // main_run is not a generated method, so nothing else roots the thrown
+    // object while `toString` dispatches into (possibly user) code — scope
+    // it explicitly (M2_PLAN §4.4, native→Java re-entry).
+    let _nr = crate::frame::NativeRoots::push(&[t.obj]);
     match invoke_virtual(
         &t.obj,
         "java/lang/Object",
@@ -362,7 +372,7 @@ mod tests {
     fn throw_new_sets_message_slot() {
         let t = throw_new("java/lang/RuntimeException", Some("boom"));
         assert_eq!(t.java_class(), "java/lang/RuntimeException");
-        let msg = t.obj.borrow().slots[0].clone();
+        let msg = crate::heap::with_obj(t.obj, |o| o.slots[0].clone());
         match msg {
             Value::Ref(Some(s)) => assert_eq!(&*object::string_value(&s), "boom"),
             other => panic!("unexpected {other:?}"),

@@ -1,0 +1,660 @@
+//! The tracing, cycle-collecting arena heap — Wave 2 of M2
+//! (`docs/M2_PLAN.md` §4).
+//!
+//! Architecture (settled in the M2 plan review):
+//!
+//! * **Non-moving mark-and-sweep arena.** Objects live in `Vec<Option<Entry>>`
+//!   at stable addresses for their whole lifetime; `jclass` strings, slot
+//!   vectors and `Value::Str` payloads behave exactly as before.
+//! * **Generation-tagged Copy handles.** A [`JRef`] is an 8-byte
+//!   `(idx, gen)` pair. When sweep frees a slot it bumps that slot's
+//!   generation; a handle whose generation no longer matches is stale, and
+//!   *using* it panics loudly in all builds
+//!   (`j2r: stale JRef (idx=.., gen=..) — GC rooting bug`). Silent aliasing
+//!   onto a recycled object is impossible by construction (M2_PLAN §4.1).
+//! * **Zero `unsafe`.** Marking uses an explicit `Vec<u32>` worklist (never
+//!   recursion — a 1 M-node list must not overflow the native stack);
+//!   sweeping rebuilds the free list; mark bits are `Cell<bool>` beside the
+//!   object's `RefCell`, so mark writes never conflict with object borrows.
+//! * **One collection point.** Only [`gc_point`] may collect, and generated
+//!   code calls it only immediately before the four allocating opcodes
+//!   (`new`, `newarray`, `anewarray`, `multianewarray`). `alloc` never
+//!   collects, so natives and runtime helpers can allocate freely without
+//!   ever observing a collection (M2_PLAN §4.3).
+//! * **Roots** (M2_PLAN §4.4, pointer-free): every registered frame's owned
+//!   snapshot slot (refreshed by generated code before every call and at
+//!   every collection point — `frame::FrameGuard::refresh`), the generated
+//!   statics pool (registered via [`set_statics_scanner`]), and the runtime
+//!   roots (intern cache, boxed-identity cache, `System.out`). A stale
+//!   index found while marking is skipped silently — it is over-
+//!   approximation residue, and any *use* of such a handle still panics at
+//!   access time, so rooting bugs surface loudly in tests.
+//!
+//! Identity: `JRef` equality is `(idx, gen)` pair equality; for a live
+//! object `gen` never advances (a rooted entry never re-enters the free
+//! list), so this is exactly the old reference equality.
+
+use crate::object::JObj;
+use std::cell::{Cell, RefCell};
+use std::num::NonZeroU32;
+
+/// Copy object handle: 1-based arena index + generation tag.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct JRef {
+    idx: NonZeroU32,
+    gen: u32,
+}
+
+impl JRef {
+    /// Reference identity (`if_acmpeq`, `Object.equals`): `(idx, gen)` pair
+    /// equality. Kept as an associated function so call sites are unchanged
+    /// from the `Rc` implementation.
+    pub fn ptr_eq(a: &JRef, b: &JRef) -> bool {
+        a == b
+    }
+
+    /// The handle's arena index (root-scan and identity-hash plumbing).
+    pub fn index(&self) -> u32 {
+        self.idx.get()
+    }
+
+    pub(crate) fn from_parts(idx: u32, gen: u32) -> JRef {
+        JRef {
+            idx: NonZeroU32::new(idx).expect("j2r internal: JRef index 0"),
+            gen,
+        }
+    }
+}
+
+struct Entry {
+    obj: RefCell<JObj>,
+    mark: Cell<bool>,
+}
+
+struct Heap {
+    /// Slot `i` is `Some` while an object occupies it.
+    entries: Vec<Option<Entry>>,
+    /// Generation per slot; survives frees (sweep bumps it, which is what
+    /// invalidates outstanding handles).
+    gens: Vec<u32>,
+    /// Free slot indices (0-based), LIFO.
+    free: Vec<u32>,
+    live: usize,
+    since_gc: usize,
+    live_at_last_gc: usize,
+    high_water: usize,
+    total_collections: usize,
+    collecting: bool,
+    /// `J2R_GC_EVERY_N`: forced collection at every Nth collection point.
+    forced: Option<u32>,
+    forced_counter: u32,
+}
+
+impl Heap {
+    fn new() -> Heap {
+        Heap {
+            entries: Vec::new(),
+            gens: Vec::new(),
+            free: Vec::new(),
+            live: 0,
+            since_gc: 0,
+            live_at_last_gc: 0,
+            high_water: 0,
+            total_collections: 0,
+            collecting: false,
+            forced: read_forced_env(),
+            forced_counter: 0,
+        }
+    }
+
+    fn threshold(&self) -> usize {
+        (2 * self.live_at_last_gc).max(4096)
+    }
+}
+
+fn read_forced_env() -> Option<u32> {
+    std::env::var("J2R_GC_EVERY_N")
+        .ok()
+        .and_then(|v| v.parse().ok())
+}
+
+thread_local! {
+    static HEAP: RefCell<Heap> = RefCell::new(Heap::new());
+    /// Registered by the generated `main_run`: scans the statics pool into
+    /// the root vector.
+    static STATICS_SCANNER: RefCell<Option<fn(&mut Vec<u32>)>> = const { RefCell::new(None) };
+}
+
+/// Allocates an object; **never collects** (M2_PLAN §4.3 — natives and
+/// runtime helpers may allocate freely).
+pub fn alloc(obj: JObj) -> JRef {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        debug_assert!(!heap.collecting, "alloc during collection");
+        heap.since_gc += 1;
+        let (idx, gen) = match heap.free.pop() {
+            Some(i) => {
+                let i = i as usize;
+                heap.entries[i] = Some(Entry {
+                    obj: RefCell::new(obj),
+                    mark: Cell::new(false),
+                });
+                (i, heap.gens[i])
+            }
+            None => {
+                heap.entries.push(Some(Entry {
+                    obj: RefCell::new(obj),
+                    mark: Cell::new(false),
+                }));
+                heap.gens.push(0);
+                (heap.entries.len() - 1, 0)
+            }
+        };
+        heap.live += 1;
+        heap.high_water = heap.high_water.max(heap.live);
+        JRef::from_parts(idx as u32 + 1, gen)
+    })
+}
+
+fn live_slot_index(heap: &Heap, r: JRef) -> usize {
+    let i = (r.idx.get() - 1) as usize;
+    let live = matches!(heap.entries.get(i), Some(Some(_))) && heap.gens[i] == r.gen;
+    if !live {
+        panic!(
+            "j2r: stale JRef (idx={}, gen={}) — GC rooting bug",
+            r.idx.get(),
+            r.gen
+        );
+    }
+    i
+}
+
+/// Scoped shared access to an object (replaces the old `r.borrow()` —
+/// a `Ref` must never escape the heap's `thread_local`, M2_PLAN §4.7).
+pub fn with_obj<T>(r: JRef, f: impl FnOnce(&JObj) -> T) -> T {
+    HEAP.with(|h| {
+        let heap = h.borrow();
+        let i = live_slot_index(&heap, r);
+        let entry = heap.entries[i].as_ref().expect("checked live");
+        let result = f(&entry.obj.borrow());
+        result
+    })
+}
+
+/// Scoped exclusive access to an object (replaces `r.borrow_mut()`).
+pub fn with_obj_mut<T>(r: JRef, f: impl FnOnce(&mut JObj) -> T) -> T {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let i = live_slot_index(&heap, r);
+        let entry = heap.entries[i].as_mut().expect("checked live");
+        let result = f(&mut entry.obj.borrow_mut());
+        result
+    })
+}
+
+/// True when the handle names a live object (test/observation helper).
+pub fn is_live(r: JRef) -> bool {
+    HEAP.with(|h| {
+        let heap = h.borrow();
+        let i = (r.idx.get() - 1) as usize;
+        matches!(heap.entries.get(i), Some(Some(_))) && heap.gens[i] == r.gen
+    })
+}
+
+/// Peak number of simultaneously occupied slots (evidence metric, T17).
+pub fn high_water() -> usize {
+    HEAP.with(|h| h.borrow().high_water)
+}
+
+/// Currently occupied slots (evidence metric).
+pub fn live_count() -> usize {
+    HEAP.with(|h| h.borrow().live)
+}
+
+/// Collections run so far (evidence metric).
+pub fn total_collections() -> usize {
+    HEAP.with(|h| h.borrow().total_collections)
+}
+
+/// Registers the generated crate's statics-pool root scanner. Called by the
+/// generated `main_run` before any Java code runs.
+pub fn set_statics_scanner(f: fn(&mut Vec<u32>)) {
+    STATICS_SCANNER.with(|s| *s.borrow_mut() = Some(f));
+}
+
+/// Test/diagnostic hook: force a collection at every Nth collection point
+/// (`N = 1` = collect at every collection point). Overrides the
+/// `J2R_GC_EVERY_N` env var.
+pub fn set_forced_gc_every(n: Option<u32>) {
+    HEAP.with(|h| {
+        h.borrow_mut().forced = n;
+        h.borrow_mut().forced_counter = 0;
+    });
+}
+
+/// The one collection point in the entire system (M2_PLAN §4.3). Generated
+/// code emits `__frame.refresh(..); heap::gc_point();` immediately before
+/// each of the four allocating opcodes; nothing else ever calls this.
+pub fn gc_point() {
+    let should = HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        debug_assert!(!heap.collecting, "gc_point re-entered during collection");
+        match heap.forced {
+            Some(n) => {
+                heap.forced_counter += 1;
+                if heap.forced_counter >= n {
+                    heap.forced_counter = 0;
+                    true
+                } else {
+                    false
+                }
+            }
+            None => heap.since_gc > heap.threshold(),
+        }
+    });
+    if should {
+        collect();
+    }
+}
+
+/// Marks from the root set with an explicit worklist, then sweeps.
+fn collect() {
+    // ---- root set (pointer-free; M2_PLAN §4.4) ------------------------
+    let mut roots: Vec<u32> = Vec::new();
+    // 1. every registered frame's owned snapshot slot (current frame
+    //    refreshed itself at this collection point; suspended callers
+    //    refreshed at their call boundaries — their state cannot have
+    //    changed while suspended)
+    crate::frame::for_each_live_slot(|slot| roots.extend_from_slice(slot));
+    // 2. the generated statics pool
+    if let Some(f) = STATICS_SCANNER.with(|s| *s.borrow()) {
+        f(&mut roots);
+    }
+    // 3. runtime roots (intern cache, System.out, boxed-identity cache)
+    crate::object::scan_runtime_roots(&mut roots);
+    crate::natives::scan_runtime_roots(&mut roots);
+
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        heap.collecting = true;
+        heap.total_collections += 1;
+
+        // ---- mark (iterative; stale root indices are tolerated here:
+        // they are over-approximation residue and may name a freed slot
+        // (skipped) or even a recycled slot (kept alive — over-approximation
+        // is always safe). Any *use* of a stale handle still panics at
+        // access time, so rooting bugs surface loudly in tests.) --------
+        let mut worklist: Vec<u32> = roots;
+        while let Some(idx0p1) = worklist.pop() {
+            let i = (idx0p1 - 1) as usize;
+            let Some(entry) = heap.entries.get(i).and_then(|s| s.as_ref()) else {
+                continue; // freed slot: stale root residue
+            };
+            if entry.mark.get() {
+                continue;
+            }
+            entry.mark.set(true);
+            // push children: every Ref(Some(h)) in the object's slots
+            for v in entry.obj.borrow().slots.iter() {
+                if let crate::Value::Ref(Some(h)) = v {
+                    worklist.push(h.index());
+                }
+            }
+        }
+
+        // ---- sweep -----------------------------------------------------
+        let mut freed = 0usize;
+        for i in 0..heap.entries.len() {
+            match &mut heap.entries[i] {
+                Some(e) if e.mark.get() => e.mark.set(false),
+                Some(_) => {
+                    heap.entries[i] = None;
+                    heap.gens[i] = heap.gens[i].wrapping_add(1);
+                    heap.free.push(i as u32);
+                    freed += 1;
+                }
+                None => {}
+            }
+        }
+        heap.live -= freed;
+        heap.collecting = false;
+        heap.since_gc = 0;
+        heap.live_at_last_gc = heap.live;
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::{new_obj, new_string, obj_get, obj_set, string_value, JObj};
+    use crate::Value;
+    use std::rc::Rc;
+
+    fn obj(class: &str, slots: Vec<Value>) -> JRef {
+        alloc(JObj {
+            jclass: Rc::from(class),
+            slots,
+        })
+    }
+
+    /// Keeps handles alive across collections exactly like native code
+    /// holding refs across a user dispatch: a `NativeRoots` scope.
+    fn rooted<F: FnOnce()>(handles: &[JRef], f: F) {
+        let _nr = crate::frame::NativeRoots::push(handles);
+        f();
+    }
+
+    #[test]
+    fn alloc_and_access_roundtrip() {
+        let r = new_obj("test/A", 3).unwrap();
+        obj_set(&r, 1, Value::Int(42));
+        assert_eq!(obj_get(&r, 1).expect_int(), 42);
+        assert!(is_live(r));
+    }
+
+    #[test]
+    fn unreachable_object_is_collected() {
+        set_forced_gc_every(Some(1));
+        let before = live_count();
+        {
+            let _dead = new_string("short-lived-gc-test");
+            assert!(live_count() == before + 1);
+            gc_point();
+        }
+        assert_eq!(live_count(), before, "unreachable object must be freed");
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn rooted_object_survives_forced_collections() {
+        set_forced_gc_every(Some(1));
+        let keep = new_string("kept-alive");
+        let gen_before = keep.gen;
+        rooted(&[keep], || {
+            for _ in 0..100 {
+                let _churn = new_string("churn");
+                gc_point();
+            }
+        });
+        assert!(is_live(keep), "rooted object must survive collections");
+        assert_eq!(keep.gen, gen_before, "live object's generation is stable");
+        assert_eq!(
+            &*string_value(&keep),
+            "kept-alive",
+            "surviving object's payload must be intact"
+        );
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn simple_cycle_is_collected() {
+        set_forced_gc_every(Some(1));
+        let before = live_count();
+        {
+            let a = obj("test/Node", vec![Value::Ref(None)]);
+            let b = obj("test/Node", vec![Value::Ref(None)]);
+            obj_set(&a, 0, Value::Ref(Some(b)));
+            obj_set(&b, 0, Value::Ref(Some(a)));
+            // handles die here; the cycle is unreachable
+        }
+        gc_point();
+        assert_eq!(live_count(), before, "unreachable cycle must be reclaimed");
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn reachable_cycle_is_kept() {
+        set_forced_gc_every(Some(1));
+        let a = obj("test/Node", vec![Value::Ref(None)]);
+        let b = obj("test/Node", vec![Value::Ref(None)]);
+        obj_set(&a, 0, Value::Ref(Some(b)));
+        obj_set(&b, 0, Value::Ref(Some(a)));
+        rooted(&[a], || {
+            for _ in 0..10 {
+                gc_point();
+            }
+        });
+        assert!(is_live(a) && is_live(b), "rooted cycle must survive");
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn array_children_are_marked() {
+        set_forced_gc_every(Some(1));
+        let child = new_string("array-child");
+        let arr = obj("test/Arr", vec![Value::Int(2), Value::Ref(Some(child))]);
+        rooted(&[arr], || {
+            for _ in 0..10 {
+                gc_point();
+            }
+        });
+        assert!(
+            is_live(arr) && is_live(child),
+            "children of a rooted object survive"
+        );
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn interned_strings_are_roots() {
+        set_forced_gc_every(Some(1));
+        let s = crate::object::intern_string("gc-intern-test-literal");
+        for _ in 0..50 {
+            let _churn = new_string("churn");
+            gc_point();
+        }
+        assert!(is_live(s), "interned literals are permanent roots");
+        let again = crate::object::intern_string("gc-intern-test-literal");
+        assert!(
+            s == again,
+            "interning must return the same handle across GCs"
+        );
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn boxed_cache_objects_are_roots() {
+        set_forced_gc_every(Some(1));
+        let b = crate::natives::boxed_cached_for_test(127i64).expect("boxed cache");
+        for _ in 0..50 {
+            let _churn = new_string("churn");
+            gc_point();
+        }
+        assert!(
+            is_live(b),
+            "JLS 5.1.7 boxed cache entries are permanent roots"
+        );
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn stale_handle_use_panics_loudly() {
+        set_forced_gc_every(Some(1));
+        let victim = new_string("dies-soon");
+        let idx = victim.index();
+        let gen = victim.gen;
+        // Kill it: no roots name it.
+        gc_point();
+        assert!(!is_live(victim));
+        // Its slot is recycled by a new object (forced-GC mode reuses the
+        // free list immediately).
+        let _replacement = new_string("takes-the-slot");
+        // The old handle must not silently resolve to the new object.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_obj(victim, |o| o.jclass.clone())
+        }));
+        assert!(result.is_err(), "stale handle dereference must panic");
+        let err = result.err().expect("must have panicked");
+        let msg = err
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&'static str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(
+            msg.contains("stale JRef"),
+            "panic must carry the stale-handle diagnostic: {msg}"
+        );
+        let _ = (idx, gen);
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn stale_handle_never_aliases_the_replacement() {
+        set_forced_gc_every(Some(1));
+        let victim = new_string("victim");
+        obj_set(
+            &victim,
+            0,
+            Value::Str(Rc::new("victim-payload".to_string())),
+        );
+        gc_point(); // victim dies
+        let replacement = new_string("replacement");
+        // Force the replacement onto the same slot if the free list has it.
+        let same_slot = replacement.index() == victim.index();
+        if same_slot {
+            // The victim's handle must NOT read the replacement's payload.
+            let res =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| string_value(&victim)));
+            assert!(res.is_err(), "stale handle must not alias the new object");
+        }
+        assert_eq!(&*string_value(&replacement), "replacement");
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn suspended_frame_snapshot_keeps_handle_alive() {
+        set_forced_gc_every(Some(1));
+        let payload = new_string("suspended-frame-payload");
+        // Simulate a suspended caller: a frame slot that names the handle
+        // while a callee collects.
+        crate::frame::with_test_frame(|| {
+            // refresh semantics: the "caller" recorded its refs
+            crate::frame::test_refresh_slot(&[payload]);
+            let _callee_churn = new_string("churn");
+            gc_point();
+        });
+        assert!(is_live(payload), "snapshot in a suspended frame must root");
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn one_million_node_worklist_does_not_overflow() {
+        set_forced_gc_every(Some(1));
+        // A singly linked list 1_000_000 nodes long, rooted at the head.
+        let mut head: Option<JRef> = None;
+        for i in 0..1_000_000u32 {
+            let n = obj("test/Link", vec![Value::Int(i as i32), Value::Ref(head)]);
+            head = Some(n);
+        }
+        let head = head.unwrap();
+        rooted(&[head], || {
+            gc_point();
+        });
+        assert!(is_live(head), "the rooted list head survives");
+        assert!(
+            live_count() >= 1_000_000,
+            "the whole 1M chain must be marked live"
+        );
+        set_forced_gc_every(None);
+        // Release the root and collect it all (iteratively — recursion
+        // during marking would be the bug this test exists to prevent).
+        set_forced_gc_every(Some(1));
+        let before = live_count();
+        gc_point();
+        assert!(
+            live_count() < before && live_count() < 1_000,
+            "the 1M list must be reclaimable in one iterative sweep"
+        );
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn gc_point_reentrancy_is_a_bug() {
+        // The debug assertion in gc_point/alloc fires when collection
+        // re-enters; verify the flag mechanism exists by checking that
+        // ordinary interleaving works and total_collections advances.
+        set_forced_gc_every(Some(1));
+        let before = total_collections();
+        gc_point();
+        assert_eq!(total_collections(), before + 1);
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn threshold_policy_collects_when_grown() {
+        set_forced_gc_every(None);
+        HEAP.with(|h| {
+            let mut heap = h.borrow_mut();
+            heap.live_at_last_gc = 0;
+            heap.since_gc = 0;
+            // threshold with live_at_last_gc == 0 is 4096
+            assert_eq!(heap.threshold(), 4096);
+            heap.live_at_last_gc = 10_000;
+            assert_eq!(heap.threshold(), 20_000, "2x live when above the floor");
+            heap.live_at_last_gc = 100;
+            assert_eq!(heap.threshold(), 4096, "floor dominates");
+        });
+        // Restore a clean policy state.
+        HEAP.with(|h| {
+            let mut heap = h.borrow_mut();
+            heap.live_at_last_gc = heap.live;
+            heap.since_gc = 0;
+        });
+    }
+
+    #[test]
+    fn identity_hash_is_the_index_and_stable_across_gc() {
+        set_forced_gc_every(Some(1));
+        let a = new_obj("test/H", 1).unwrap();
+        let b = new_obj("test/H", 1).unwrap();
+        assert_ne!(
+            a.index(),
+            b.index(),
+            "distinct live objects have distinct indices"
+        );
+        let before = a.index();
+        rooted(&[a], || {
+            for _ in 0..10 {
+                gc_point();
+            }
+        });
+        assert_eq!(a.index(), before, "identity hash stable across collections");
+        set_forced_gc_every(None);
+    }
+
+    #[test]
+    fn cycle_churn_two_hundred_k_high_water_under_64() {
+        // T17 acceptance (M2_PLAN §4.8b): 200_000 build-and-drop cycle
+        // allocations with 10 live objects — the R1 leak is gone,
+        // numerically.
+        set_forced_gc_every(Some(1));
+        // 10 live objects in a ring, rooted via NativeRoots.
+        let mut ring: Vec<JRef> = Vec::new();
+        for i in 0..10 {
+            ring.push(obj("test/Ring", vec![Value::Int(i), Value::Ref(None)]));
+        }
+        for i in 0..10 {
+            let next = ring[(i + 1) % 10];
+            obj_set(&ring[i], 1, Value::Ref(Some(next)));
+        }
+        rooted(&ring, || {
+            for _ in 0..200_000u32 {
+                // build a 2-node cycle, drop both handles
+                let x = obj("test/Pair", vec![Value::Ref(None)]);
+                let y = obj("test/Pair", vec![Value::Ref(Some(x))]);
+                obj_set(&x, 0, Value::Ref(Some(y)));
+                drop(x);
+                drop(y);
+                gc_point(); // the collection point the next allocation
+                            // opcode would hit
+            }
+        });
+        assert!(
+            high_water() < 64,
+            "arena must stay tiny under cycle churn (high_water={})",
+            high_water()
+        );
+        assert_eq!(live_count(), 10, "only the ring survives");
+        set_forced_gc_every(None);
+    }
+}

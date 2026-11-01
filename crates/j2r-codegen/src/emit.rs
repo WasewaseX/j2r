@@ -233,6 +233,18 @@ pub fn ensure(class_id: u32, clinit: ::core::option::Option<::j2r_runtime::Metho
         }
     }
 }
+
+/// Collector hook (M2_PLAN §4.4): every reference in the statics pool is a
+/// root. Registered by `main_run` via `j2r_runtime::heap::set_statics_scanner`.
+pub fn gc_scan_roots(out: &mut ::std::vec::Vec<u32>) {
+    POOL.with(|p| {
+        for v in p.borrow().iter() {
+            if let ::j2r_runtime::Value::Ref(::core::option::Option::Some(r)) = v {
+                out.push(r.index());
+            }
+        }
+    });
+}
 "#;
     std::fs::write(src.join("statics.rs"), statics_rs)?;
 
@@ -276,6 +288,8 @@ fn main_run() -> i32 {{
     {lib_crate}::statics::init_pool({statics}usize, {classes}usize);
     {lib_crate}::statics::apply_defaults({defaults});
     {lib_crate}::statics::set_constants({constants});
+    // Static fields are roots for the tracing GC (M2_PLAN §4.4).
+    ::j2r_runtime::heap::set_statics_scanner({lib_crate}::statics::gc_scan_roots);
     let args: ::std::vec::Vec<::std::string::String> = ::std::env::args().skip(1).collect();
     let args_array = ::j2r_runtime::object::new_string_array(&args);
     match {lib_crate}::classes::{module}::{main_fn}(
@@ -486,7 +500,10 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan) -> String {
     // at the call site, so propagating the Err through the caller's
     // j2r_try! gives the caller's exception table first crack — the
     // callee's own handlers must not see it, and they don't.
-    let _ = writeln!(out, "    let __frame = match {RT}::frame::FrameGuard::enter() {{");
+    let _ = writeln!(
+        out,
+        "    let __frame = match {RT}::frame::FrameGuard::enter() {{"
+    );
     let _ = writeln!(out, "        ::core::result::Result::Ok(f) => f,");
     let _ = writeln!(
         out,
@@ -882,7 +899,13 @@ fn emit_instr(
                 let f = crate::resolve_field_pub(prog, class, field, true)
                     .expect("validated static field");
                 let slot = f.static_slot.expect("static field");
-                for (id, expr) in ensure_calls(prog, class) {
+                let ensures = ensure_calls(prog, class);
+                // `ensure` may dispatch into user code (<clinit>): refresh
+                // the frame snapshot first (M2_PLAN §4.4).
+                if !ensures.is_empty() {
+                    out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+                }
+                for (id, expr) in ensures {
                     out.push(format!("crate::statics::ensure({id}u32, {expr});"));
                 }
                 out.push(format!("stack.push(crate::statics::get({slot}u32));"));
@@ -892,6 +915,9 @@ fn emit_instr(
             let f = crate::resolve_field_pub(prog, class, field, true)
                 .expect("validated static field");
             let slot = f.static_slot.expect("static field");
+            // ensure → possible <clinit> dispatch; refresh while the value
+            // is still on the stack so the snapshot holds it.
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             for (id, expr) in ensure_calls(prog, class) {
                 out.push(format!("crate::statics::ensure({id}u32, {expr});"));
@@ -921,6 +947,10 @@ fn emit_instr(
         }
         Instr::InvokeVirtual { class, name, desc }
         | Instr::InvokeInterface { class, name, desc } => {
+            // Call boundary: refresh the root snapshot before popping args
+            // so the receiver and arguments stay rooted during the call
+            // (M2_PLAN §4.4).
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             out.push(format!(
@@ -934,6 +964,7 @@ fn emit_instr(
             }
         }
         Instr::InvokeStatic { class, name, desc } => {
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             match crate::resolve_call_pub(prog, class, name, desc).expect("validated call") {
@@ -956,6 +987,7 @@ fn emit_instr(
             }
         }
         Instr::InvokeSpecial { class, name, desc } => {
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             out.push(format!(
@@ -978,6 +1010,7 @@ fn emit_instr(
             }
         }
         Instr::InvokeDynamic { index } => {
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             let plan = c.concats.get(index).expect("validated concat site");
             let n = plan.kinds.len();
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
@@ -994,6 +1027,11 @@ fn emit_instr(
             out.push("stack.push(__v);".into());
         }
         Instr::New { class } => {
+            // The one collection point shape (M2_PLAN §4.3): refresh the
+            // frame snapshot, then gc_point — before the allocation and
+            // before the <clinit> ensure dispatch.
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(format!("{RT}::heap::gc_point();"));
             if prog.is_user(class) {
                 let target = prog.class(class).unwrap();
                 let total = target.total_slots;
@@ -1010,6 +1048,8 @@ fn emit_instr(
             }
         }
         Instr::NewArray(prim) => {
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(format!("{RT}::heap::gc_point();"));
             let desc = prim.array_desc();
             out.push("let __len = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
@@ -1017,12 +1057,16 @@ fn emit_instr(
             ));
         }
         Instr::ANewArray { elem } => {
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(format!("{RT}::heap::gc_point();"));
             out.push("let __len = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
                 "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!(thrown, fault_pc, {fault}, {RT}::array::array_new_ref({elem:?}, __len)))));"
             ));
         }
         Instr::MultiNewArray { desc, dims } => {
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(format!("{RT}::heap::gc_point();"));
             // The dimension sizes were pushed outermost-first, so pop them
             // back-to-front into __dim0..__dim(n-1).
             for i in (0..*dims).rev() {

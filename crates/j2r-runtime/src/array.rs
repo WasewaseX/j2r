@@ -11,11 +11,11 @@
 //! `null` into `NullPointerException`, so these functions only deal with
 //! non-null references.
 
-use crate::object::{JObj, JRef};
+use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
+use crate::object::JObj;
 use crate::subtype::is_subtype;
 use crate::Value;
 use crate::{internal_error, throw_new, Dispatch, Throw};
-use std::cell::RefCell;
 use std::rc::Rc;
 
 pub const BOOLEAN: &str = "[Z";
@@ -38,15 +38,16 @@ fn default_element(desc: &str) -> Value {
 }
 
 fn check_array(r: &JRef) -> Result<(i32, Rc<str>), Throw> {
-    let b = r.borrow();
-    let cls = b.jclass.clone();
-    if !cls.starts_with('[') {
-        return Err(internal_error(&format!(
-            "array operation on non-array object {cls}"
-        )));
-    }
-    let len = b.slots[0].expect_int();
-    Ok((len, cls))
+    with_obj(*r, |b| {
+        let cls = b.jclass.clone();
+        if !cls.starts_with('[') {
+            return Err(internal_error(&format!(
+                "array operation on non-array object {cls}"
+            )));
+        }
+        let len = b.slots[0].expect_int();
+        Ok((len, cls))
+    })
 }
 
 fn bounds_ok(len: i32, idx: i32) -> Result<(), Throw> {
@@ -73,10 +74,10 @@ pub fn array_new_prim(desc: &str, len: i32) -> Result<JRef, Throw> {
     for _ in 0..len {
         slots.push(dflt.clone());
     }
-    Ok(JRef::new(RefCell::new(JObj {
+    Ok(alloc(JObj {
         jclass: Rc::from(desc),
         slots,
-    })))
+    }))
 }
 
 /// `anewarray` (reference arrays); `elem_class` is the element class in
@@ -102,10 +103,10 @@ pub fn array_new_ref(elem_class: &str, len: i32) -> Result<JRef, Throw> {
     for _ in 0..len {
         slots.push(Value::Ref(None));
     }
-    Ok(JRef::new(RefCell::new(JObj {
+    Ok(alloc(JObj {
         jclass: Rc::from(desc.as_str()),
         slots,
-    })))
+    }))
 }
 
 /// `multianewarray`. `desc` is the full array-class descriptor from the
@@ -168,10 +169,10 @@ fn build_level(desc: &str, dims: &[i32]) -> Result<JRef, Throw> {
             let sub = build_level(&desc[1..], &dims[1..])?;
             slots.push(Value::Ref(Some(sub)));
         }
-        Ok(JRef::new(RefCell::new(JObj {
+        Ok(alloc(JObj {
             jclass: Rc::from(desc),
             slots,
-        })))
+        }))
     }
 }
 
@@ -182,7 +183,7 @@ pub fn array_length(r: &JRef) -> Result<i32, Throw> {
 pub fn array_load(r: &JRef, idx: i32) -> Result<Value, Throw> {
     let (len, _cls) = check_array(r)?;
     bounds_ok(len, idx)?;
-    Ok(r.borrow().slots[idx as usize + 1].clone())
+    Ok(with_obj(*r, |o| o.slots[idx as usize + 1].clone()))
 }
 
 pub fn array_store(r: &JRef, idx: i32, v: Value, ctx: Dispatch) -> Result<(), Throw> {
@@ -207,7 +208,7 @@ pub fn array_store(r: &JRef, idx: i32, v: Value, ctx: Dispatch) -> Result<(), Th
     };
     if let Some(elem) = ref_component {
         if let Value::Ref(Some(obj)) = &v {
-            let obj_cls = obj.borrow().jclass.to_string();
+            let obj_cls = with_obj(*obj, |o| o.jclass.to_string());
             if !is_subtype(&obj_cls, &elem, ctx.parents) {
                 return Err(throw_new(
                     "java/lang/ArrayStoreException",
@@ -232,7 +233,7 @@ pub fn array_store(r: &JRef, idx: i32, v: Value, ctx: Dispatch) -> Result<(), Th
             return Err(internal_error(&format!("storing {v:?} into {cls}")));
         }
     }
-    r.borrow_mut().slots[idx as usize + 1] = v;
+    with_obj_mut(*r, |o| o.slots[idx as usize + 1] = v);
     Ok(())
 }
 
@@ -254,7 +255,9 @@ mod tests {
     fn bounds_message_matches_jdk() {
         let a = array_new_prim(INT, 3).unwrap();
         let err = array_load(&a, 5).unwrap_err();
-        let msg = err.obj.borrow().slots[0].clone().expect_ref().unwrap();
+        let msg = crate::heap::with_obj(err.obj, |o| o.slots[0].clone())
+            .expect_ref()
+            .unwrap();
         assert_eq!(&*string_value(&msg), "Index 5 out of bounds for length 3");
     }
 
@@ -269,19 +272,19 @@ mod tests {
         // `anewarray [I` (javac's lowering of `new int[3][]`) must produce
         // the array class `[[I`, not `[L[I;`.
         let a = array_new_ref("[I", 3).unwrap();
-        assert_eq!(&*a.borrow().jclass, "[[I");
+        assert_eq!(&*with_obj(a, |o| o.jclass.clone()), "[[I");
         assert_eq!(array_length(&a).unwrap(), 3);
     }
 
     #[test]
     fn multi_fully_allocated() {
         let grid = array_new_multi("[[I", &[2, 3]).unwrap();
-        assert_eq!(&*grid.borrow().jclass, "[[I");
+        assert_eq!(&*with_obj(grid, |o| o.jclass.clone()), "[[I");
         let row0 = match array_load(&grid, 0).unwrap() {
             Value::Ref(Some(r)) => r,
             other => panic!("expected ref, got {other:?}"),
         };
-        assert_eq!(&*row0.borrow().jclass, "[I");
+        assert_eq!(&*with_obj(row0, |o| o.jclass.clone()), "[I");
         assert_eq!(array_length(&row0).unwrap(), 3);
         array_store(&grid, 1, Value::Int(9), Dispatch::default()).unwrap();
     }
@@ -289,7 +292,7 @@ mod tests {
     #[test]
     fn multi_partially_allocated_rows_are_null() {
         let grid = array_new_multi("[[I", &[2]).unwrap();
-        assert_eq!(&*grid.borrow().jclass, "[[I");
+        assert_eq!(&*with_obj(grid, |o| o.jclass.clone()), "[[I");
         assert!(matches!(array_load(&grid, 0).unwrap(), Value::Ref(None)));
     }
 
@@ -302,12 +305,12 @@ mod tests {
     #[test]
     fn multi_ref_bottom() {
         let m = array_new_multi("[[Ljava/lang/String;", &[1, 2]).unwrap();
-        assert_eq!(&*m.borrow().jclass, "[[Ljava/lang/String;");
+        assert_eq!(&*with_obj(m, |o| o.jclass.clone()), "[[Ljava/lang/String;");
         let row = match array_load(&m, 0).unwrap() {
             Value::Ref(Some(r)) => r,
             other => panic!("expected ref, got {other:?}"),
         };
-        assert_eq!(&*row.borrow().jclass, "[Ljava/lang/String;");
+        assert_eq!(&*with_obj(row, |o| o.jclass.clone()), "[Ljava/lang/String;");
         let s = crate::object::new_string("x");
         array_store(&row, 0, Value::Ref(Some(s)), Dispatch::default()).unwrap();
     }

@@ -64,9 +64,17 @@ fn handcrafted_class_runs_natively() {
         ACC_PUBLIC | ACC_STATIC,
         main_n,
         main_d,
-        3,
+        4,
         1,
         &[
+            0xBB,
+            ((obj_cls >> 8) as u8),
+            (obj_cls as u8),   // new Object
+            0x59,              // dup
+            0xB7,
+            ((obj_init >> 8) as u8),
+            (obj_init as u8),  // invokespecial Object.<init>
+            0x57,              // pop
             0xB2,
             ((sys_out >> 8) as u8),
             (sys_out as u8), // getstatic System.out
@@ -127,15 +135,33 @@ fn handcrafted_class_runs_natively() {
         "generated method must enter a FrameGuard first"
     );
     assert!(
-        hello_rs.contains(
-            "::core::result::Result::Err(t) => return ::core::result::Result::Err(t),"
-        ),
+        hello_rs
+            .contains("::core::result::Result::Err(t) => return ::core::result::Result::Err(t),"),
         "a refused frame registration must return Err immediately"
     );
     let main_rs = std::fs::read_to_string(dir.join("out/src/main.rs")).unwrap();
     assert!(
         main_rs.contains("validate_env_or_exit"),
         "generated main must validate J2R_MAX_JAVA_FRAMES before Java code runs"
+    );
+    assert!(
+        main_rs.contains("set_statics_scanner"),
+        "generated main must register the statics root scanner (M2_PLAN §4.4)"
+    );
+    // Wave-2 collection-point shape (M2_PLAN §4.3/§4.8g): refresh precedes
+    // every call boundary and every allocating opcode.
+    assert!(
+        hello_rs.contains("__frame.refresh(&locals, &stack, &thrown);"),
+        "generated call sites must refresh the root snapshot"
+    );
+    assert!(
+        hello_rs.contains("::j2r_runtime::heap::gc_point();"),
+        "allocating opcodes must emit a gc_point"
+    );
+    let statics_rs = std::fs::read_to_string(dir.join("out/src/statics.rs")).unwrap();
+    assert!(
+        statics_rs.contains("pub fn gc_scan_roots"),
+        "statics template must expose the root scanner"
     );
 
     // build

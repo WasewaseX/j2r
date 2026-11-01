@@ -54,13 +54,14 @@ fn differential_suite_matches_jvm() {
         "no fixtures found in {}",
         suite_dir.display()
     );
-    // The suite must keep growing with the milestone; 36 = the 34 fixtures
-    // of the M1.6 milestone plus the two M2 Wave-1 fixtures: StackDepth
-    // (caught StackOverflowError, thread continues) and UncaughtSOE
-    // (uncaught StackOverflowError, exit 1).
+    // The suite must keep growing with the milestone; 39 = the 36 fixtures
+    // through Wave 1 plus the three M2 Wave-2 GC fixtures: Cycles (cyclic
+    // graphs dropped whole), GcIdentity (one object aliased through array +
+    // static, mutated via one path, read via the other) and InternAcrossGc
+    // (literal identity across allocation churn).
     assert!(
-        fixtures.len() >= 36,
-        "differential suite shrank: {} fixtures (expected >= 36)",
+        fixtures.len() >= 39,
+        "differential suite shrank: {} fixtures (expected >= 39)",
         fixtures.len()
     );
 

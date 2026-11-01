@@ -107,10 +107,48 @@ jobs:
       - name: RustSec audit (any advisory fails the gate)
         run: cargo audit
 
+  gc-stress:
+    name: gate-9-gc-stress-forced-collection
+    runs-on: ubuntu-latest
+    env:
+      # Forced-GC mode: a collection runs at EVERY collection point (before
+      # every allocating opcode). The whole differential suite must produce
+      # byte-identical output — this is the rooting proof (M2_PLAN §4.8,
+      # gate 9). Only meaningful for the generated binaries; javac/java
+      # ignore the variable.
+      J2R_GC_EVERY_N: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Differential suite with a collection at every allocation
+        run: cargo test --release -p j2r-cli --test diff_suite
+
+  no-unsafe:
+    name: gate-10-no-unsafe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: No unsafe code anywhere (compiler-enforced forbid + grep evidence)
+        run: |
+          cargo build --workspace
+          # The forbid(unsafe_code) attribute in every crate root makes any
+          # unsafe item a compile error; the grep documents the evidence.
+          if rg -n 'unsafe\s*(fn|impl|trait|\{)' crates/; then
+            echo "unsafe code found"; exit 1
+          fi
+          echo "zero unsafe: confirmed"
+
   all-gates:
     name: gate-8-all-gates-green
-    needs: [fmt, clippy, test, build-release, standalone, doc, security]
+    needs: [fmt, clippy, test, build-release, standalone, doc, security, gc-stress, no-unsafe]
     runs-on: ubuntu-latest
     steps:
       - name: Summary
-        run: echo "All 7 upstream gates are green."
+        run: echo "All 9 upstream gates are green."

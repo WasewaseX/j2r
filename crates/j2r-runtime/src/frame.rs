@@ -1,4 +1,4 @@
-//! Java frame registry — Wave 1 of M2 (`docs/M2_PLAN.md` §3).
+//! Java frame registry — Wave 1 + Wave 2 of M2 (`docs/M2_PLAN.md` §3, §4.4).
 //!
 //! Generated methods call [`FrameGuard::enter`] as their first statement.
 //! Construction checks the Java-frame depth: past the limit it returns the
@@ -26,17 +26,32 @@
 //! (worst shape 304 B — pure recursion measured 208 B/frame, recursion with
 //! a native dispatch per level 304 B/frame; see M2_PLAN §3.1.1 for the
 //! calibration method). The 8× factor is the safety margin the plan
-//! specifies; the Wave-1 CI calibration test re-measures the live footprint
-//! and fails the build if it exceeds 1.25× the const.
+//! specifies; the CI calibration e2e runs at the ceiling with the release
+//! profile and must not abort.
 //!
 //! `J2R_MAX_JAVA_FRAMES` values outside `1..=MAX_FRAMES_ABS` and
 //! non-numeric values are operator errors, not Java-observable results: the
 //! generated `main` calls [`validate_env_or_exit`] first thing, which prints
 //! `j2r: invalid J2R_MAX_JAVA_FRAMES=<v>` and exits with status 2 before any
 //! Java code runs.
+//!
+//! ## The root-snapshot registry (Wave 2, M2_PLAN §4.4 — pointer-free)
+//!
+//! Every registered frame owns one *snapshot slot* in the LIFO registry
+//! below: an owned `Vec<u32>` of ref handle indices, capacity reused across
+//! calls (the steady state is allocation-free). Generated code refreshes the
+//! slot before **every call of any kind** (user, native, virtual, static,
+//! concat, `<clinit>` dispatch) and at every collection point, so a
+//! suspended frame's snapshot is exact for the whole suspension. The heap
+//! scans all occupied slots when collecting; stale indices in a snapshot are
+//! over-approximation residue and are skipped at mark time, while any *use*
+//! of a stale handle panics loudly (heap accessors check generations).
+//!
+//! [`NativeRoots`] gives native code the same rooting for refs it holds
+//! across a dispatch into user code (e.g. `toString` during concatenation).
 
 use crate::Throw;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 /// Native stack reserved for the generated program's worker thread
 /// (`emit.rs` main template spawns it with exactly this size).
@@ -44,7 +59,7 @@ pub const WORKER_STACK_BYTES: usize = 512 * 1024 * 1024;
 
 /// Measured worst-case native-stack bytes per Java frame (M2_PLAN §3.1.1:
 /// 208–304 B measured on M1.6-generated code; 512 gives 1.68× headroom).
-/// The CI calibration test asserts the live footprint stays ≤ 1.25× this
+/// The CI calibration asserts the live footprint stays ≤ 1.25× this
 /// constant (≤ 640 B).
 pub const FRAME_FOOTPRINT: usize = 512;
 
@@ -67,7 +82,15 @@ const _: () = assert!(
 thread_local! {
     static DEPTH: Cell<usize> = const { Cell::new(0) };
     static LIMIT: Cell<Option<usize>> = const { Cell::new(None) };
+
+    /// The root-snapshot registry. `None` marks a released slot; released
+    /// `Vec`s move to [`SLOT_POOL`] so capacity is reused across calls.
+    static FRAME_SLOTS: RefCell<Vec<Option<Vec<u32>>>> = const { RefCell::new(Vec::new()) };
+    static FREE_SLOTS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    static SLOT_POOL: RefCell<Vec<Vec<u32>>> = const { RefCell::new(Vec::new()) };
 }
+
+// ---------------------------------------------------------------- limit policy
 
 /// Parses one `J2R_MAX_JAVA_FRAMES` value.
 ///
@@ -118,13 +141,50 @@ fn limit() -> usize {
     })
 }
 
+// ------------------------------------------------------------- slot registry
+
+fn take_slot() -> usize {
+    FREE_SLOTS.with(|f| {
+        if let Some(i) = f.borrow_mut().pop() {
+            FRAME_SLOTS.with(|s| s.borrow_mut()[i] = Some(Vec::new()));
+            return i;
+        }
+        FRAME_SLOTS.with(|s| {
+            let mut s = s.borrow_mut();
+            s.push(Some(Vec::new()));
+            s.len() - 1
+        })
+    })
+}
+
+fn release_slot(slot: usize) {
+    let v = FRAME_SLOTS.with(|s| s.borrow_mut()[slot].take());
+    if let Some(v) = v {
+        SLOT_POOL.with(|p| p.borrow_mut().push(v));
+    }
+    FREE_SLOTS.with(|f| f.borrow_mut().push(slot));
+}
+
+/// Hands every occupied snapshot slot to the collector (heap-side root
+/// scan; M2_PLAN §4.4). Released slots are `None` and skipped.
+pub(crate) fn for_each_live_slot(mut f: impl FnMut(&[u32])) {
+    FRAME_SLOTS.with(|s| {
+        for slot in s.borrow().iter().flatten() {
+            f(slot);
+        }
+    });
+}
+
+// ---------------------------------------------------------------- FrameGuard
+
 /// Registration ticket for one live Java frame.
 ///
-/// Wave 1 carries no pointers: the record is the process depth counter, so
-/// there is nothing to dereference and nothing to leak. Wave 2 (GC) extends
-/// this type with the frame's owned root-snapshot slot (M2_PLAN §4.4).
+/// Wave 1 carried no pointers (a depth counter only); Wave 2 adds the
+/// frame's owned root-snapshot slot — still no raw pointers, no `unsafe`
+/// (M2_PLAN §4.4).
 #[derive(Debug)]
 pub struct FrameGuard {
+    slot: usize,
     _not_send: std::marker::PhantomData<*const ()>, // registry is thread_local
 }
 
@@ -139,8 +199,35 @@ impl FrameGuard {
         }
         DEPTH.with(|d| d.set(next));
         Ok(FrameGuard {
+            slot: take_slot(),
             _not_send: std::marker::PhantomData,
         })
+    }
+
+    /// Refreshes this frame's root snapshot from its current `locals`,
+    /// operand `stack` and pending `thrown` object. Generated code emits
+    /// this before every call of any kind and at every collection point, so
+    /// the snapshot is exact for as long as the frame stays suspended.
+    pub fn refresh(&self, locals: &[crate::Value], stack: &[crate::Value], thrown: &Option<Throw>) {
+        let mut handles: Vec<u32> = SLOT_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        handles.clear();
+        for v in locals {
+            if let crate::Value::Ref(Some(h)) = v {
+                handles.push(h.index());
+            }
+        }
+        for v in stack {
+            if let crate::Value::Ref(Some(h)) = v {
+                handles.push(h.index());
+            }
+        }
+        if let Some(t) = thrown {
+            handles.push(t.obj.index());
+        }
+        FRAME_SLOTS.with(|s| {
+            // The slot exists for the guard's whole lifetime.
+            s.borrow_mut()[self.slot] = Some(handles);
+        });
     }
 
     /// Current registered depth (test/observation helper).
@@ -152,7 +239,15 @@ impl FrameGuard {
 impl Drop for FrameGuard {
     fn drop(&mut self) {
         // Runs on normal return, on `Err` propagation and on panic unwind:
-        // the depth always returns to its pre-call value.
+        // the depth always returns to its pre-call value. (release moved
+        // into a plain method so both Drop paths share it; this Drop runs
+        // exactly once per guard.)
+        let slot = self.slot;
+        let v = FRAME_SLOTS.with(|s| s.borrow_mut()[slot].take());
+        if let Some(v) = v {
+            SLOT_POOL.with(|p| p.borrow_mut().push(v));
+        }
+        FREE_SLOTS.with(|f| f.borrow_mut().push(slot));
         DEPTH.with(|d| {
             let n = d.get();
             debug_assert!(n >= 1, "j2r internal: FrameGuard underflow");
@@ -161,16 +256,79 @@ impl Drop for FrameGuard {
     }
 }
 
+// ---------------------------------------------------------------- NativeRoots
+
+/// Roots a set of handles for the duration of the scope: native code
+/// dispatching into user code (concat → `toString`, future comparators)
+/// wraps every ref it holds live across the dispatch (M2_PLAN §4.4).
+#[derive(Debug)]
+pub struct NativeRoots {
+    slot: usize,
+    _not_send: std::marker::PhantomData<*const ()>,
+}
+
+impl NativeRoots {
+    pub fn push(handles: &[crate::heap::JRef]) -> NativeRoots {
+        let mut v: Vec<u32> = SLOT_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        v.clear();
+        v.extend(handles.iter().map(|h| h.index()));
+        let slot = FREE_SLOTS.with(|f| {
+            f.borrow_mut().pop().unwrap_or_else(|| {
+                FRAME_SLOTS.with(|s| {
+                    let mut s = s.borrow_mut();
+                    s.push(None);
+                    s.len() - 1
+                })
+            })
+        });
+        FRAME_SLOTS.with(|s| s.borrow_mut()[slot] = Some(v));
+        NativeRoots {
+            slot,
+            _not_send: std::marker::PhantomData,
+        }
+    }
+}
+
+impl Drop for NativeRoots {
+    fn drop(&mut self) {
+        release_slot(self.slot);
+    }
+}
+
+// ------------------------------------------------------------- test plumbing
+
+/// Runs `f` with one extra registered slot (simulates a suspended frame in
+/// unit tests).
+#[cfg(test)]
+pub(crate) fn with_test_frame(f: impl FnOnce()) {
+    let slot = take_slot();
+    f();
+    release_slot(slot);
+}
+
+/// Writes `handles` into the most recently taken slot (test-only stand-in
+/// for `FrameGuard::refresh` in tests that have no guard).
+#[cfg(test)]
+pub(crate) fn test_refresh_slot(handles: &[crate::heap::JRef]) {
+    let idx = FRAME_SLOTS.with(|s| {
+        s.borrow()
+            .iter()
+            .rposition(|o| o.is_some())
+            .expect("no live slot")
+    });
+    let v: Vec<u32> = handles.iter().map(|h| h.index()).collect();
+    FRAME_SLOTS.with(|s| s.borrow_mut()[idx] = Some(v));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::heap::JRef;
 
     #[test]
     fn const_math_pins_the_ceiling() {
         assert_eq!(MAX_FRAMES_ABS, 131_072);
         assert_eq!(DEFAULT_FRAMES, 8_192);
-        // The 8× margin must hold: default depth × measured footprint stays
-        // far below the worker stack.
         assert!(DEFAULT_FRAMES * FRAME_FOOTPRINT * 8 <= WORKER_STACK_BYTES);
     }
 
@@ -223,7 +381,7 @@ mod tests {
         let t = crate::throw_new("java/lang/StackOverflowError", None);
         assert_eq!(t.java_class(), "java/lang/StackOverflowError");
         // No message (like the JVM's no-arg StackOverflowError constructor).
-        let msg = t.obj.borrow().slots[0].clone();
+        let msg = crate::heap::with_obj(t.obj, |o| o.slots[0].clone());
         assert!(matches!(msg, crate::Value::Ref(None)));
         // Subtype of VirtualMachineError per the builtin hierarchy.
         assert!(crate::is_subtype(
@@ -251,8 +409,39 @@ mod tests {
         assert_eq!(FrameGuard::current_depth(), limit());
         let t = FrameGuard::enter().unwrap_err();
         assert_eq!(t.java_class(), "java/lang/StackOverflowError");
-        assert_eq!(FrameGuard::current_depth(), limit(), "refused frame must not register");
+        assert_eq!(
+            FrameGuard::current_depth(),
+            limit(),
+            "refused frame must not register"
+        );
         drop(guards);
         assert_eq!(FrameGuard::current_depth(), before);
+    }
+
+    #[test]
+    fn slots_are_lifo_and_reused() {
+        let before = FrameGuard::current_depth();
+        let h = crate::heap::alloc(crate::object::JObj {
+            jclass: std::rc::Rc::from("test/S"),
+            slots: vec![],
+        });
+        {
+            let g1 = FrameGuard::enter().unwrap();
+            g1.refresh(&[], &[crate::Value::Ref(Some(h))], &None);
+            {
+                let g2 = FrameGuard::enter().unwrap();
+                // inner guard's slot is separate and empty
+                let mut seen = 0;
+                for_each_live_slot(|s| seen += s.len());
+                assert!(seen >= 1);
+                drop(g2);
+            }
+            // outer slot still holds its handle
+            let mut found = false;
+            for_each_live_slot(|s| found |= s.contains(&h.index()));
+            assert!(found, "outer frame slot must keep its refreshed handles");
+        }
+        assert_eq!(FrameGuard::current_depth(), before);
+        let _ = JRef::ptr_eq(&h, &h);
     }
 }

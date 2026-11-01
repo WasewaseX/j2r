@@ -15,6 +15,8 @@
 //! 6. emit Rust sources ([`emit`]) plus a vendored copy of `j2r-runtime`,
 //!    producing a crate that builds standalone with `cargo`.
 
+#![forbid(unsafe_code)]
+
 pub mod emit;
 pub mod ir;
 pub mod verify;

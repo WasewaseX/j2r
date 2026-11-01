@@ -15,7 +15,7 @@
 //! * `pop2`: F1 pop two cat1; F2 pop one cat2
 //! * `swap`: `v2,v1 -> v1,v2` (both cat1)
 
-use crate::object::JRef;
+use crate::heap::JRef;
 use crate::Throw;
 use crate::Value;
 

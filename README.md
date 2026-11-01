@@ -14,15 +14,16 @@ Milestone 1 compiles JVM bytecode to a standalone Rust crate and runs it
 natively. Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM, compiled with J2R, run natively,
 and **stdout, stderr and exit codes** must match (stderr with JVM
-stack-trace frames — and nothing else — normalized away). 36 fixture
+stack-trace frames — and nothing else — normalized away). 39 fixture
 programs cover arithmetic and integer/long edge cases, shifts, casts and
 saturating conversions, control flow (switch fallthrough, labeled
 break/continue), strings, string building, one- and two-dimensional arrays,
 inheritance, constructor/initializer ordering, static-initialization order,
 exceptions (`finally` ordering, multi-catch, rethrow, uncaught), boxing
 identity, `instanceof` dispatch, recursion and mutual recursion, catchable
-`StackOverflowError`, `System.err`,
-and runtime exceptions with exact OpenJDK messages — all green, plus 117
+`StackOverflowError`, cyclic graphs, aliasing across collections, interning
+across GC churn, `System.err`,
+and runtime exceptions with exact OpenJDK messages — all green, plus 135
 unit tests, 12 malformed-classfile tests and a JDK-free end-to-end test.
 
 A dedicated **hardening milestone** (post-audit) added:
@@ -69,6 +70,20 @@ A **coverage & robustness pass** (M1.6) added on top:
   2 before any Java code runs. Differential fixtures `StackDepth` (caught
   SOE, thread continues) and `UncaughtSOE` (uncaught, exit 1) pin the
   JVM-exact behaviour; the suite is now 36 fixtures.
+* **Wave 2 of M2 — tracing, cycle-collecting arena GC**: the `Rc` heap is
+  replaced by a non-moving mark-sweep arena with generation-tagged `Copy`
+  handles (`JRef { idx, gen }`). Unreachable cyclic graphs are reclaimed
+  (200 000-cycle stress test keeps the arena under 64 live slots with 10
+  live objects); stale handles cannot silently alias a recycled object —
+  every access checks the generation and panics loudly on mismatch.
+  Collection runs only at explicit safepoints before allocating opcodes;
+  roots come from per-frame snapshots, the statics pool and the runtime
+  caches. **The whole 39-fixture differential suite runs byte-identical
+  with a forced collection at every allocation** (CI gate `gc-stress`),
+  and `Object.hashCode` is now stable across collections. Zero `unsafe` is
+  mechanically enforced by `#![forbid(unsafe_code)]` in every crate root
+  plus a CI grep gate. The re-issued borrow census shows zero direct object
+  borrows outside the heap kernel (`docs/RUNTIME_SAFETY.md` §4).
 
 ### What works today
 
@@ -171,11 +186,12 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 117 unit tests + malformed/e2e/SOE-e2e + 36-fixture differential suite
+$ cargo test                       # 135 unit tests + malformed/e2e/SOE-e2e + 39-fixture differential suite
+$ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 ```
 
-The differential suite (`crates/j2r-cli/tests/suite/*.java`, 36 programs)
+The differential suite (`crates/j2r-cli/tests/suite/*.java`, 39 programs)
 skips itself gracefully when no JDK is present; CI installs Temurin 21.
 Runtime guarantees and the panic-path inventory live in
 [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).
