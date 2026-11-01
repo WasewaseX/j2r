@@ -69,12 +69,12 @@ fn handcrafted_class_runs_natively() {
         &[
             0xBB,
             ((obj_cls >> 8) as u8),
-            (obj_cls as u8),   // new Object
-            0x59,              // dup
+            (obj_cls as u8), // new Object
+            0x59,            // dup
             0xB7,
             ((obj_init >> 8) as u8),
-            (obj_init as u8),  // invokespecial Object.<init>
-            0x57,              // pop
+            (obj_init as u8), // invokespecial Object.<init>
+            0x57,             // pop
             0xB2,
             ((sys_out >> 8) as u8),
             (sys_out as u8), // getstatic System.out

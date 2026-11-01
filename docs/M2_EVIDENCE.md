@@ -192,3 +192,54 @@ the honest total-run increase also reflects the three added fixtures.
 | (f) stale-handle test: reuse with bumped gen panics; new object intact | met |
 | (g) every emitted `invoke*` preceded by a root-snapshot refresh | met by construction (single refresh emission at every call/alloc boundary); asserted on generated text in the codegen e2e |
 | (h) `rg "as_ptr\|from_raw"` over `crates/` empty | met (the `Object.hashCode` `Rc::as_ptr` is gone) |
+
+---
+
+## Wave 3 — typed-storage specialization (T19–T20, ends at the 3a checkpoint)
+
+**Goal per plan.** M2_PLAN §5: emit typed primitive storage for kind-stable
+stack positions and local slots (references never leave `Vec<Value>` —
+GC scan surface unchanged), per-method all-or-nothing, with a mandatory
+written shape report at checkpoint 3a and an explicit go/no-go.
+
+**Delivered (3a).**
+
+* `verify.rs`: `verify_method_shapes` exports the verified per-pc
+  `MethodShapes`/`PcShape` (stack **and** locals) — the data the verifier
+  computed all along and discarded after validation. `verify_method` keeps
+  its signature (wrapper).
+* `specialize.rs` (new): the decision pass — kind-stability per
+  bottom-indexed stack position and local slot across all pcs where live,
+  cat2 values as one pool entry (our `Value` model), references/`Top`/
+  `Array`/`Null` pinned to `Pool::Value`, all-or-nothing fallback with
+  reason codes (`KindVaries`, `NoPrimitives`), per-method counts. 8 unit
+  tests pin every fallback class and the cat2/reference rules.
+* `j2r shape-report` CLI subcommand + `plan_program`/`render_report`:
+  the decision is measurable at any time over any compiled program.
+* `docs/M2_SHAPE_REPORT.md`: the written report over all 39 fixtures
+  (161 methods), generated — not hand-written.
+
+**The measured data.** 17/161 methods (10.6 %) specialize; 144 fall back
+(72 × `KindVaries`, 72 × `NoPrimitives`); 21.4 % of stack positions and
+31.6 % of local slots are primitive-stable.
+
+**Checkpoint decision (recorded per §5.2).** The plan's own out-of-
+proportion example was "half the methods fall back"; the measured rate is
+89 %. **The wave ends at 3a.** Unspecialized emission is unchanged; M2
+remains complete without 3b (§5.2's designed terminal state) — §3 and §4
+carry the milestone's semantic weight. The ≥ 1.3× benchmark is therefore
+moot for M2; the honest finding is recorded instead of a forced
+implementation that would re-touch every emission arm right after the GC
+wave for ~11 % of methods.
+
+**Why the fallback rate is what it is.** The `KindVaries` class is
+dominated by bottom-indexed position reuse across disjoint live ranges
+(`aload` at one pc, `bipush` at another — same position 0). A future pass
+could specialize per *live range* instead of per whole-method position
+stability; the recommendation and the reusable infrastructure are in the
+shape report.
+
+**Tests.** All suites green after the wave: 151+8 = the codegen suite grew
+40 → 48 tests; the full workspace run (gate-3) and the forced-GC gate-9
+run stay green; emission is byte-identical to Wave 2 (no codegen change —
+asserted by the unchanged 39-fixture differential suite).

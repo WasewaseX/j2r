@@ -75,6 +75,12 @@ enum Cmd {
         #[arg(last = true)]
         args: Vec<String>,
     },
+    /// Wave-3 shape report (M2_PLAN §5.2): verify each input class and
+    /// print the per-method typed-storage specialization decision table.
+    ShapeReport {
+        /// Input .class files.
+        inputs: Vec<PathBuf>,
+    },
 }
 
 fn main() {
@@ -98,8 +104,48 @@ fn main() {
             release,
             args,
         } => cmd_test(&file, release, &args),
+        Cmd::ShapeReport { inputs } => cmd_shape_report(&inputs),
     };
     std::process::exit(code);
+}
+
+/// Wave-3 step 3a: the per-method specialization decision table over whole
+/// compiled classes (written evidence, never a silent claim).
+fn cmd_shape_report(inputs: &[PathBuf]) -> i32 {
+    let opts = j2r_codegen::Options {
+        inputs: inputs.to_vec(),
+        main_class: None,
+        crate_name: "j2r-shape-report".to_string(),
+        out_dir: std::env::temp_dir().join("j2r-shape-report"),
+    };
+    match j2r_codegen::compile(&opts) {
+        Ok(prog) => {
+            let rows = j2r_codegen::specialize::plan_program(&prog);
+            print!("{}", j2r_codegen::specialize::render_report(&rows));
+            for r in &rows {
+                println!(
+                    "| {} | {} | {} | {:?} | {}/{} | {}/{} |",
+                    r.class,
+                    r.method,
+                    if r.spec.specialize {
+                        "SPEC"
+                    } else {
+                        "FALLBACK"
+                    },
+                    r.spec.fallback,
+                    r.spec.stack_counts.1,
+                    r.spec.stack_counts.0,
+                    r.spec.local_counts.1,
+                    r.spec.local_counts.0,
+                );
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("j2r: {e}");
+            1
+        }
+    }
 }
 
 fn compile_crate(

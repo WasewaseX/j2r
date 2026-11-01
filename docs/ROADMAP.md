@@ -165,20 +165,25 @@ acceptance criteria) live in the M2_PLAN section shown in each wave heading.
 - [x] **T18** CI gate-9 `gc-stress` (forced-GC suite) + gate-10 `no-unsafe`
   grep, both wired into the all-gates job.
 
-### Wave 3 — typed operand-stack specialization (M2_PLAN §5)
+### Wave 3 — typed operand-stack specialization (M2_PLAN §5) — DONE at the 3a checkpoint
 
-- [ ] **T19** `verify.rs` exports per-pc stack *and* locals shapes
-  (`StackShape`); new `specialize.rs` decision pass (per-method
-  all-or-nothing over stack positions and local slots) + **written shape
-  report** (per-method: stack positions, local slots, fallback reason;
-  go/no-go checkpoint 3a — if complexity is out of proportion, the wave
-  ends here honestly, or records the reduced scope: stacks-only).
-- [ ] **T20** Hybrid emission (3b): typed primitive pools for kind-stable
-  stack positions and local slots (references stay in `Vec<Value>` — the
-  GC scan surface is unchanged), per-method fallback to uniform emission;
-  GcFrame scans specialized frames; "no `Value::` on hot path" unit
-  check; deterministic benchmark ≥ 1.3× on arithmetic fixtures **or** an
-  honest no-gain finding.
+- [x] **T19** `verify.rs` exports per-pc stack *and* locals shapes
+  (`MethodShapes`/`PcShape` — no longer discarded after validation); new
+  `specialize.rs` decision pass (per-method all-or-nothing over stack
+  positions and local slots, cat2-as-one-slot, reason codes, 8 unit
+  tests); **written shape report** generated over all 39 fixtures via the
+  new `j2r shape-report` CLI subcommand → `docs/M2_SHAPE_REPORT.md`
+  (per-method: stack positions, local slots, fallback reason).
+- [x] **T20** 3a checkpoint decision (M2_PLAN §5.2) — the plan's own
+  go/no-go line ("e.g. half the methods fall back") was exceeded:
+  **89 % of the 161 fixture methods fall back** (72 × KindVaries —
+  bottom-indexed stack positions carry objects at one pc and ints at
+  another; 72 × NoPrimitives — constructors/accessors). Decision recorded
+  in `docs/M2_SHAPE_REPORT.md`: the wave ends at 3a, unspecialized
+  emission unchanged, M2 complete without 3b (§5.2's designed terminal
+  state). The decision infrastructure is delivered and regenerable
+  (`j2r shape-report`), so a future pass with per-live-range analysis can
+  re-decide with data, not assumption.
 
 ### Wave 4 — CFG reconstruction investigation (M2_PLAN §6)
 

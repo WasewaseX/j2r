@@ -153,6 +153,25 @@ struct State {
     locals: Vec<VTy>,
 }
 
+/// The verified type shape at one instruction (public export for the M2
+/// Wave-3 specialization pass — M2_PLAN §5.1: the verifier's per-pc stack
+/// and locals shapes are exactly its input).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PcShape {
+    /// Operand stack, bottom → top, as it looks when control reaches `pc`.
+    pub stack: Vec<VTy>,
+    /// Local-variable table at the same point.
+    pub locals: Vec<VTy>,
+}
+
+/// Per-method verified shapes, keyed by instruction pc.
+#[derive(Clone, Debug, Default)]
+pub struct MethodShapes {
+    pub per_pc: std::collections::BTreeMap<u32, PcShape>,
+    pub max_locals: usize,
+    pub max_stack: usize,
+}
+
 impl State {
     fn merge_into(&mut self, other: &State) -> std::result::Result<bool, String> {
         let mut changed = false;
@@ -300,11 +319,12 @@ fn entry_state(m: &MethodPlan) -> std::result::Result<State, VerifyError> {
     })
 }
 
-/// Verifies one method body (shape simulation + fixpoint over joins).
-pub fn verify_method(
+/// Verifies one method body (shape simulation + fixpoint over joins) and
+/// returns the verified per-pc shapes for the specialization pass.
+pub fn verify_method_shapes(
     m: &MethodPlan,
     concats: &BTreeMap<u16, ConcatPlan>,
-) -> std::result::Result<(), VerifyError> {
+) -> std::result::Result<MethodShapes, VerifyError> {
     if m.instrs.is_empty() {
         return Err(err(0, "method body has no instructions"));
     }
@@ -361,7 +381,33 @@ pub fn verify_method(
             merge_state(&mut states, &mut queue, t, target, &st, pc)?;
         }
     }
-    Ok(())
+
+    // Export the verified input state of every reached instruction.
+    let mut per_pc = std::collections::BTreeMap::new();
+    for (idx, st) in states.iter().enumerate() {
+        if let Some(st) = st {
+            per_pc.insert(
+                m.instrs[idx].0,
+                PcShape {
+                    stack: st.stack.clone(),
+                    locals: st.locals.clone(),
+                },
+            );
+        }
+    }
+    Ok(MethodShapes {
+        per_pc,
+        max_locals: m.max_locals,
+        max_stack: m.max_stack,
+    })
+}
+
+/// Verifies one method body (shape simulation + fixpoint over joins).
+pub fn verify_method(
+    m: &MethodPlan,
+    concats: &BTreeMap<u16, ConcatPlan>,
+) -> std::result::Result<(), VerifyError> {
+    verify_method_shapes(m, concats).map(|_| ())
 }
 
 /// Merges `st` into the recorded state of instruction slot `t` (whose pc is

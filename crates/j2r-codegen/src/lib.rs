@@ -19,6 +19,7 @@
 
 pub mod emit;
 pub mod ir;
+pub mod specialize;
 pub mod verify;
 
 /// Method plans + clinit fn name + concat sites for one class.
