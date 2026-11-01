@@ -118,11 +118,14 @@ fn read_forced_env() -> Option<u32> {
         .and_then(|v| v.parse().ok())
 }
 
+/// Root-scanner signature: collects the indices of the roots it owns.
+pub type StaticsScanner = fn(&mut Vec<u32>);
+
 thread_local! {
     static HEAP: RefCell<Heap> = RefCell::new(Heap::new());
     /// Registered by the generated `main_run`: scans the statics pool into
     /// the root vector.
-    static STATICS_SCANNER: RefCell<Option<fn(&mut Vec<u32>)>> = const { RefCell::new(None) };
+    static STATICS_SCANNER: RefCell<Option<StaticsScanner>> = const { RefCell::new(None) };
 }
 
 /// Allocates an object; **never collects** (M2_PLAN §4.3 — natives and
@@ -484,7 +487,7 @@ mod tests {
             with_obj(victim, |o| o.jclass.clone())
         }));
         assert!(result.is_err(), "stale handle dereference must panic");
-        let err = result.err().expect("must have panicked");
+        let err = result.expect_err("must have panicked");
         let msg = err
             .downcast_ref::<String>()
             .cloned()
@@ -640,11 +643,13 @@ mod tests {
         rooted(&ring, || {
             for _ in 0..200_000u32 {
                 // build a 2-node cycle, drop both handles
-                let x = obj("test/Pair", vec![Value::Ref(None)]);
-                let y = obj("test/Pair", vec![Value::Ref(Some(x))]);
-                obj_set(&x, 0, Value::Ref(Some(y)));
-                drop(x);
-                drop(y);
+                // Build a 2-node cycle; the handles go out of scope at the
+                // end of this block, making the cycle unreachable.
+                {
+                    let x = obj("test/Pair", vec![Value::Ref(None)]);
+                    let y = obj("test/Pair", vec![Value::Ref(Some(x))]);
+                    obj_set(&x, 0, Value::Ref(Some(y)));
+                }
                 gc_point(); // the collection point the next allocation
                             // opcode would hit
             }

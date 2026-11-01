@@ -479,7 +479,7 @@ fn n_throwable_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Re
     let r = this(recv, "Throwable.<init>");
     let msg = match arg(args, "Throwable.<init>") {
         Value::Ref(None) => Value::Ref(None),
-        Value::Ref(Some(o)) if is_string(o) => Value::Ref(Some(o.clone())),
+        Value::Ref(Some(o)) if is_string(o) => Value::Ref(Some(*o)),
         other => return Err(internal_error(&format!("Throwable.<init> arg {other:?}"))),
     };
     crate::heap::with_obj_mut(*r, |o| o.slots[0] = msg);
@@ -542,7 +542,7 @@ fn boxed_cached(class: &'static str, v: i64, lo: i64, hi: i64) -> Option<JRef> {
     BOXED_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(existing) = cache.get(&(class, v)) {
-            return Some(existing.clone());
+            return Some(*existing);
         }
         let slot = if class == "java/lang/Long" {
             Value::Long(v)
@@ -551,7 +551,7 @@ fn boxed_cached(class: &'static str, v: i64, lo: i64, hi: i64) -> Option<JRef> {
         };
         let r = new_obj(class, 1).ok()?;
         object::obj_set(&r, 0, slot);
-        cache.insert((class, v), r.clone());
+        cache.insert((class, v), r);
         Some(r)
     })
 }
@@ -1460,16 +1460,10 @@ mod tests {
         };
         let a = f(&[Value::Int(127)]);
         let b = f(&[Value::Int(127)]);
-        assert!(crate::ref_eq(
-            &Value::Ref(Some(a.clone())),
-            &Value::Ref(Some(b))
-        ));
+        assert!(crate::ref_eq(&Value::Ref(Some(a)), &Value::Ref(Some(b))));
         let c = f(&[Value::Int(128)]);
         let d = f(&[Value::Int(128)]);
-        assert!(!crate::ref_eq(
-            &Value::Ref(Some(c.clone())),
-            &Value::Ref(Some(d))
-        ));
+        assert!(!crate::ref_eq(&Value::Ref(Some(c)), &Value::Ref(Some(d))));
         let neg = f(&[Value::Int(-128)]);
         let neg2 = f(&[Value::Int(-128)]);
         assert!(crate::ref_eq(

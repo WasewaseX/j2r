@@ -103,7 +103,7 @@ impl Value {
 
     pub fn expect_ref(&self) -> Option<JRef> {
         match self {
-            Value::Ref(r) => r.clone(),
+            Value::Ref(r) => *r,
             other => panic!("j2r internal: expected reference value, got {other:?}"),
         }
     }

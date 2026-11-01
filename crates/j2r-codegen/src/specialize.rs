@@ -104,20 +104,18 @@ pub fn plan_method(shapes: &MethodShapes) -> MethodSpec {
             }
             match (stack[i], Pool::of(*v)) {
                 (None, p) => stack[i] = p,
-                (Some(cur), Some(p)) => {
-                    if p != cur {
-                        // A slot that is ever Unset next to a known kind is
-                        // handled by the None arm ordering; two known kinds
-                        // that disagree → not kind-stable. Unset beats
-                        // nothing: positions live only where reached.
-                        kind_varies = true;
-                        stack[i] = Some(if p == Pool::Value || cur == Pool::Value {
-                            Pool::Value
-                        } else {
-                            // keep tracking; the method falls back anyway
-                            p
-                        });
-                    }
+                (Some(cur), Some(p)) if p != cur => {
+                    // A slot that is ever Unset next to a known kind is
+                    // handled by the None arm ordering; two known kinds
+                    // that disagree → not kind-stable. Unset beats
+                    // nothing: positions live only where reached.
+                    kind_varies = true;
+                    stack[i] = Some(if p == Pool::Value || cur == Pool::Value {
+                        Pool::Value
+                    } else {
+                        // keep tracking; the method falls back anyway
+                        p
+                    });
                 }
                 _ => {}
             }
@@ -128,15 +126,13 @@ pub fn plan_method(shapes: &MethodShapes) -> MethodSpec {
             }
             match (locals[j], Pool::of(*v)) {
                 (None, p) => locals[j] = p,
-                (Some(cur), Some(p)) => {
-                    if p != cur {
-                        kind_varies = true;
-                        locals[j] = Some(if p == Pool::Value || cur == Pool::Value {
-                            Pool::Value
-                        } else {
-                            p
-                        });
-                    }
+                (Some(cur), Some(p)) if p != cur => {
+                    kind_varies = true;
+                    locals[j] = Some(if p == Pool::Value || cur == Pool::Value {
+                        Pool::Value
+                    } else {
+                        p
+                    });
                 }
                 _ => {}
             }

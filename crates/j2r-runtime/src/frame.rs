@@ -102,7 +102,7 @@ pub fn parse_limit(raw: Option<&str>) -> Result<usize, String> {
     match raw {
         None => Ok(DEFAULT_FRAMES),
         Some(s) => match s.parse::<usize>() {
-            Ok(n) if n >= 1 && n <= MAX_FRAMES_ABS => Ok(n),
+            Ok(n) if (1..=MAX_FRAMES_ABS).contains(&n) => Ok(n),
             _ => Err(s.to_string()),
         },
     }
@@ -329,7 +329,7 @@ mod tests {
     fn const_math_pins_the_ceiling() {
         assert_eq!(MAX_FRAMES_ABS, 131_072);
         assert_eq!(DEFAULT_FRAMES, 8_192);
-        assert!(DEFAULT_FRAMES * FRAME_FOOTPRINT * 8 <= WORKER_STACK_BYTES);
+        const { assert!(DEFAULT_FRAMES * FRAME_FOOTPRINT * 8 <= WORKER_STACK_BYTES) };
     }
 
     #[test]
