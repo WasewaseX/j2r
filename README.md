@@ -121,6 +121,12 @@ A **coverage & robustness pass** (M1.6) added on top:
 * Investigation tooling: `j2r shape-report` (typed-storage decisions) and
   `j2r cfg-report` / `--emit-cfg` (CFG lift prototype, default off —
   39/39 fixtures output-identical in both modes)
+* Classpath & JAR loading (M3 Wave 1): `-p/--classpath` with directories
+  and `.jar`/`.zip` archives, transitive closure loading from a
+  `--main-class`, a zero-dependency zip/inflate/CRC-32 reader with a
+  real-JDK test-vector battery, and a 4-fixture jar differential suite
+  (first-match-wins precedence, determinism vs exploded dirs, loud
+  missing-class errors)
 
 ### What is intentionally not supported (yet)
 
@@ -199,9 +205,10 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 170 tests: 153 unit + differential/forced-GC/SOE-e2e/cfg-equivalence suites
+$ cargo test                       # 196 tests: unit + differential/forced-GC/SOE-e2e/cfg-equivalence/jar suites
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
+$ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar
 ```
 
 The differential suite (`crates/j2r-cli/tests/suite/*.java`, 39 programs)

@@ -15,6 +15,10 @@
 
 use std::fmt;
 
+pub mod crc32;
+pub mod inflate;
+pub mod zip;
+
 pub mod flags {
     pub const ACC_PUBLIC: u16 = 0x0001;
     pub const ACC_PRIVATE: u16 = 0x0002;
@@ -419,6 +423,25 @@ pub struct ClassFile {
 }
 
 impl ClassFile {
+    /// Every class named by a `CONSTANT_Class` entry in the pool — the
+    /// supertypes, interfaces, descriptor types, `new`/`checkcast`/
+    /// `instanceof`/array targets. This is the over-approximate set the
+    /// M3 classpath closure loader walks (M3_PLAN §4.2); array entries
+    /// (`[…`) are returned verbatim and decoded by the caller.
+    pub fn referenced_classes(&self) -> Result<Vec<String>> {
+        let mut out = Vec::new();
+        for e in self.constant_pool.entries.iter().flatten() {
+            let CpEntry::Class(name_idx) = e else {
+                continue;
+            };
+            // `name_idx` is the Utf8 entry holding the internal name
+            // (`a/b/C`, or an array descriptor like `[La/b/C;`).
+            let name = self.constant_pool.utf8(*name_idx)?.to_string();
+            out.push(name);
+        }
+        Ok(out)
+    }
+
     pub fn method(&self, name: &str, descriptor: &str) -> Option<&MethodInfo> {
         self.methods
             .iter()

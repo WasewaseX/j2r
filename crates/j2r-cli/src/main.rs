@@ -34,11 +34,15 @@ struct Cli {
 enum Cmd {
     /// Translate .class files into a Rust crate.
     Compile {
-        /// Input .class files.
+        /// Input .class files (empty when compiling from a classpath).
         inputs: Vec<PathBuf>,
         /// Output crate directory.
         #[arg(short, long, default_value = "j2r-out")]
         out: PathBuf,
+        /// Classpath entries (dirs, .jar, .zip), searched in order for
+        /// classes not named on the command line (M3 Wave 1).
+        #[arg(short = 'p', long = "classpath", value_delimiter = ':')]
+        classpath: Vec<PathBuf>,
         /// Main class (internal `a/b/C` or dotted `a.b.C` form).
         #[arg(long)]
         main_class: Option<String>,
@@ -53,11 +57,15 @@ enum Cmd {
     },
     /// Translate .class files and build a native binary with cargo.
     Build {
-        /// Input .class files.
+        /// Input .class files (empty when compiling from a classpath).
         inputs: Vec<PathBuf>,
         /// Output crate directory.
         #[arg(short, long, default_value = "j2r-out")]
         out: PathBuf,
+        /// Classpath entries (dirs, .jar, .zip), searched in order for
+        /// classes not named on the command line (M3 Wave 1).
+        #[arg(short = 'p', long = "classpath", value_delimiter = ':')]
+        classpath: Vec<PathBuf>,
         /// Main class (internal `a/b/C` or dotted `a.b.C` form).
         #[arg(long)]
         main_class: Option<String>,
@@ -106,18 +114,28 @@ fn main() {
         Cmd::Compile {
             inputs,
             out,
+            classpath,
             main_class,
             crate_name,
             emit_cfg,
-        } => cmd_compile(&inputs, &out, main_class, &crate_name, emit_cfg),
+        } => cmd_compile(&inputs, &out, &classpath, main_class, &crate_name, emit_cfg),
         Cmd::Build {
             inputs,
             out,
+            classpath,
             main_class,
             crate_name,
             release,
             emit_cfg,
-        } => cmd_build(&inputs, &out, main_class, &crate_name, release, emit_cfg),
+        } => cmd_build(
+            &inputs,
+            &out,
+            &classpath,
+            main_class,
+            &crate_name,
+            release,
+            emit_cfg,
+        ),
         Cmd::Test {
             file,
             release,
@@ -134,6 +152,7 @@ fn main() {
 fn cmd_cfg_report(inputs: &[PathBuf]) -> i32 {
     let opts = j2r_codegen::Options {
         inputs: inputs.to_vec(),
+        classpath: Vec::new(),
         main_class: None,
         crate_name: "j2r-cfg-report".to_string(),
         out_dir: std::env::temp_dir().join("j2r-cfg-report"),
@@ -166,6 +185,7 @@ fn cmd_cfg_report(inputs: &[PathBuf]) -> i32 {
 fn cmd_shape_report(inputs: &[PathBuf]) -> i32 {
     let opts = j2r_codegen::Options {
         inputs: inputs.to_vec(),
+        classpath: Vec::new(),
         main_class: None,
         crate_name: "j2r-shape-report".to_string(),
         out_dir: std::env::temp_dir().join("j2r-shape-report"),
@@ -204,12 +224,14 @@ fn cmd_shape_report(inputs: &[PathBuf]) -> i32 {
 fn compile_crate(
     inputs: &[PathBuf],
     out: &Path,
+    classpath: &[PathBuf],
     main_class: Option<String>,
     crate_name: &str,
     emit_cfg: bool,
 ) -> Result<PathBuf, String> {
     let opts = Options {
         inputs: inputs.to_vec(),
+        classpath: classpath.to_vec(),
         main_class,
         crate_name: crate_name.to_string(),
         out_dir: out.to_path_buf(),
@@ -221,11 +243,12 @@ fn compile_crate(
 fn cmd_compile(
     inputs: &[PathBuf],
     out: &Path,
+    classpath: &[PathBuf],
     main_class: Option<String>,
     crate_name: &str,
     emit_cfg: bool,
 ) -> i32 {
-    match compile_crate(inputs, out, main_class, crate_name, emit_cfg) {
+    match compile_crate(inputs, out, classpath, main_class, crate_name, emit_cfg) {
         Ok(dir) => {
             println!("generated Rust crate: {}", dir.display());
             println!(
@@ -248,12 +271,13 @@ fn cargo_binary() -> String {
 fn cmd_build(
     inputs: &[PathBuf],
     out: &Path,
+    classpath: &[PathBuf],
     main_class: Option<String>,
     crate_name: &str,
     release: bool,
     emit_cfg: bool,
 ) -> i32 {
-    let dir = match compile_crate(inputs, out, main_class, crate_name, emit_cfg) {
+    let dir = match compile_crate(inputs, out, classpath, main_class, crate_name, emit_cfg) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("j2r: error: {e}");
@@ -325,7 +349,7 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
         let mut class_files = Vec::new();
         collect_class_files(&classes_dir, &mut class_files);
         // 2. j2r compile
-        let dir = compile_crate(&class_files, &out_dir, None, "j2r-test-app", false)?;
+        let dir = compile_crate(&class_files, &out_dir, &[], None, "j2r-test-app", false)?;
         // 3. cargo build
         let mut cmd = Command::new(cargo_binary());
         cmd.arg("build")

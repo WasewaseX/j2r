@@ -119,6 +119,7 @@ fn handcrafted_class_runs_natively() {
     std::fs::write(&class_path, &bytes).unwrap();
 
     let opts = j2r_codegen::Options {
+        classpath: Vec::new(),
         inputs: vec![class_path],
         main_class: None,
         crate_name: "j2r-e2e-app".to_string(),

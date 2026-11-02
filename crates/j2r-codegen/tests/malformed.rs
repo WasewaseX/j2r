@@ -38,6 +38,7 @@ fn compile_main(
     let class_path = dir.join("T.class");
     std::fs::write(&class_path, &bytes).unwrap();
     let opts = j2r_codegen::Options {
+        classpath: Vec::new(),
         inputs: vec![class_path],
         main_class: None,
         crate_name: "j2r-verify-app".to_string(),
@@ -173,6 +174,7 @@ fn multianewarray_zero_dims_is_a_compile_error() {
     let path = dir.join("T.class");
     std::fs::write(&path, &bytes).unwrap();
     let res = j2r_codegen::compile_to_crate(&j2r_codegen::Options {
+        classpath: Vec::new(),
         inputs: vec![path],
         main_class: None,
         crate_name: "j2r-multi0".to_string(),
@@ -214,6 +216,7 @@ fn multianewarray_more_dims_than_descriptor_is_a_compile_error() {
     let path = dir.join("T.class");
     std::fs::write(&path, &bytes).unwrap();
     let res = j2r_codegen::compile_to_crate(&j2r_codegen::Options {
+        classpath: Vec::new(),
         inputs: vec![path],
         main_class: None,
         crate_name: "j2r-multidepth".to_string(),
@@ -254,6 +257,7 @@ fn multianewarray_on_a_non_array_class_is_a_compile_error() {
     let path = dir.join("T.class");
     std::fs::write(&path, &bytes).unwrap();
     let res = j2r_codegen::compile_to_crate(&j2r_codegen::Options {
+        classpath: Vec::new(),
         inputs: vec![path],
         main_class: None,
         crate_name: "j2r-multicls".to_string(),
@@ -295,6 +299,7 @@ fn well_formed_multianewarray_still_compiles() {
     let path = dir.join("T.class");
     std::fs::write(&path, &bytes).unwrap();
     let res = j2r_codegen::compile_to_crate(&j2r_codegen::Options {
+        classpath: Vec::new(),
         inputs: vec![path],
         main_class: None,
         crate_name: "j2r-multigood".to_string(),

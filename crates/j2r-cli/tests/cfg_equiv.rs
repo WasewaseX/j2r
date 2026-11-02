@@ -79,6 +79,7 @@ fn build_and_run(fixture: &std::path::Path, emit_cfg: bool, tag: &str) -> Out {
     class_files.sort();
 
     let opts = j2r_codegen::Options {
+        classpath: Vec::new(),
         inputs: class_files,
         main_class: None,
         crate_name: "j2r-cfg-equiv".to_string(),

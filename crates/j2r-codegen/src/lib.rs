@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cfg;
+pub mod classpath;
 pub mod emit;
 pub mod ir;
 pub mod specialize;
@@ -32,7 +33,7 @@ pub type MethodPlans = (
 
 use j2r_classfile::{ClassFile, ConstantValue};
 use j2r_runtime::{builtin, natives, parse_method_desc, TypeDesc};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::PathBuf;
 
@@ -111,6 +112,10 @@ fn cf_err(e: j2r_classfile::Error) -> CodegenError {
 #[derive(Debug, Clone)]
 pub struct Options {
     pub inputs: Vec<PathBuf>,
+    /// Classpath entries (M3 Wave 1, M3_PLAN §4): directories and
+    /// `.jar`/`.zip` archives searched in order for classes not named on
+    /// the command line. Empty = the M1 explicit-inputs-only model.
+    pub classpath: Vec<PathBuf>,
     /// Class to use as the program entry point (internal or dotted form).
     /// Auto-detected when absent.
     pub main_class: Option<String>,
@@ -129,6 +134,7 @@ impl Options {
     pub fn new(inputs: Vec<PathBuf>, out_dir: PathBuf) -> Options {
         Options {
             inputs,
+            classpath: Vec::new(),
             main_class: None,
             crate_name: "j2r-app".to_string(),
             out_dir,
@@ -300,95 +306,192 @@ fn builtin_is_instantiable(class: &str) -> bool {
 
 // ---------------------------------------------------------------- compilation
 
-pub fn compile(opts: &Options) -> Result<Program> {
-    if opts.inputs.is_empty() {
+/// Parse one `.class` file and append it to the program universe.
+/// Shared by explicit inputs (M1) and classpath closure loading (M3
+/// Wave 1) — identical validation for both sources.
+fn parse_and_add(
+    bytes: &[u8],
+    classes: &mut Vec<ClassPlan>,
+    user_index: &mut BTreeMap<String, usize>,
+    static_slots: &mut u32,
+    source: &str,
+) -> Result<()> {
+    let cf = ClassFile::parse(bytes).map_err(cf_err)?;
+    let name = cf.this_class.clone();
+    if classpath::is_jdk_namespace(&name) {
         return Err(CodegenError::Semantic {
-            class: "-".to_string(),
-            message: "no input .class files".to_string(),
+            class: name.clone(),
+            message: "refusing to compile a JDK builtin class; it is provided by j2r-runtime"
+                .to_string(),
+        });
+    }
+    if user_index.contains_key(&name) {
+        return Err(CodegenError::Semantic {
+            class: name.clone(),
+            message: format!("duplicate class {name} (loaded twice — from {source})"),
+        });
+    }
+    let module = sanitize_module(&name);
+    if classes.iter().any(|c| c.module == module) {
+        return Err(CodegenError::Semantic {
+            class: name.clone(),
+            message: format!("module name collision for {name} (two classes sanitize to {module})"),
+        });
+    }
+    let is_interface = cf.is_interface();
+    let is_abstract = cf.is_abstract() || is_interface;
+    let id = classes.len() as u32;
+
+    // fields: layout + static slots
+    let mut fields = Vec::new();
+    let mut instance_count = 0usize;
+    for f in &cf.fields {
+        let is_static = f.is_static();
+        let (static_slot, instance_slot) = if is_static {
+            let s = *static_slots;
+            *static_slots += 1;
+            (Some(s), None)
+        } else {
+            let s = instance_count;
+            instance_count += 1;
+            (None, Some(s))
+        };
+        fields.push(FieldPlan {
+            name: f.name.clone(),
+            desc: f.descriptor.clone(),
+            is_static,
+            static_slot,
+            instance_slot,
+            constant_value: f.constant_value.clone(),
         });
     }
 
-    // 1. parse ------------------------------------------------------------
+    user_index.insert(name.clone(), classes.len());
+    classes.push(ClassPlan {
+        name: name.clone(),
+        super_name: cf.super_class.clone(),
+        interfaces: cf.interfaces.clone(),
+        is_interface,
+        is_abstract,
+        module,
+        id,
+        base_slots: 0,
+        total_slots: 0,
+        fields,
+        methods: Vec::new(),
+        clinit_fn: None,
+        concats: BTreeMap::new(),
+        cf,
+    });
+    Ok(())
+}
+
+pub fn compile(opts: &Options) -> Result<Program> {
+    if opts.inputs.is_empty() && opts.classpath.is_empty() {
+        return Err(CodegenError::Semantic {
+            class: "-".to_string(),
+            message: "no input .class files and no classpath".to_string(),
+        });
+    }
+
+    // 1. parse ---------------------------------------------------------
     let mut classes: Vec<ClassPlan> = Vec::new();
     let mut user_index: BTreeMap<String, usize> = BTreeMap::new();
     let mut static_slots = 0u32;
 
     for path in &opts.inputs {
         let bytes = std::fs::read(path).map_err(CodegenError::Io)?;
-        let cf = ClassFile::parse(&bytes).map_err(cf_err)?;
-        let name = cf.this_class.clone();
-        if name.starts_with("java/")
-            || name.starts_with("javax/")
-            || name.starts_with("jdk/")
-            || name.starts_with("sun/")
-            || name.starts_with("com/sun/")
-        {
-            return Err(CodegenError::Semantic {
-                class: name.clone(),
-                message: "refusing to compile a JDK builtin class; it is provided by j2r-runtime"
-                    .to_string(),
-            });
-        }
-        if user_index.contains_key(&name) {
-            return Err(CodegenError::Semantic {
-                class: name.clone(),
-                message: format!("duplicate class {} (check your inputs)", name),
-            });
-        }
-        let module = sanitize_module(&name);
-        if classes.iter().any(|c| c.module == module) {
-            return Err(CodegenError::Semantic {
-                class: name.clone(),
-                message: format!(
-                    "module name collision for {name} (two classes sanitize to {module})"
-                ),
-            });
-        }
-        let is_interface = cf.is_interface();
-        let is_abstract = cf.is_abstract() || is_interface;
-        let id = classes.len() as u32;
+        parse_and_add(
+            &bytes,
+            &mut classes,
+            &mut user_index,
+            &mut static_slots,
+            &format!("input file {}", path.display()),
+        )?;
+    }
 
-        // fields: layout + static slots
-        let mut fields = Vec::new();
-        let mut instance_count = 0usize;
-        for f in &cf.fields {
-            let is_static = f.is_static();
-            let (static_slot, instance_slot) = if is_static {
-                let s = static_slots;
-                static_slots += 1;
-                (Some(s), None)
-            } else {
-                let s = instance_count;
-                instance_count += 1;
-                (None, Some(s))
-            };
-            fields.push(FieldPlan {
-                name: f.name.clone(),
-                desc: f.descriptor.clone(),
-                is_static,
-                static_slot,
-                instance_slot,
-                constant_value: f.constant_value.clone(),
-            });
+    // 1b. classpath closure (M3 Wave 1, M3_PLAN §4.2) ------------------
+    if !opts.classpath.is_empty() {
+        let cp =
+            classpath::Classpath::new(&opts.classpath).map_err(|e| CodegenError::Semantic {
+                class: "-".to_string(),
+                message: e.message,
+            })?;
+
+        // Seed: with no explicit inputs the main class starts the walk.
+        if opts.inputs.is_empty() {
+            let main = opts
+                .main_class
+                .as_deref()
+                .ok_or_else(|| CodegenError::Semantic {
+                    class: "-".to_string(),
+                    message: "compiling from a classpath requires --main-class (nothing else seeds the closure)"
+                        .to_string(),
+                })?;
+            let main = to_internal(main);
+            let src = cp.find(&main).ok_or_else(|| CodegenError::Semantic {
+                class: main.clone(),
+                message: format!("main class {main} not found on the classpath"),
+            })?;
+            let bytes = cp.read(&src).map_err(|e| CodegenError::Semantic {
+                class: main.clone(),
+                message: e.message,
+            })?;
+            parse_and_add(
+                &bytes,
+                &mut classes,
+                &mut user_index,
+                &mut static_slots,
+                &format!("classpath source {src}"),
+            )?;
         }
 
-        user_index.insert(name.clone(), classes.len());
-        classes.push(ClassPlan {
-            name: name.clone(),
-            super_name: cf.super_class.clone(),
-            interfaces: cf.interfaces.clone(),
-            is_interface,
-            is_abstract,
-            module,
-            id,
-            base_slots: 0,
-            total_slots: 0,
-            fields,
-            methods: Vec::new(),
-            clinit_fn: None,
-            concats: BTreeMap::new(),
-            cf,
-        });
+        // Transitive closure over CONSTANT_Class references.
+        let mut processed = 0usize;
+        loop {
+            let mut wanted: BTreeSet<String> = BTreeSet::new();
+            for c in &classes {
+                for name in classpath::referenced_user_classes(&c.cf) {
+                    if !user_index.contains_key(&name) {
+                        wanted.insert(name);
+                    }
+                }
+            }
+            if wanted.is_empty() {
+                break;
+            }
+            for name in wanted {
+                let referer = classes
+                    .iter()
+                    .find(|c| classpath::referenced_user_classes(&c.cf).contains(&name))
+                    .map(|c| c.name.clone())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                let src = cp.find(&name).ok_or_else(|| CodegenError::Semantic {
+                    class: referer.clone(),
+                    message: format!(
+                        "class {name} is referenced but not found on the classpath (referenced by {referer})"
+                    ),
+                })?;
+                let bytes = cp.read(&src).map_err(|e| CodegenError::Semantic {
+                    class: referer.clone(),
+                    message: e.message,
+                })?;
+                parse_and_add(
+                    &bytes,
+                    &mut classes,
+                    &mut user_index,
+                    &mut static_slots,
+                    &format!("classpath source {src}"),
+                )?;
+            }
+            processed += 1;
+            if processed > 100_000 {
+                return Err(CodegenError::Semantic {
+                    class: "-".to_string(),
+                    message: "classpath closure did not converge (internal bug)".to_string(),
+                });
+            }
+        }
     }
 
     let mut prog = Program {
@@ -768,9 +871,21 @@ fn resolve_call(prog: &Program, start: &str, name: &str, desc: &str) -> Result<C
 
 /// Validates a virtual/interface call target exists somewhere in the
 /// receiver's hierarchy (compiled or native). Abstract declarations count.
+///
+/// The walk covers the superclass chain **and the interface hierarchy**:
+/// JVMS 5.4.3.3 resolves `invokevirtual` through superinterfaces too —
+/// javac emits the receiver's compile-time type as the methodref owner
+/// even when the method is declared in an interface the class implements
+/// (caught by the JarSuper differential fixture, M3 Wave 1).
 fn validate_virtual(prog: &Program, declared: &str, name: &str, desc: &str) -> Result<()> {
-    let mut cur = declared.to_string();
-    for _ in 0..64 {
+    let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut builtin_frontier: Vec<String> = Vec::new();
+    queue.push_back(declared.to_string());
+    while let Some(cur) = queue.pop_front() {
+        if !seen.insert(cur.clone()) {
+            continue;
+        }
         if prog.is_user(&cur) {
             let c = prog.class(&cur).unwrap();
             let declared = c.cf.method(name, desc).is_some();
@@ -778,22 +893,28 @@ fn validate_virtual(prog: &Program, declared: &str, name: &str, desc: &str) -> R
             if declared || compiled {
                 return Ok(()); // abstract declarations dispatch from the runtime class
             }
-            match &c.super_name {
-                Some(s) => cur = s.clone(),
-                None => break,
+            if let Some(s) = &c.super_name {
+                queue.push_back(s.clone());
+            }
+            for itf in &c.interfaces {
+                queue.push_back(itf.clone());
             }
         } else {
-            break;
+            builtin_frontier.push(cur);
         }
     }
-    // continue the walk from the first builtin ancestor
-    for _ in 0..64 {
-        if natives::lookup_exact(&cur, name, desc).is_some() {
-            return Ok(());
-        }
-        match builtin::builtin_parent_of(&cur) {
-            Some(p) => cur = p.to_string(),
-            None => break,
+    // Continue the walk from every builtin ancestor reached (its own
+    // superclass chain may still declare a native implementation).
+    for start in builtin_frontier {
+        let mut cur = start;
+        for _ in 0..64 {
+            if natives::lookup_exact(&cur, name, desc).is_some() {
+                return Ok(());
+            }
+            match builtin::builtin_parent_of(&cur) {
+                Some(p) => cur = p.to_string(),
+                None => break,
+            }
         }
     }
     Err(CodegenError::Semantic {

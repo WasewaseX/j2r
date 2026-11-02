@@ -51,6 +51,7 @@ register (T01–T07 planning done, T08+ pending).
 | Wave 3 — typed-storage investigation, ends at the 3a checkpoint (T19–T20) | `468eebc` | 41329740373 (clippy/test red; fixed in follow-ups) | `docs/M2_SHAPE_REPORT.md` |
 | Wave 1–3 follow-up: fmt/clippy clean, suite guards | `4c4ea02` | 41329937128 SUCCESS | — |
 | Wave 4 — CFG prototype behind `--emit-cfg`, 39/39 output equivalence (T21) | `b1b0d2a` | 41346367440 SUCCESS (10/10 gates) | `docs/M2_CFG_REPORT.md` |
+| M3 Wave 1 — classpath & JAR loading: zero-dep zip/inflate/crc32 reader, transitive closure loader, `-p/--classpath`, 4-fixture jar differential suite (T08–T11) | *(this commit)* | *(run recorded after push)* | `docs/M3_EVIDENCE.md` Wave 1 |
 
 **Process deviation, recorded for the completion review:** the Wave 1–3
 commits shipped with red fmt/clippy/test gates and were fixed by follow-up
@@ -59,14 +60,17 @@ before every push (fmt + clippy + full suite green first). Current CI:
 10/10 gates green at HEAD.
 
 Current test inventory (re-verified locally 2026-11-02, Temurin 21.0.13 at
-`/tmp/jdk21`, after a full sandbox/toolchain rebuild): **170 tests, 0
-failures** — 153 unit tests across the four crates, the 39-fixture
-differential suite vs the real JVM (three channels), the 39-fixture
-suite re-run byte-identical under forced collection at every allocation
-(`J2R_GC_EVERY_N=1` — the rooting proof, CI gate-9), the Wave-1 SOE
-boundary-matrix e2e, and the 39-fixture `--emit-cfg` output-equivalence
-run. Zero `unsafe` is compiler-enforced (`#![forbid(unsafe_code)]` in
-every crate root; gate-10 green).
+`/tmp/jdk21`, after a full sandbox/toolchain rebuild): **196 tests, 0
+failures** — unit tests across the four crates (now including the
+zero-dependency zip/inflate/crc32 reader battery with real-JDK
+vectors), the 39-fixture differential suite vs the real JVM (three
+channels), the 39-fixture suite re-run byte-identical under forced
+collection at every allocation (`J2R_GC_EVERY_N=1` — the rooting proof,
+CI gate-9), the Wave-1 SOE boundary-matrix e2e, the 39-fixture
+`--emit-cfg` output-equivalence run, and the M3 Wave-1 jar suite
+(4 fixtures compiled from real `.jar` archives + determinism + negative
+e2e — `docs/M3_EVIDENCE.md` Wave 1). Zero `unsafe` is compiler-enforced
+(`#![forbid(unsafe_code)]` in every crate root; gate-10 green).
 
 ---
 

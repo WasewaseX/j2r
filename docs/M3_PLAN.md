@@ -587,14 +587,14 @@ Status: `[x]` done · `[~]` in progress · `[ ]` pending.
 
 ### Wave 1 — classpath & JAR loading
 
-- [ ] **T08** `inflate.rs` + `zip.rs` + `crc32.rs` (zero-dep), test
+- [x] **T08** `inflate.rs` + `zip.rs` + `crc32.rs` (zero-dep), test
   battery incl. corrupted-input Err discipline and bomb guard.
-- [ ] **T09** `classpath.rs` resolution + transitive closure loading +
+- [x] **T09** `classpath.rs` resolution + transitive closure loading +
   `-cp` plumbing on `compile`/`test`.
-- [ ] **T10** Jar fixtures `JarMain`, `JarSuper`, `JarDup`, `JarClosure`
+- [x] **T10** Jar fixtures `JarMain`, `JarSuper`, `JarDup`, `JarClosure`
   (suite guard 43), determinism e2e (jar vs exploded-dir byte-identical
   crates).
-- [ ] **T11** Wave-1 evidence record + CI green (run recorded in
+- [x] **T11** Wave-1 evidence record + CI green (run recorded in
   ROADMAP §2).
 
 ### Wave 2 — collections & java.lang extensions

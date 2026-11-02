@@ -148,6 +148,7 @@ fn static_pool_beyond_65535_slots_compiles_and_runs() {
     assert_eq!(cf.fields.len(), PER_CLASS);
 
     let opts = j2r_codegen::Options {
+        classpath: Vec::new(),
         inputs: vec![a.clone(), c.clone()],
         main_class: None,
         crate_name: "j2r-wide-app".to_string(),
