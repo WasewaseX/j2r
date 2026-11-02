@@ -9,7 +9,8 @@
 //!   in a permanent table and scanned as a root set, so `X.class == X.class`
 //!   identity survives any number of collections.
 //! * `Field`/`Method` objects are plain heap objects with a documented slot
-//!   layout (see [`field_obj`]/[`method_obj`], mirrored in builtin.rs).
+//!   layout (see the `field_obj`/`method_obj` constructors, mirrored in
+//!   builtin.rs).
 //! * Field/method *tables* come from the generated crate through
 //!   [`Dispatch::class_info`] — reflection only sees what the compiler
 //!   proved exists. Builtin classes answer metadata queries from the
