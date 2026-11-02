@@ -185,6 +185,13 @@ pub(crate) fn for_each_live_slot(mut f: impl FnMut(&[u32])) {
 #[derive(Debug)]
 pub struct FrameGuard {
     slot: usize,
+    /// Monitors acquired in this frame and not yet exited (M3 Wave 4):
+    /// `monitorenter` pushes after acquiring, `monitorexit` pops, and the
+    /// `Drop` releases the remainder — so an exceptional exit that outruns
+    /// javac's structured `monitorexit` paths still cannot leak a lock
+    /// (M3_PLAN §7.1, the monitor analogue of the root-snapshot slot).
+    /// Capacity 8 inline covers the 99% case without reallocation.
+    monitors: std::cell::RefCell<Vec<crate::heap::JRef>>,
     _not_send: std::marker::PhantomData<*const ()>, // registry is thread_local
 }
 
@@ -200,6 +207,7 @@ impl FrameGuard {
         DEPTH.with(|d| d.set(next));
         Ok(FrameGuard {
             slot: take_slot(),
+            monitors: std::cell::RefCell::new(Vec::with_capacity(8)),
             _not_send: std::marker::PhantomData,
         })
     }
@@ -230,6 +238,21 @@ impl FrameGuard {
         });
     }
 
+    /// Records a monitor acquisition made by this frame (after a successful
+    /// `heap::monitor_enter`).
+    pub fn record_monitor(&self, r: crate::heap::JRef) {
+        self.monitors.borrow_mut().push(r);
+    }
+
+    /// Pops the record for a successful `monitorexit` of `r` (the frame may
+    /// hold several monitors; only the most recent matching record goes).
+    pub fn unrecord_monitor(&self, r: &crate::heap::JRef) {
+        let mut ms = self.monitors.borrow_mut();
+        if let Some(pos) = ms.iter().rposition(|m| m == r) {
+            ms.remove(pos);
+        }
+    }
+
     /// Current registered depth (test/observation helper).
     pub fn current_depth() -> usize {
         DEPTH.with(|d| d.get())
@@ -238,6 +261,13 @@ impl FrameGuard {
 
 impl Drop for FrameGuard {
     fn drop(&mut self) {
+        // Release any monitors the frame still holds (normal return after
+        // ACC_SYNCHRONIZED prologues, or exceptional exits that outrun
+        // javac's structured release paths). LIFO order.
+        for r in self.monitors.borrow().iter().rev() {
+            crate::heap::monitor_release(r);
+        }
+        self.monitors.borrow_mut().clear();
         // Runs on normal return, on `Err` propagation and on panic unwind:
         // the depth always returns to its pre-call value. (release moved
         // into a plain method so both Drop paths share it; this Drop runs

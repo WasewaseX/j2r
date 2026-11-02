@@ -43,15 +43,15 @@ pub const SUPPORTED_INTERFACES: &[&str] = &[
 
 /// Shape of the implementation call, reassembled at SAM-invocation time:
 ///
-/// * `0` [`Self::STATIC`] — `caps ++ sam_args`, no receiver
+/// * `0` `SHAPE_STATIC` — `caps ++ sam_args`, no receiver
 ///   (`REF_invokeStatic`, kind 6).
-/// * `1` [`Self::BOUND`] — receiver = capture 0, args = `caps[1..] ++ sam_args`
+/// * `1` `SHAPE_BOUND` — receiver = capture 0, args = `caps[1..] ++ sam_args`
 ///   (`REF_invokeVirtual`/`REF_invokeInterface` with captures, and
 ///   `REF_invokeSpecial` for `this::m`/`super::m`).
-/// * `2` [`Self::UNBOUND`] — receiver = `sam_args[0]`, args = `sam_args[1..]`
+/// * `2` `SHAPE_UNBOUND` — receiver = `sam_args[0]`, args = `sam_args[1..]`
 ///   (`REF_invokeVirtual`/`REF_invokeInterface` with no captures, e.g.
 ///   `String::toUpperCase`).
-/// * `3` [`Self::CTOR`] — construct the target, call `<init>` with
+/// * `3` `SHAPE_CTOR` — construct the target, call `<init>` with
 ///   `caps ++ sam_args` (`REF_newInvokeSpecial`, kind 8).
 pub const SHAPE_STATIC: u8 = 0;
 pub const SHAPE_BOUND: u8 = 1;

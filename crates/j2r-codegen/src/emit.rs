@@ -151,6 +151,11 @@ use ::std::cell::RefCell;
 thread_local! {
     static POOL: RefCell<Vec<::j2r_runtime::Value>> = const { RefCell::new(Vec::new()) };
     static FLAGS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
+    /// Synthetic per-class monitor objects for `ACC_SYNCHRONIZED` static
+    /// methods (M3_PLAN §7.1). Allocated lazily on first acquisition and
+    /// scanned as permanent roots by `gc_scan_roots`.
+    static MONITORS: RefCell<Vec<Option<::j2r_runtime::heap::JRef>>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 /// The Java default value kind of a static field's descriptor.
@@ -244,6 +249,30 @@ pub fn gc_scan_roots(out: &mut ::std::vec::Vec<u32>) {
             }
         }
     });
+    MONITORS.with(|m| {
+        for r in m.borrow().iter().flatten() {
+            out.push(r.index());
+        }
+    });
+}
+
+/// The synthetic per-class monitor object for `ACC_SYNCHRONIZED` static
+/// methods (M3_PLAN §7.1): one object per class needing it, allocated on
+/// first use, rooted forever.
+pub fn class_monitor(idx: u32) -> ::j2r_runtime::heap::JRef {
+    MONITORS.with(|m| {
+        let mut b = m.borrow_mut();
+        while b.len() <= idx as usize {
+            b.push(::core::option::Option::None);
+        }
+        if let ::core::option::Option::Some(r) = b[idx as usize] {
+            return r;
+        }
+        let r = ::j2r_runtime::object::new_obj("j2r/internal/ClassMonitor", 0)
+            .expect("j2r internal: class monitor allocation");
+        b[idx as usize] = ::core::option::Option::Some(r);
+        r
+    })
 }
 "#;
     std::fs::write(src.join("statics.rs"), statics_rs)?;
@@ -529,6 +558,29 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) ->
             "        locals[0usize] = {RT}::Value::Ref(::core::option::Option::Some(this_ref.clone()));"
         );
         let _ = writeln!(out, "    }}");
+    }
+    // ACC_SYNCHRONIZED prologue (M3_PLAN §7.1): acquire on entry; the
+    // FrameGuard's Drop releases on every exit path (normal, `Err`, panic).
+    // Plain early-return on failure (no `j2r_try!` — the `'run` label is
+    // not yet in scope this early in the body; monitor acquisition cannot
+    // fail in the single-threaded runtime anyway).
+    if m.is_sync {
+        if instance {
+            out.push_str("    if let ::core::option::Option::Some(r) = recv {\n");
+            out.push_str(&format!(
+                "        if let ::core::result::Result::Err(t) = {RT}::heap::monitor_enter(r) {{ return ::core::result::Result::Err(t); }}\n"
+            ));
+            out.push_str("        __frame.record_monitor(*r);\n    }\n");
+        } else {
+            let idx = c.static_monitor.expect("validated static monitor index");
+            out.push_str(&format!(
+                "    let __cm = crate::statics::class_monitor({idx}u32);\n"
+            ));
+            out.push_str(&format!(
+                "    if let ::core::result::Result::Err(t) = {RT}::heap::monitor_enter(&__cm) {{ return ::core::result::Result::Err(t); }}\n"
+            ));
+            out.push_str("    __frame.record_monitor(__cm);\n");
+        }
     }
     let _ = writeln!(
         out,
@@ -1058,6 +1110,24 @@ fn emit_instr(
                 ));
             }
             out.push("stack.push(__v);".into());
+        }
+        Instr::MonitorEnter => {
+            out.push(format!(
+                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+            ));
+            out.push(format!(
+                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::heap::monitor_enter(&__r));"
+            ));
+            out.push("__frame.record_monitor(__r);".into());
+        }
+        Instr::MonitorExit => {
+            out.push(format!(
+                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+            ));
+            out.push(format!(
+                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::heap::monitor_exit(&__r));"
+            ));
+            out.push("__frame.unrecord_monitor(&__r);".into());
         }
         Instr::New { class } => {
             // The one collection point shape (M2_PLAN §4.3): refresh the

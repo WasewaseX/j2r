@@ -183,6 +183,10 @@ pub struct MethodPlan {
     pub name: String,
     pub desc: String,
     pub is_static: bool,
+    /// `ACC_SYNCHRONIZED` (M3 Wave 4): the emitter wraps the body with a
+    /// monitor acquisition on the receiver (instance) or the class's
+    /// synthetic monitor object (static).
+    pub is_sync: bool,
     pub fn_name: String,
     pub instrs: Vec<(u32, ir::Instr)>,
     pub exception_table: Vec<(u32, u32, u32, Option<String>)>,
@@ -214,6 +218,11 @@ pub struct ClassPlan {
     pub concats: BTreeMap<u16, ConcatPlan>,
     /// invokedynamic call sites that resolve to LambdaMetafactory closures.
     pub lambdas: BTreeMap<u16, lambda::LambdaPlan>,
+    /// Index into the generated statics' class-monitor table when any
+    /// static method of this class is `ACC_SYNCHRONIZED` (M3_PLAN §7.1:
+    /// a synthetic per-class monitor object, allocated lazily and scanned
+    /// as a static root).
+    pub static_monitor: Option<u32>,
     cf: ClassFile,
 }
 
@@ -395,6 +404,7 @@ fn parse_and_add(
         clinit_fn: None,
         concats: BTreeMap::new(),
         lambdas: BTreeMap::new(),
+        static_monitor: None,
         cf,
     });
     Ok(())
@@ -553,6 +563,8 @@ pub fn compile(opts: &Options) -> Result<Program> {
     // 3. slot layouts ------------------------------------------------------
     compute_layouts(&mut prog)?;
 
+    let mut static_monitor_count: u32 = 0;
+
     // 4. decode + synthesize clinit ----------------------------------------
     for ci in 0..prog.classes.len() {
         let (methods, clinit_fn, concats, lambdas) = plan_methods(&prog, ci)?;
@@ -561,6 +573,10 @@ pub fn compile(opts: &Options) -> Result<Program> {
         plan.clinit_fn = clinit_fn;
         plan.concats = concats;
         plan.lambdas = lambdas;
+        if plan.methods.iter().any(|m| m.is_sync && m.is_static) {
+            plan.static_monitor = Some(static_monitor_count);
+            static_monitor_count += 1;
+        }
     }
 
     // 5. verify every method body (before emitting any code) ---------------
@@ -689,17 +705,12 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
     let mut lambdas = BTreeMap::new();
 
     for m in &c.cf.methods {
-        // ACC_SYNCHRONIZED on a method (0x0020). A synchronized method would
-        // silently compile without locking — an unsupported feature must be
-        // a loud compile error, never a silent miscompile.
-        if !c.is_interface && m.access & j2r_classfile::flags::ACC_SYNCHRONIZED != 0 {
-            return Err(CodegenError::Unsupported {
-                class: c.name.clone(),
-                method: format!("{}{}", m.name, m.descriptor),
-                pc: 0,
-                what: "synchronized methods are not supported yet (no monitor support)".to_string(),
-            });
-        }
+        // ACC_SYNCHRONIZED on a method (0x0020). Since the monitor wave the
+        // emitter wraps such methods with a monitor acquisition — instance
+        // methods on the receiver, static methods on the class's synthetic
+        // monitor object (M3_PLAN §7.1). Abstract/interface methods ignore
+        // the flag per JVMS.
+        let is_sync = !c.is_interface && m.access & j2r_classfile::flags::ACC_SYNCHRONIZED != 0;
         if m.code.is_none() {
             if m.is_abstract() {
                 continue; // abstract: no body to compile
@@ -754,6 +765,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
             name: m.name.clone(),
             desc: m.descriptor.clone(),
             is_static: m.is_static(),
+            is_sync,
             fn_name: method_fn_name(&m.name, &m.descriptor),
             instrs,
             exception_table: code

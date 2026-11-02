@@ -358,3 +358,76 @@ to `>= 51`.
 **Test inventory at wave end (local, Temurin 21.0.13):** 60-fixture
 differential suite green, lambda fixtures green, negative tests green.
 Suite guard raised to `>= 60`.
+
+---
+
+## Wave 4 — synchronized monitors (T19–T20)
+
+**Delivered.**
+
+1. **Intrinsic monitors on the heap** (`heap.rs`): every arena `Entry`
+   carries a re-entrancy counter (`monitor: u32`, 0 = unlocked).
+   `monitor_enter` (re-entrant, overflow = internal error — unreachable
+   given the frame ceiling), `monitor_exit` (unowned exit →
+   `IllegalMonitorStateException` with HotSpot's `current thread not
+   owner` message), and `monitor_release` (the FrameGuard `Drop` safety
+   net: decrements without the ownership check, debug-asserted never to
+   underflow). The IMSE is allocated *after* the heap borrow ends — the
+   first test run caught `throw_new` re-entering the borrow.
+2. **Frame-scoped release** (`frame.rs`): `FrameGuard` gains a monitor
+   stack (capacity 8 inline — the 99 % case, no reallocation in steady
+   state). `monitorenter` records after acquiring; `monitorexit` pops the
+   most recent matching record; the `Drop` releases the remainder in LIFO
+   order — the monitor analogue of the root-snapshot slot discipline.
+   Normal returns (ACC_SYNCHRONIZED prologues), `Err` propagation and
+   panic unwinds all release; javac's structured `monitorexit` paths pop
+   their records first, so the `Drop` release is a safety net for
+   exceptional exits that outrun them, never a double release.
+3. **`monitorenter`/`monitorexit`** (`ir.rs` decode rejection lifted, new
+   IR variants; verifier pops one reference; emission pops the ref — null
+   → NPE — acquires/releases, and records/unrecords).
+4. **`ACC_SYNCHRONIZED` methods** (the M1.6 loud error lifted *only* now
+   that it is correct): `MethodPlan.is_sync` recorded at planning;
+   instance methods acquire on the receiver in the prologue; static
+   methods acquire on a **synthetic per-class monitor object** —
+   allocated lazily by the generated statics module (`class_monitor`),
+   permanent roots via `gc_scan_roots`, distinct per class (pinned by
+   `SyncStatic`). The prologue releases through the FrameGuard `Drop` on
+   every exit path.
+5. **`Object.wait/notify/notifyAll`**: loud runtime
+   `UnsupportedOperationException` with a named reason (the M3_PLAN §7.1
+   threading boundary). Registered as natives so javac-compiled calls
+   fail loudly at runtime, never silently — no differential fixture
+   (Temurin implements them).
+
+**Tests.**
+- `heap.rs` unit tests (4 new): enter/exit re-entrancy counts; unowned
+  exit → IMSE with class and message pinned; FrameGuard `Drop` releases a
+  recorded acquisition; unrecord pops the most recent matching record and
+  the `Drop` releases the rest.
+- Five differential fixtures (suite 60 → 65, all three-channel green vs
+  Temurin 21.0.13):
+  `SyncMethod` (synchronized instance + static methods, self-reentrant
+  call chains both instance and class-monitor),
+  `SyncBlock` (`synchronized(this)` nested re-entrancy, two distinct
+  object monitors in deterministic order, a static-field monitor),
+  `SyncUnwind` (exception through a synchronized block → structured
+  release → re-acquisition works; exception out of a synchronized
+  method → frame-exit release → re-acquisition works),
+  `SyncReentrant` (100-deep recursive re-entrancy × 50 + 100 000
+  enter/exit pairs — the stress assertion),
+  `SyncStatic` (class-monitor acquisition per call + two distinct
+  per-class monitors across classes).
+
+**Honesty notes.**
+- The runtime is single-threaded (M3_PLAN §0 boundary): a monitor has no
+  contention path; "ownership" is the re-entrancy count. Cross-thread
+  semantics arrive with the threads milestone; nothing here claims them.
+- `monitorexit` on an unowned monitor is not javac-reachable (javac
+  always pairs enter/exit); the IMSE is pinned by unit test, not
+  differential fixture.
+- `wait/notify/notifyAll` are loud-unsupported at runtime by design.
+
+**Test inventory at wave end (local, Temurin 21.0.13):** 65-fixture
+differential suite green, monitor fixtures green, 4 new unit tests
+green. Suite guard raised to `>= 65`.

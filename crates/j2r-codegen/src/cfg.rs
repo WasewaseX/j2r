@@ -862,6 +862,7 @@ mod tests {
             desc: "()V".into(),
             fn_name: "t".into(),
             is_static: true,
+            is_sync: false,
             instrs,
             exception_table: vec![],
             max_locals: 2,

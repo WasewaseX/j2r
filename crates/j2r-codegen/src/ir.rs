@@ -109,6 +109,11 @@ pub enum Instr {
     InvokeDynamic {
         index: u16,
     },
+    /// `monitorenter` (M3 Wave 4): re-entrant acquisition on the popped ref.
+    MonitorEnter,
+    /// `monitorexit`: releases one level; unowned exit is
+    /// `IllegalMonitorStateException`.
+    MonitorExit,
     New {
         class: String,
     },
@@ -521,13 +526,8 @@ pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<Vec<(u32, Instr)>>
             0xc1 => Instr::InstanceOf {
                 class: d.class_at(at)?,
             },
-            0xc2 | 0xc3 => {
-                return Err(DecodeError {
-                    pc: at,
-                    message: "monitorenter/monitorexit are not supported yet (synchronized blocks)"
-                        .to_string(),
-                });
-            }
+            0xc2 => Instr::MonitorEnter,
+            0xc3 => Instr::MonitorExit,
             0xc4 => {
                 let wop = d.u1()?;
                 match wop {

@@ -634,11 +634,15 @@ Status: `[x]` done · `[~]` in progress · `[ ]` pending.
 
 ### Wave 4 — synchronized monitors
 
-- [ ] **T19** Heap monitor counters + FrameGuard monitor stack +
+- [x] **T19** Heap monitor counters + FrameGuard monitor stack +
   unwind-release + ACC_SYNCHRONIZED (instance + static synthetic
-  monitor) + loud wait/notify.
-- [ ] **T20** Monitor fixtures (suite guard 65) + stress assertion +
-  evidence + CI.
+  monitor) + loud wait/notify. *(done — Entry monitor counter + monitor_enter/
+  exit/release in heap.rs; FrameGuard monitor stack with Drop release;
+  per-class synthetic monitors as static roots; IMSE after the borrow,
+  caught by the first unit-test run)*
+- [x] **T20** Monitor fixtures (suite guard 65) + stress assertion +
+  evidence + CI. *(done — five fixtures 60→65 incl. the 100-deep
+  re-entrancy + 100k enter/exit stress; `M3_EVIDENCE.md` Wave 4)*
 
 ### Wave 5 — reflection subset
 

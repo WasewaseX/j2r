@@ -110,6 +110,35 @@ fn n_object_init(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
     Ok(Value::Void)
 }
 
+// Object monitor condition methods (M3 Wave 4): loud-unsupported — the
+// threading boundary of M3_PLAN §7.1 (wait/notify need a multi-threaded
+// monitor). Registered so javac-compiled calls fail loudly at *runtime*
+// with a named reason, never silently.
+fn n_object_wait(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Err(throw_new(
+        "java/lang/UnsupportedOperationException",
+        Some("J2R M3: Object.wait is not supported (single-threaded runtime)"),
+    ))
+}
+
+fn n_object_notify(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Err(throw_new(
+        "java/lang/UnsupportedOperationException",
+        Some("J2R M3: Object.notify is not supported (single-threaded runtime)"),
+    ))
+}
+
+fn n_object_notify_all(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Err(throw_new(
+        "java/lang/UnsupportedOperationException",
+        Some("J2R M3: Object.notifyAll is not supported (single-threaded runtime)"),
+    ))
+}
+
 fn n_object_hash_code(
     recv: Option<&JRef>,
     _args: &[Value],
@@ -949,6 +978,11 @@ fn n_long_parse_long(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<
 pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     // java/lang/Object
     ("java/lang/Object", "<init>", "()V", n_object_init),
+    ("java/lang/Object", "wait", "()V", n_object_wait),
+    ("java/lang/Object", "wait", "(J)V", n_object_wait),
+    ("java/lang/Object", "wait", "(JI)V", n_object_wait),
+    ("java/lang/Object", "notify", "()V", n_object_notify),
+    ("java/lang/Object", "notifyAll", "()V", n_object_notify_all),
     (
         "java/lang/Object",
         "equals",

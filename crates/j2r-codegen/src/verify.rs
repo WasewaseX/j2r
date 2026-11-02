@@ -1057,6 +1057,9 @@ impl<'a> Sim<'a> {
                 self.pop_ref()?;
                 return Ok(Vec::new());
             }
+            MonitorEnter | MonitorExit => {
+                self.pop_ref()?;
+            }
             CheckCast { .. } => {
                 self.pop_ref()?;
                 self.push(VTy::Ref)?;
@@ -1181,6 +1184,7 @@ mod tests {
             name: "t".to_string(),
             desc: desc.to_string(),
             is_static,
+            is_sync: false,
             fn_name: "m_t".to_string(),
             instrs,
             exception_table: Vec::new(),
@@ -1701,6 +1705,7 @@ mod tests {
             clinit_fn: None,
             concats: BTreeMap::new(),
             lambdas: BTreeMap::new(),
+            static_monitor: None,
             cf,
         };
         let prog = Program {
