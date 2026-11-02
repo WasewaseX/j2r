@@ -398,9 +398,22 @@ pub enum BootstrapArgument {
     Float(f32),
     Double(f64),
     String(String),
-    /// Method handles, method types, classes and other exotic constants are
-    /// kept opaque so the code generator can report a precise error if it
-    /// ever needs them.
+    /// A `CONSTANT_MethodType` argument, resolved to its descriptor
+    /// (M3 Wave 3: `LambdaMetafactory`'s `samMethodType` and
+    /// `instantiatedMethodType`).
+    MethodType(String),
+    /// A `CONSTANT_MethodHandle` argument, resolved to its kind and the
+    /// member it references (M3 Wave 3: the `implMethod` argument).
+    MethodHandle {
+        kind: u8,
+        class: String,
+        name: String,
+        desc: String,
+    },
+    /// A `CONSTANT_Class` argument, resolved to its internal name.
+    Class(String),
+    /// Other exotic constants remain opaque so the code generator can
+    /// report a precise error if it ever needs them.
     Opaque {
         tag: &'static str,
     },
@@ -862,6 +875,17 @@ fn parse_bootstrap_methods(body: &[u8], cp: &ConstantPool) -> Result<Vec<Bootstr
                 CpEntry::Float(v) => BootstrapArgument::Float(*v),
                 CpEntry::Double(v) => BootstrapArgument::Double(*v),
                 CpEntry::String(u) => BootstrapArgument::String(cp.utf8(*u)?.to_string()),
+                CpEntry::MethodType(u) => BootstrapArgument::MethodType(cp.utf8(*u)?.to_string()),
+                CpEntry::Class(_) => BootstrapArgument::Class(cp.class_name(idx)?.to_string()),
+                CpEntry::MethodHandle { kind, index } => {
+                    let (cls, name, desc) = cp.member_ref(*index)?;
+                    BootstrapArgument::MethodHandle {
+                        kind: *kind,
+                        class: cls,
+                        name,
+                        desc,
+                    }
+                }
                 other => BootstrapArgument::Opaque {
                     tag: other.tag_name(),
                 },

@@ -21,14 +21,16 @@ pub mod cfg;
 pub mod classpath;
 pub mod emit;
 pub mod ir;
+pub mod lambda;
 pub mod specialize;
 pub mod verify;
 
-/// Method plans + clinit fn name + concat sites for one class.
+/// Method plans + clinit fn name + indy sites (concat + lambda) for one class.
 pub type MethodPlans = (
     Vec<MethodPlan>,
     Option<String>,
     std::collections::BTreeMap<u16, ConcatPlan>,
+    std::collections::BTreeMap<u16, lambda::LambdaPlan>,
 );
 
 use j2r_classfile::{ClassFile, ConstantValue};
@@ -210,6 +212,8 @@ pub struct ClassPlan {
     pub clinit_fn: Option<String>,
     /// invokedynamic call sites that resolve to string concatenation.
     pub concats: BTreeMap<u16, ConcatPlan>,
+    /// invokedynamic call sites that resolve to LambdaMetafactory closures.
+    pub lambdas: BTreeMap<u16, lambda::LambdaPlan>,
     cf: ClassFile,
 }
 
@@ -260,6 +264,9 @@ pub fn method_fn_name(name: &str, desc: &str) -> String {
         match c {
             '<' => s.push_str("init"),
             '>' => {}
+            // `$` is legal in JVM method names (javac's synthetic
+            // `lambda$…` members) but not in Rust identifiers.
+            '$' => s.push_str("_d_"),
             _ => s.push(c),
         }
     }
@@ -387,6 +394,7 @@ fn parse_and_add(
         methods: Vec::new(),
         clinit_fn: None,
         concats: BTreeMap::new(),
+        lambdas: BTreeMap::new(),
         cf,
     });
     Ok(())
@@ -547,11 +555,12 @@ pub fn compile(opts: &Options) -> Result<Program> {
 
     // 4. decode + synthesize clinit ----------------------------------------
     for ci in 0..prog.classes.len() {
-        let (methods, clinit_fn, concats) = plan_methods(&prog, ci)?;
+        let (methods, clinit_fn, concats, lambdas) = plan_methods(&prog, ci)?;
         let plan = &mut prog.classes[ci];
         plan.methods = methods;
         plan.clinit_fn = clinit_fn;
         plan.concats = concats;
+        plan.lambdas = lambdas;
     }
 
     // 5. verify every method body (before emitting any code) ---------------
@@ -677,6 +686,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
     let mut methods = Vec::new();
     let mut clinit_fn = None;
     let mut concats = BTreeMap::new();
+    let mut lambdas = BTreeMap::new();
 
     for m in &c.cf.methods {
         // ACC_SYNCHRONIZED on a method (0x0020). A synchronized method would
@@ -710,18 +720,29 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
                 what: e.message,
             })?;
 
-        // invokedynamic sites
+        // invokedynamic sites, dispatched on the bootstrap class
         for (pc, instr) in &instrs {
             if let ir::Instr::InvokeDynamic { index } = instr {
-                let plan = resolve_concat(&prog.classes[ci], *index).map_err(|what| {
-                    CodegenError::Unsupported {
-                        class: c.name.clone(),
-                        method: format!("{}{}", m.name, m.descriptor),
-                        pc: *pc,
-                        what,
+                let what = |what: String| CodegenError::Unsupported {
+                    class: c.name.clone(),
+                    method: format!("{}{}", m.name, m.descriptor),
+                    pc: *pc,
+                    what,
+                };
+                let bcls = crate::lambda::bootstrap_class_of(c, *index).map_err(what)?;
+                match bcls.as_str() {
+                    crate::lambda::LMF_CLASS => {
+                        let plan = crate::lambda::resolve_lambda(prog, ci, *index).map_err(what)?;
+                        lambdas.insert(*index, plan);
                     }
-                })?;
-                concats.insert(*index, plan);
+                    "java/lang/invoke/StringConcatFactory" => {
+                        let plan = resolve_concat(&prog.classes[ci], *index).map_err(what)?;
+                        concats.insert(*index, plan);
+                    }
+                    other => {
+                        return Err(what(format!("unsupported invokedynamic bootstrap {other}")));
+                    }
+                }
             }
         }
 
@@ -761,7 +782,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
     // appended stores landed after the method's `return` (dead code), and
     // ConstantValue-only classes produced a clinit without a terminator.
 
-    Ok((methods, clinit_fn, concats))
+    Ok((methods, clinit_fn, concats, lambdas))
 }
 
 /// Resolves an `invokedynamic` call site. Milestone 1 supports exactly one
@@ -803,6 +824,14 @@ fn resolve_concat(c: &ClassPlan, indy_index: u16) -> std::result::Result<ConcatP
             j2r_classfile::BootstrapArgument::Double(v) => j2r_runtime::Value::Double(*v),
             j2r_classfile::BootstrapArgument::String(s) => {
                 j2r_runtime::Value::Str(std::rc::Rc::new(s.clone()))
+            }
+            // MethodType/MethodHandle/Class constants never appear as concat
+            // recipe constants in javac output; they belong to the
+            // LambdaMetafactory path, which is dispatched earlier.
+            j2r_classfile::BootstrapArgument::MethodType(_)
+            | j2r_classfile::BootstrapArgument::MethodHandle { .. }
+            | j2r_classfile::BootstrapArgument::Class(_) => {
+                return Err("unsupported concat bootstrap constant".to_string())
             }
             j2r_classfile::BootstrapArgument::Opaque { tag } => {
                 return Err(format!("unsupported concat bootstrap constant ({tag})"))
@@ -1041,7 +1070,7 @@ fn validate_instr(
             validate_virtual(prog, class, name, desc)
         }
         ir::Instr::InvokeDynamic { index } => {
-            if !c.concats.contains_key(index) {
+            if !c.concats.contains_key(index) && !c.lambdas.contains_key(index) {
                 return Err(unsupported(
                     c,
                     method_ctx,

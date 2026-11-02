@@ -1032,19 +1032,31 @@ fn emit_instr(
         }
         Instr::InvokeDynamic { index } => {
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
-            let plan = c.concats.get(index).expect("validated concat site");
-            let n = plan.kinds.len();
-            out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
-            let consts = plan
-                .constants
-                .iter()
-                .map(constant_literal)
-                .collect::<Vec<_>>()
-                .join(", ");
-            out.push(format!(
-                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::concat::string_concat({:?}, &[{}], &__a, {:?}, crate::j2r_dispatch()));",
-                plan.recipe, consts, plan.kinds
-            ));
+            if let Some(plan) = c.lambdas.get(index) {
+                // Closure construction (M3_PLAN §6.1): the captures are the
+                // indy site's dynamic arguments; the refresh above rooted
+                // them through the frame snapshot before the pop.
+                let n = plan.capture_kinds.len();
+                out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
+                out.push(format!(
+                    "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::lambda::make_closure({}u8, {:?}, {:?}, {:?}, {:?}, {}u32, &__a));",
+                    plan.shape, plan.interface, plan.target_class, plan.target_name, plan.target_desc, plan.ctor_slots
+                ));
+            } else {
+                let plan = c.concats.get(index).expect("validated concat site");
+                let n = plan.kinds.len();
+                out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
+                let consts = plan
+                    .constants
+                    .iter()
+                    .map(constant_literal)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push(format!(
+                    "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::concat::string_concat({:?}, &[{}], &__a, {:?}, crate::j2r_dispatch()));",
+                    plan.recipe, consts, plan.kinds
+                ));
+            }
             out.push("stack.push(__v);".into());
         }
         Instr::New { class } => {

@@ -17,6 +17,7 @@
 use crate::collections as c;
 use crate::concat;
 use crate::heap::JRef;
+use crate::lambda;
 use crate::langext as le;
 use crate::object::{self, is_string, new_obj};
 use crate::Value;
@@ -1468,6 +1469,33 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()Ljava/lang/String;",
         c::n_al_to_string,
     ),
+    (
+        "java/util/ArrayList",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        c::n_al_for_each,
+    ),
+    (
+        "java/util/ArrayList",
+        "removeIf",
+        "(Ljava/util/function/Predicate;)Z",
+        c::n_al_remove_if,
+    ),
+    // Mirror rows under the `java/util/List` interface so calls on
+    // interface-typed receivers (the same pattern as the Wave-2 List rows
+    // above) reach the ArrayList implementations.
+    (
+        "java/util/List",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        c::n_al_for_each,
+    ),
+    (
+        "java/util/List",
+        "removeIf",
+        "(Ljava/util/function/Predicate;)Z",
+        c::n_al_remove_if,
+    ),
     // java/util/Iterator (the ArrayList$Itr runtime class dispatches here)
     (
         "java/util/ArrayList$Itr",
@@ -1869,14 +1897,15 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/Object;)Z",
         c::n_objects_non_null,
     ),
-    // placeholder declaration for the Supplier interface (user classes with
-    // a compiled get() dispatch into their code; this native is the loud
-    // fallback)
+    // Supplier SAM row (M3 Wave 3): lambda closures dispatch here through
+    // `lambda::n_sam` (Wave 2's loud placeholder became the real
+    // implementation when closures arrived); user classes with a compiled
+    // `get()` dispatch into their code via the registry first.
     (
         "java/util/function/Supplier",
         "get",
         "()Ljava/lang/Object;",
-        c::n_supplier_get,
+        lambda::n_sam,
     ),
     // ------------------------------------------------ M3 Wave 2: java.lang
     // extensions (implementations in `langext.rs`)
@@ -2339,6 +2368,59 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "getNumericValue",
         "(C)I",
         le::n_char_get_numeric_value,
+    ),
+    // ------------------------------------------------ M3 Wave 3: lambdas
+    // One SAM row per interface in the M3 set (M3_PLAN §6.1). Closure
+    // objects carry their interface as the object class, so the dispatch
+    // walk reaches these rows directly; the shared implementation
+    // reassembles the recorded target call (see `lambda.rs`).
+    (
+        "java/util/function/Function",
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        lambda::n_sam,
+    ),
+    (
+        "java/util/function/BiFunction",
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        lambda::n_sam,
+    ),
+    (
+        "java/util/function/Consumer",
+        "accept",
+        "(Ljava/lang/Object;)V",
+        lambda::n_sam,
+    ),
+    (
+        "java/util/function/BiConsumer",
+        "accept",
+        "(Ljava/lang/Object;Ljava/lang/Object;)V",
+        lambda::n_sam,
+    ),
+    (
+        "java/util/function/Predicate",
+        "test",
+        "(Ljava/lang/Object;)Z",
+        lambda::n_sam,
+    ),
+    (
+        "java/util/function/BiPredicate",
+        "test",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+        lambda::n_sam,
+    ),
+    (
+        "java/util/function/UnaryOperator",
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        lambda::n_sam,
+    ),
+    (
+        "java/util/function/BinaryOperator",
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        lambda::n_sam,
     ),
 ];
 

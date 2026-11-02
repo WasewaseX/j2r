@@ -229,3 +229,132 @@ post-resize order; forced-GC run green over the collection fixtures (gate
 9 runs the full suite under `J2R_GC_EVERY_N=1` in CI); borrow census
 re-issued in `RUNTIME_SAFETY.md` §4 in the wave commit. Suite guard raised
 to `>= 51`.
+
+---
+
+## Wave 3 — lambdas & method references (T16–T18)
+
+**Delivered.**
+
+1. **Bootstrap-argument resolution** (`j2r-classfile`):
+   `BootstrapArgument` gains `MethodType(String)`, `MethodHandle
+   { kind, class, name, desc }` and `Class(String)` — resolved at parse
+   time instead of the old `Opaque { tag }` (which is kept for genuinely
+   exotic constants). `makeConcatWithConstants` rejection text for
+   MethodType/MethodHandle/Class constants is unchanged in behavior.
+2. **Compile-time site resolution** (`j2r-codegen/src/lambda.rs`, new):
+   `bootstrap_class_of` dispatches each indy site on its bootstrap class —
+   `LambdaMetafactory.metafactory` → `resolve_lambda`,
+   `StringConcatFactory` → the unchanged `resolve_concat`, anything else
+   → `unsupported invokedynamic bootstrap {cls}`. `resolve_lambda` pins,
+   with loud errors naming the shape:
+   - the functional interface must be in the M3 nine-interface set
+     (`IntPredicate`, `ToIntFunction`, … → "outside the M3
+     LambdaMetafactory set" — negative e2e `lambda_neg.rs`);
+   - the bootstrap handle must be exactly `LambdaMetafactory.metafactory`
+     (`altMetafactory` → loud, covered by the same dispatch check);
+   - `samMethodType` arity must equal the interface's SAM arity,
+     `instantiatedMethodType` must agree, and the erased SAM return kind
+     is pinned per interface (`Object` for the Function family, `V` for
+     consumers, `Z` for predicates);
+   - `implMethod` kinds 5/6/7/8/9 with per-shape arity rules: static
+     `impl == caps + sam_arity`; bound (captures>0) `impl == sam_arity`;
+     unbound (captures==0) `impl == sam_arity - 1` (the receiver arrives
+     as the first SAM argument — `String::toUpperCase` is impl
+     `()String` against SAM `apply(Object)Object`); special requires a
+     captured receiver; ctor references must return void and resolve to
+     an instantiable class (compiled `total_slots` or
+     `builtin_total_slots`);
+   - the target must resolve (compiled classfile member or natives row)
+     — a broken closure can no more reach runtime than a broken call.
+   The plan carries shape (`0 static / 1 bound / 2 unbound / 3 ctor`),
+   interface, SAM name, capture kinds and target; `ClassPlan.lambdas`
+   mirrors `concats`; the verifier pops capture kinds and pushes `Ref`
+   for lambda sites (arity/type simulation unchanged); the
+   `validate_indy` pre-check accepts either map.
+3. **Closure construction** (emission): every indy lambda site emits
+   `lambda::make_closure(shape, iface, target_class, target_name,
+   target_desc, ctor_slots, &captures)` after the standard call-boundary
+   root refresh — captures are rooted through the frame snapshot exactly
+   like call arguments (M2_PLAN §4.4 discipline).
+4. **Runtime invocation** (`j2r-runtime/src/lambda.rs`, new): a closure
+   is an ordinary heap object **whose class is the functional interface
+   itself** — subtype checks and `invokeinterface` dispatch are exact
+   through the existing machinery with zero new root or dispatch code
+   (slots: shape, target class/method/desc, ctor slot count, captures).
+   `n_sam` (one natives row per interface) reassembles the call and
+   performs the adaptation `LambdaMetafactory` would do at link time:
+   boxed SAM arguments are unboxed to primitive impl parameters, and
+   primitive impl results are boxed back to the erased `Object` SAM
+   return (verified live against javac 21 output — `square:(I)I` is
+   emitted raw). Null receivers → NPE, matching invocation on null.
+5. **Interface-dispatch wiring**: builtin hierarchy for the nine
+   interfaces (`UnaryOperator <: Function`,
+   `BinaryOperator <: BiFunction` via the interface table); SAM rows for
+   all nine; Wave-2's loud `Supplier.get` placeholder became the real
+   `lambda::n_sam` row (first match wins in the table — the duplicate
+   was caught by the first differential run); `ArrayList.forEach/removeIf`
+   registered under both `java/util/ArrayList` and `java/util/List`
+   (the Wave-2 mirror-row pattern), with OpenJDK-faithful semantics:
+   `forEach` checks `modCount` after every element, `removeIf` computes
+   the removal set in one pass (CME if the predicate structurally
+   modified the list) then compacts once with a single `modCount`
+   increment.
+6. **Name mangler fix**: `$` is legal in JVM method names (javac's
+   synthetic `lambda$main$0`) but not in Rust identifiers —
+   `method_fn_name` now escapes it (`_d_`), and the first run caught the
+   generated crate failing to compile without it. Documented limitation:
+   the escape is not injective against an adversarially hand-written
+   class declaring both `lambda$main$0` and `lambda_d_main` with the
+   same descriptor (javac output can never do this; a crafted classfile
+   fails loudly with a duplicate-symbol compile error in the generated
+   crate, never a miscompile).
+
+**Honesty notes (per M3_PLAN §6.1 decisions).**
+- Closure `getClass()` reports the functional interface, not a synthetic
+  `$$Lambda$…` name — fixtures never print lambda class names (Temurin's
+  names are JVM-specific).
+- `andThen`/`compose`/`negate` default methods are loud-unsupported
+  (unknown-JDK-method compile error), per the plan's no-default-methods
+  decision.
+- Lambda markers via `altMetafactory` (`FLAG_SERIALIZATION`) are loud.
+- A closure built for one interface fails `instanceof` for the other
+  eight (correct: the object class *is* the interface) — exactly
+  Temurin's semantics.
+
+**Tests.**
+- `lambda.rs` (codegen) unit tests: SAM arities for all nine interfaces,
+  SAM return-kind pinning incl. the three rejection classes, capture-kind
+  alphabet.
+- `lambda_neg.rs` (j2r-cli, javac-gated): `IntPredicate` and
+  `ToIntFunction` lambdas are rejected at compile time with the
+  set-membership message.
+- Nine differential fixtures (suite 51 → 60, all three-channel green vs
+  Temurin 21.0.13):
+  `LambdaCaptureless` (all nine interfaces, no captures),
+  `LambdaCapture` (reference capture shares the object — JLS 15.27.2 by-
+  value capture of the reference; mixed I/J/D captures; per-iteration
+  loop captures through an ArrayList),
+  `LambdaThis` (implicit + explicit `this` capture — REF_invokeSpecial
+  shape),
+  `MethodRefStatic` (compiled + native static targets: `Math::abs`,
+  `Integer::valueOf`, `Math::max` — exercises the unbox/box adaptation),
+  `MethodRefBound` (bound native virtual, bound compiled virtual, bound
+  collection receiver, receiver captured once — later reassignment
+  invisible),
+  `MethodRefUnbound` (receiver-as-first-SAM-arg: `String::toUpperCase`,
+  `String::substring` with an unboxed int arg, `String::length`),
+  `MethodRefCtor` (native `ArrayList::new`, compiled `Box::new` with an
+  unboxed ctor argument, `Object::new`),
+  `LambdaInCollections` (`forEach` with capture + block lambda, `removeIf`
+  unboxing per element, empty-list edges),
+  `LambdaGC` (20 000 closure churn with kept survivors + 100-closure
+  accumulation — the gate-9 forced-GC rooting proof runs this fixture
+  with a collection at every allocation).
+- The `cfg_equiv` gate covers the new fixtures automatically (closure
+  construction is straight-line; `--emit-cfg` equivalence held on first
+  run).
+
+**Test inventory at wave end (local, Temurin 21.0.13):** 60-fixture
+differential suite green, lambda fixtures green, negative tests green.
+Suite guard raised to `>= 60`.

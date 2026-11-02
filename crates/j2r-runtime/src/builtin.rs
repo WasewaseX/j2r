@@ -54,6 +54,19 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/Objects" => "java/lang/Object",
         "java/util/NoSuchElementException" => "java/lang/RuntimeException",
         "java/util/ConcurrentModificationException" => "java/lang/RuntimeException",
+        // M3 Wave 3: functional interfaces (M3_PLAN §6.1). Closures carry
+        // their interface as the object class; the specialization hierarchy
+        // (UnaryOperator <: Function, BinaryOperator <: BiFunction) lives in
+        // `builtin_interfaces_of`.
+        "java/util/function/Function" => "java/lang/Object",
+        "java/util/function/BiFunction" => "java/lang/Object",
+        "java/util/function/Supplier" => "java/lang/Object",
+        "java/util/function/Consumer" => "java/lang/Object",
+        "java/util/function/BiConsumer" => "java/lang/Object",
+        "java/util/function/Predicate" => "java/lang/Object",
+        "java/util/function/BiPredicate" => "java/lang/Object",
+        "java/util/function/UnaryOperator" => "java/lang/Object",
+        "java/util/function/BinaryOperator" => "java/lang/Object",
         _ => return None,
     };
     Some(p)
@@ -79,6 +92,9 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         "java/util/ArrayList$Itr"
         | "java/util/HashMap$KeyIterator"
         | "java/util/HashMap$ValueIterator" => &["java/util/Iterator"],
+        // M3 Wave 3: functional-interface specialization hierarchy.
+        "java/util/function/UnaryOperator" => &["java/util/function/Function"],
+        "java/util/function/BinaryOperator" => &["java/util/function/BiFunction"],
         _ => &[],
     }
 }

@@ -454,6 +454,96 @@ pub fn n_al_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Re
     collection_to_string(items, ctx)
 }
 
+/// Dispatches one functional-interface SAM call on a possibly-null target:
+/// closures (object class = the interface) and user implementations both
+/// resolve through the ordinary `invoke_virtual` walk. Null target → NPE,
+/// exactly like a JVM invocation on a null receiver.
+fn invoke_sam(
+    target: &Value,
+    iface: &str,
+    name: &str,
+    desc: &str,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match target {
+        Value::Ref(Some(r)) => *r,
+        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    crate::invoke_virtual(&r, iface, name, desc, args, ctx)
+}
+
+/// `ArrayList.forEach(Consumer)` — OpenJDK-faithful: the action runs per
+/// element in order and `modCount` is checked after every element, so a
+/// structural modification through the action throws CME.
+pub fn n_al_for_each(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: ArrayList.forEach without receiver");
+    let action = args.first().cloned().unwrap_or(Value::Ref(None));
+    let (size, mc, elems) = al_state(r);
+    for i in 0..size {
+        let v = al_get_elem(&elems, i);
+        invoke_sam(
+            &action,
+            "java/util/function/Consumer",
+            "accept",
+            "(Ljava/lang/Object;)V",
+            &[v],
+            ctx,
+        )?;
+        if with_obj(*r, |o| o.slots[AL_MODCOUNT].expect_int()) != mc {
+            return Err(throw_new("java/util/ConcurrentModificationException", None));
+        }
+    }
+    Ok(Value::Void)
+}
+
+/// `ArrayList.removeIf(Predicate)` — OpenJDK shape: one pass computes the
+/// removal set (CME if the predicate structurally modified the list), then
+/// a single in-place compaction and one `modCount` increment. Returns
+/// whether any element was removed.
+pub fn n_al_remove_if(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: ArrayList.removeIf without receiver");
+    let filter = args.first().cloned().unwrap_or(Value::Ref(None));
+    let (size, mc, elems) = al_state(r);
+    let mut remove: Vec<bool> = Vec::with_capacity(size.max(0) as usize);
+    let mut any = false;
+    for i in 0..size {
+        let v = al_get_elem(&elems, i);
+        let t = invoke_sam(
+            &filter,
+            "java/util/function/Predicate",
+            "test",
+            "(Ljava/lang/Object;)Z",
+            &[v],
+            ctx,
+        )?;
+        let drop_it = t.expect_int() != 0;
+        remove.push(drop_it);
+        any |= drop_it;
+        if with_obj(*r, |o| o.slots[AL_MODCOUNT].expect_int()) != mc {
+            return Err(throw_new("java/util/ConcurrentModificationException", None));
+        }
+    }
+    if any {
+        let mut w = 0i32;
+        for i in 0..size {
+            let v = al_get_elem(&elems, i);
+            if !remove[i as usize] {
+                al_set_elem(&elems, w, v);
+                w += 1;
+            }
+        }
+        for i in w..size {
+            al_set_elem(&elems, i, Value::Ref(None));
+        }
+        with_obj_mut(*r, |o| {
+            o.slots[AL_SIZE] = Value::Int(w);
+            o.slots[AL_MODCOUNT] = Value::Int(mc + 1);
+        });
+    }
+    Ok(Value::Int(any as i32))
+}
+
 pub fn n_al_iterator(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: ArrayList.iterator without receiver");
     let (_, mc, _elems) = al_state(r);
@@ -1396,20 +1486,6 @@ pub fn n_objects_non_null(
     let _ = recv;
     let a = args.first().cloned().unwrap_or(Value::Ref(None));
     Ok(Value::Int((!a.is_null()) as i32))
-}
-
-/// Placeholder under the `java/util/function/Supplier` interface so the
-/// validator accepts `Objects.requireNonNull(x, supplier)`: runtime calls
-/// dispatch into the receiver's compiled `get()` and only reach this
-/// native when no implementation exists (loud internal error).
-pub fn n_supplier_get(
-    _recv: Option<&JRef>,
-    _args: &[Value],
-    _ctx: Dispatch,
-) -> Result<Value, Throw> {
-    Err(internal_error(
-        "abstract Supplier.get dispatched with no implementation",
-    ))
 }
 
 // ---------------------------------------------------------------- tests

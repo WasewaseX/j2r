@@ -324,6 +324,7 @@ fn entry_state(m: &MethodPlan) -> std::result::Result<State, VerifyError> {
 pub fn verify_method_shapes(
     m: &MethodPlan,
     concats: &BTreeMap<u16, ConcatPlan>,
+    lambdas: &BTreeMap<u16, crate::lambda::LambdaPlan>,
 ) -> std::result::Result<MethodShapes, VerifyError> {
     if m.instrs.is_empty() {
         return Err(err(0, "method body has no instructions"));
@@ -357,6 +358,7 @@ pub fn verify_method_shapes(
             stack: state.stack,
             locals: state.locals,
             concats,
+            lambdas,
             max_stack: m.max_stack,
         };
         let successors = sim.execute(instr)?;
@@ -406,8 +408,9 @@ pub fn verify_method_shapes(
 pub fn verify_method(
     m: &MethodPlan,
     concats: &BTreeMap<u16, ConcatPlan>,
+    lambdas: &BTreeMap<u16, crate::lambda::LambdaPlan>,
 ) -> std::result::Result<(), VerifyError> {
-    verify_method_shapes(m, concats).map(|_| ())
+    verify_method_shapes(m, concats, lambdas).map(|_| ())
 }
 
 /// Merges `st` into the recorded state of instruction slot `t` (whose pc is
@@ -443,6 +446,7 @@ struct Sim<'a> {
     stack: Vec<VTy>,
     locals: Vec<VTy>,
     concats: &'a BTreeMap<u16, ConcatPlan>,
+    lambdas: &'a BTreeMap<u16, crate::lambda::LambdaPlan>,
     max_stack: usize,
 }
 
@@ -990,15 +994,19 @@ impl<'a> Sim<'a> {
                 push_ret(self, &ret)?;
             }
             InvokeDynamic { index } => {
-                let plan = self.concats.get(index).ok_or_else(|| {
-                    self.e(format!(
-                        "invokedynamic #{index} has no resolved concat plan"
-                    ))
-                })?;
-                for k in plan.kinds.chars().rev() {
-                    self.pop_exact(kind_vty(k))?;
+                if let Some(plan) = self.concats.get(index) {
+                    for k in plan.kinds.chars().rev() {
+                        self.pop_exact(kind_vty(k))?;
+                    }
+                    self.push(VTy::Ref)?;
+                } else if let Some(lp) = self.lambdas.get(index) {
+                    for k in lp.capture_kinds.chars().rev() {
+                        self.pop_exact(kind_vty(k))?;
+                    }
+                    self.push(VTy::Ref)?;
+                } else {
+                    return Err(self.e(format!("invokedynamic #{index} has no resolved plan")));
                 }
-                self.push(VTy::Ref)?;
             }
             New { .. } => self.push(VTy::Ref)?,
             NewArray(p) => {
@@ -1105,7 +1113,7 @@ fn next_pc(m: &MethodPlan, pc: u32) -> u32 {
 /// need the whole-program view (`catch_type` must name a real class).
 pub fn verify_class(prog: &Program, c: &ClassPlan) -> Result<()> {
     for m in &c.methods {
-        verify_method(m, &c.concats).map_err(|e| CodegenError::Verify {
+        verify_method(m, &c.concats, &c.lambdas).map_err(|e| CodegenError::Verify {
             class: c.name.clone(),
             method: format!("{}{}", m.name, m.desc),
             pc: e.pc,
@@ -1183,12 +1191,14 @@ mod tests {
 
     fn verify_ok(m: &MethodPlan) {
         let concats = BTreeMap::new();
-        verify_method(m, &concats).unwrap_or_else(|e| panic!("expected OK, got: {e}"));
+        let lambdas = BTreeMap::new();
+        verify_method(m, &concats, &lambdas).unwrap_or_else(|e| panic!("expected OK, got: {e}"));
     }
 
     fn verify_err(m: &MethodPlan) -> VerifyError {
         let concats = BTreeMap::new();
-        verify_method(m, &concats).expect_err("expected a verification error")
+        let lambdas = BTreeMap::new();
+        verify_method(m, &concats, &lambdas).expect_err("expected a verification error")
     }
 
     #[test]
@@ -1690,6 +1700,7 @@ mod tests {
             methods: vec![m],
             clinit_fn: None,
             concats: BTreeMap::new(),
+            lambdas: BTreeMap::new(),
             cf,
         };
         let prog = Program {

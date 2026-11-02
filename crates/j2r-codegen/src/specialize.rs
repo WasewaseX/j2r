@@ -187,7 +187,7 @@ pub fn plan_program(prog: &crate::Program) -> Vec<MethodReport> {
     let mut out = Vec::new();
     for c in &prog.classes {
         for m in &c.methods {
-            let Ok(shapes) = crate::verify::verify_method_shapes(m, &c.concats) else {
+            let Ok(shapes) = crate::verify::verify_method_shapes(m, &c.concats, &c.lambdas) else {
                 continue; // verification errors are reported by the pipeline
             };
             let spec = plan_method(&shapes);

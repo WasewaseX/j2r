@@ -619,12 +619,18 @@ Status: `[x]` done · `[~]` in progress · `[ ]` pending.
 
 ### Wave 3 — lambdas & method references
 
-- [ ] **T16** `lambda.rs` bootstrap resolution + closure construction +
+- [x] **T16** `lambda.rs` bootstrap resolution + closure construction +
   runtime invocation; supported handle kinds 5/6/7/8/9; negative e2e
-  for unsupported shapes.
-- [ ] **T17** Functional-interface natives + interface-dispatch wiring;
-  method refs incl. ctor refs.
-- [ ] **T18** Lambda fixtures (suite guard 60) + evidence + CI.
+  for unsupported shapes. *(done — resolution in `j2r-codegen/src/lambda.rs`,
+  invocation + SAM↔impl box/unbox adaptation in `j2r-runtime/src/lambda.rs`,
+  negative e2e in `j2r-cli/tests/lambda_neg.rs`)*
+- [x] **T17** Functional-interface natives + interface-dispatch wiring;
+  method refs incl. ctor refs. *(done — closures carry the interface as
+  their object class so subtype checks and `invokeinterface` dispatch are
+  exact with zero new machinery; Wave-2's `Supplier.get` placeholder
+  became the real row; `forEach`/`removeIf` mirrored under `List`)*
+- [x] **T18** Lambda fixtures (suite guard 60) + evidence + CI.
+  *(done — nine fixtures 51→60, `M3_EVIDENCE.md` Wave 3)*
 
 ### Wave 4 — synchronized monitors
 
