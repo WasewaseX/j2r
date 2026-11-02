@@ -92,7 +92,9 @@ lands in [docs/M3_EVIDENCE.md](docs/M3_EVIDENCE.md).
 * **Wave 5 (T21–T22, done)** — reflection subset (interned, static-rooted
   `Class` objects, `ldc` of class constants, `Field.get/set`,
   `Method.invoke`, Temurin-exact failure strings); suite 65 → 70.
-* **T23** — completion package + review submission.
+* **T23 (done)** — completion package + review submission: 10/10 gates
+  green at `ce8b44e` (run 41484339575); suite 39 → 70; 228 tests;
+  deviations disclosed in M3_EVIDENCE.md.
 
 Explicitly out of M3 scope (loud errors stay; deferred with rationale
 in M3_PLAN §0): threads and concurrency (single-threaded boundary

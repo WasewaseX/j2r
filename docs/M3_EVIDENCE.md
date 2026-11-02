@@ -545,3 +545,65 @@ breaks quietly if you fake it, so we didn't fake it.
 **Test inventory at wave end (local, Temurin 21.0.13):** 70-fixture
 differential suite green, 228 unit + integration tests, 0 failures,
 fmt + clippy (`-D warnings`) clean. Suite guard raised to `>= 70`.
+
+---
+
+## M3 completion package (T23)
+
+**Milestone state at submission.** All five waves implemented, each with
+its own evidence section above; CI **10/10 gates green** at `ce8b44e`
+(run 41484339575 — gate-9 `gc-stress` forced collection across the whole
+suite and gate-10 `no-unsafe` included). Local inventory at HEAD:
+**228 unit + integration tests, 0 failures** (Temurin 21.0.13),
+fmt + clippy (`-D warnings`) + rustdoc (`-D warnings`) clean. The
+differential suite went **39 → 70 fixtures** across the five waves
+(39→47→51→60→65→70), every transition pinned by the shrink-guard.
+
+**Process deviations, disclosed.**
+- Wave 5 (`1377682`) and the README refresh (`f9d25c0`) were pushed with
+  a red gate-6: the new reflect module doc linked `pub(crate)` items with
+  intra-doc links, and `cargo doc -D warnings` catches that only when
+  someone actually runs it — which the local pre-push loop that session
+  did not. Caught by CI, fixed within the session (`ce8b44e`), and
+  `cargo doc --no-deps` with `-D warnings` is now part of the local
+  pre-push checklist. No semantic gate (differential, forced-GC,
+  no-unsafe, tests) failed on any M3 commit; both red runs were the
+  same doc-lint gate. The earlier M3 history has two more red runs of
+  the same shape: `5d36f15` (run 41425628277, gate-6) fixed by
+  `7c2f55f`, and the wave-3 commit `00fc5d0` (run 41450331071, gate-6)
+  fixed by the wave-4 commit `e5e7d82`. Pattern acknowledged: doc-lint
+  was the weak gate locally, now enforced locally too.
+- The wave-3 commit also carried an unrelated doc-lint repair
+  (`7c2f55f` landed before it); no gate ever failed at any *final*
+  wave state.
+
+**What the completion review should audit** (same process as M1/M2):
+1. Wave 1 — JAR/zip correctness (CRC enforcement, loud missing-class
+   errors), transitive closure + first-match-wins precedence vs the
+   4-fixture jar suite.
+2. Wave 2 — HashMap algorithm faithfulness (spreading, tableSizeFor,
+   lo/hi resize split, tail insertion) pinned byte-for-byte;
+   `ConcurrentModificationException` modCount semantics; Java-exact
+   bounds/overflow messages.
+3. Wave 3 — LambdaMetafactory bootstrap resolution, capture/captureless
+   lambdas, method references, interface dispatch for native classes.
+4. Wave 4 — reentrancy accounting, structured release on unwind
+   (`SyncUnwind`), the 100-deep × 50 + 100k enter/exit stress
+   (`SyncReentrant`), and the honesty note that single-threaded monitors
+   have no contention path yet (M4 owns that).
+5. Wave 5 — interned `Class` objects scanned as permanent GC roots and
+   *proven* under garbage churn (`ReflectGC`); reflection reading the
+   real slots/static pool through the generated registry
+   (`meta_of`/`UserClassInfo`); Temurin-exact failure strings; the
+   `component_types` unit-test correction (intern-key form) where the
+   differential fixture outranked the unit test.
+6. Plan-vs-implementation deltas against M3_PLAN §3–§8 (per-change
+   specifications remain the audit reference).
+
+**What M3 does NOT claim** (boundary, unchanged): threads and concurrency
+(single-threaded by design — the M4 draft at `docs/M4_PLAN.md` is the
+promised migration plan, pending review), `java.util.concurrent`,
+streams/`Optional`/`java.time`, regex, serialization, `assert`,
+`LineNumberTable` stack traces, `getCause()` unwrapping, and full
+declared-member reflection over builtin classes. Loud-unsupported errors
+cover every one of them; none fail silently.
