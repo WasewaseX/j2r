@@ -431,3 +431,117 @@ Suite guard raised to `>= 60`.
 **Test inventory at wave end (local, Temurin 21.0.13):** 65-fixture
 differential suite green, monitor fixtures green, 4 new unit tests
 green. Suite guard raised to `>= 65`.
+
+## Wave 5 — reflection subset (T21–T22)
+
+Alright, the fun one. Reflection sounds like a "freebie" feature until you
+remember this runtime has a real GC with a real object model — and `X.class`
+must be a *heap object* that survives collection while staying `==`-identical
+forever. That combination (identity + GC) is exactly the kind of thing that
+breaks quietly if you fake it, so we didn't fake it.
+
+### How it actually works
+
+- **`Class` objects are interned, permanent GC roots** — M3_PLAN §8.1.
+  A `java/lang/Class` is a heap object whose slot 0 carries the class's
+  internal name (`a/b/C`, `[I`, `[Ljava/lang/String;`, or a bare primitive
+  descriptor like `I`). `reflect::class_ref` lazily builds and interns one
+  per name in `CLASS_OBJECTS`, and `reflect::scan_roots` feeds the whole
+  table into `heap::collect` next to the interned-string / boxed-cache
+  scanners. Net effect: `X.class == X.class` holds across any number of
+  collections, and `int.class.isPrimitive()` is `true` (Temurin says so,
+  so we say so — see the `V.java` oracle capture note in natives.rs).
+- **`ldc` of class constants** resolves straight to the interned object;
+  javac's primitive class literals (`getstatic X.TYPE`) are modelled as
+  the nine pseudo-fields via `primitive_type_field` (codegen `lib.rs`),
+  so `int.class` and `Integer.TYPE` land on the same interned object.
+- **Reflection only sees what the compiler proved exists.** The generated
+  crate emits a `meta_of(class)` registry returning `UserClassInfo` —
+  declared fields with their flattened instance slots / static pool slots,
+  declared methods, the `ACC_INTERFACE` flag, and the `InnerClasses`
+  simple name. `Field.get/set` reads and writes the *real* slots and the
+  *real* static pool (`pool_get_value`/`pool_set_value` through the
+  `Dispatch` fn-pointer shape); `Method.invoke` dispatches through the
+  same path a compiled call would. No shadow model, no drift.
+- **Field/Method objects have a fixed, documented slot layout**
+  (`reflect.rs` `field_obj`/`method_obj`, mirrored in builtin.rs).
+  `Method.equals` is structural (same declaring class + name + descriptor)
+  and lookups hand back fresh objects — Temurin does the same, pinned by
+  the `conc == concAgain` / `conc.equals(concAgain)` pair in ReflectMethod.
+- **Every reflective failure reuses the exact string Temurin 21 printed
+  during the oracle capture**: `NoSuchFieldException` (name only),
+  `NoSuchMethodException` as `Owner.name(params)`, the accessor-wording
+  `IllegalArgumentException`s, wrong-box/null-into-primitive value errors,
+  and the hot-spot-shaped NPE for a null receiver on an instance member
+  (`reflect::NULL_RECV_NPE`). The reflective exception classes hang off
+  `ReflectiveOperationException` in the builtin hierarchy so `catch`
+  clauses resolve through the parent chain exactly like the JDK.
+
+### Evidence
+
+- Five differential fixtures (suite 65 → 70, all three-channel green vs
+  Temurin 21.0.13):
+  `ClassIdentity` (ldc interning: `X.class == X.class`; `getClass()` and
+  ldc agree; distinct nested classes compare distinct; `hashCode()`
+  stable per object — identity, never value),
+  `ClassMeta` (`getName` across binary/keyword/descriptor forms,
+  `getSimpleName` incl. the `InnerClasses` derivation, `isInstance`,
+  `isAssignableFrom` incl. the null-NPE case, `isInterface`, `isArray`,
+  `isPrimitive`, `getSuperclass` edges, `getComponentType` with
+  `int[].class.getComponentType() == int.class` identity),
+  `ReflectField` (`get`/`set` on instance + static fields across five
+  field types, primitive boxing round-trips holding valueOf-cache
+  identity, static receiver ignored (null and non-null), declared-only
+  miss, receiver/value type errors with Temurin's exact wording,
+  null-receiver NPE),
+  `ReflectMethod` (static + instance invoke, boxing on both sides,
+  receiver-ignored-on-static, exact (name, descriptor) resolution,
+  structural equals, miss messages, and a reflective call that throws —
+  the wrapped `InvocationTargetException`-shaped failure comes out
+  Temurin-exact),
+  `ReflectGC` (200 000-node linked garbage churn + forced collection,
+  *then* `X.class` identity and a resolved `Method` still work — the
+  interned-root design proven under GC pressure, not just asserted).
+- Six new unit tests in `reflect.rs`: interning + root scanning,
+  Temurin-matched binary names, simple-name derivation and overrides,
+  superclass edges, component types (intern-key form — the
+  `String[][]` → `String[]` one-strip case is pinned explicitly),
+  `toString` shapes.
+- One bug caught *before* it shipped, by the test the right way round:
+  the `component_types` unit test originally expected a raw descriptor
+  (`Ljava/lang/String;`) where the function deliberately returns the
+  intern key (`java/lang/String`). The differential fixture is the
+  authority here — it asserts `getComponentType() == String.class`
+  identity against the live JVM, which only works with intern keys. Test
+  fixed, function untouched, and the 2D case added while we were in
+  there. (Proves the point of running both layers: unit tests pin intent,
+  the diff suite pins reality, and when they disagree reality wins.)
+
+**Honesty notes.**
+- This is a *subset*, and it says so on the tin: `Field.get/set`,
+  `Method.invoke`, and metadata queries. No `Constructor`, no
+  `Array.newInstance`/`Array.get`, no annotations, no plural
+  `getDeclaredFields`/`getDeclaredMethods`, no `setAccessible` access
+  bypass (a private field is reachable only via `getDeclaredField` on its
+  declaring class, through the access the compiler actually proved),
+  no `MethodHandles`/varhandles. Loud-unsupported errors cover the rest.
+- `getDeclaredField`/`getDeclaredMethod` on *builtin* classes (String,
+  Integer, collections, …) is a loud internal error, not a silent wrong
+  answer — the builtin hierarchy answers metadata queries from its own
+  tables but doesn't carry a full declared-member model (M3_PLAN §8
+  documents this boundary).
+- `ReflectGC`'s forced collection proves the interned Class table is
+  scanned as roots; it does not (and cannot, in a single-threaded
+  runtime) prove anything about cross-thread visibility — that's the
+  M4 threads boundary, unchanged.
+- `Method.invoke` wraps a target throw in `InvocationTargetException`
+  with a null message — Temurin prints the bare class name and that's
+  what ReflectMethod asserts (`ite.getMessage() == null` included).
+  `getCause()` itself is outside the M3 subset (not implemented, loud
+  error), so a caller can unwrap the target exception reflectively yet —
+  the wrapper is observable, the unwrapping API isn't. Documented, not
+  hidden.
+
+**Test inventory at wave end (local, Temurin 21.0.13):** 70-fixture
+differential suite green, 228 unit + integration tests, 0 failures,
+fmt + clippy (`-D warnings`) clean. Suite guard raised to `>= 70`.

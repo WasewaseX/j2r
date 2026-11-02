@@ -1689,6 +1689,7 @@ mod tests {
             fields: Vec::new(),
             methods: Vec::new(),
             bootstrap_methods: Vec::new(),
+            inner_name: None,
         };
         let c = ClassPlan {
             name: "T".to_string(),
@@ -1696,6 +1697,7 @@ mod tests {
             interfaces: Vec::new(),
             is_interface: false,
             is_abstract: false,
+            simple_name: None,
             module: "T".to_string(),
             id: 0,
             base_slots: 0,

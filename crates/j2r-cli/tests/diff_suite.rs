@@ -54,12 +54,13 @@ fn differential_suite_matches_jvm() {
         "no fixtures found in {}",
         suite_dir.display()
     );
-    // The suite must keep growing with the milestone; 65 = the 60 fixtures
-    // through M3 Wave 3 (lambdas) plus the five M3 Wave-4 monitor fixtures
-    // (SyncMethod, SyncBlock, SyncUnwind, SyncReentrant, SyncStatic).
+    // The suite must keep growing with the milestone; 70 = the 65 fixtures
+    // through M3 Wave 4 (monitors) plus the five M3 Wave-5 reflection
+    // fixtures (ClassIdentity, ClassMeta, ReflectField, ReflectMethod,
+    // ReflectGC) — M3_PLAN §8.3.
     assert!(
-        fixtures.len() >= 65,
-        "differential suite shrank: {} fixtures (expected >= 65)",
+        fixtures.len() >= 70,
+        "differential suite shrank: {} fixtures (expected >= 70)",
         fixtures.len()
     );
 

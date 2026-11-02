@@ -201,6 +201,10 @@ pub struct ClassPlan {
     pub interfaces: Vec<String>,
     pub is_interface: bool,
     pub is_abstract: bool,
+    /// `InnerClasses` `inner_name` (M3_PLAN §8.1): `None` when absent,
+    /// `Some("")` for anonymous classes; exported into the generated
+    /// registry for `Class.getSimpleName`.
+    pub simple_name: Option<String>,
     pub module: String,
     /// Internal class id used by the generated `statics` registry (`u32`,
     /// same rationale as [`FieldPlan::static_slot`]).
@@ -395,6 +399,7 @@ fn parse_and_add(
         interfaces: cf.interfaces.clone(),
         is_interface,
         is_abstract,
+        simple_name: cf.inner_name.clone(),
         module,
         id,
         base_slots: 0,
@@ -1042,14 +1047,19 @@ fn validate_instr(
     instr: &ir::Instr,
 ) -> Result<()> {
     match instr {
-        ir::Instr::Ldc(ir::Ldc::Class(name)) => Err(unsupported(
-            c,
-            method_ctx,
-            pc,
-            format!("ldc of a class constant ({name}) is not supported yet"),
-        )),
+        ir::Instr::Ldc(ir::Ldc::Class(_)) => {
+            // M3 Wave 5: emitted as an interned `Class` object (M3_PLAN §8.1).
+            Ok(())
+        }
         ir::Instr::GetStatic { class, field, .. } => {
             if class == "java/lang/System" && (field == "out" || field == "err") {
+                return Ok(());
+            }
+            // The nine `X.class` pseudo-fields (M3_PLAN §8.1): javac
+            // compiles primitive class literals to `getstatic X.TYPE`, so
+            // they are modelled as statics returning the interned Class
+            // object of the primitive descriptor.
+            if field == "TYPE" && primitive_type_field(class).is_some() {
                 return Ok(());
             }
             resolve_field(prog, class, field, true).map(|_| ())
@@ -1147,6 +1157,25 @@ pub fn compile_to_crate(opts: &Options) -> Result<PathBuf> {
 /// the validator used).
 pub fn resolve_call_pub(prog: &Program, start: &str, name: &str, desc: &str) -> Result<CallTarget> {
     resolve_call(prog, start, name, desc)
+}
+
+/// The boxed-class `TYPE` pseudo-fields: `getstatic java/lang/Integer.TYPE`
+/// is how javac compiles `int.class` at literal positions (oracle javap,
+/// M3_EVIDENCE.md wave-5). Returns the primitive descriptor the interned
+/// `Class` object carries.
+pub fn primitive_type_field(class: &str) -> Option<&'static str> {
+    match class {
+        "java/lang/Integer" => Some("I"),
+        "java/lang/Long" => Some("J"),
+        "java/lang/Float" => Some("F"),
+        "java/lang/Double" => Some("D"),
+        "java/lang/Byte" => Some("B"),
+        "java/lang/Short" => Some("S"),
+        "java/lang/Character" => Some("C"),
+        "java/lang/Boolean" => Some("Z"),
+        "java/lang/Void" => Some("V"),
+        _ => None,
+    }
 }
 
 pub fn resolve_field_pub<'a>(

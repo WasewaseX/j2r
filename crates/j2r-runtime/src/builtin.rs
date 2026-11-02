@@ -41,6 +41,17 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/OutOfMemoryError" => "java/lang/VirtualMachineError",
         "java/lang/VirtualMachineError" => "java/lang/Error",
         "java/lang/AssertionError" => "java/lang/Error",
+        // M3 Wave 5: reflection subset (M3_PLAN §8). The reflective failure
+        // classes hang off `ReflectiveOperationException` exactly like the
+        // JDK so exception-handler matching (`catch (NoSuchFieldException)`
+        // and friends) resolves through the builtin parent chain.
+        "java/lang/Class" => "java/lang/Object",
+        "java/lang/reflect/Field" => "java/lang/Object",
+        "java/lang/reflect/Method" => "java/lang/Object",
+        "java/lang/ReflectiveOperationException" => "java/lang/Exception",
+        "java/lang/NoSuchFieldException" => "java/lang/ReflectiveOperationException",
+        "java/lang/NoSuchMethodException" => "java/lang/ReflectiveOperationException",
+        "java/lang/reflect/InvocationTargetException" => "java/lang/ReflectiveOperationException",
         // M3 Wave 2: java.util collections (M3_PLAN §5)
         "java/util/ArrayList" => "java/lang/Object",
         "java/util/ArrayList$Itr" => "java/lang/Object",
@@ -99,6 +110,34 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
     }
 }
 
+/// Whether a builtin class is an interface — `Class.isInterface` and
+/// `Class.getSuperclass` need the distinction (an interface's superclass is
+/// `null`, even though the subtype walk reaches `Object` through it).
+/// Compiled classes carry the flag in their generated `UserClassInfo`
+/// instead (M3_PLAN §8.1).
+pub fn builtin_is_interface(class: &str) -> bool {
+    matches!(
+        class,
+        "java/lang/Runnable"
+            | "java/lang/CharSequence"
+            | "java/lang/Iterable"
+            | "java/util/Collection"
+            | "java/util/List"
+            | "java/util/Set"
+            | "java/util/Map"
+            | "java/util/Iterator"
+            | "java/util/function/Function"
+            | "java/util/function/BiFunction"
+            | "java/util/function/Supplier"
+            | "java/util/function/Consumer"
+            | "java/util/function/BiConsumer"
+            | "java/util/function/Predicate"
+            | "java/util/function/BiPredicate"
+            | "java/util/function/UnaryOperator"
+            | "java/util/function/BinaryOperator"
+    )
+}
+
 /// Number of field slots a class owns itself (not counting inherited ones).
 /// Slot 0 of `Throwable` is `detailMessage`; the boxed classes and
 /// `StringBuilder` keep their payload in slot 0; `PrintStream` keeps its
@@ -118,7 +157,13 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         | "java/lang/Short"
         | "java/lang/Boolean"
         | "java/lang/Character"
-        | "java/io/PrintStream" => 1,
+        | "java/io/PrintStream"
+        // M3 Wave 5: reflective objects. `Class` slot 0 = internal class
+        // name payload; Field: owner/name/desc/is_static/instance_slot/
+        // static_slot; Method: owner/name/desc/is_static.
+        | "java/lang/Class" => 1,
+        "java/lang/reflect/Field" => 6,
+        "java/lang/reflect/Method" => 4,
         // M3 Wave 2 layouts (documented in collections.rs):
         // ArrayList: size, modCount, elements ref
         "java/util/ArrayList" => 3,

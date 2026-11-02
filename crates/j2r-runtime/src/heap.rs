@@ -304,6 +304,13 @@ pub fn set_statics_scanner(f: fn(&mut Vec<u32>)) {
     STATICS_SCANNER.with(|s| *s.borrow_mut() = Some(f));
 }
 
+/// `System.gc()`: a full collection at an explicit native boundary. Safe
+/// because natives hold no live heap borrows across the call and generated
+/// code refreshes its frame snapshot at every call boundary (M2_PLAN §4.4).
+pub fn gc_now() {
+    collect();
+}
+
 /// Test/diagnostic hook: force a collection at every Nth collection point
 /// (`N = 1` = collect at every collection point). Overrides the
 /// `J2R_GC_EVERY_N` env var.
@@ -352,9 +359,11 @@ fn collect() {
     if let Some(f) = STATICS_SCANNER.with(|s| *s.borrow()) {
         f(&mut roots);
     }
-    // 3. runtime roots (intern cache, System.out, boxed-identity cache)
+    // 3. runtime roots (intern cache, System.out, boxed-identity cache,
+    //    interned Class objects — M3_PLAN §8.1)
     crate::object::scan_runtime_roots(&mut roots);
     crate::natives::scan_runtime_roots(&mut roots);
+    crate::reflect::scan_roots(&mut roots);
 
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();

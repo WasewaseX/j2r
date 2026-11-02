@@ -80,6 +80,9 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
     ::j2r_runtime::Dispatch {
         lookup: ::core::option::Option::Some(registry::lookup),
         parents: ::core::option::Option::Some(registry::parents_of),
+        meta: ::core::option::Option::Some(registry::meta_of),
+        static_get: ::core::option::Option::Some(statics::pool_get_value),
+        static_set: ::core::option::Option::Some(statics::pool_set_value),
     }
 }
 "#;
@@ -129,6 +132,76 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
             registry,
             "        {:?} => ::core::option::Option::Some(&[{}]),",
             c.name, list
+        );
+    }
+    let _ = writeln!(registry, "        _ => ::core::option::Option::None,");
+    let _ = writeln!(registry, "    }}");
+    let _ = writeln!(registry, "}}");
+    let _ = writeln!(registry);
+    // Reflection-subset class facts (M3_PLAN §8.1): per-class declared
+    // fields/methods plus interface flag and InnerClasses simple name. The
+    // runtime's `Class.getDeclaredField/getDeclaredMethod` reads these —
+    // reflection only ever sees what the compiler proved exists. Static
+    // names are SCREAMING_SNAKE (module names are CamelCase, and Rust lints
+    // generated-crate non-upper-case globals).
+    for c in &prog.classes {
+        let tag = upper_snake(&c.module);
+        let _ = writeln!(
+            registry,
+            "static FIELDS_{tag}: [::j2r_runtime::UserField; {}] = [",
+            c.fields.len()
+        );
+        for f in &c.fields {
+            let _ = writeln!(
+                registry,
+                "    ::j2r_runtime::UserField {{ name: {:?}, desc: {:?}, is_static: {}, instance_slot: {}, static_slot: {} }},",
+                f.name,
+                f.desc,
+                f.is_static,
+                f.instance_slot.unwrap_or(0),
+                f.static_slot.unwrap_or(0)
+            );
+        }
+        let _ = writeln!(registry, "];");
+        let declared_methods: Vec<_> = c
+            .methods
+            .iter()
+            .filter(|m| m.name != "<init>" && m.name != "<clinit>")
+            .collect();
+        let _ = writeln!(
+            registry,
+            "static METHODS_{tag}: [::j2r_runtime::UserMethod; {}] = [",
+            declared_methods.len()
+        );
+        for m in &declared_methods {
+            let _ = writeln!(
+                registry,
+                "    ::j2r_runtime::UserMethod {{ name: {:?}, desc: {:?}, is_static: {} }},",
+                m.name, m.desc, m.is_static
+            );
+        }
+        let _ = writeln!(registry, "];");
+        let simple = match &c.simple_name {
+            Some(s) => format!("::core::option::Option::Some({s:?})"),
+            None => "::core::option::Option::None".to_string(),
+        };
+        let _ = writeln!(
+            registry,
+            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag} }};",
+            c.is_interface, simple
+        );
+    }
+    let _ = writeln!(
+        registry,
+        "pub fn meta_of(class: &str) -> ::core::option::Option<&'static ::j2r_runtime::UserClassInfo> {{"
+    );
+    let _ = writeln!(registry, "    match class {{");
+    for c in &prog.classes {
+        let tag = upper_snake(&c.module);
+        let _ = writeln!(
+            registry,
+            "        {:?} => ::core::option::Option::Some(&META_{tag}),",
+            c.name
         );
     }
     let _ = writeln!(registry, "        _ => ::core::option::Option::None,");
@@ -221,6 +294,17 @@ pub fn get(idx: u32) -> ::j2r_runtime::Value {
 
 pub fn set(idx: u32, v: ::j2r_runtime::Value) {
     POOL.with(|p| p.borrow_mut()[idx as usize] = v);
+}
+
+/// Static-pool access for the reflection subset (`Field.get/set` on static
+/// fields, M3_PLAN §8): the same pool through the `Dispatch` fn-pointer
+/// shape the runtime natives call.
+pub fn pool_get_value(idx: u32) -> ::j2r_runtime::Value {
+    get(idx)
+}
+
+pub fn pool_set_value(idx: u32, v: &::j2r_runtime::Value) {
+    set(idx, v.clone());
 }
 
 /// Runs `<clinit>` for the class (by id) exactly once, before first use of
@@ -347,6 +431,21 @@ fn main_run() -> i32 {{
     }
 
     Ok(())
+}
+
+/// SCREAMING_SNAKE form of a sanitized module name, used for generated
+/// registry statics (`ClassMeta` → `CLASSMETA`).
+fn upper_snake(module: &str) -> String {
+    module
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// The Java default value kind of a static field descriptor.
@@ -835,7 +934,13 @@ fn emit_instr(
         Instr::Ldc(Ldc::String(s)) => out.push(format!(
             "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::intern_string({s:?}))));"
         )),
-        Instr::Ldc(Ldc::Class(_)) => unreachable!("rejected during validation"),
+        Instr::Ldc(Ldc::Class(name)) => {
+            // M3 Wave 5 (M3_PLAN §8.1): `X.class` / `int.class` / array
+            // literals resolve to the interned per-class `Class` object.
+            out.push(format!(
+                "stack.push({RT}::reflect::class_value({name:?}));"
+            ))
+        }
         Instr::Ldc2W(Ldc2::Long(v)) => {
             out.push(format!("stack.push({RT}::Value::Long({v}i64));"))
         }
@@ -968,6 +1073,17 @@ fn emit_instr(
                 out.push(format!("stack.push({RT}::natives::system_out());"));
             } else if class == "java/lang/System" && field == "err" {
                 out.push(format!("stack.push({RT}::natives::system_err());"));
+            } else if field == "TYPE" {
+                if let Some(desc) = crate::primitive_type_field(class) {
+                    out.push(format!(
+                        "stack.push({RT}::reflect::class_value({desc:?}));"
+                    ));
+                } else {
+                    let f = crate::resolve_field_pub(prog, class, field, true)
+                        .expect("validated static field");
+                    let slot = f.static_slot.expect("static field");
+                    out.push(format!("stack.push(crate::statics::get({slot}u32));"));
+                }
             } else {
                 let f = crate::resolve_field_pub(prog, class, field, true)
                     .expect("validated static field");

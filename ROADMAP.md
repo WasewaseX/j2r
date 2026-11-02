@@ -83,13 +83,15 @@ lands in [docs/M3_EVIDENCE.md](docs/M3_EVIDENCE.md).
   (ArrayList/HashMap/HashSet, OpenJDK-faithful hash spreading and
   iteration order pinned by the `HashMapOrder` fixture) + `String`/
   `StringBuilder`/`Math`/boxing extensions; suite 47 → 51.
-* **Wave 3 (T16–T18)** — lambdas & method references
+* **Wave 3 (T16–T18, done)** — lambdas & method references
   (`LambdaMetafactory` bootstrap resolution, functional-interface
-  natives, interface-dispatch wiring for native classes).
-* **Wave 4 (T19–T20)** — `synchronized` monitors (heap monitor
-  counters, `monitorenter/monitorexit`, `ACC_SYNCHRONIZED` methods).
-* **Wave 5 (T21–T22)** — reflection subset (interned, static-rooted
-  `Class` objects, `ldc` of class constants).
+  natives, interface-dispatch wiring for native classes); suite 51 → 60.
+* **Wave 4 (T19–T20, done)** — `synchronized` monitors (heap monitor
+  counters, `monitorenter/monitorexit`, `ACC_SYNCHRONIZED` methods);
+  suite 60 → 65.
+* **Wave 5 (T21–T22, done)** — reflection subset (interned, static-rooted
+  `Class` objects, `ldc` of class constants, `Field.get/set`,
+  `Method.invoke`, Temurin-exact failure strings); suite 65 → 70.
 * **T23** — completion package + review submission.
 
 Explicitly out of M3 scope (loud errors stay; deferred with rationale

@@ -34,6 +34,7 @@ pub mod lambda;
 pub mod langext;
 pub mod natives;
 pub mod object;
+pub mod reflect;
 pub mod stack;
 pub mod subtype;
 
@@ -138,6 +139,50 @@ pub type UserLookup = fn(&str, &str, &str) -> Option<MethodFn>;
 /// interfaces) of a compiled class, or `None` when the class is not compiled.
 pub type UserParents = fn(&str) -> Option<&'static [&'static str]>;
 
+/// One declared instance/static field of a compiled class, exported for the
+/// reflection subset (M3_PLAN §8): `Class.getDeclaredField` + `Field.get/set`.
+#[derive(Debug)]
+pub struct UserField {
+    pub name: &'static str,
+    /// Field descriptor (`I`, `J`, `Ljava/lang/String;`, …).
+    pub desc: &'static str,
+    pub is_static: bool,
+    /// Absolute instance slot in the flattened layout (`None`-free form:
+    /// meaningful only when `!is_static`).
+    pub instance_slot: usize,
+    /// Static-pool slot (meaningful only when `is_static`).
+    pub static_slot: u32,
+}
+
+/// Compile-time facts of a compiled class that the reflection subset needs
+/// at runtime (M3_PLAN §8.1). Generated per class into the crate registry.
+#[derive(Debug)]
+pub struct UserClassInfo {
+    /// `ACC_INTERFACE` (drives `isInterface` / `getSuperclass == null`).
+    pub is_interface: bool,
+    /// `InnerClasses` `inner_name` (`None` = top-level / absent attribute,
+    /// `Some("")` = anonymous). `getSimpleName` uses it verbatim.
+    pub simple_name: Option<&'static str>,
+    pub fields: &'static [UserField],
+    /// Declared methods — the `getDeclaredMethod` search space. `is_static`
+    /// rides along because `Method.invoke` must know whether to null-check
+    /// the receiver (Temurin ignores it for statics).
+    pub methods: &'static [UserMethod],
+}
+
+/// One declared method of a compiled class.
+#[derive(Debug)]
+pub struct UserMethod {
+    pub name: &'static str,
+    pub desc: &'static str,
+    pub is_static: bool,
+}
+
+/// Provided by the generated crate: compile-time class facts, or `None`
+/// when the class is not compiled (builtin classes answer from the runtime
+/// builtin tables instead).
+pub type UserMeta = fn(&str) -> Option<&'static UserClassInfo>;
+
 /// The generated crate's symbol tables, passed as a plain value so native
 /// implementations can dispatch back into compiled code (e.g. `toString`
 /// during string concatenation).
@@ -145,11 +190,23 @@ pub type UserParents = fn(&str) -> Option<&'static [&'static str]>;
 pub struct Dispatch {
     pub lookup: Option<UserLookup>,
     pub parents: Option<UserParents>,
+    /// Reflection-subset class facts (M3 Wave 5).
+    pub meta: Option<UserMeta>,
+    /// Static-field pool access for `Field.get/set` on static fields:
+    /// read/write pool slot by absolute index.
+    pub static_get: Option<fn(u32) -> Value>,
+    pub static_set: Option<fn(u32, &Value)>,
 }
 
 impl Dispatch {
     pub fn new(lookup: Option<UserLookup>, parents: Option<UserParents>) -> Self {
-        Dispatch { lookup, parents }
+        Dispatch {
+            lookup,
+            parents,
+            meta: None,
+            static_get: None,
+            static_set: None,
+        }
     }
 
     pub fn find_method(&self, class: &str, name: &str, desc: &str) -> Option<MethodFn> {
@@ -162,6 +219,19 @@ impl Dispatch {
 
     pub fn is_subtype(&self, child: &str, parent: &str) -> bool {
         is_subtype(child, parent, self.parents)
+    }
+
+    /// Compiled-class facts, `None` for builtin/unknown classes.
+    pub fn class_info(&self, class: &str) -> Option<&'static UserClassInfo> {
+        self.meta.and_then(|m| m(class))
+    }
+
+    /// Is `class` a compiled interface? Falls back to the builtin table.
+    pub fn is_interface(&self, class: &str) -> bool {
+        if let Some(info) = self.class_info(class) {
+            return info.is_interface;
+        }
+        crate::builtin::builtin_is_interface(class)
     }
 }
 

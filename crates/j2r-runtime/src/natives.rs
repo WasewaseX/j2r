@@ -20,6 +20,7 @@ use crate::heap::JRef;
 use crate::lambda;
 use crate::langext as le;
 use crate::object::{self, is_string, new_obj};
+use crate::reflect;
 use crate::Value;
 use crate::{internal_error, javafmt, throw_new, Dispatch, NativeFn, Throw};
 use std::cell::RefCell;
@@ -624,7 +625,9 @@ macro_rules! boxed_class {
         to_string: $to_string:ident, $kind:expr
         $(, cache: $lo:expr, $hi:expr)?
     ) => {
-        fn $value_of(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+        // pub(crate): reflect.rs routes Field.get / Method.invoke returns
+        // through the same valueOf natives so the identity caches apply.
+        pub(crate) fn $value_of(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
             let v = arg(args, "valueOf").$slot_get();
             $(
                 if let Some(r) = boxed_cached($class, v as i64, $lo, $hi) {
@@ -969,6 +972,224 @@ fn n_long_parse_long(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<
     };
     let v = java_parse_i64(s.as_deref(), i64::MIN, i64::MAX)?;
     Ok(Value::Long(v))
+}
+
+// ------------------------------------------------- M3 Wave 5: reflection
+// The reflection subset (M3_PLAN §8). Every failure message below is the
+// exact string Temurin 21 printed during the oracle capture (O/O2/O3.java,
+// recorded in M3_EVIDENCE.md wave-5).
+
+fn n_object_get_class(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Object.getClass");
+    let name = crate::heap::with_obj(*r, |o| o.jclass.to_string());
+    Ok(crate::reflect::class_value(&name))
+}
+
+fn n_class_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getName");
+    let name = reflect::class_name_of(r);
+    Ok(Value::Ref(Some(object::new_string(&reflect::binary_name(
+        &name,
+    )))))
+}
+
+fn n_class_get_simple_name(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getSimpleName");
+    let name = reflect::class_name_of(r);
+    Ok(Value::Ref(Some(object::new_string(&reflect::simple_name(
+        &name, ctx,
+    )))))
+}
+
+fn n_class_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Class.toString");
+    let name = reflect::class_name_of(r);
+    Ok(Value::Ref(Some(object::new_string(
+        &reflect::to_string_of(&name, ctx),
+    ))))
+}
+
+fn n_class_is_instance(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Class.isInstance");
+    let name = reflect::class_name_of(r);
+    let ok = match &arg(args, "Class.isInstance") {
+        Value::Ref(None) => false,
+        Value::Ref(Some(o)) => {
+            let jc = crate::heap::with_obj(*o, |ob| ob.jclass.to_string());
+            ctx.is_subtype(&jc, &name)
+        }
+        _ => return Err(internal_error("Class.isInstance needs a reference")),
+    };
+    Ok(Value::Int(ok as i32))
+}
+
+fn n_class_is_assignable_from(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.isAssignableFrom");
+    let name = reflect::class_name_of(r);
+    let argref = match &arg(args, "Class.isAssignableFrom") {
+        Value::Ref(Some(o)) => o,
+        // Temurin: isAssignableFrom(null) is a plain NPE.
+        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(internal_error("Class.isAssignableFrom needs a Class")),
+    };
+    if &*crate::heap::with_obj(*argref, |o| o.jclass.clone()) != "java/lang/Class" {
+        // Temurin casts; a non-Class arg is an internal dispatch bug here.
+        return Err(internal_error("isAssignableFrom argument is not a Class"));
+    }
+    let other = reflect::class_name_of(argref);
+    Ok(Value::Int(ctx.is_subtype(&other, &name) as i32))
+}
+
+fn n_class_is_interface(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.isInterface");
+    let name = reflect::class_name_of(r);
+    Ok(Value::Int(ctx.is_interface(&name) as i32))
+}
+
+fn n_class_is_array(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Class.isArray");
+    Ok(Value::Int(reflect::class_name_of(r).starts_with('[') as i32))
+}
+
+fn n_class_is_primitive(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.isPrimitive");
+    let name = reflect::class_name_of(r);
+    // Temurin 21 oracle: void.class.isPrimitive() is TRUE (V.java capture).
+    Ok(Value::Int(reflect::prim_display(&name).is_some() as i32))
+}
+
+fn n_class_get_superclass(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getSuperclass");
+    let name = reflect::class_name_of(r);
+    Ok(match reflect::superclass_of(&name, ctx) {
+        Some(sup) => reflect::class_value(&sup),
+        None => Value::Ref(None),
+    })
+}
+
+fn n_class_get_component_type(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getComponentType");
+    let name = reflect::class_name_of(r);
+    Ok(match reflect::component_type_of(&name) {
+        Some(elem) => reflect::class_value(&elem),
+        None => Value::Ref(None),
+    })
+}
+
+fn n_class_get_declared_field(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getDeclaredField");
+    let owner = reflect::class_name_of(r);
+    reflect::get_declared_field(ctx, &owner, args)
+}
+
+fn n_class_get_declared_method(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getDeclaredMethod");
+    let owner = reflect::class_name_of(r);
+    reflect::get_declared_method(ctx, &owner, args)
+}
+
+fn n_field_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let f = this(recv, "Field.get");
+    let obj = match args.first() {
+        Some(Value::Ref(r)) => r.as_ref(),
+        _ => return Err(internal_error("Field.get needs a receiver argument")),
+    };
+    reflect::field_get(ctx, f, obj)
+}
+
+fn n_field_set(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let f = this(recv, "Field.set");
+    let obj = match args.first() {
+        Some(Value::Ref(r)) => r.as_ref(),
+        _ => return Err(internal_error("Field.set needs a receiver argument")),
+    };
+    let value = args.get(1).cloned().unwrap_or(Value::Ref(None));
+    reflect::field_set(ctx, f, obj, &value)?;
+    Ok(Value::Void)
+}
+
+fn n_method_invoke(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let m = this(recv, "Method.invoke");
+    let target = match args.first() {
+        Some(Value::Ref(r)) => r.as_ref(),
+        _ => return Err(internal_error("Method.invoke needs a receiver argument")),
+    };
+    let argv = match args.get(1) {
+        Some(Value::Ref(r)) => r.as_ref(),
+        _ => return Err(internal_error("Method.invoke needs an args array")),
+    };
+    reflect::method_invoke(ctx, m, target, argv)
+}
+
+fn n_field_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let f = this(recv, "Field.getName");
+    let (_, name, _, _, _, _) = reflect::field_slots(f);
+    Ok(Value::Ref(Some(object::new_string(&name))))
+}
+
+fn n_method_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let m = this(recv, "Method.getName");
+    let (_, name, _, _) = reflect::method_slots(m);
+    Ok(Value::Ref(Some(object::new_string(&name))))
+}
+
+/// `Method.equals`: structural (same declaring class, name and descriptor),
+/// not identity — Temurin hands back fresh Method objects per lookup
+/// (fixture oracle: `m1 == m2` false but `m1.equals(m2)` true).
+fn n_method_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let m = this(recv, "Method.equals");
+    let same = match &arg(args, "Method.equals") {
+        Value::Ref(Some(other)) => {
+            crate::heap::with_obj(*other, |o| o.jclass.as_ref() == "java/lang/reflect/Method") && {
+                let (o0, o1, o2, _) = reflect::method_slots(other);
+                let (s0, s1, s2, _) = reflect::method_slots(m);
+                o0 == s0 && o1 == s1 && o2 == s2
+            }
+        }
+        _ => false,
+    };
+    Ok(Value::Int(same as i32))
+}
+
+fn n_system_gc(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::heap::gc_now();
+    Ok(Value::Void)
 }
 
 // ---------------------------------------------------------------- Table
@@ -2456,6 +2677,117 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         lambda::n_sam,
     ),
+    // M3 Wave 5: reflection subset (M3_PLAN §8)
+    (
+        "java/lang/Object",
+        "getClass",
+        "()Ljava/lang/Class;",
+        n_object_get_class,
+    ),
+    (
+        "java/lang/Class",
+        "getName",
+        "()Ljava/lang/String;",
+        n_class_get_name,
+    ),
+    (
+        "java/lang/Class",
+        "getSimpleName",
+        "()Ljava/lang/String;",
+        n_class_get_simple_name,
+    ),
+    (
+        "java/lang/Class",
+        "toString",
+        "()Ljava/lang/String;",
+        n_class_to_string,
+    ),
+    (
+        "java/lang/Class",
+        "isInstance",
+        "(Ljava/lang/Object;)Z",
+        n_class_is_instance,
+    ),
+    (
+        "java/lang/Class",
+        "isAssignableFrom",
+        "(Ljava/lang/Class;)Z",
+        n_class_is_assignable_from,
+    ),
+    (
+        "java/lang/Class",
+        "isInterface",
+        "()Z",
+        n_class_is_interface,
+    ),
+    ("java/lang/Class", "isArray", "()Z", n_class_is_array),
+    (
+        "java/lang/Class",
+        "isPrimitive",
+        "()Z",
+        n_class_is_primitive,
+    ),
+    (
+        "java/lang/Class",
+        "getSuperclass",
+        "()Ljava/lang/Class;",
+        n_class_get_superclass,
+    ),
+    (
+        "java/lang/Class",
+        "getComponentType",
+        "()Ljava/lang/Class;",
+        n_class_get_component_type,
+    ),
+    (
+        "java/lang/Class",
+        "getDeclaredField",
+        "(Ljava/lang/String;)Ljava/lang/reflect/Field;",
+        n_class_get_declared_field,
+    ),
+    (
+        "java/lang/Class",
+        "getDeclaredMethod",
+        "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;",
+        n_class_get_declared_method,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        n_field_get,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "set",
+        "(Ljava/lang/Object;Ljava/lang/Object;)V",
+        n_field_set,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getName",
+        "()Ljava/lang/String;",
+        n_field_get_name,
+    ),
+    (
+        "java/lang/reflect/Method",
+        "getName",
+        "()Ljava/lang/String;",
+        n_method_get_name,
+    ),
+    (
+        "java/lang/reflect/Method",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_method_equals,
+    ),
+    (
+        "java/lang/reflect/Method",
+        "invoke",
+        "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;",
+        n_method_invoke,
+    ),
+    ("java/lang/System", "gc", "()V", n_system_gc),
 ];
 
 /// Exact lookup: `(class, name, descriptor)`.

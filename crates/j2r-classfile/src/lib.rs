@@ -433,6 +433,12 @@ pub struct ClassFile {
     pub fields: Vec<FieldInfo>,
     pub methods: Vec<MethodInfo>,
     pub bootstrap_methods: Vec<BootstrapMethod>,
+    /// `InnerClasses` attribute, entry whose `inner_class_info` equals
+    /// `this_class`: the raw `inner_name` (M3_PLAN §8.1). `None` when the
+    /// attribute is absent (top-level classes compiled without nesting
+    /// metadata) or this class has no entry of its own; `Some("")` marks an
+    /// anonymous class. `Class.getSimpleName` uses this verbatim.
+    pub inner_name: Option<String>,
 }
 
 impl ClassFile {
@@ -501,18 +507,27 @@ impl ClassFile {
         }
         let fields = parse_fields(&mut r, &constant_pool)?;
         let methods = parse_methods(&mut r, &constant_pool)?;
-        // Class-level attributes: we only need BootstrapMethods; the rest are
+        // Class-level attributes: BootstrapMethods (invokedynamic) and
+        // InnerClasses (reflection simple names, M3_PLAN §8.1); the rest are
         // skipped by length per the class-file format.
         let mut bootstrap_methods = Vec::new();
+        let mut inner_name: Option<String> = None;
         let attr_count = r.u2()?;
         for _ in 0..attr_count {
             let name_idx = r.u2()?;
             let len = r.u4()?;
-            if constant_pool.utf8(name_idx)? == "BootstrapMethods" {
-                let body = r.bytes(len as usize)?;
-                bootstrap_methods = parse_bootstrap_methods(body, &constant_pool)?;
-            } else {
-                r.skip(len as usize)?;
+            match constant_pool.utf8(name_idx)? {
+                "BootstrapMethods" => {
+                    let body = r.bytes(len as usize)?;
+                    bootstrap_methods = parse_bootstrap_methods(body, &constant_pool)?;
+                }
+                "InnerClasses" => {
+                    let body = r.bytes(len as usize)?;
+                    inner_name = parse_inner_classes(body, &constant_pool, &this_class)?;
+                }
+                _ => {
+                    r.skip(len as usize)?;
+                }
             }
         }
         r.expect_end()?;
@@ -527,6 +542,7 @@ impl ClassFile {
             fields,
             methods,
             bootstrap_methods,
+            inner_name,
         })
     }
 }
@@ -854,6 +870,35 @@ fn parse_code(body: &[u8], cp: &ConstantPool) -> Result<CodeAttribute> {
         code,
         exception_table,
     })
+}
+
+/// Parses an `InnerClasses` attribute and returns the `inner_name` of the
+/// entry matching `this_class` (JVMS §4.7.6). `None` when no entry matches
+/// or the matching entry has `inner_name_index == 0` (anonymous class —
+/// reported as `Some("")` by callers is NOT done here: index 0 yields
+/// `Some(String::new())` so anonymous and absent stay distinguishable).
+fn parse_inner_classes(body: &[u8], cp: &ConstantPool, this_class: &str) -> Result<Option<String>> {
+    let mut r = Reader {
+        bytes: body,
+        pos: 0,
+    };
+    let count = r.u2()?;
+    let mut found = None;
+    for _ in 0..count {
+        let inner_idx = r.u2()?;
+        let _outer_idx = r.u2()?;
+        let name_idx = r.u2()?;
+        let _access = r.u2()?;
+        let inner = cp.class_name(inner_idx)?;
+        if inner == this_class && found.is_none() {
+            found = Some(if name_idx == 0 {
+                String::new()
+            } else {
+                cp.utf8(name_idx)?.to_string()
+            });
+        }
+    }
+    Ok(found)
 }
 
 fn parse_bootstrap_methods(body: &[u8], cp: &ConstantPool) -> Result<Vec<BootstrapMethod>> {
