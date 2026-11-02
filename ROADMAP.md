@@ -40,33 +40,64 @@ Findings and fixes, each with regression tests:
 * `synchronized` methods (would previously compile without locking) are
   now a loud compile error.
 
-## M2 — Quality of the generated code
+## M2 — Quality of the generated code (done)
 
 The full implementation plan — architecture audit, `Rc` risk register,
 tracing-GC design, `StackOverflowError` design, typed-stack
 specialization, CFG-reconstruction investigation and the ordered wave
 breakdown with acceptance criteria — is
-[docs/M2_PLAN.md](docs/M2_PLAN.md) (awaiting architectural review; no
-M2 code is written before that review passes).
+[docs/M2_PLAN.md](docs/M2_PLAN.md). All four waves shipped with
+per-wave evidence in [docs/M2_EVIDENCE.md](docs/M2_EVIDENCE.md):
 
-* Lift the pc-dispatch loops into structured Rust control flow
-  (`if`/`loop`/`match`) via condition-based CFG reconstruction
-* Specialize operand stacks and locals per method (drop the `Value` enum on
-  the stack; unboxed arithmetic)
-* Replace `Rc`-based heap with a real tracing GC (cycle collecting), then
-  enable true Java threads on top of it
-* `StackOverflowError` instead of process abort on deep recursion
+* **Wave 1** — catchable `StackOverflowError`: frame registry, hard
+  ceiling from measured frame footprints, `J2R_MAX_JAVA_FRAMES`
+  boundary matrix, suite 34 → 36.
+* **Wave 2** — tracing, cycle-collecting arena GC with
+  generation-tagged copy handles: zero direct heap borrows (census
+  re-issued), stable identity hashes, forced-GC rooting proof
+  (39/39 fixtures byte-identical with a collection at every
+  allocation), suite 36 → 39.
+* **Wave 3** — typed-storage specialization ended at checkpoint 3a
+  with the measured honest NO-GO (89 % fallback; see
+  [docs/M2_SHAPE_REPORT.md](docs/M2_SHAPE_REPORT.md)).
+* **Wave 4** — CFG reconstruction prototype behind `--emit-cfg` with
+  the automated 39/39 output-equivalence gate; NO-GO for default
+  emission, re-evaluate with benchmarks in M3 (see
+  [docs/M2_CFG_REPORT.md](docs/M2_CFG_REPORT.md)).
+
+CI: 10 gates green at the completion commit (run 41346367440),
+including `gc-stress` (forced collection) and `no-unsafe`. 170 tests,
+0 failures locally.
 
 ## M3 — JDK coverage
 
-* Grow the natives layer into a JDK-subset implementation: collections
-  (`ArrayList`, `HashMap`, ...), `java.util.function`, lambdas/method
-  references (already compile to `invokedynamic` — need
-  `LambdaMetafactory` support), streams
-* `ldc` of class constants, `multianewarray`, `synchronized`
-  (monitor enter/exit over the M2 runtime), reflection subset
-* Parsing class files straight from JARs + a classpath option
-* `assert` support, stack traces with `LineNumberTable`
+The implementation plan with the full 23-task register and per-task
+acceptance criteria is [docs/M3_PLAN.md](docs/M3_PLAN.md); evidence
+lands in [docs/M3_EVIDENCE.md](docs/M3_EVIDENCE.md).
+
+* **Wave 0 (T01–T07, done)** — plan, risk register, architecture.
+* **Wave 1 (T08–T11, done)** — classpath & JAR loading: zero-dep
+  zip/inflate/crc32, transitive closure, `-p/--classpath`, jar
+  differential fixtures; suite 39 → 47.
+* **Wave 2 (T12–T15, done)** — `java.util` collections
+  (ArrayList/HashMap/HashSet, OpenJDK-faithful hash spreading and
+  iteration order pinned by the `HashMapOrder` fixture) + `String`/
+  `StringBuilder`/`Math`/boxing extensions; suite 47 → 51.
+* **Wave 3 (T16–T18)** — lambdas & method references
+  (`LambdaMetafactory` bootstrap resolution, functional-interface
+  natives, interface-dispatch wiring for native classes).
+* **Wave 4 (T19–T20)** — `synchronized` monitors (heap monitor
+  counters, `monitorenter/monitorexit`, `ACC_SYNCHRONIZED` methods).
+* **Wave 5 (T21–T22)** — reflection subset (interned, static-rooted
+  `Class` objects, `ldc` of class constants).
+* **T23** — completion package + review submission.
+
+Explicitly out of M3 scope (loud errors stay; deferred with rationale
+in M3_PLAN §0): threads and concurrency (single-threaded boundary
+carried from M2), streams/`Optional`/`java.time`, regex, serialization,
+`assert`, and `LineNumberTable` stack traces — the latter two are
+candidates for the follow-up quality milestone alongside the M4
+threads work.
 
 ## M4 — Minecraft readiness
 

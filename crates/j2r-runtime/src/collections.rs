@@ -1,6 +1,7 @@
 //! `java.util` collections — Wave 2 of M3 (`docs/M3_PLAN.md` §5).
 //!
-//! **Everything is heap-resident.** Every collection is an ordinary [`JObj`]
+//! **Everything is heap-resident.** Every collection is an ordinary
+//! [`JObj`](crate::object::JObj)
 //! whose state slots hold scalars and references to further heap objects
 //! (backing arrays, `HashMap$Node` bins, iterators). The mark/sweep
 //! collector therefore scans collections with **zero new root machinery** —
