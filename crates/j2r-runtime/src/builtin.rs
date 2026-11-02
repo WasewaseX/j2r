@@ -79,6 +79,11 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/function/UnaryOperator" => "java/lang/Object",
         "java/util/function/BinaryOperator" => "java/lang/Object",
         "java/util/Comparator" => "java/lang/Object",
+        // Real-program surface (jdkutil.rs): utility classes are never
+        // instantiated, the SubList view is.
+        "java/util/Arrays" => "java/lang/Object",
+        "java/util/Collections" => "java/lang/Object",
+        "java/util/ArrayList$SubList" => "java/lang/Object",
         _ => return None,
     };
     Some(p)
@@ -94,6 +99,7 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         // so List/Set/Collection/Iterable chain entries let
         // `ArrayList <: List <: Collection <: Iterable` resolve)
         "java/util/ArrayList" => &["java/util/List"],
+        "java/util/ArrayList$SubList" => &["java/util/List"],
         "java/util/List" => &["java/util/Collection"],
         "java/util/Collection" => &["java/lang/Iterable"],
         "java/util/HashSet" => &["java/util/Set"],
@@ -171,6 +177,8 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         "java/util/ArrayList" => 3,
         // ArrayList$Itr: list ref, cursor, expectedModCount, lastRet
         "java/util/ArrayList$Itr" => 4,
+        // ArrayList$SubList (jdkutil.rs): parent ref, offset, size, expectedMod
+        "java/util/ArrayList$SubList" => 4,
         // HashMap: size, modCount, threshold, table ref
         "java/util/HashMap" => 4,
         // HashMap$Node: hash, key, value, next

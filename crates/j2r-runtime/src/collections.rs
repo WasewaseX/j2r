@@ -161,7 +161,7 @@ const AL_SIZE: usize = 0;
 const AL_MODCOUNT: usize = 1;
 const AL_ELEMS: usize = 2;
 
-fn al_state(list: &JRef) -> (i32, i32, JRef) {
+pub(crate) fn al_state(list: &JRef) -> (i32, i32, JRef) {
     with_obj(*list, |o| {
         (
             o.slots[AL_SIZE].expect_int(),

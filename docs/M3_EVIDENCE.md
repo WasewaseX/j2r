@@ -693,3 +693,78 @@ and modCount checks — are a standalone task, noted for the M5 JDK-coverage
 work), `Collections.sort` (the fixture hand-rolls a merge sort instead),
 `Class.forName` (class-literal path is supported), `String.format`,
 regex-based methods.
+
+---
+
+## Addendum 2 — real-program JDK surface (Arrays / Collections / subList)
+
+The real-program tier immediately paid for itself a second time: the
+fixtures' natural vocabulary (`Arrays.sort`, `Collections`, `subList`,
+`Comparator`-driven everything) sat behind the loud-unsupported wall.
+This addendum moves that vocabulary into the runtime
+(`crates/j2r-runtime/src/jdkutil.rs`, ~900 lines + registrations) with a
+dedicated differential fixture, `ArraysSurface` (77-fixture suite now,
+guard 75 → 77), plus `BigGradebook`, a 200-line program that exercises
+the surface the way ordinary business Java does.
+
+**What landed:**
+- `java.util.Arrays` — `toString` for `[I/[J/[D/[Z/[C/Object[]`,
+  `fill` (int/long/Object), `copyOf` (int/long/double/Object + javac's
+  generic 3-arg form), `copyOfRange` (with the JDK's past-end default
+  padding and the crossed-bounds `IllegalArgumentException`),
+  `equals` (int/long/Object with element-wise dispatch), and `sort`
+  for `[I/[J/[D` plus **stable** Object sorts (natural ordering and
+  `Comparator`).
+- Stability is the design point: Object sorts use a merge sort whose
+  tie rule keeps the left run first, matching TimSort's observable
+  guarantee. A quicksort would produce the same multiset in a different
+  order for equal keys — the differential transcript would catch that,
+  and so does the fixture (a dedicated stability pin sorts
+  `b2,a1,b1,a3,b3,a2` by first char and asserts `a1,a3,a2,b2,b1,b3`).
+- `java.util.Collections` — `sort(List, Comparator)`,
+  `sort(List)` (natural ordering), `reverse`, `swap`,
+  `addAll` (varargs-lowered form). All dispatch through
+  `List.get/set/add`, so any `List` implementation works — the same
+  shape the JDK's own implementation uses.
+- `ArrayList.subList` — a **live view**, not a copy: reads/writes go
+  through the parent, the view keeps its own `expectedModCount`, parent
+  structural mutation behind the view throws message-less
+  `ConcurrentModificationException` (Temurin-exact), and the JDK's
+  message quirks are pinned (`fromIndex = -1` / `toIndex = 99` /
+  crossed bounds as `IllegalArgumentException fromIndex(5) > toIndex(2)`,
+  while the view's own element-index messages ARE array-style — modern
+  JDK overrides AbstractList's `Index: N, Size: N` shape; the oracle
+  decided, twice, in both directions, and the fixture pins both).
+- Comparator plumbing: `Character.compare`, `Double.compare`
+  (Java's total order: `-0.0 < +0.0`, NaN top — `partial_cmp` alone
+  calls -0.0 and 0.0 equal, which the oracle caught on the
+  `Collections.sort(List<Double>)` line), `compareTo` bridge rows for
+  `String`/`Integer`/`Long`/`Double` (erased
+  `(Ljava/lang/Object;)I` dispatch; user classes already carry javac's
+  compiled bridges), and `ArrayList$SubList.toString` with
+  AbstractList-style collection printing.
+- One verifier fix the surface forced: `checkcast` with an array
+  descriptor now refines the stack type to `Array(kind)` instead of a
+  plain `Ref` — javac emits `checkcast [Ljava/lang/String;` after the
+  generic `Arrays.copyOf` bridge and feeds the result straight into
+  array-shaped natives.
+
+**Honesty notes.**
+- Natural-ordering sorts dispatch `compareTo` per comparison — correct
+  but not fast; no inline caching, no specialized TimSort. Sorting
+  100k+ elements will be visibly slower than HotSpot. Correctness
+  first; performance is M5 territory with benchmarks.
+- `Arrays.asList` (a fixed-size view), `ArrayList.subList` chained on a
+  view, `Collections.unmodifiableList`, and range-variant
+  `fill`/`copyOfRange` overloads outside the pinned set remain
+  loud-unsupported; chained `subList` refuses with a named internal
+  error instead of misreading the layout.
+- Primitive sorts use Rust's total order (`sort_unstable` for
+  `i32/i64`, `f64::total_cmp` for doubles) — output-equal to the JVM's
+  dual-pivot because the orders are total, but NaN *bit patterns* are
+  not preserved; fixtures do not produce distinct NaN payloads. Known,
+  documented, not hidden.
+
+**Local verification at the addendum-2 commit:** 77-fixture differential
+suite green vs Temurin 21.0.13 (248 s), 210 unit/integration tests green,
+fmt + clippy (`-D warnings`) + rustdoc (`-D warnings`) clean.

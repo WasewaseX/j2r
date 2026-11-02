@@ -1060,9 +1060,23 @@ impl<'a> Sim<'a> {
             MonitorEnter | MonitorExit => {
                 self.pop_ref()?;
             }
-            CheckCast { .. } => {
+            CheckCast { class } => {
                 self.pop_ref()?;
-                self.push(VTy::Ref)?;
+                // Refine the stack type when the target is an array
+                // descriptor: javac emits `checkcast [Ljava/lang/String;`
+                // after the generic Arrays.copyOf bridge (and for
+                // `(String[]) list.toArray()` shapes), and the refined
+                // value feeds array-shaped natives right after.
+                match class.strip_prefix('[') {
+                    Some("J") => self.push(VTy::Array(ElemKind::Long))?,
+                    Some("F") => self.push(VTy::Array(ElemKind::Float))?,
+                    Some("D") => self.push(VTy::Array(ElemKind::Double))?,
+                    Some("I" | "Z" | "C" | "B" | "S") => {
+                        self.push(VTy::Array(ElemKind::IntGroup))?
+                    }
+                    Some(_) => self.push(VTy::Array(ElemKind::Ref))?,
+                    None => self.push(VTy::Ref)?,
+                }
             }
             InstanceOf { .. } => {
                 self.pop_ref()?;

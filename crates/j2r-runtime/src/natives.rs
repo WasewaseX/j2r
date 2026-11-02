@@ -16,7 +16,9 @@
 
 use crate::collections as c;
 use crate::concat;
+use crate::heap::with_obj;
 use crate::heap::JRef;
+use crate::jdkutil as ju;
 use crate::lambda;
 use crate::langext as le;
 use crate::object::{self, is_string, new_obj};
@@ -2645,6 +2647,258 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(C)I",
         le::n_char_get_numeric_value,
     ),
+    (
+        "java/lang/Character",
+        "compare",
+        "(CC)I",
+        ju::n_char_compare,
+    ),
+    ("java/lang/Double", "compare", "(DD)I", ju::n_double_compare),
+    // ------------------------------- Real-program JDK surface (jdkutil.rs)
+    // Arrays: toString/fill/copyOf/copyOfRange/equals/sort. Static natives —
+    // the receiver is always None. Object sorts dispatch comparisons
+    // (compareTo / Comparator) so user classes, bridges and lambda
+    // comparators all resolve through the ordinary walk.
+    (
+        "java/util/Arrays",
+        "toString",
+        "([I)Ljava/lang/String;",
+        ju::n_arrays_to_string_int,
+    ),
+    (
+        "java/util/Arrays",
+        "toString",
+        "([J)Ljava/lang/String;",
+        ju::n_arrays_to_string_long,
+    ),
+    (
+        "java/util/Arrays",
+        "toString",
+        "([D)Ljava/lang/String;",
+        ju::n_arrays_to_string_double,
+    ),
+    (
+        "java/util/Arrays",
+        "toString",
+        "([Z)Ljava/lang/String;",
+        ju::n_arrays_to_string_bool,
+    ),
+    (
+        "java/util/Arrays",
+        "toString",
+        "([C)Ljava/lang/String;",
+        ju::n_arrays_to_string_char,
+    ),
+    (
+        "java/util/Arrays",
+        "toString",
+        "([Ljava/lang/Object;)Ljava/lang/String;",
+        ju::n_arrays_to_string_obj,
+    ),
+    ("java/util/Arrays", "fill", "([II)V", ju::n_arrays_fill_int),
+    ("java/util/Arrays", "fill", "([JJ)V", ju::n_arrays_fill_long),
+    (
+        "java/util/Arrays",
+        "fill",
+        "([Ljava/lang/Object;Ljava/lang/Object;)V",
+        ju::n_arrays_fill_obj,
+    ),
+    (
+        "java/util/Arrays",
+        "copyOf",
+        "([II)[I",
+        ju::n_arrays_copy_of_int,
+    ),
+    (
+        "java/util/Arrays",
+        "copyOf",
+        "([JI)[J",
+        ju::n_arrays_copy_of_long,
+    ),
+    (
+        "java/util/Arrays",
+        "copyOf",
+        "([DI)[D",
+        ju::n_arrays_copy_of_double,
+    ),
+    (
+        "java/util/Arrays",
+        "copyOf",
+        "([Ljava/lang/Object;I)[Ljava/lang/Object;",
+        ju::n_arrays_copy_of_obj,
+    ),
+    (
+        "java/util/Arrays",
+        "copyOf",
+        "([Ljava/lang/Object;ILjava/lang/Class;)[Ljava/lang/Object;",
+        ju::n_arrays_copy_of_obj,
+    ),
+    (
+        "java/util/Arrays",
+        "copyOfRange",
+        "([III)[I",
+        ju::n_arrays_copy_of_range_int,
+    ),
+    (
+        "java/util/Arrays",
+        "copyOfRange",
+        "([Ljava/lang/Object;II)[Ljava/lang/Object;",
+        ju::n_arrays_copy_of_range_obj,
+    ),
+    (
+        "java/util/Arrays",
+        "equals",
+        "([I[I)Z",
+        ju::n_arrays_equals_int,
+    ),
+    (
+        "java/util/Arrays",
+        "equals",
+        "([J[J)Z",
+        ju::n_arrays_equals_long,
+    ),
+    (
+        "java/util/Arrays",
+        "equals",
+        "([Ljava/lang/Object;[Ljava/lang/Object;)Z",
+        ju::n_arrays_equals_obj,
+    ),
+    ("java/util/Arrays", "sort", "([I)V", ju::n_arrays_sort_int),
+    ("java/util/Arrays", "sort", "([J)V", ju::n_arrays_sort_long),
+    (
+        "java/util/Arrays",
+        "sort",
+        "([D)V",
+        ju::n_arrays_sort_double,
+    ),
+    (
+        "java/util/Arrays",
+        "sort",
+        "([Ljava/lang/Object;)V",
+        ju::n_arrays_sort_obj,
+    ),
+    (
+        "java/util/Arrays",
+        "sort",
+        "([Ljava/lang/Object;Ljava/util/Comparator;)V",
+        ju::n_arrays_sort_obj_cmp,
+    ),
+    // Collections: sort (comparator + natural), reverse, swap — dispatch
+    // through List.get/set so any List implementation works.
+    (
+        "java/util/Collections",
+        "sort",
+        "(Ljava/util/List;Ljava/util/Comparator;)V",
+        ju::n_collections_sort_cmp,
+    ),
+    (
+        "java/util/Collections",
+        "sort",
+        "(Ljava/util/List;)V",
+        ju::n_collections_sort_natural,
+    ),
+    (
+        "java/util/Collections",
+        "reverse",
+        "(Ljava/util/List;)V",
+        ju::n_collections_reverse,
+    ),
+    (
+        "java/util/Collections",
+        "swap",
+        "(Ljava/util/List;II)V",
+        ju::n_collections_swap,
+    ),
+    (
+        "java/util/Collections",
+        "addAll",
+        "(Ljava/util/Collection;[Ljava/lang/Object;)Z",
+        ju::n_collections_add_all,
+    ),
+    // ArrayList.subList + the live view's own surface. The view delegates
+    // through List dispatch and enforces parent modCount discipline.
+    (
+        "java/util/ArrayList",
+        "subList",
+        "(II)Ljava/util/List;",
+        ju::n_al_sub_list,
+    ),
+    // List-declared row: javac emits invokeinterface List.subList when the
+    // static type is List — compile-time validation walks the DECLARED
+    // hierarchy, runtime dispatch walks the receiver's (ArrayList) chain.
+    (
+        "java/util/List",
+        "subList",
+        "(II)Ljava/util/List;",
+        ju::n_al_sub_list,
+    ),
+    (
+        "java/util/ArrayList$SubList",
+        "get",
+        "(I)Ljava/lang/Object;",
+        ju::n_sl_get,
+    ),
+    (
+        "java/util/ArrayList$SubList",
+        "set",
+        "(ILjava/lang/Object;)Ljava/lang/Object;",
+        ju::n_sl_set,
+    ),
+    (
+        "java/util/ArrayList$SubList",
+        "add",
+        "(ILjava/lang/Object;)V",
+        ju::n_sl_add_at,
+    ),
+    (
+        "java/util/ArrayList$SubList",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        ju::n_sl_add_append,
+    ),
+    (
+        "java/util/ArrayList$SubList",
+        "remove",
+        "(I)Ljava/lang/Object;",
+        ju::n_sl_remove_at,
+    ),
+    ("java/util/ArrayList$SubList", "size", "()I", ju::n_sl_size),
+    (
+        "java/util/ArrayList$SubList",
+        "isEmpty",
+        "()Z",
+        ju::n_sl_is_empty,
+    ),
+    (
+        "java/util/ArrayList$SubList",
+        "toString",
+        "()Ljava/lang/String;",
+        ju::n_sl_to_string,
+    ),
+    (
+        "java/lang/String",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        n_str_compare_to_bridge,
+    ),
+    (
+        "java/lang/Integer",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        n_integer_compare_to_bridge,
+    ),
+    (
+        "java/lang/Long",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        n_long_compare_to_bridge,
+    ),
+    (
+        "java/lang/Double",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        n_double_compare_to_bridge,
+    ),
     // ------------------------------------------------ M3 Wave 3: lambdas
     // One SAM row per interface in the M3 set (M3_PLAN §6.1). Closure
     // objects carry their interface as the object class, so the dispatch
@@ -2877,6 +3131,109 @@ pub fn scan_runtime_roots(out: &mut Vec<u32>) {
 #[cfg(test)]
 pub fn boxed_cached_for_test(v: i64) -> Option<crate::heap::JRef> {
     boxed_cached("java/lang/Integer", v, -128, 127)
+}
+
+// --- Real-program surface: natural-ordering bridge rows --------------------
+// `Collections.sort`/`Arrays.sort(Object[])` dispatch `compareTo` with the
+// erased `(Ljava/lang/Object;)I` bridge descriptor. User classes carry
+// javac's compiled bridges already; the builtin boxes and String need these
+// rows (the dispatch walk matches exact descriptors only). Instance methods:
+// the receiver is the boxed self, args[0] is the boxed other — unbox both
+// from their slot-0 payloads.
+
+fn n_str_compare_to_bridge(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    le::n_str_compare_to(recv, args, ctx)
+}
+
+fn n_integer_compare_to_bridge(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let a = box_payload_int(recv, "Integer.compareTo");
+    let b = match args.first() {
+        Some(Value::Ref(Some(r))) => box_payload_int(Some(r), "Integer.compareTo arg"),
+        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    Ok(Value::Int(a.cmp(&b) as i32))
+}
+
+fn n_long_compare_to_bridge(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let a = box_payload_long(recv, "Long.compareTo");
+    let b = match args.first() {
+        Some(Value::Ref(Some(r))) => box_payload_long(Some(r), "Long.compareTo arg"),
+        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    Ok(Value::Int(a.cmp(&b) as i32))
+}
+
+fn n_double_compare_to_bridge(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let a = box_payload_double(recv, "Double.compareTo");
+    let b = match args.first() {
+        Some(Value::Ref(Some(r))) => box_payload_double(Some(r), "Double.compareTo arg"),
+        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    Ok(Value::Int(double_total_cmp(a, b)))
+}
+
+/// Java's total order on doubles: -0.0 < +0.0 (partial_cmp calls them
+/// equal — the oracle sorts [-0.0, 0.0] differently), NaN > everything,
+/// NaN == NaN.
+pub fn double_total_cmp(a: f64, b: f64) -> i32 {
+    if a == 0.0 && b == 0.0 {
+        return match (a.is_sign_negative(), b.is_sign_negative()) {
+            (true, false) => -1,
+            (false, true) => 1,
+            _ => 0,
+        };
+    }
+    match a.partial_cmp(&b) {
+        Some(ord) => ord as i32,
+        None => {
+            let a_nan = a.is_nan();
+            let b_nan = b.is_nan();
+            if a_nan && b_nan {
+                0
+            } else if a_nan {
+                1
+            } else {
+                -1
+            }
+        }
+    }
+}
+
+fn box_payload_int(r: Option<&JRef>, meth: &str) -> i32 {
+    match r {
+        Some(r) => with_obj(*r, |o| o.slots[0].expect_int()),
+        None => panic!("j2r internal: {meth} without receiver"),
+    }
+}
+
+fn box_payload_long(r: Option<&JRef>, meth: &str) -> i64 {
+    match r {
+        Some(r) => with_obj(*r, |o| o.slots[0].expect_long()),
+        None => panic!("j2r internal: {meth} without receiver"),
+    }
+}
+
+fn box_payload_double(r: Option<&JRef>, meth: &str) -> f64 {
+    match r {
+        Some(r) => with_obj(*r, |o| o.slots[0].expect_double()),
+        None => panic!("j2r internal: {meth} without receiver"),
+    }
 }
 
 #[cfg(test)]

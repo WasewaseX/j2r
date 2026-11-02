@@ -30,6 +30,7 @@ pub mod desc;
 pub mod frame;
 pub mod heap;
 pub mod javafmt;
+pub mod jdkutil;
 pub mod lambda;
 pub mod langext;
 pub mod natives;

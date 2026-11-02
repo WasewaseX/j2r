@@ -60,8 +60,8 @@ fn differential_suite_matches_jvm() {
     // line multi-class programs, not micro-probes). Standing policy from
     // the M3 review: every wave adds real-program fixtures too.
     assert!(
-        fixtures.len() >= 75,
-        "differential suite shrank: {} fixtures (expected >= 75)",
+        fixtures.len() >= 77,
+        "differential suite shrank: {} fixtures (expected >= 77)",
         fixtures.len()
     );
 
