@@ -92,6 +92,13 @@ lands in [docs/M3_EVIDENCE.md](docs/M3_EVIDENCE.md).
 * **Wave 5 (T21–T22, done)** — reflection subset (interned, static-rooted
   `Class` objects, `ldc` of class constants, `Field.get/set`,
   `Method.invoke`, Temurin-exact failure strings); suite 65 → 70.
+* **Real-program tier (post-review policy, done)** — five 300–500 line
+  multi-class programs (JSON parser, Huffman codec, RPG battle sim with
+  `Comparator` lambdas, mini-language interpreter, hand-rolled hash
+  table + LRU + reflection) join the suite; suite 70 → 75. Found and
+  fixed the JLS §4.12.5 instance-default bug the 70 micro-fixtures had
+  never probed (M3_EVIDENCE.md addendum). Standing policy: every future
+  wave adds real-program fixtures alongside the micro-probes.
 * **T23 (done)** — completion package + review submission: 10/10 gates
   green at `ce8b44e` (run 41484339575); suite 39 → 70; 228 tests;
   deviations disclosed in M3_EVIDENCE.md.

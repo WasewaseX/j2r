@@ -78,6 +78,7 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/function/BiPredicate" => "java/lang/Object",
         "java/util/function/UnaryOperator" => "java/lang/Object",
         "java/util/function/BinaryOperator" => "java/lang/Object",
+        "java/util/Comparator" => "java/lang/Object",
         _ => return None,
     };
     Some(p)
@@ -135,6 +136,7 @@ pub fn builtin_is_interface(class: &str) -> bool {
             | "java/util/function/BiPredicate"
             | "java/util/function/UnaryOperator"
             | "java/util/function/BinaryOperator"
+            | "java/util/Comparator"
     )
 }
 

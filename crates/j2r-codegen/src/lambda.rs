@@ -39,6 +39,9 @@ pub const SUPPORTED_INTERFACES: &[&str] = &[
     "java/util/function/BiPredicate",
     "java/util/function/UnaryOperator",
     "java/util/function/BinaryOperator",
+    // java.util.Comparator — the everyday sort key (real programs use it
+    // constantly; the BigRpg fixture exercises it through a merge sort).
+    "java/util/Comparator",
 ];
 
 /// Shape of the implementation call, reassembled at SAM-invocation time:
@@ -323,14 +326,16 @@ fn sam_arity_of(interface: &str) -> Result<usize, String> {
         "java/util/function/BiFunction"
         | "java/util/function/BiConsumer"
         | "java/util/function/BiPredicate"
-        | "java/util/function/BinaryOperator" => 2,
+        | "java/util/function/BinaryOperator"
+        | "java/util/Comparator" => 2,
         "java/util/function/Supplier" => 0,
         other => unreachable!("interface {other} passed the supported-set check"),
     })
 }
 
 /// Erased SAM return kind per interface: `Object` for the generic ones,
-/// `void` for consumers, `boolean` for predicates.
+/// `void` for consumers, `boolean` for predicates, primitive `int` for
+/// Comparator (its SAM is `compare(Ljava/lang/Object;Ljava/lang/Object;)I`).
 fn check_sam_return(interface: &str, ret: &TypeDesc) -> Result<(), String> {
     let ok = match interface {
         "java/util/function/Consumer" | "java/util/function/BiConsumer" => {
@@ -339,6 +344,7 @@ fn check_sam_return(interface: &str, ret: &TypeDesc) -> Result<(), String> {
         "java/util/function/Predicate" | "java/util/function/BiPredicate" => {
             matches!(ret, TypeDesc::Boolean)
         }
+        "java/util/Comparator" => matches!(ret, TypeDesc::Int),
         _ => matches!(ret, TypeDesc::Object(o) if o == "java/lang/Object"),
     };
     if ok {

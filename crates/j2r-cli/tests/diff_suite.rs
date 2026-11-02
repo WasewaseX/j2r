@@ -54,13 +54,14 @@ fn differential_suite_matches_jvm() {
         "no fixtures found in {}",
         suite_dir.display()
     );
-    // The suite must keep growing with the milestone; 70 = the 65 fixtures
-    // through M3 Wave 4 (monitors) plus the five M3 Wave-5 reflection
-    // fixtures (ClassIdentity, ClassMeta, ReflectField, ReflectMethod,
-    // ReflectGC) — M3_PLAN §8.3.
+    // The suite must keep growing with the milestone; 75 = the 70 fixtures
+    // through M3 Wave 5 (reflection) plus the five real-program-scale
+    // fixtures (BigJson, BigHuffman, BigRpg, BigLang, BigCache — 300-500
+    // line multi-class programs, not micro-probes). Standing policy from
+    // the M3 review: every wave adds real-program fixtures too.
     assert!(
-        fixtures.len() >= 70,
-        "differential suite shrank: {} fixtures (expected >= 70)",
+        fixtures.len() >= 75,
+        "differential suite shrank: {} fixtures (expected >= 75)",
         fixtures.len()
     );
 

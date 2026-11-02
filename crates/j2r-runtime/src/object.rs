@@ -58,6 +58,36 @@ pub fn obj_set(r: &JRef, idx: usize, v: Value) {
     with_obj_mut(*r, |o| o.slots[idx] = v);
 }
 
+/// Fills the user-owned slot region with JVM default values (JLS §4.12.5:
+/// numeric fields are 0, booleans false, references null) — the same
+/// defaults a real JVM writes between allocation and the constructor body.
+///
+/// The spec string covers the LAST `spec.len()` slots (the user-owned
+/// region above the builtin-parent base): one kind char per slot —
+/// `i`/`j`/`f`/`d` for the numeric families, `r` for references. A bad
+/// char is a codegen bug and panics loudly, like every other internal
+/// invariant break. Generated `new` calls this right after allocation;
+/// nothing else needs it (runtime-internal allocations own every slot
+/// they read).
+pub fn set_defaults(r: &JRef, spec: &str) {
+    with_obj_mut(*r, |o| {
+        let base = o.slots.len().saturating_sub(spec.len());
+        for (i, c) in spec.bytes().enumerate() {
+            o.slots[base + i] = match c {
+                b'i' => Value::Int(0),
+                b'j' => Value::Long(0),
+                b'f' => Value::Float(0.0),
+                b'd' => Value::Double(0.0),
+                b'r' => Value::Ref(None),
+                other => panic!(
+                    "j2r internal: bad default spec char {other:?} for {}",
+                    o.jclass
+                ),
+            };
+        }
+    });
+}
+
 /// Creates a `java/lang/String` object.
 pub fn new_string(s: &str) -> JRef {
     alloc(JObj {

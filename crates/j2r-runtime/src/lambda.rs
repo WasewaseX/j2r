@@ -170,8 +170,9 @@ fn adapt_args(
 }
 
 /// Boxes a primitive impl result when the SAM's erased return is `Object`
-/// (the generic Function family). `Predicate` (Z) and `Consumer` (V) SAMs
-/// need no adaptation.
+/// (the generic Function family). `Predicate` (Z), `Consumer` (V) and
+/// `Comparator` (I) SAMs return primitives at the call site and need no
+/// adaptation.
 fn adapt_result(
     out: Value,
     iface: &str,
@@ -184,6 +185,7 @@ fn adapt_result(
             | "java/util/function/BiConsumer"
             | "java/util/function/Predicate"
             | "java/util/function/BiPredicate"
+            | "java/util/Comparator"
     );
     if !object_sam {
         return Ok(out);

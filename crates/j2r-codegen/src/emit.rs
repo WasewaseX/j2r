@@ -1254,11 +1254,63 @@ fn emit_instr(
             if prog.is_user(class) {
                 let target = prog.class(class).unwrap();
                 let total = target.total_slots;
+                // JLS §4.12.5: instance fields carry default values (0,
+                // false, null) between allocation and the constructor body.
+                // The spec must span the WHOLE user-ancestor chain — a
+                // subclass allocating without running `new Parent()`
+                // anywhere still gets its inherited fields defaulted. The
+                // builtin-parent region below the root user class stays
+                // Void: those are the builtin's internals, written by its
+                // constructors before any user code can read them.
+                let mut root_name = class.clone();
+                loop {
+                    let sup = prog.class(&root_name).and_then(|c| c.super_name.clone());
+                    match sup {
+                        Some(s) if prog.is_user(&s) => root_name = s,
+                        _ => break,
+                    }
+                }
+                let spec_base = prog.class(&root_name).unwrap().base_slots;
+                let mut spec = vec![b'i'; total - spec_base];
+                // Fill from the root user class downward so the subclass
+                // overrides any shadowed region (layouts are dense and
+                // non-overlapping, so the walk order only matters for
+                // sanity).
+                let mut chain = Vec::new();
+                let mut cur = class.clone();
+                loop {
+                    chain.push(cur.clone());
+                    match prog.class(&cur).and_then(|c| c.super_name.clone()) {
+                        Some(s) if prog.is_user(&s) => cur = s,
+                        _ => break,
+                    }
+                }
+                for cls in chain.iter().rev() {
+                    let plan = prog.class(cls).unwrap();
+                    for f in &plan.fields {
+                        if let Some(abs) = f.instance_slot {
+                            spec[abs - spec_base] = match f.desc.as_str() {
+                                "B" | "C" | "S" | "I" | "Z" => b'i',
+                                "J" => b'j',
+                                "F" => b'f',
+                                "D" => b'd',
+                                _ => b'r',
+                            };
+                        }
+                    }
+                }
+                let spec_str: String = spec.iter().map(|&c| c as char).collect();
                 for (id, expr) in ensure_calls(prog, class) {
                     out.push(format!("crate::statics::ensure({id}u32, {expr});"));
                 }
                 out.push(format!(
-                    "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize)))));"
+                    "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize));"
+                ));
+                out.push(format!(
+                    "{RT}::object::set_defaults(&__nobj, {spec_str:?});"
+                ));
+                out.push(format!(
+                    "stack.push({RT}::Value::Ref(::core::option::Option::Some(__nobj)));"
                 ));
             } else {
                 out.push(format!(

@@ -607,3 +607,89 @@ streams/`Optional`/`java.time`, regex, serialization, `assert`,
 `LineNumberTable` stack traces, `getCause()` unwrapping, and full
 declared-member reflection over builtin classes. Loud-unsupported errors
 cover every one of them; none fail silently.
+
+---
+
+## Addendum — real-program-scale fixtures (post-completion, review feedback)
+
+"Test with bigger real files, not dummy Java files" — fair hit, taken
+seriously. The original 70 fixtures are micro-probes: each targets one
+feature in a few dozen lines. Real Java programs are 300–500 line
+multi-class structures where features *interact*. Five such programs are
+now in the suite (guard raised 70 → 75):
+
+- `BigJson` — JSON lexer + recursive-descent parser + serializer +
+  pretty-printer + round-trip checks + 13 malformed-input rejections with
+  pinned messages (~580 lines, 8 classes).
+- `BigHuffman` — frequency table, hand-rolled binary min-heap with
+  (freq, id) tie-break, prefix-free code table, bit-level encode/decode
+  round trip, RLE layer with sentinel escaping, degenerate-tree and
+  empty-input edges (~300 lines).
+- `BigRpg` — entity hierarchy (abstract class + subclass override chain +
+  interfaces), seeded-LCG battle sim, hand-rolled merge sort with a
+  `Comparator` lambda, `forEach`/`removeIf`, HashMap stats aggregation
+  (~280 lines).
+- `BigLang` — lexer, recursive-descent parser, closure-capturing evaluator
+  for a 10-keyword expression language; 10 corpus programs (recursion,
+  higher-order functions, short-circuit evaluation) + 7 pinned syntax
+  errors + 3 pinned runtime errors (~950 lines).
+- `BigCache` — from-scratch open-addressing hash table (linear probing,
+  tombstones, growth) + LRU over a hand-built doubly-linked list with
+  per-op invariant assertions + reflection pass (`Field.getType`,
+  `getSimpleName`, `isInstance`) (~330 lines).
+
+**Bugs the real-program tier caught that 70 micro-fixtures never did** —
+this is the whole argument for the tier, written in bug-shaped ink:
+
+1. **JLS §4.12.5 instance-field defaults were not applied.** `new_obj`
+   filled every slot with `Void`; a field the constructor never assigned
+   read back as `Void`, and the first `iadd`/concat touching it panicked
+   (`expected int value, got Void`). Every micro-fixture assigned its
+   fields explicitly; BigJson's `Parser.pos` (a lazily-advanced cursor) is
+   ordinary real-world Java and blew up instantly. Fix: generated `new`
+   now emits a per-slot default spec (`i/j/f/d/r` kind chars) applied by
+   `object::set_defaults` right after allocation, before the constructor
+   body — exactly where the JVM writes defaults.
+2. **The default spec initially covered only the allocating class's own
+   slots.** A subclass allocating without any `new Parent()` anywhere
+   still read inherited fields as `Void` (caught by the dedicated
+   `FieldDefaults` fixture). Fix: the spec spans the whole user-ancestor
+   chain from the root user class down; the builtin-parent region below
+   it stays `Void` because builtin constructors initialize their own
+   internals.
+3. **`java.util.Comparator` was outside the LambdaMetafactory SAM set**
+   (loud compile error). Added across the four touch points (codegen
+   supported-set + arity + return-kind table, runtime SAM row, builtin
+   hierarchy) — including the subtle bit: the SAM dispatcher's
+   `adapt_result` was boxing Comparator's primitive `int` return because
+   only Predicate-style interfaces were excluded; the caller's
+   `if_icmp` then popped a boxed Integer and panicked. Comparator now
+   follows the Predicate path (primitive at the call site, no
+   adaptation).
+4. **`Field.getType()` was missing** from the reflection subset. Added:
+   the stored field descriptor maps to the interned `Class` object —
+   primitives keyed by their bare descriptor, object descriptors dropping
+   the `L...;` wrapper, array descriptors interning as-is (the same keys
+   `component_type_of` produces, so `int[].class.getComponentType() ==
+   int.class` holds end to end).
+
+**Fixture-authoring honesty note.** Twice during this work the JVM oracle
+run itself crashed on a fixture bug (wrong pinned message, a sentinel
+collision) while the j2r diff still PASSED — because both sides died
+identically at the same point and the normalized transcripts matched. The
+harness's identical-crash blind spot, now documented: a fixture must
+complete cleanly (exit 0, all its own counters printed) before its diff
+result means anything. Both fixtures were fixed and re-run to a clean
+oracle exit before their PASS was accepted.
+
+**Local verification at the addendum commit:** 210 unit/integration tests
+green (excluding the cli crate's suite runner), full 75-fixture
+differential suite green vs Temurin 21.0.13 (222 s wall), fmt + clippy
+(`-D warnings`) clean, rustdoc (`-D warnings`) clean.
+
+**Deferred with a loud error, not silently downgraded:**
+`ArrayList.subList` (real view semantics — two-way mutation propagation
+and modCount checks — are a standalone task, noted for the M5 JDK-coverage
+work), `Collections.sort` (the fixture hand-rolls a merge sort instead),
+`Class.forName` (class-literal path is supported), `String.format`,
+regex-based methods.

@@ -1163,6 +1163,27 @@ fn n_field_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Res
     Ok(Value::Ref(Some(object::new_string(&name))))
 }
 
+/// `Field.getType`: map the stored field descriptor to the interned
+/// `Class` object. Primitives are keyed by their bare descriptor (`I` ->
+/// `int.class`), object descriptors drop the `L...;` wrapper, and array
+/// descriptors (`[I`, `[Ljava/lang/String;`) intern as-is — exactly the
+/// keys `component_type_of` hands back, so `int[].class.getComponentType()
+/// == int.class` holds end to end (BigCache oracle).
+fn n_field_get_type(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let f = this(recv, "Field.getType");
+    let (_, _, desc, _, _, _) = reflect::field_slots(f);
+    let d = desc.as_str();
+    let key: &str = if d.starts_with('[') {
+        d
+    } else if d.starts_with('L') && d.len() >= 2 && d.ends_with(';') {
+        &d[1..d.len() - 1]
+    } else {
+        d
+    };
+    let r = reflect::class_ref(key);
+    Ok(Value::Ref(Some(r)))
+}
+
 fn n_method_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let m = this(recv, "Method.getName");
     let (_, name, _, _) = reflect::method_slots(m);
@@ -2654,6 +2675,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         lambda::n_sam,
     ),
     (
+        "java/util/Comparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        lambda::n_sam,
+    ),
+    (
         "java/util/function/Predicate",
         "test",
         "(Ljava/lang/Object;)Z",
@@ -2768,6 +2795,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "getName",
         "()Ljava/lang/String;",
         n_field_get_name,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getType",
+        "()Ljava/lang/Class;",
+        n_field_get_type,
     ),
     (
         "java/lang/reflect/Method",
