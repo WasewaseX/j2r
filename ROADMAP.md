@@ -99,6 +99,13 @@ lands in [docs/M3_EVIDENCE.md](docs/M3_EVIDENCE.md).
   fixed the JLS §4.12.5 instance-default bug the 70 micro-fixtures had
   never probed (M3_EVIDENCE.md addendum). Standing policy: every future
   wave adds real-program fixtures alongside the micro-probes.
+* **Real-program JDK surface (post-review wave, done)** — `java.util.Arrays`
+  (toString/fill/copyOf/copyOfRange/equals/sort with stable Object sorts),
+  `java.util.Collections` (sort/reverse/swap/addAll), `ArrayList.subList`
+  live views (modCount discipline, JDK-exact messages), compareTo bridge
+  rows, `Character.compare`/`Double.compare`; verifier checkcast now
+  refines array descriptors. Suite 75 → 77 (ArraysSurface +
+  BigGradebook). M3_EVIDENCE.md addendum 2.
 * **T23 (done)** — completion package + review submission: 10/10 gates
   green at `ce8b44e` (run 41484339575); suite 39 → 70; 228 tests;
   deviations disclosed in M3_EVIDENCE.md.
