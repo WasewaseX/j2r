@@ -101,7 +101,20 @@ carried from M2), streams/`Optional`/`java.time`, regex, serialization,
 candidates for the follow-up quality milestone alongside the M4
 threads work.
 
-## M4 — Minecraft readiness
+## M4 — threads & concurrency (draft plan)
+
+The threads milestone M2_PLAN §7 promised: shared heap/statics/identity
+caches, real `Thread`, STW safepoints, monitor contention,
+`wait`/`notify`, interrupt, a cooperative-scheduler determinism strategy
+for differential testing, and a concurrency CI gate. Draft with an
+18-task register (all unchecked) at
+[docs/M4_PLAN.md](docs/M4_PLAN.md) — rev 0, pending review; no task
+starts before the plan is accepted. On acceptance, the milestone labels
+renumber: Minecraft readiness → M5, mod ecosystem → M6 — the renumbering
+is applied below in this same change so the register stays internally
+consistent.
+
+## M5 — Minecraft readiness (was M4)
 
 Minecraft is a large, ordinary Java program — the risks are its bootstrap
 (natives), class rewriting, and sheer size:
@@ -115,7 +128,7 @@ Minecraft is a large, ordinary Java program — the risks are its bootstrap
 * String-switch-heavy hot paths and megamorphic call sites: inline caches
   in the dispatch registry
 
-## M5 — Mod ecosystem
+## M6 — Mod ecosystem (was M5)
 
 * Fabric Loader / Forge / NeoForge API surface as natives + compiled mods
 * `j2r build mod.jar` pipeline: translate the mod JAR + its dependencies,
