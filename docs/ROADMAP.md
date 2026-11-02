@@ -11,7 +11,9 @@ waves now proceed without waiting for the plan re-review; every wave
 still ships its own evidence record and green CI (docs/M2_EVIDENCE.md),
 and the milestone completion review (T22) covers plan + waves together.
 This file is the top-level map and the working todolist; the
-per-change specifications live in M2_PLAN.
+per-change specifications live in M2_PLAN. **M3 (JDK coverage) has
+begun**: `docs/M3_PLAN.md` rev 1 — five implementation waves, 23-task
+register (T01–T07 planning done, T08+ pending).
 
 ---
 
@@ -73,13 +75,16 @@ every crate root; gate-10 green).
 | M | Goal | Scope | Exit criteria | Status |
 | --- | --- | --- | --- | --- |
 | M1 | Core compiler | subset JVM: methods, objects, arrays, strings, inheritance, exceptions | all gates green + external review | **DONE — APPROVE** |
-| M2 | Generated-code quality | catchable `StackOverflowError`; tracing cycle-collecting GC; typed operand-stack specialization; CFG reconstruction investigation | plan review → waves 1–4 each green with evidence → completion review | plan under review |
-| M3 | JDK coverage | JAR/classpath, collections, lambdas/invokedynamic, reflection, `synchronized` | real JDK libraries load and pass differential tests | gated on M2 review |
+| M2 | Generated-code quality | catchable `StackOverflowError`; tracing cycle-collecting GC; typed operand-stack specialization; CFG reconstruction investigation | plan review → waves 1–4 each green with evidence → completion review | **waves DONE** — completion package submitted `b4badea`, verdict pending |
+| M3 | JDK coverage | JAR/classpath, collections, lambdas/invokedynamic, reflection, `synchronized` | real JDK libraries load and pass differential tests | plan published (`docs/M3_PLAN.md`); waves proceeding in parallel with the pending M2 verdict per the owner's directive |
 | M4 | Minecraft readiness | JNI, Mixin transformations, mappings (SRG/MojMap), large-scale compilation | a nontrivial library jar compiles and runs differentially clean | gated on M3 review |
 | M5 | Mod ecosystem | Fabric / Forge / NeoForge loaders | a real mod boots in the M4 runtime | gated on M4 review |
 
-No milestone may start before its predecessor passes review. Scope inside a
-milestone is ordered by its own task register (§4 for M2).
+Scope inside a milestone is ordered by its own task register (§4 for M2,
+`M3_PLAN.md` §12 for M3). The standing process note for M3: the owner
+directed that waves proceed without waiting for review verdicts; every
+wave still ships evidence + green CI, and reviews can still force
+changes after the fact.
 
 ---
 
@@ -209,9 +214,13 @@ acceptance criteria) live in the M2_PLAN section shown in each wave heading.
   real defects during development (labeled-continue E0695, walk-meet
   index-type panic, dropped last instruction) — all fixed, all pinned by
   regression tests (M2_EVIDENCE.md Wave-4 section).
-- [ ] **T22** M2 completion package: milestone evidence, all gates green,
+- [x] **T22** M2 completion package: milestone evidence, all gates green,
   external architecture review submission for the milestone (same process
-  M1 went through).
+  M1 went through). Submitted in commit `b4badea` (CI 10/10 green at HEAD,
+  check-runs verified 2026-11-02); M2_EVIDENCE.md §"M2 completion package"
+  lists the five review audit points. Verdict pending — per the owner's
+  standing directive, M3 planning proceeds in parallel (no M3 claim of
+  correctness depends on the verdict; the review can still force changes).
 
 ### Dependency chain
 
