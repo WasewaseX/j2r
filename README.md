@@ -8,14 +8,13 @@ mods, to native code.
 [![CI](https://github.com/WasewaseX/j2r/actions/workflows/ci.yml/badge.svg)](https://github.com/WasewaseX/j2r/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Status: Milestone 1 + hardening — a working, tested compiler
+## Status: Milestone 3 (JDK coverage) — five of five waves done
 
-Milestone 1 compiles JVM bytecode to a standalone Rust crate and runs it
-natively. Every feature is validated by **differential testing**: fixtures
-are compiled with `javac`, run on the JVM, compiled with J2R, run natively,
+Every feature is validated by **differential testing**: fixtures
+are compiled with `javac`, run on the JVM (Temurin 21), compiled with J2R, run natively,
 and **stdout, stderr and exit codes** must match (stderr with JVM
-stack-trace frames — and nothing else — normalized away). 39 fixture
-programs cover arithmetic and integer/long edge cases, shifts, casts and
+stack-trace frames — and nothing else — normalized away). **70 fixture
+programs** cover arithmetic and integer/long edge cases, shifts, casts and
 saturating conversions, control flow (switch fallthrough, labeled
 break/continue), strings, string building, one- and two-dimensional arrays,
 inheritance, constructor/initializer ordering, static-initialization order,
@@ -24,9 +23,10 @@ identity, `instanceof` dispatch, recursion and mutual recursion, catchable
 `StackOverflowError`, cyclic graphs, aliasing across collections, interning
 across GC churn, `System.err`,
 `java.util` collections with **byte-identical `HashMap` iteration order**,
-the `java.lang` extension set, and runtime exceptions with exact OpenJDK
-messages — all green, plus 153+ unit tests, 12 malformed-classfile tests
-and JDK-free end-to-end tests.
+classpath/JAR loading, lambdas and method references, `synchronized`
+monitors, and a reflection subset (`X.class`, `Field.get/set`,
+`Method.invoke`) — all green, plus 228 unit and integration tests,
+12 malformed-classfile tests and JDK-free end-to-end tests.
 
 A dedicated **hardening milestone** (post-audit) added:
 
@@ -95,6 +95,27 @@ A **coverage & robustness pass** (M1.6) added on top:
   **39/39 fixtures byte-identical in both emission modes** and a NO-GO
   recommendation for changing the default (`docs/M2_CFG_REPORT.md`).
 
+A **JDK-coverage milestone** (M3, [docs/ROADMAP.md](ROADMAP.md)) landed on
+ top, wave by wave:
+
+* **Wave 1 — classpath & JAR loading**: zero-dependency zip/inflate/crc32,
+  transitive class-path closure, `-p/--classpath`, JAR fixtures
+  (suite 39 → 47).
+* **Wave 2 — `java.util` collections + `java.lang` extensions**
+  (details in *What works today* below; suite 47 → 51).
+* **Wave 3 — lambdas & method references**: `LambdaMetafactory` bootstrap
+  resolution, functional-interface natives, interface dispatch for native
+  classes (suite 51 → 60).
+* **Wave 4 — `synchronized`**: reentrant heap monitors,
+  `monitorenter`/`monitorexit`, `ACC_SYNCHRONIZED` methods, structured
+  release on exception unwind (suite 60 → 65).
+* **Wave 5 — reflection subset**: interned, static-rooted `Class` objects
+  whose identity survives GC (proven under 200k-node garbage churn +
+  forced collection), `ldc` of class constants, `Field.get/set` on the
+  real slots and static pool, `Method.invoke` through the compiled
+  dispatch path, `InvocationTargetException` wrapping, and Temurin-exact
+  failure strings everywhere (suite 65 → 70).
+
 ### What works today
 
 * Full `.class` parsing (constant pool, methods, `Code`, `BootstrapMethods`,
@@ -131,6 +152,16 @@ A **coverage & robustness pass** (M1.6) added on top:
   `Math` (`floorDiv/floorMod/round/sqrt/pow/…Exact` with JDK exception
   messages), `Integer`/`Long` bit manipulation and unsigned formatting,
   `Character` classification
+* Classpath & JAR loading (M3 Wave 1): zero-dep zip/inflate/crc32 and
+  transitive closure with `-p/--classpath`
+* Lambdas & method references (M3 Wave 3): `LambdaMetafactory` bootstraps,
+  captured and captureless lambdas, method references, functional
+  interfaces — differentially pinned against Temurin 21
+* `synchronized` (M3 Wave 4): reentrant object/class monitors with
+  JVM-faithful release on unwind
+* Reflection subset (M3 Wave 5): `X.class`/`getClass()` interning,
+  class metadata queries, `Field.get/set`, `Method.invoke` with
+  Temurin-exact failure messages
 * Java-exact `Double.toString`/`Float.toString` including the subnormal
   digit-count quirk (`4.9E-324`, not `5e-324`) — verified against OpenJDK 21
 * Catchable `StackOverflowError` and a tracing, cycle-collecting GC with
@@ -148,10 +179,14 @@ A **coverage & robustness pass** (M1.6) added on top:
 ### What is intentionally not supported (yet)
 
 Unsupported features are **compile errors with a precise message** — never
-silent miscompiles. Currently: `jsr`/`ret` (pre-Java-6 bytecode),
-`monitorenter`/`exit`, `synchronized` methods, `ldc` of class constants,
-native methods, most of the JDK beyond the natives list, and true threads.
-(`multianewarray` was implemented in M1.6 — see the feature list above.)
+silent miscompiles. Currently: `jsr`/`ret` (pre-Java-6 bytecode), native
+methods, and most of the JDK beyond the natives/collections/reflection
+list — true threads & concurrency (the runtime is single-threaded by
+design until the threads milestone), streams, `Optional`, `java.time`,
+regex, serialization, `assert`.
+(`multianewarray`, `monitorenter`/`monitorexit`, `synchronized` methods
+and `ldc` of class constants were implemented across M1.6 and M3
+Waves 4–5 — see the feature list above.)
 
 See [ROADMAP.md](ROADMAP.md) for the plan to close these gaps and reach
 Minecraft.
