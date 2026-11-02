@@ -23,8 +23,10 @@ exceptions (`finally` ordering, multi-catch, rethrow, uncaught), boxing
 identity, `instanceof` dispatch, recursion and mutual recursion, catchable
 `StackOverflowError`, cyclic graphs, aliasing across collections, interning
 across GC churn, `System.err`,
-and runtime exceptions with exact OpenJDK messages — all green, plus 153
-unit tests, 12 malformed-classfile tests and JDK-free end-to-end tests.
+`java.util` collections with **byte-identical `HashMap` iteration order**,
+the `java.lang` extension set, and runtime exceptions with exact OpenJDK
+messages — all green, plus 153+ unit tests, 12 malformed-classfile tests
+and JDK-free end-to-end tests.
 
 A dedicated **hardening milestone** (post-audit) added:
 
@@ -114,6 +116,21 @@ A **coverage & robustness pass** (M1.6) added on top:
   synthesis
 * A natives layer: `System.out/err`, `Math`, `StringBuilder`, boxed types,
   `Integer.parseInt`, `System.exit`, …
+* `java.util` collections (M3 Wave 2): `ArrayList`, `HashMap`, `HashSet`,
+  their iterators and views, and `Objects` — **heap-resident** so the
+  tracing GC scans them with zero new root machinery, with
+  algorithm-faithful OpenJDK `HashMap` behaviour (hash spreading,
+  `tableSizeFor`, Java-8 lo/hi resize split, tail insertion) pinned
+  differentially to Temurin 21 byte-for-byte, `modCount`-based
+  `ConcurrentModificationException` on iterator invalidation, and Java-exact
+  bounds/overflow message texts (`Range [5, 2) out of bounds for length 12`,
+  `integer overflow`, `For input string: "8" under radix 8`)
+* `java.lang` extensions (M3 Wave 2): `String` (`substring`, `indexOf`,
+  `trim` with Java's `<= U+0020` semantics, UTF-16 `compareTo`, `repeat`,
+  …), `StringBuilder` (`reverse`, `insert`, `delete`, `replace`, …),
+  `Math` (`floorDiv/floorMod/round/sqrt/pow/…Exact` with JDK exception
+  messages), `Integer`/`Long` bit manipulation and unsigned formatting,
+  `Character` classification
 * Java-exact `Double.toString`/`Float.toString` including the subnormal
   digit-count quirk (`4.9E-324`, not `5e-324`) — verified against OpenJDK 21
 * Catchable `StackOverflowError` and a tracing, cycle-collecting GC with

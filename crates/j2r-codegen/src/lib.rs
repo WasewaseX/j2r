@@ -285,6 +285,12 @@ fn builtin_is_instantiable(class: &str) -> bool {
             | "java/lang/String"
             | "java/lang/StringBuilder"
             | "java/lang/StringBuffer"
+            // M3 Wave 2: collections are heap-resident runtime classes
+            // (M3_PLAN §5.1/§5.4 — the layout pass skips them; their slots
+            // are owned by j2r-runtime/src/collections.rs)
+            | "java/util/ArrayList"
+            | "java/util/HashMap"
+            | "java/util/HashSet"
     ) {
         return true;
     }

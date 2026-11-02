@@ -24,11 +24,13 @@
 
 pub mod array;
 pub mod builtin;
+pub mod collections;
 pub mod concat;
 pub mod desc;
 pub mod frame;
 pub mod heap;
 pub mod javafmt;
+pub mod langext;
 pub mod natives;
 pub mod object;
 pub mod stack;

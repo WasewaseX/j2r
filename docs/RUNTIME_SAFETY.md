@@ -110,19 +110,20 @@ compiler accepts. Malformed bytecode is rejected earlier as a structured
 on the runtime's exception tables), catchable by compiled code exactly like
 the JVM.
 
-## 4. Reentrancy (RefCell double-borrow) audit — re-issued for the arena heap
+## 4. Reentrancy (RefCell double-borrow) audit — re-issued for M3 Wave 2
 
 A `RefCell` panic would require a borrow held *across* a call that can
 re-enter the same object. The census below counts non-test
-`.borrow()` / `.borrow_mut()` sites per file after the Wave-2 conversion
-(object accesses now go through `heap::with_obj` / `with_obj_mut`):
+`.borrow()` / `.borrow_mut()` sites per file (re-issued after the M3
+Wave-2 collections/langext additions; object accesses go through
+`heap::with_obj` / `with_obj_mut`):
 
 * **JObj borrows: 3, all inside the heap kernel** (`heap.rs`):
   `with_obj` (shared), `with_obj_mut` (exclusive) and the mark loop's child
   scan during collection. Every runtime and native access to object state
   goes through those two scoped accessors — **zero direct object borrows
-  remain in `natives.rs`, `object.rs`, `array.rs`, `concat.rs` or `lib.rs`**
-  (verified by grep; the pre-Wave-2 census counted 45 sites).
+  remain in `natives.rs`, `object.rs`, `array.rs`, `concat.rs`, `lib.rs`,
+  `collections.rs` or `langext.rs`** (verified by grep).
 * The remaining borrow sites are plain non-object containers: the frame
   slot registry (frame.rs 16), the heap/stats containers (heap.rs), the
   intern cache and `System.out` handle (object.rs 4) and the boxed-identity
@@ -133,17 +134,30 @@ re-enter the same object. The census below counts non-test
   instruction), so the old discipline — no borrow held across a dispatch
   into user code — is now enforced by the type system rather than by
   audit.
+* **M3 Wave-2 additions dispatch into user code** (collection keys/elements
+  dispatch `hashCode`/`equals`/`toString` through `invoke_virtual`). The
+  audit re-check is mechanical and currently clean: **0 of the 68
+  `with_obj`/`with_obj_mut` closures in `collections.rs` (34 shared + 34
+  exclusive) and 4 in `langext.rs` contain an `invoke_virtual` call**
+  (script-verified over brace-balanced closure bodies). Dispatch helpers
+  (`collections::dispatch_hash_code/equals/to_string`) read values with
+  scoped accessors first and dispatch with no heap borrow held; bulk
+  readers (`hm_all_entries`) clone entries out of the bin before any
+  dispatch. `HashMap` put/remove walks interleave `with_obj` reads and
+  `with_obj_mut` writes strictly sequentially — no accessor is nested
+  inside another accessor's closure.
 * User code runs only through `invoke_virtual` / generated calls, which
   hold no heap borrow.
-* `StringBuilder`/`String` sharing uses `Rc::make_mut` (ownership transfer,
-  no borrow held).
+* `StringBuilder`/`String` sharing uses fresh `Rc` replacement on full
+  writes (`langext::sb_set`) and `Rc::make_mut` on appends (ownership
+  transfer, no borrow held).
 * Nested `with_obj` on the *same* handle inside a closure panics exactly
   like the old `RefCell` discipline — and no such site exists (the
   accessors' closures never call accessors).
 
 No reentrancy path exists in the current instruction set. This audit must
-be repeated whenever a native gains a callback into user code (e.g. future
-`Comparator` support).
+be repeated whenever a native gains a callback into user code (M3 Wave 3
+lambdas and Wave 4 monitors are the next scheduled re-issues).
 
 ## 5. Known, documented gaps (not silent)
 

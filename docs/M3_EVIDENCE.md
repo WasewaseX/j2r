@@ -114,3 +114,118 @@ classpath-only compile + runnable crate for all four jar fixtures
 corrupted input tested; suite guards raised (diff suite `>= 39` kept,
 jar suite `>= 4`); CI gates green at the wave commit (run recorded in
 ROADMAP §2).
+
+---
+
+## Wave 2 — java.util collections & java.lang extensions (T12–T15)
+
+**Delivered.**
+
+1. **`crates/j2r-runtime/src/collections.rs` (new, ~1 750 lines incl. 18
+   unit tests)** — `ArrayList`, `HashMap`, `HashSet`, their iterators and
+   views, and `Objects`, all **heap-resident** (M3_PLAN §5.4): every
+   collection is a `JObj` whose slots hold scalars and references to
+   backing `[Ljava/lang/Object;` / `[Ljava/util/HashMap$Node;` arrays, so
+   the M2 mark/sweep scans collections with **zero new root machinery**.
+   Slot layouts are documented in the module header; `builtin.rs` owns the
+   same numbers as the single source of truth for `new_builtin`.
+2. **HashMap is algorithm-faithful to OpenJDK** (risk M3-R2):
+   `h ^ (h >>> 16)` spreading (logical shift — a bug where Rust's
+   arithmetic `>>` leaked in was caught by a hand-pinned unit test),
+   `tableSizeFor` including the `cap <= 1 -> 1` underflow edge, lazy table
+   allocation (initial-capacity ctor stores the rounded capacity in
+   `threshold` exactly like JDK 8), load factor 0.75 with **float**
+   arithmetic for the threshold recompute, doubling resize with the
+   Java-8 lo/hi bin split **preserving relative order** (the missing
+   `loTail.next = null; hiTail.next = null` terminator was caught by the
+   `hashmap_order` unit test — a node iterated from two bins), tail
+   insertion within bins, table-order iteration. The `HashMapOrder`
+   differential fixture prints byte-identical iteration order vs Temurin
+   21 across a 13th-put resize, `Integer`/`String` (deliberate `Aa`/`BB`
+   hash collisions)/user-class keys (dispatched `hashCode`/`equals`), and
+   the `MapBoxKeys` fixture extends this to `Long`/`Double`/`Character`
+   keys.
+3. **`ConcurrentModificationException` is modelled** (M3_PLAN §5.3
+   decision): `modCount` lives in a collection slot; iterators capture it
+   and `next()` checks it *first* (CME before `NoSuchElementException`,
+   exact OpenJDK order); `hasNext()` does **not** check, matching
+   `HashIterator`/`Itr` semantics — both pinned by unit tests and the
+   `ArrayListOps`/`HashMapOrder` fixtures. Replace-put is not a structural
+   modification (no CME) — unit-tested.
+4. **`ArrayList$Itr.remove()` is Java-faithful — recorded plan deviation**:
+   M3_PLAN §5.2 drafted `Iterator.remove()` as a loud unsupported runtime
+   error. The `ArrayListOps` fixture caught the difference: Temurin's
+   `ArrayList$Itr.remove()` works, removes the last-returned element,
+   rewinds the cursor and re-syncs `expectedModCount`. Faithful >
+   convenient: the implementation now mirrors `Itr.remove()` (incl.
+   `IllegalStateException` with a null message when no `next()` preceded),
+   the differential fixture pins it, and this note is the disclosure.
+   `HashMap` iterators' `remove()` remains a loud
+   `UnsupportedOperationException("remove")` (unexercised by fixtures,
+   outside the §5.2 inventory — still no third state: it fails loudly at
+   runtime rather than silently misbehaving).
+5. **`java.lang` extensions** (`langext.rs`, new): `String`
+   (`substring`/`indexOf`/`lastIndexOf`/`concat`/`replace`/case mapping/
+   `trim` with Java's `<= U+0020` semantics/UTF-16 `compareTo`/
+   `compareToIgnoreCase`/`startsWith`/`endsWith`/`contains`/
+   `equalsIgnoreCase`/`toCharArray`/`repeat`), `StringBuilder`
+   (`reverse`/`insert` ×4/`deleteCharAt`/`delete`/`replace`/`setLength`/
+   `capacity`/`charAt`/`indexOf`/`(I)V` ctor), `Math`
+   (`floorDiv`/`floorMod` ×2, `round` ×2, `sqrt`, `cbrt`, `pow`, `floor`,
+   `ceil`, `signum` ×2, `toIntExact`, `addExact`/`subtractExact`/
+   `multiplyExact` ×3 widths incl. the `(long,int)` overloads javac picks
+   for mixed-arity call sites), `Integer`/`Long` (unsigned radix
+   formatting, `compare`, `max`/`min`/`sum`, `bitCount`,
+   `numberOf{Leading,Trailing}Zeros`, `{highest,lowest}OneBit`,
+   `rotate{Left,Right}`, `reverse`, `parseInt(String,int)`), `Character`
+   (classification per the JDK definitions incl. Java's `isWhitespace`
+   set — which differs from Unicode `White_Space` — and Nd digit ranges),
+   plus `Objects.equals/hashCode/requireNonNull ×3/toString/isNull/
+   nonNull`.
+6. **Java-exact message texts, three-channel pinned** — every message was
+   captured from Temurin 21 first and matched, several differ from
+   intuition or older JDKs: `substring` bounds are
+   `Range [5, 2) out of bounds for length 12` (JDK 21
+   `checkBoundsOffCount` shape), `ArrayList.get` is
+   `Index 5 out of bounds for length 3` but `add(int,E)` is
+   `Index: 5, Size: 3`, `StringBuilder.charAt/deleteCharAt` are
+   `Index i out of bounds for length L` while `insert/delete/replace` are
+   `Range [s, e) out of bounds for length L`, `new StringBuilder(-1)`
+   throws **`NegativeArraySizeException("-1")`** (not
+   `IllegalArgumentException` — COMPACT_STRINGS `new byte[cap]`), radix
+   `parseInt` failures append ` under radix R`, `Math.toIntExact` and the
+   exact family use `integer overflow` / `long overflow`, `String.repeat`
+   uses `count is negative: N`, `ArrayList(-5)` uses
+   `Illegal Capacity: -5`, `HashMap(-3)` uses
+   `Illegal initial capacity: -3`, and `Integer.parseInt(null)` uses
+   `Cannot parse null string`.
+7. **`String.toString()` registered** (returns `this`) — the census of
+   existing entries showed it missing, so dispatched `toString()` on a
+   String element previously fell through to `Object.toString`; caught by
+   the first `ArrayListOps` run, fixed before any commit.
+8. **Borrow census re-issued** (`RUNTIME_SAFETY.md §4`): zero direct
+   object borrows in the new files; **0 of the 68 accessor closures in
+   `collections.rs` + 4 in `langext.rs` contain `invoke_virtual`**
+   (script-verified) — dispatch helpers read first, then dispatch with no
+   heap borrow held.
+
+**Test inventory at wave end (local, Temurin 21.0.13):** 18 new
+`collections.rs` unit tests (tableSizeFor edges, hash spreading with
+hand-pinned values incl. negative hashes, ArrayList ops/bounds/CME/
+exhaustion/`Itr.remove`/`IllegalStateException`, HashMap order with
+collisions + resize, replace-vs-structural CME semantics, views, null
+key/value, iterator CME, HashSet, Objects overloads, and the two GC
+integration tests: a rooted collection keeps elements alive across 50
+forced collections and a dropped collection is collectable whole), all 12
+new fixtures (51 total) three-channel green, and the five collection
+fixtures re-run under `J2R_GC_EVERY_N=1` forced collection at every
+allocation point — byte-identical output.
+
+**Acceptance criteria (M3_PLAN §5.6):** every §5.2 method either works
+differentially or fails loudly at compile time (the natives table is the
+compile-time gate — unregistered = resolve error);
+`HashMapOrder` prints byte-identical iteration order vs Temurin incl. the
+post-resize order; forced-GC run green over the collection fixtures (gate
+9 runs the full suite under `J2R_GC_EVERY_N=1` in CI); borrow census
+re-issued in `RUNTIME_SAFETY.md` §4 in the wave commit. Suite guard raised
+to `>= 51`.

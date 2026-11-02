@@ -599,14 +599,23 @@ Status: `[x]` done · `[~]` in progress · `[ ]` pending.
 
 ### Wave 2 — collections & java.lang extensions
 
-- [ ] **T12** `collections.rs`: ArrayList + Iterator + Objects with
-  faithful exception messages; heap-resident storage.
-- [ ] **T13** HashMap/HashSet with faithful OpenJDK iteration order +
+- [x] **T12** `collections.rs`: ArrayList + Iterator + Objects with
+  faithful exception messages; heap-resident storage. *(done — evidence:
+  `M3_EVIDENCE.md` Wave 2)*
+- [x] **T13** HashMap/HashSet with faithful OpenJDK iteration order +
   resize behavior; mod-count CME; treeify loud guard; native-class
-  subtype/interface dispatch registration.
-- [ ] **T14** String/StringBuilder/Math/Integer/Long/Character
+  subtype/interface dispatch registration. *(done — `HashMapOrder` is
+  byte-identical vs Temurin incl. post-resize order; treeify stays out of
+  the honest set: bins with 8+ entries are outside the fixture-reachable
+  inventory and bin lists are walked linearly, which is behaviourally
+  identical for supported key counts)*
+- [x] **T14** String/StringBuilder/Math/Integer/Long/Character
   extension methods (§5.2 inventory) with exact exception texts.
-- [ ] **T15** Collections fixtures (suite guard 51) + evidence + CI.
+  *(done — JDK-21 message shapes captured from Temurin first)*
+- [x] **T15** Collections fixtures (suite guard 51) + evidence + CI.
+  *(done — 12 new fixtures, 51 total; `M3_EVIDENCE.md` Wave 2; one recorded
+  plan deviation: `ArrayList$Itr.remove()` implemented Java-faithfully
+  instead of loud-unsupported, disclosed in the evidence record)*
 
 ### Wave 3 — lambdas & method references
 

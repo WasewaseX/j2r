@@ -54,14 +54,15 @@ fn differential_suite_matches_jvm() {
         "no fixtures found in {}",
         suite_dir.display()
     );
-    // The suite must keep growing with the milestone; 39 = the 36 fixtures
-    // through Wave 1 plus the three M2 Wave-2 GC fixtures: Cycles (cyclic
-    // graphs dropped whole), GcIdentity (one object aliased through array +
-    // static, mutated via one path, read via the other) and InternAcrossGc
-    // (literal identity across allocation churn).
+    // The suite must keep growing with the milestone; 51 = the 39 fixtures
+    // through M2 (36 Wave-1 + Cycles/GcIdentity/InternAcrossGc) plus the
+    // nine M3 Wave-2 collection/lang fixtures (ArrayListOps, HashMapOrder,
+    // HashSetOps, ObjectsNPE, StringExt, StringBuilderExt, MathExact,
+    // IntegerParse, CharClassify) and the three interface-path fixtures
+    // (ForEachColl, ListAsList, MapBoxKeys).
     assert!(
-        fixtures.len() >= 39,
-        "differential suite shrank: {} fixtures (expected >= 39)",
+        fixtures.len() >= 51,
+        "differential suite shrank: {} fixtures (expected >= 51)",
         fixtures.len()
     );
 

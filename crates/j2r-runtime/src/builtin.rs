@@ -41,6 +41,19 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/OutOfMemoryError" => "java/lang/VirtualMachineError",
         "java/lang/VirtualMachineError" => "java/lang/Error",
         "java/lang/AssertionError" => "java/lang/Error",
+        // M3 Wave 2: java.util collections (M3_PLAN §5)
+        "java/util/ArrayList" => "java/lang/Object",
+        "java/util/ArrayList$Itr" => "java/lang/Object",
+        "java/util/HashMap" => "java/lang/Object",
+        "java/util/HashMap$Node" => "java/lang/Object",
+        "java/util/HashMap$KeyIterator" => "java/lang/Object",
+        "java/util/HashMap$ValueIterator" => "java/lang/Object",
+        "java/util/HashMap$KeySet" => "java/lang/Object",
+        "java/util/HashMap$Values" => "java/lang/Object",
+        "java/util/HashSet" => "java/lang/Object",
+        "java/util/Objects" => "java/lang/Object",
+        "java/util/NoSuchElementException" => "java/lang/RuntimeException",
+        "java/util/ConcurrentModificationException" => "java/lang/RuntimeException",
         _ => return None,
     };
     Some(p)
@@ -52,6 +65,20 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         "java/lang/String" | "java/lang/StringBuilder" | "java/lang/StringBuffer" => {
             &["java/lang/CharSequence"]
         }
+        // M3 Wave 2: collection hierarchy (subtype walks traverse interfaces,
+        // so List/Set/Collection/Iterable chain entries let
+        // `ArrayList <: List <: Collection <: Iterable` resolve)
+        "java/util/ArrayList" => &["java/util/List"],
+        "java/util/List" => &["java/util/Collection"],
+        "java/util/Collection" => &["java/lang/Iterable"],
+        "java/util/HashSet" => &["java/util/Set"],
+        "java/util/Set" => &["java/util/Collection"],
+        "java/util/HashMap" => &["java/util/Map"],
+        "java/util/HashMap$KeySet" => &["java/util/Set"],
+        "java/util/HashMap$Values" => &["java/util/Collection"],
+        "java/util/ArrayList$Itr"
+        | "java/util/HashMap$KeyIterator"
+        | "java/util/HashMap$ValueIterator" => &["java/util/Iterator"],
         _ => &[],
     }
 }
@@ -76,6 +103,22 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         | "java/lang/Boolean"
         | "java/lang/Character"
         | "java/io/PrintStream" => 1,
+        // M3 Wave 2 layouts (documented in collections.rs):
+        // ArrayList: size, modCount, elements ref
+        "java/util/ArrayList" => 3,
+        // ArrayList$Itr: list ref, cursor, expectedModCount, lastRet
+        "java/util/ArrayList$Itr" => 4,
+        // HashMap: size, modCount, threshold, table ref
+        "java/util/HashMap" => 4,
+        // HashMap$Node: hash, key, value, next
+        "java/util/HashMap$Node" => 4,
+        // hash iterators: map ref, table idx, pending node, expectedModCount
+        "java/util/HashMap$KeyIterator" | "java/util/HashMap$ValueIterator" => 4,
+        // views: map ref
+        "java/util/HashMap$KeySet" | "java/util/HashMap$Values" => 1,
+        // HashSet: backing map ref
+        "java/util/HashSet" => 1,
+        "java/util/Objects" => 0,
         _ => {
             // exception families own no extra fields
             if builtin_parent_of(class).is_some() {
