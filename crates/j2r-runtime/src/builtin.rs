@@ -84,6 +84,14 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/Arrays" => "java/lang/Object",
         "java/util/Collections" => "java/lang/Object",
         "java/util/ArrayList$SubList" => "java/lang/Object",
+        // Real-world corpus wave 1 (minimal-json): java.io writer/reader
+        // hierarchy. Found by corpus/MinimalJsonCorpus.java — real libraries
+        // extend JDK IO types, so the hierarchy must be known to the loader
+        // even before the behavior natives land.
+        "java/io/Writer" => "java/lang/Object",
+        "java/io/StringWriter" => "java/io/Writer",
+        "java/io/Reader" => "java/lang/Object",
+        "java/io/StringReader" => "java/io/Reader",
         _ => return None,
     };
     Some(p)
@@ -113,6 +121,9 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         // M3 Wave 3: functional-interface specialization hierarchy.
         "java/util/function/UnaryOperator" => &["java/util/function/Function"],
         "java/util/function/BinaryOperator" => &["java/util/function/BiFunction"],
+        // Real-world corpus wave 1: java.io interfaces.
+        "java/io/Writer" => &["java/io/Appendable", "java/io/Closeable", "java/io/Flushable"],
+        "java/io/Reader" => &["java/io/Readable", "java/io/Closeable"],
         _ => &[],
     }
 }
@@ -143,6 +154,10 @@ pub fn builtin_is_interface(class: &str) -> bool {
             | "java/util/function/UnaryOperator"
             | "java/util/function/BinaryOperator"
             | "java/util/Comparator"
+            | "java/io/Appendable"
+            | "java/io/Closeable"
+            | "java/io/Flushable"
+            | "java/io/Readable"
     )
 }
 
@@ -190,6 +205,13 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // HashSet: backing map ref
         "java/util/HashSet" => 1,
         "java/util/Objects" => 0,
+        // Real-world corpus wave 1: java.io layouts.
+        // Writer: slot 0 = the `lock` object ref (WritingBuffer passes it via
+        // super(lock)); StringWriter/Reader/StringReader inherit it.
+        "java/io/Writer" | "java/io/Reader" => 1,
+        // StringWriter: own slot = the accumulated buffer ref; StringReader:
+        // own slot = payload (string + cursor) held by the runtime.
+        "java/io/StringWriter" | "java/io/StringReader" => 1,
         _ => {
             // exception families own no extra fields
             if builtin_parent_of(class).is_some() {
@@ -234,5 +256,41 @@ mod tests {
         assert_eq!(builtin_total_slots("java/lang/StringBuilder"), Some(1));
         assert_eq!(builtin_total_slots("java/lang/Integer"), Some(1));
         assert_eq!(builtin_total_slots("java/lang/Unknown"), None);
+    }
+
+    #[test]
+    fn corpus_wave1_io_hierarchy() {
+        // Real-world corpus wave 1 (minimal-json): java.io family must be
+        // known to the loader (hierarchy, interfaces, slot layout).
+        assert_eq!(builtin_parent_of("java/io/Writer"), Some("java/lang/Object"));
+        assert_eq!(
+            builtin_parent_of("java/io/StringWriter"),
+            Some("java/io/Writer")
+        );
+        assert_eq!(
+            builtin_parent_of("java/io/StringReader"),
+            Some("java/io/Reader")
+        );
+        // Writer + Reader own the lock slot; StringWriter/StringReader own
+        // one payload slot on top of the inherited lock.
+        assert_eq!(builtin_total_slots("java/io/Writer"), Some(1));
+        assert_eq!(builtin_total_slots("java/io/StringWriter"), Some(2));
+        assert_eq!(builtin_total_slots("java/io/StringReader"), Some(2));
+        assert!(builtin_is_interface("java/io/Appendable"));
+        assert!(builtin_is_interface("java/io/Closeable"));
+        assert!(builtin_is_interface("java/io/Flushable"));
+        assert!(builtin_is_interface("java/io/Readable"));
+        assert_eq!(
+            builtin_interfaces_of("java/io/Writer"),
+            &[
+                "java/io/Appendable",
+                "java/io/Closeable",
+                "java/io/Flushable"
+            ]
+        );
+        assert_eq!(
+            builtin_interfaces_of("java/io/Reader"),
+            &["java/io/Readable", "java/io/Closeable"]
+        );
     }
 }

@@ -198,6 +198,21 @@ mode, R4 → M4 concurrency wave (JMM→Rust mapping table + litmus suite
 lands only after the real-world corpus wave. Benchmarks observe, they
 never gate.
 
+## M3.7 — real-world corpus wave (started)
+
+Standing directive: differential-test against real-world Java programs,
+not synthetic fixtures. Entry 1 registered: minimal-json
+(ralfstx/minimal-json, Apache-2.0, 15 source files) — sources under
+`corpus/minimal-json/`, mechanical assembly via
+`scripts/build_corpus_minimaljson.sh`, deterministic driver, Temurin
+21.0.13 golden output. Gap catalog and wave order:
+[docs/CORPUS_WAVE.md](docs/CORPUS_WAVE.md). Status: F1 (builtin java.io
+hierarchy + slots + interfaces) **fixed** with the
+`corpus_wave1_io_hierarchy` unit test; F2 (verifier rejects
+clinit-initialized reference statics — the singleton-factory pattern)
+**open, high priority**, blocks the corpus; F3 (java.io behavior
+natives) follows F2 by design.
+
 ## M4 — threads & concurrency (draft plan)
 
 The threads milestone M2_PLAN §7 promised: shared heap/statics/identity
