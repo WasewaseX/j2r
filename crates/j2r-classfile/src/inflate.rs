@@ -130,6 +130,7 @@ impl<'a> BitReader<'a> {
 ///
 /// Decoding is the classic bit-at-a-time walk (as in `puff.c`): simple,
 /// allocation-free per symbol, and immune to malformed-code panic paths.
+#[derive(Debug)]
 struct Huffman {
     /// Number of symbols of each code length 1..=15.
     counts: [u16; 16],
@@ -147,16 +148,30 @@ enum TableError {
     Incomplete,
 }
 
+/// Which zlib table role the lengths describe (audit A5). The incomplete-
+/// set rule differs by role, per zlib's `inftrees.c` (upstream madler/zlib,
+/// the code `java.util.zip.Inflater` wraps): an incomplete Huffman code is
+/// legal **only** when it consists of exactly one 1-bit code, and never
+/// inside the code-length alphabet. An empty set is always accepted and
+/// errors only when a symbol is actually demanded (zlib builds an
+/// invalid-code marker table there).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum TableKind {
+    /// The 19-symbol code-length alphabet (zlib `CODES`).
+    CodeLengths,
+    /// Literal/length symbols (zlib `LENS`).
+    Literals,
+    /// Distance symbols (zlib `DISTS`).
+    Distances,
+}
+
 impl Huffman {
-    /// Build from a code-length list (RFC 1951 §3.2.2 canonical rules).
-    ///
-    /// `allow_incomplete`: distance tables are legitimately incomplete —
-    /// the fixed table has 30 of 32 five-bit codes (RFC 1951 §3.2.6) and
-    /// dynamic blocks may carry 0 or 1 distance codes (RFC 1951 §3.2.7).
-    /// An incomplete table simply errors if an invalid code is ever
-    /// demanded (the decode walk runs out), which keeps zlib-compatible
-    /// streams working without accepting garbage output.
-    fn from_lengths(lengths: &[u8], allow_incomplete: bool) -> Result<Huffman, TableError> {
+    /// Build from a code-length list (RFC 1951 §3.2.2 canonical rules),
+    /// with zlib's exact acceptance rules for the given table role
+    /// (audit A5 — the old `allow_incomplete: bool` was lenient in a way
+    /// zlib is not, and the strict literal path was stricter than zlib in
+    /// the single-1-bit-code case).
+    fn from_lengths(lengths: &[u8], kind: TableKind) -> Result<Huffman, TableError> {
         let mut counts = [0u16; 16];
         for &l in lengths {
             counts[l as usize] += 1;
@@ -174,8 +189,15 @@ impl Huffman {
         }
         let used: u32 = counts[1..].iter().map(|&c| c as u32).sum();
         let empty = used == 0;
-        if left > 0 && !allow_incomplete {
-            return Err(TableError::Incomplete);
+        // zlib inftrees.c: `if (left > 0 && (type == CODES || max != 1))
+        // return -1;` — incomplete rejected unless exactly one 1-bit code,
+        // never for the code-length alphabet. Empty sets bypass this
+        // (zlib's `max == 0` builds an error marker and returns success).
+        if left > 0 && !empty {
+            let max = (1..=15).rev().find(|&l| counts[l] != 0).unwrap_or(0);
+            if kind == TableKind::CodeLengths || max != 1 {
+                return Err(TableError::Incomplete);
+            }
         }
 
         // Offsets: first code of each length.
@@ -257,11 +279,12 @@ fn err(at: usize, msg: &str) -> InflateError {
     }
 }
 
-/// Build the distance table, allowing the legitimately incomplete shapes
-/// (RFC 1951 §3.2.6/§3.2.7): zero codes, one code, or any incomplete set
-/// (an invalid code demanded at decode time becomes a loud error).
+/// Build the distance table with zlib-exact acceptance (audit A5): an
+/// incomplete set is legal only as a single 1-bit code; empty is accepted
+/// and errors on demand; anything else incomplete is rejected exactly like
+/// zlib's `Inflater` ("invalid distances set").
 fn build_distance_table(lengths: &[u8], at: usize) -> Result<Huffman, InflateError> {
-    Huffman::from_lengths(lengths, true).map_err(|e| match e {
+    Huffman::from_lengths(lengths, TableKind::Distances).map_err(|e| match e {
         TableError::OverSubscribed => err(at, "over-subscribed distance code"),
         TableError::Incomplete => err(at, "incomplete distance code"),
     })
@@ -306,9 +329,11 @@ pub fn inflate_capped(
                 }
             }
             0b01 => {
-                // Fixed Huffman (RFC 1951 §3.2.6). The fixed distance
-                // table (30 of 32 five-bit codes) is legitimately
-                // incomplete → allow_incomplete = true.
+                // Fixed Huffman (RFC 1951 §3.2.6). The fixed distance table
+                // is built in its complete 32-entry five-bit form (30 real
+                // codes plus the two impossible codes 30/31, which the
+                // `dsym >= 30` use-time check rejects) — exactly how zlib
+                // builds it, so the table is never incomplete (audit A5).
                 let mut lit_lengths = [0u8; 288];
                 for (i, l) in lit_lengths.iter_mut().enumerate() {
                     *l = match i {
@@ -318,10 +343,10 @@ pub fn inflate_capped(
                         _ => 8,
                     };
                 }
-                let lit = Huffman::from_lengths(&lit_lengths, false)
+                let lit = Huffman::from_lengths(&lit_lengths, TableKind::Literals)
                     .map_err(|_| err(br.byte_pos(), "fixed literal table build failed"))?;
-                let dist_lengths = [5u8; 30];
-                let dist = Huffman::from_lengths(&dist_lengths, true)
+                let dist_lengths = [5u8; 32];
+                let dist = Huffman::from_lengths(&dist_lengths, TableKind::Distances)
                     .map_err(|_| err(br.byte_pos(), "fixed distance table build failed"))?;
                 inflate_block(&mut br, &lit, &dist, out, max_output)?;
             }
@@ -340,7 +365,7 @@ pub fn inflate_capped(
                 for i in 0..hclen {
                     clc_lengths[CLC_ORDER[i]] = br.bits(3)? as u8;
                 }
-                let clc = Huffman::from_lengths(&clc_lengths, false).map_err(|e| match e {
+                let clc = Huffman::from_lengths(&clc_lengths, TableKind::CodeLengths).map_err(|e| match e {
                     TableError::OverSubscribed => {
                         err(br.byte_pos(), "over-subscribed code-length code")
                     }
@@ -390,7 +415,7 @@ pub fn inflate_capped(
                 if lengths[256] == 0 {
                     return Err(err(br.byte_pos(), "no end-of-block code"));
                 }
-                let lit = Huffman::from_lengths(&lengths[..hlit], false).map_err(|e| match e {
+                let lit = Huffman::from_lengths(&lengths[..hlit], TableKind::Literals).map_err(|e| match e {
                     TableError::OverSubscribed => {
                         err(br.byte_pos(), "over-subscribed literal code")
                     }
@@ -467,6 +492,64 @@ fn inflate_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ------------------------------------------------ audit A5 table rules
+
+    #[test]
+    fn single_one_bit_code_is_accepted_for_symbol_tables() {
+        // zlib inftrees.c: an incomplete set is legal only when it is
+        // exactly one 1-bit code — for both LENS and DISTS.
+        for kind in [TableKind::Literals, TableKind::Distances] {
+            let t = Huffman::from_lengths(&[1, 0, 0, 0], kind)
+                .expect("single 1-bit code must be accepted");
+            assert!(!t.empty);
+        }
+    }
+
+    #[test]
+    fn single_one_bit_code_is_rejected_for_the_code_length_alphabet() {
+        // ... but never inside the code-length alphabet (zlib CODES).
+        let e = Huffman::from_lengths(&[1, 0, 0, 0], TableKind::CodeLengths).unwrap_err();
+        assert!(matches!(e, TableError::Incomplete));
+    }
+
+    #[test]
+    fn multi_code_incomplete_sets_are_rejected() {
+        // Three 2-bit codes use 3/4 of the space: incomplete with max != 1
+        // — rejected for every symbol role, exactly like zlib.
+        for kind in [TableKind::CodeLengths, TableKind::Literals, TableKind::Distances] {
+            let e = Huffman::from_lengths(&[2, 2, 2, 0], kind).unwrap_err();
+            assert!(matches!(e, TableError::Incomplete));
+        }
+    }
+
+    #[test]
+    fn empty_tables_are_accepted_and_error_on_demand() {
+        // zlib's max == 0 case: build succeeds with an error marker; the
+        // error surfaces only when a symbol is demanded.
+        for kind in [TableKind::CodeLengths, TableKind::Literals, TableKind::Distances] {
+            let t = Huffman::from_lengths(&[0, 0, 0], kind).expect("empty set accepted");
+            assert!(t.empty);
+        }
+    }
+
+    #[test]
+    fn over_subscribed_sets_are_always_rejected() {
+        for kind in [TableKind::CodeLengths, TableKind::Literals, TableKind::Distances] {
+            let e = Huffman::from_lengths(&[1, 1, 1], kind).unwrap_err();
+            assert!(matches!(e, TableError::OverSubscribed));
+        }
+    }
+
+    #[test]
+    fn fixed_distance_table_is_now_complete() {
+        // The 32-entry five-bit fixed form has Kraft sum exactly 1 — it
+        // must build under the strict rule (it used to rely on
+        // allow_incomplete with 30 of 32 codes).
+        let t = Huffman::from_lengths(&[5u8; 32], TableKind::Distances)
+            .expect("32x5-bit fixed distance table is complete");
+        assert!(!t.empty);
+    }
 
     /// Bit-writer for hand-built streams (stored blocks).
     struct BitWriter {

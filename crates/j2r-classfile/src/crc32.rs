@@ -5,6 +5,12 @@
 //! `crate::zip` to verify every extracted entry; a mismatch is a loud
 //! error, never a silently corrupted class file (M3_PLAN §2, risk M3-R1).
 
+use std::sync::LazyLock;
+
+/// Precomputed reflected CRC-32 table (256 entries), built once on first
+/// use (audit A6: `update()` used to rebuild it on every call).
+static TABLE: LazyLock<[u32; 256]> = LazyLock::new(build_table);
+
 /// Precomputed reflected CRC-32 table (256 entries).
 fn build_table() -> [u32; 256] {
     let mut table = [0u32; 256];
@@ -35,10 +41,9 @@ impl Crc32 {
 
     /// Feed bytes into the running checksum.
     pub fn update(&mut self, data: &[u8]) {
-        let table = build_table();
         let mut c = self.state;
         for &b in data {
-            c = table[((c ^ b as u32) & 0xFF) as usize] ^ (c >> 8);
+            c = TABLE[((c ^ b as u32) & 0xFF) as usize] ^ (c >> 8);
         }
         self.state = c;
     }
