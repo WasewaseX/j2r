@@ -84,6 +84,10 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/Arrays" => "java/lang/Object",
         "java/util/Collections" => "java/lang/Object",
         "java/util/ArrayList$SubList" => "java/lang/Object",
+        // Collections.unmodifiableList view (corpus wave 1: minimal-json's
+        // unmodifiable JsonObject copy). One builtin object, one slot: the
+        // backing list. Reads delegate, writes throw — JDK view semantics.
+        "java/util/Collections$UnmodifiableList" => "java/lang/Object",
         // Real-world corpus wave 1 (minimal-json): java.io writer/reader
         // hierarchy. Found by corpus/MinimalJsonCorpus.java — real libraries
         // extend JDK IO types, so the hierarchy must be known to the loader
@@ -92,6 +96,24 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/io/StringWriter" => "java/io/Writer",
         "java/io/Reader" => "java/lang/Object",
         "java/io/StringReader" => "java/io/Reader",
+        // Real-world corpus wave 1, follow-up: the java.io exception
+        // family. Every java.io native declares `throws IOException`, so
+        // `catch (IOException)` handlers in compiled libraries must
+        // resolve against the builtin chain exactly like the writer
+        // hierarchy does. Parent links are the real JDK hierarchy.
+        // Serialization surface (corpus wave 1): minimal-json implements
+        // Serializable and declares a readObject hook. Hierarchy facts only —
+        // the serialization MACHINERY does not exist and dispatching into it
+        // fails loud with a named reason (natives.rs marker row).
+        "java/io/InputStream" => "java/lang/Object",
+        "java/io/ObjectInputStream" => "java/io/InputStream",
+        "java/io/Serializable" => "java/lang/Object",
+        "java/lang/ClassNotFoundException" => "java/lang/ReflectiveOperationException",
+        "java/io/IOException" => "java/lang/Exception",
+        "java/io/UnsupportedEncodingException" => "java/io/IOException",
+        "java/io/EOFException" => "java/io/IOException",
+        "java/io/FileNotFoundException" => "java/io/IOException",
+        "java/io/InterruptedIOException" => "java/io/IOException",
         _ => return None,
     };
     Some(p)
@@ -108,6 +130,7 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         // `ArrayList <: List <: Collection <: Iterable` resolve)
         "java/util/ArrayList" => &["java/util/List"],
         "java/util/ArrayList$SubList" => &["java/util/List"],
+        "java/util/Collections$UnmodifiableList" => &["java/util/List"],
         "java/util/List" => &["java/util/Collection"],
         "java/util/Collection" => &["java/lang/Iterable"],
         "java/util/HashSet" => &["java/util/Set"],
@@ -124,6 +147,7 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         // Real-world corpus wave 1: java.io interfaces.
         "java/io/Writer" => &["java/io/Appendable", "java/io/Closeable", "java/io/Flushable"],
         "java/io/Reader" => &["java/io/Readable", "java/io/Closeable"],
+        "java/io/Serializable" => &[],
         _ => &[],
     }
 }
@@ -158,6 +182,7 @@ pub fn builtin_is_interface(class: &str) -> bool {
             | "java/io/Closeable"
             | "java/io/Flushable"
             | "java/io/Readable"
+            | "java/io/Serializable"
     )
 }
 
@@ -194,6 +219,8 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         "java/util/ArrayList$Itr" => 4,
         // ArrayList$SubList (jdkutil.rs): parent ref, offset, size, expectedMod
         "java/util/ArrayList$SubList" => 4,
+        // Collections$UnmodifiableList (jdkutil.rs): backing list ref
+        "java/util/Collections$UnmodifiableList" => 1,
         // HashMap: size, modCount, threshold, table ref
         "java/util/HashMap" => 4,
         // HashMap$Node: hash, key, value, next

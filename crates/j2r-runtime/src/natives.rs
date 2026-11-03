@@ -18,6 +18,7 @@ use crate::collections as c;
 use crate::concat;
 use crate::heap::with_obj;
 use crate::heap::JRef;
+use crate::io;
 use crate::jdkutil as ju;
 use crate::lambda;
 use crate::langext as le;
@@ -213,6 +214,50 @@ fn n_system_nano_time(
     ))
 }
 
+/// Java serialization does not exist in J2R (no stream format, no
+/// serialization machinery). Registered so javac-compiled calls — like
+/// minimal-json's readObject hook — fail LOUDLY at runtime with a named
+/// reason, never silently. Same pattern as the M3 Object.wait rows.
+fn n_object_input_stream_default_read_object(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Err(throw_new(
+        "java/lang/UnsupportedOperationException",
+        Some("J2R: java.io serialization (ObjectInputStream) is not supported"),
+    ))
+}
+
+fn n_system_arraycopy(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::array::system_arraycopy(args, ctx)
+}
+
+// float/double predicates (corpus wave 1) — exact IEEE semantics
+fn n_float_is_infinite(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let f = arg(args, "Float.isInfinite").expect_float();
+    Ok(Value::Int(f.is_infinite() as i32))
+}
+
+fn n_float_is_nan(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let f = arg(args, "Float.isNaN").expect_float();
+    Ok(Value::Int(f.is_nan() as i32))
+}
+
+fn n_double_is_infinite(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let d = arg(args, "Double.isInfinite").expect_double();
+    Ok(Value::Int(d.is_infinite() as i32))
+}
+
+fn n_double_is_nan(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let d = arg(args, "Double.isNaN").expect_double();
+    Ok(Value::Int(d.is_nan() as i32))
+}
+
 // ---------------------------------------------------------------- Math
 //
 // Math is implemented explicitly (no macro gymnastics) so Java's NaN and
@@ -332,6 +377,66 @@ fn n_string_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result
     Ok(Value::Void)
 }
 
+/// `String(char[])` / `String(char[], off, len)` (corpus wave 1): build
+/// from UTF-16 code units — the same unit convention as getChars.
+fn string_from_char_range(args: &[Value], op: &str) -> Result<String, Throw> {
+    let (cbuf, off, len) = match (args.first(), args.get(1), args.get(2)) {
+        (Some(Value::Ref(Some(a))), Some(o), Some(l)) => (*a, o.expect_int(), l.expect_int()),
+        (Some(Value::Ref(None)), _, _) => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(internal_error(&format!("j2r internal: {op} args"))),
+    };
+    let clen = crate::array::array_length(&cbuf)?;
+    if off < 0 || len < 0 || off.checked_add(len).map_or(true, |e| e > clen) {
+        return Err(throw_new(
+            "java/lang/StringIndexOutOfBoundsException",
+            Some(&format!(
+                "offset {}, count {}, length {}",
+                off, len, clen
+            )),
+        ));
+    }
+    let mut units: Vec<u16> = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        match crate::array::array_load(&cbuf, off + i)? {
+            Value::Int(c) => units.push(c as u16),
+            other => {
+                return Err(internal_error(&format!(
+                    "j2r internal: char[] element {other:?}"
+                )))
+            }
+        }
+    }
+    Ok(String::from_utf16_lossy(&units))
+}
+
+fn n_string_init_chars(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "String.<init>");
+    let cbuf = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(internal_error("String.<init>([C) needs a char array")),
+    };
+    let len = crate::array::array_length(&cbuf)?;
+    let text = string_from_char_range(&[Value::Ref(Some(cbuf)), Value::Int(0), Value::Int(len)], "String.<init>([C)")?;
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
+    Ok(Value::Void)
+}
+
+fn n_string_init_chars_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "String.<init>");
+    let text = string_from_char_range(args, "String.<init>([CII)")?;
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
+    Ok(Value::Void)
+}
+
 fn n_string_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "String.<init>");
     let o = match arg(args, "String.<init>") {
@@ -387,6 +492,39 @@ fn n_string_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resul
         _ => false,
     };
     Ok(Value::Int(eq as i32))
+}
+
+/// `String.getChars(int, int, char[], int)` (corpus wave 1): copy the
+/// UTF-16 code units of the range into the destination char[]. Indices are
+/// UTF-16 units (the string model's documented convention); the JDK's
+/// StringIndexOutOfBoundsException message is reproduced.
+fn n_string_get_chars(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "String.getChars");
+    let (begin, end, dst, dst_begin) = match (args.first(), args.get(1), args.get(2), args.get(3)) {
+        (Some(Value::Int(b)), Some(Value::Int(e)), Some(Value::Ref(Some(d))), Some(Value::Int(db))) => {
+            (*b, *e, *d, *db)
+        }
+        (Some(Value::Ref(None)), _, _, _)
+        | (_, _, Some(Value::Ref(None)), _) => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(internal_error("j2r internal: String.getChars args")),
+    };
+    let units: Vec<u16> = object::string_value(r).encode_utf16().collect();
+    if begin < 0 || end > units.len() as i32 || begin > end {
+        return Err(throw_new(
+            "java/lang/StringIndexOutOfBoundsException",
+            Some(&format!("begin {}, end {}, length {}", begin, end, units.len())),
+        ));
+    }
+    for i in begin..end {
+        crate::array::array_store(&dst, dst_begin + (i - begin), Value::Int(units[i as usize] as i32), ctx)?;
+    }
+    Ok(Value::Void)
 }
 
 fn n_string_hash_code(
@@ -502,6 +640,59 @@ sb_append!(n_sb_append_f, 'F');
 sb_append!(n_sb_append_d, 'D');
 sb_append!(n_sb_append_s, 'L');
 sb_append!(n_sb_append_l, 'L');
+
+/// `StringBuilder.append(char[], int, int)` / `append(char[])` (corpus
+/// wave 1): copy UTF-16 units from the array into the builder.
+fn sb_append_char_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "StringBuilder.append");
+    let (cbuf, off, len) = match (args.first(), args.get(1), args.get(2)) {
+        (Some(Value::Ref(Some(a))), Some(o), Some(l)) => (*a, o.expect_int(), l.expect_int()),
+        (Some(Value::Ref(None)), _, _) => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(internal_error("j2r internal: StringBuilder.append args")),
+    };
+    let clen = crate::array::array_length(&cbuf)?;
+    if off < 0 || len < 0 || off.checked_add(len).map_or(true, |e| e > clen) {
+        return Err(throw_new(
+            "java/lang/StringIndexOutOfBoundsException",
+            Some(&format!("offset {}, count {}, length {}", off, len, clen)),
+        ));
+    }
+    let mut units: Vec<u16> = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        match crate::array::array_load(&cbuf, off + i)? {
+            Value::Int(c) => units.push(c as u16),
+            other => {
+                return Err(internal_error(&format!(
+                    "j2r internal: char[] element {other:?}"
+                )))
+            }
+        }
+    }
+    sb_push_str(r, &String::from_utf16_lossy(&units));
+    Ok(Value::Ref(Some(r.clone())))
+}
+
+fn sb_append_char_all(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let cbuf = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(internal_error("j2r internal: StringBuilder.append args")),
+    };
+    let len = crate::array::array_length(&cbuf)?;
+    sb_append_char_range(recv, &[Value::Ref(Some(cbuf)), Value::Int(0), Value::Int(len)], Dispatch::default())
+}
 
 fn n_sb_to_string(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "StringBuilder.toString");
@@ -1031,6 +1222,42 @@ fn n_integer_to_string_static(
     ))))
 }
 
+/// `Integer.toString(int, int)` — radix form (corpus wave 1). JDK rule:
+/// a radix outside 2..=36 falls back to base 10, digits are lowercase.
+fn n_integer_to_string_radix(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let i = arg(args, "Integer.toString").expect_int();
+    let radix = match args.get(1) {
+        Some(v) => v.expect_int(),
+        None => return Err(crate::internal_error("j2r internal: Integer.toString radix")),
+    };
+    let radix = if (2..=36).contains(&radix) { radix } else { 10 };
+    Ok(Value::Ref(Some(object::new_string(&int_to_radix(i, radix)))))
+}
+
+fn int_to_radix(i: i32, radix: i32) -> String {
+    if i == 0 {
+        return "0".to_string();
+    }
+    let mut digits = Vec::new();
+    let mut v = i as i64;
+    if v < 0 {
+        // i32::MIN negated safely via i64
+        v = -v;
+    }
+    while v > 0 {
+        digits.push(std::char::from_digit((v % radix as i64) as u32, radix as u32).unwrap());
+        v /= radix as i64;
+    }
+    if i < 0 {
+        digits.push('-');
+    }
+    digits.into_iter().rev().collect()
+}
+
 fn n_long_to_string_static(
     _recv: Option<&JRef>,
     args: &[Value],
@@ -1039,6 +1266,39 @@ fn n_long_to_string_static(
     Ok(Value::Ref(Some(object::new_string(
         &arg(args, "Long.toString").expect_long().to_string(),
     ))))
+}
+
+/// `Long.toString(long, int)` — radix form (corpus wave 1), same JDK
+/// fallback rule as the Integer variant.
+fn n_long_to_string_radix(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let l = arg(args, "Long.toString").expect_long();
+    let radix = match args.get(1) {
+        Some(v) => v.expect_int(),
+        None => return Err(crate::internal_error("j2r internal: Long.toString radix")),
+    };
+    let radix = if (2..=36).contains(&radix) { radix } else { 10 };
+    if l == 0 {
+        return Ok(Value::Ref(Some(object::new_string("0"))));
+    }
+    let mut digits = Vec::new();
+    let mut v: i128 = l as i128;
+    if v < 0 {
+        v = -v;
+    }
+    while v > 0 {
+        digits.push(std::char::from_digit((v % radix as i128) as u32, radix as u32).unwrap());
+        v /= radix as i128;
+    }
+    if l < 0 {
+        digits.push('-');
+    }
+    digits.reverse();
+    let s: String = digits.into_iter().collect();
+    Ok(Value::Ref(Some(object::new_string(&s))))
 }
 
 fn n_double_to_string_static(
@@ -1137,6 +1397,76 @@ fn java_parse_i64(s: Option<&str>, lo_inclusive: i64, hi_inclusive: i64) -> Resu
     Ok(v as i64)
 }
 
+/// Radix form of [`java_parse_i64`] with Temurin-verified messages (see
+/// `n_long_parse_long_radix`). Negative accumulation keeps MIN parseable.
+fn java_parse_i64_radix(
+    s: Option<&str>,
+    radix: i32,
+    lo_inclusive: i64,
+    hi_inclusive: i64,
+) -> Result<i64, Throw> {
+    if radix < 2 {
+        return Err(throw_new(
+            "java/lang/NumberFormatException",
+            Some(&format!("radix {radix} less than Character.MIN_RADIX")),
+        ));
+    }
+    if radix > 36 {
+        return Err(throw_new(
+            "java/lang/NumberFormatException",
+            Some(&format!("radix {radix} greater than Character.MAX_RADIX")),
+        ));
+    }
+    let s = match s {
+        Some(s) => s,
+        None => {
+            return Err(throw_new(
+                "java/lang/NumberFormatException",
+                Some("Cannot parse null string"),
+            ))
+        }
+    };
+    let fail = || {
+        let msg = if radix == 10 {
+            format!("For input string: \"{s}\"")
+        } else {
+            format!("For input string: \"{s}\" under radix {radix}")
+        };
+        throw_new("java/lang/NumberFormatException", Some(&msg))
+    };
+    let (negative, digits) = match s.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => match s.strip_prefix('+') {
+            Some(rest) => (false, rest),
+            None => (false, s),
+        },
+    };
+    if digits.is_empty() {
+        return Err(fail());
+    }
+    let r = radix as i128;
+    let mut acc: i128 = 0;
+    for c in digits.chars() {
+        let d = match c.to_digit(radix as u32) {
+            Some(d) => d as i128,
+            None => return Err(fail()),
+        };
+        acc = acc * r - d;
+        if acc < lo_inclusive as i128 {
+            return Err(fail());
+        }
+    }
+    let v: i128 = if negative {
+        acc
+    } else {
+        if -acc > hi_inclusive as i128 {
+            return Err(fail());
+        }
+        -acc
+    };
+    Ok(v as i64)
+}
+
 fn n_integer_parse_int(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
     let s = match arg(args, "Integer.parseInt") {
         Value::Ref(Some(o)) if is_string(o) => Some(object::string_value(o).to_string()),
@@ -1147,6 +1477,92 @@ fn n_integer_parse_int(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Resul
     Ok(Value::Int(v as i32))
 }
 
+// -- float/double string parsing (corpus wave 1) ---------------------------
+// Semantics verified against Temurin 21.0.13 (corpus/FPProbe.java):
+// null -> NPE naming String.trim(); leading/trailing whitespace trimmed;
+// "empty String" for the trimmed-empty input; exact spellings Infinity /
+// +/-Infinity / NaN (case-sensitive - "inf" is a NumberFormatException); one
+// trailing f/F/d/D suffix accepted; correctly-rounded f32/f64 parsing
+// (Rust's parse is correctly rounded, matching HotSpot's strict parsing).
+// KNOWN LIMIT (loud, documented): hexadecimal float literals (0x1.8p1) are
+// valid Java but parse as NumberFormatException here - registered as a
+// corpus gap until a dedicated hex-float parser lands.
+fn n_float_parse_float(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
+    let s = match arg(args, "Float.parseFloat") {
+        Value::Ref(Some(o)) if is_string(o) => Some(object::string_value(o).to_string()),
+        Value::Ref(None) => None,
+        _ => return Err(internal_error("Float.parseFloat needs a String")),
+    };
+    // f32 directly (never through f64: double rounding is observable)
+    let t = s.as_deref().unwrap_or("").trim();
+    let fail = || {
+        throw_new(
+            "java/lang/NumberFormatException",
+            Some(&if t.is_empty() {
+                "empty String".to_string()
+            } else {
+                format!("For input string: \"{t}\"")
+            }),
+        )
+    };
+    let body = match t.strip_suffix(['f', 'F', 'd', 'D']) {
+        Some(rest) if !rest.is_empty() => rest,
+        _ => t,
+    };
+    let f = match body {
+        "Infinity" | "+Infinity" => f32::INFINITY,
+        "-Infinity" => f32::NEG_INFINITY,
+        "NaN" => f32::NAN,
+        _ => {
+            // reject the Rust-only spellings Java rejects
+            let low = body.to_ascii_lowercase();
+            let low = low.trim_start_matches('+');
+            if low == "infinity" || low == "inf" || low == "nan" {
+                return Err(fail());
+            }
+            body.parse::<f32>().map_err(|_| fail())?
+        }
+    };
+    Ok(Value::Float(f))
+}
+
+fn n_double_parse_double(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
+    let s = match arg(args, "Double.parseDouble") {
+        Value::Ref(Some(o)) if is_string(o) => Some(object::string_value(o).to_string()),
+        Value::Ref(None) => None,
+        _ => return Err(internal_error("Double.parseDouble needs a String")),
+    };
+    let t = s.as_deref().unwrap_or("").trim();
+    let fail = || {
+        throw_new(
+            "java/lang/NumberFormatException",
+            Some(&if t.is_empty() {
+                "empty String".to_string()
+            } else {
+                format!("For input string: \"{t}\"")
+            }),
+        )
+    };
+    let body = match t.strip_suffix(['f', 'F', 'd', 'D']) {
+        Some(rest) if !rest.is_empty() => rest,
+        _ => t,
+    };
+    let d = match body {
+        "Infinity" | "+Infinity" => f64::INFINITY,
+        "-Infinity" => f64::NEG_INFINITY,
+        "NaN" => f64::NAN,
+        _ => {
+            let low = body.to_ascii_lowercase();
+            let low = low.trim_start_matches('+');
+            if low == "infinity" || low == "inf" || low == "nan" {
+                return Err(fail());
+            }
+            body.parse::<f64>().map_err(|_| fail())?
+        }
+    };
+    Ok(Value::Double(d))
+}
+
 fn n_long_parse_long(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
     let s = match arg(args, "Long.parseLong") {
         Value::Ref(Some(o)) if is_string(o) => Some(object::string_value(o).to_string()),
@@ -1154,6 +1570,29 @@ fn n_long_parse_long(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<
         _ => return Err(internal_error("Long.parseLong needs a String")),
     };
     let v = java_parse_i64(s.as_deref(), i64::MIN, i64::MAX)?;
+    Ok(Value::Long(v))
+}
+
+/// `Long.parseLong(String, int)` — radix form (corpus wave 1). Messages
+/// verified against Temurin 21.0.13 (corpus/ParseProbe.java): radix bounds
+/// get the MIN_RADIX/MAX_RADIX wording, the base-10 failure keeps the
+/// classic message, every other radix appends "under radix N". Parsing
+/// accumulates NEGATIVELY so `Long.MIN_VALUE` parses exactly.
+fn n_long_parse_long_radix(
+    _r: Option<&JRef>,
+    args: &[Value],
+    _c: Dispatch,
+) -> Result<Value, Throw> {
+    let s = match arg(args, "Long.parseLong") {
+        Value::Ref(Some(o)) if is_string(o) => Some(object::string_value(o).to_string()),
+        Value::Ref(None) => None,
+        _ => return Err(internal_error("Long.parseLong needs a String")),
+    };
+    let radix = match args.get(1) {
+        Some(v) => v.expect_int(),
+        None => return Err(internal_error("j2r internal: Long.parseLong radix")),
+    };
+    let v = java_parse_i64_radix(s.as_deref(), radix, i64::MIN, i64::MAX)?;
     Ok(Value::Long(v))
 }
 
@@ -1430,6 +1869,14 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_system_current_time_millis,
     ),
     ("java/lang/System", "nanoTime", "()J", n_system_nano_time),
+    // System.arraycopy (corpus wave 1) — implementation in array.rs, JDK
+    // messages verified against Temurin 21.0.13 (see its doc comment).
+    (
+        "java/lang/System",
+        "arraycopy",
+        "(Ljava/lang/Object;ILjava/lang/Object;II)V",
+        n_system_arraycopy,
+    ),
     // java/lang/Math
     ("java/lang/Math", "abs", "(I)I", n_math_abs_i),
     ("java/lang/Math", "abs", "(J)J", n_math_abs_j),
@@ -1451,6 +1898,19 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/String;)V",
         n_string_init_s,
     ),
+    // char[] ctors (corpus wave 1)
+    (
+        "java/lang/String",
+        "<init>",
+        "([C)V",
+        n_string_init_chars,
+    ),
+    (
+        "java/lang/String",
+        "<init>",
+        "([CII)V",
+        n_string_init_chars_range,
+    ),
     ("java/lang/String", "length", "()I", n_string_length),
     (
         "java/lang/String",
@@ -1467,6 +1927,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_string_equals,
     ),
     ("java/lang/String", "hashCode", "()I", n_string_hash_code),
+    // getChars (corpus wave 1)
+    (
+        "java/lang/String",
+        "getChars",
+        "(II[CI)V",
+        n_string_get_chars,
+    ),
     (
         "java/lang/String",
         "valueOf",
@@ -1564,6 +2031,19 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "append",
         "(Ljava/lang/Object;)Ljava/lang/StringBuilder;",
         n_sb_append_l,
+    ),
+    // append(char[]) overloads (corpus wave 1)
+    (
+        "java/lang/StringBuilder",
+        "append",
+        "([CII)Ljava/lang/StringBuilder;",
+        sb_append_char_range,
+    ),
+    (
+        "java/lang/StringBuilder",
+        "append",
+        "([C)Ljava/lang/StringBuilder;",
+        sb_append_char_all,
     ),
     (
         "java/lang/StringBuilder",
@@ -1690,6 +2170,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(I)Ljava/lang/String;",
         n_integer_to_string_static,
     ),
+    // radix form (corpus wave 1)
+    (
+        "java/lang/Integer",
+        "toString",
+        "(II)Ljava/lang/String;",
+        n_integer_to_string_radix,
+    ),
     (
         "java/lang/Integer",
         "parseInt",
@@ -1722,11 +2209,74 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(J)Ljava/lang/String;",
         n_long_to_string_static,
     ),
+    // radix form (corpus wave 1)
+    (
+        "java/lang/Long",
+        "toString",
+        "(JI)Ljava/lang/String;",
+        n_long_to_string_radix,
+    ),
     (
         "java/lang/Long",
         "parseLong",
         "(Ljava/lang/String;)J",
         n_long_parse_long,
+    ),
+    // radix form (corpus wave 1)
+    (
+        "java/lang/Long",
+        "parseLong",
+        "(Ljava/lang/String;I)J",
+        n_long_parse_long_radix,
+    ),
+    // StringReader (corpus wave 1): remaining-string payload model
+    (
+        "java/io/StringReader",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        io::n_sr_init,
+    ),
+    ("java/io/StringReader", "read", "()I", io::n_sr_read),
+    (
+        "java/io/StringReader",
+        "read",
+        "([CII)I",
+        io::n_sr_read_bulk,
+    ),
+    ("java/io/StringReader", "close", "()V", io::n_sr_close),
+    // Reader abstract-declaration markers (compile-time surface walk):
+    // every concrete Reader overrides read([CII)I and read()I
+    (
+        "java/io/Reader",
+        "read",
+        "()I",
+        io::n_sr_read_marker,
+    ),
+    (
+        "java/io/Reader",
+        "read",
+        "([CII)I",
+        io::n_sr_read_bulk_marker,
+    ),
+    // serialization marker (corpus wave 1): loud-unsupported
+    (
+        "java/io/ObjectInputStream",
+        "defaultReadObject",
+        "()V",
+        n_object_input_stream_default_read_object,
+    ),
+    // parseFloat/parseDouble (corpus wave 1)
+    (
+        "java/lang/Float",
+        "parseFloat",
+        "(Ljava/lang/String;)F",
+        n_float_parse_float,
+    ),
+    (
+        "java/lang/Double",
+        "parseDouble",
+        "(Ljava/lang/String;)D",
+        n_double_parse_double,
     ),
     (
         "java/lang/Float",
@@ -1754,6 +2304,14 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(F)Ljava/lang/String;",
         n_float_to_string_static,
     ),
+    // float predicates (corpus wave 1: minimal-json number formatting)
+    (
+        "java/lang/Float",
+        "isInfinite",
+        "(F)Z",
+        n_float_is_infinite,
+    ),
+    ("java/lang/Float", "isNaN", "(F)Z", n_float_is_nan),
     (
         "java/lang/Double",
         "valueOf",
@@ -1773,6 +2331,14 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_double_equals,
     ),
     ("java/lang/Double", "hashCode", "()I", n_double_hash_code),
+    // double predicates (corpus wave 1)
+    (
+        "java/lang/Double",
+        "isInfinite",
+        "(D)Z",
+        n_double_is_infinite,
+    ),
+    ("java/lang/Double", "isNaN", "(D)Z", n_double_is_nan),
     (
         "java/lang/Double",
         "toString",
@@ -1892,12 +2458,77 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(C)Ljava/lang/String;",
         n_character_to_string_static,
     ),
+    // ------------------------------------------ corpus wave 1: java.io (F3)
+    // Implementations live in `io.rs`. StringWriter real behavior; the
+    // Writer rows are abstract-declaration markers for the compile-time
+    // surface walk and must never dispatch.
+    ("java/io/StringWriter", "<init>", "()V", io::n_sw_init),
+    ("java/io/StringWriter", "write", "(I)V", io::n_sw_write_int),
+    ("java/io/StringWriter", "write", "([CII)V", io::n_sw_write_chars),
+    ("java/io/StringWriter", "write", "([C)V", io::n_sw_write_chars_all),
+    (
+        "java/io/StringWriter",
+        "write",
+        "(Ljava/lang/String;)V",
+        io::n_sw_write_str,
+    ),
+    (
+        "java/io/StringWriter",
+        "write",
+        "(Ljava/lang/String;II)V",
+        io::n_sw_write_str_range,
+    ),
+    (
+        "java/io/StringWriter",
+        "toString",
+        "()Ljava/lang/String;",
+        io::n_sw_to_string,
+    ),
+    ("java/io/StringWriter", "close", "()V", io::n_sw_close),
+    ("java/io/StringWriter", "flush", "()V", io::n_sw_flush),
+    (
+        "java/io/Writer",
+        "write",
+        "(I)V",
+        io::n_writer_write_int_marker,
+    ),
+    (
+        "java/io/Writer",
+        "write",
+        "([CII)V",
+        io::n_writer_write_chars_marker,
+    ),
+    (
+        "java/io/Writer",
+        "write",
+        "([C)V",
+        io::n_writer_write_chars_all,
+    ),
+    (
+        "java/io/Writer",
+        "write",
+        "(Ljava/lang/String;)V",
+        io::n_writer_write_str,
+    ),
+    (
+        "java/io/Writer",
+        "write",
+        "(Ljava/lang/String;II)V",
+        io::n_writer_write_str_range_marker,
+    ),
     // ------------------------------------------------ M3 Wave 2: collections
     // (implementations live in `collections.rs`; heap-resident state, see
     // the slot-layout table in its module header)
     // java/util/ArrayList
     ("java/util/ArrayList", "<init>", "()V", c::n_al_init),
     ("java/util/ArrayList", "<init>", "(I)V", c::n_al_init),
+    // <init>(Collection) — the copy constructor (corpus wave 1)
+    (
+        "java/util/ArrayList",
+        "<init>",
+        "(Ljava/util/Collection;)V",
+        c::n_al_init_from_collection,
+    ),
     (
         "java/util/ArrayList",
         "add",
@@ -1936,6 +2567,36 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ),
     ("java/util/ArrayList", "size", "()I", c::n_al_size),
     ("java/util/ArrayList", "isEmpty", "()Z", c::n_al_is_empty),
+    // AbstractList hashCode/equals/lastIndexOf (corpus wave 1: JsonObject
+    // hash/equals/indexOfByName go through the List-declared static type;
+    // the List rows serve the compile-time walk, runtime dispatch lands on
+    // the receiver's own row).
+    ("java/util/ArrayList", "hashCode", "()I", c::n_al_hash_code),
+    ("java/util/List", "hashCode", "()I", c::n_al_hash_code),
+    (
+        "java/util/ArrayList",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        c::n_al_equals,
+    ),
+    (
+        "java/util/List",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        c::n_al_equals,
+    ),
+    (
+        "java/util/ArrayList",
+        "lastIndexOf",
+        "(Ljava/lang/Object;)I",
+        c::n_al_last_index_of,
+    ),
+    (
+        "java/util/List",
+        "lastIndexOf",
+        "(Ljava/lang/Object;)I",
+        c::n_al_last_index_of,
+    ),
     (
         "java/util/ArrayList",
         "contains",
@@ -2911,6 +3572,8 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ),
     ("java/util/Arrays", "fill", "([II)V", ju::n_arrays_fill_int),
     ("java/util/Arrays", "fill", "([JJ)V", ju::n_arrays_fill_long),
+    // char[] fill (corpus wave 1: minimal-json number formatting)
+    ("java/util/Arrays", "fill", "([CC)V", ju::n_arrays_fill_char),
     (
         "java/util/Arrays",
         "fill",
@@ -3088,6 +3751,111 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "toString",
         "()Ljava/lang/String;",
         ju::n_sl_to_string,
+    ),
+    // Collections.unmodifiableList + the view's surface (corpus wave 1:
+    // minimal-json). Reads delegate to the backing list; writes throw
+    // UnsupportedOperationException — JDK wrapper semantics.
+    (
+        "java/util/Collections",
+        "unmodifiableList",
+        "(Ljava/util/List;)Ljava/util/List;",
+        ju::n_unmod_list,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "get",
+        "(I)Ljava/lang/Object;",
+        ju::n_unmod_get,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "set",
+        "(ILjava/lang/Object;)Ljava/lang/Object;",
+        ju::n_unmod_set,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        ju::n_unmod_add,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "add",
+        "(ILjava/lang/Object;)V",
+        ju::n_unmod_add_at,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "remove",
+        "(I)Ljava/lang/Object;",
+        ju::n_unmod_remove_at,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "remove",
+        "(Ljava/lang/Object;)Z",
+        ju::n_unmod_remove_obj,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "clear",
+        "()V",
+        ju::n_unmod_clear,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "size",
+        "()I",
+        ju::n_unmod_size,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "isEmpty",
+        "()Z",
+        ju::n_unmod_is_empty,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        ju::n_unmod_contains,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "indexOf",
+        "(Ljava/lang/Object;)I",
+        ju::n_unmod_index_of,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        ju::n_unmod_iterator,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "toString",
+        "()Ljava/lang/String;",
+        ju::n_unmod_to_string,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "hashCode",
+        "()I",
+        ju::n_unmod_hash_code,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        ju::n_unmod_equals,
+    ),
+    (
+        "java/util/Collections$UnmodifiableList",
+        "lastIndexOf",
+        "(Ljava/lang/Object;)I",
+        ju::n_unmod_last_index_of,
     ),
     (
         "java/lang/String",

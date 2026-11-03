@@ -54,7 +54,7 @@
 use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
 use crate::object::{new_obj, string_value};
 use crate::Value;
-use crate::{internal_error, throw_new, Dispatch, Throw};
+use crate::{internal_error, invoke_virtual, throw_new, Dispatch, Throw};
 use std::rc::Rc;
 
 // ---------------------------------------------------------------- helpers
@@ -278,6 +278,78 @@ pub fn n_al_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<
     Ok(Value::Void)
 }
 
+/// <init>(Collection) — the copy constructor (corpus wave 1: minimal-json's
+/// `new ArrayList<String>(object.names)`). Iterates the source through its
+/// OWN iterator dispatch (invokevirtual on the receiver's chain), so the
+/// source may be any collection implementation — including the
+/// UnmodifiableList view — and appends through the ordinary add path.
+/// Copy then diverge: later source mutations must not touch the copy.
+pub fn n_al_init_from_collection(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: ArrayList.<init> without receiver");
+    let coll = match args.first() {
+        Some(Value::Ref(Some(c))) => *c,
+        Some(Value::Ref(None)) | None => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        other => {
+            return Err(crate::internal_error(&format!(
+                "j2r internal: ArrayList.<init>(Collection) arg {other:?}"
+            )))
+        }
+    };
+    // start from the empty state (same as the no-arg ctor)
+    let elems = alloc_array(0);
+    with_obj_mut(*r, |o| {
+        o.slots[AL_SIZE] = Value::Int(0);
+        o.slots[AL_MODCOUNT] = Value::Int(0);
+        o.slots[AL_ELEMS] = Value::Ref(Some(elems));
+    });
+    // iterate via the source collection's own iterator
+    let it = invoke_virtual(
+        &coll,
+        "java/util/Collection",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        &[],
+        ctx,
+    )?;
+    let it = match it {
+        Value::Ref(Some(i)) => i,
+        other => {
+            return Err(crate::internal_error(&format!(
+                "j2r internal: Collection.iterator returned {other:?}"
+            )))
+        }
+    };
+    loop {
+        let has = invoke_virtual(
+            &it,
+            "java/util/Iterator",
+            "hasNext",
+            "()Z",
+            &[],
+            ctx,
+        )?;
+        if has.expect_int() == 0 {
+            break;
+        }
+        let v = invoke_virtual(
+            &it,
+            "java/util/Iterator",
+            "next",
+            "()Ljava/lang/Object;",
+            &[],
+            ctx,
+        )?;
+        n_al_add(Some(r), std::slice::from_ref(&v), ctx)?;
+    }
+    Ok(Value::Void)
+}
+
 pub fn n_al_add(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: ArrayList.add without receiver");
     let e = args.first().cloned().unwrap_or(Value::Ref(None));
@@ -289,6 +361,122 @@ pub fn n_al_add(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<V
         o.slots[AL_MODCOUNT] = Value::Int(mc + 1);
     });
     Ok(Value::Int(1))
+}
+
+/// `AbstractList.hashCode`: `1; 31*h + (e == null ? 0 : e.hashCode())` per
+/// element, wrapping arithmetic exactly like the JVM (corpus wave 1:
+/// `names.hashCode()` in JsonObject.hashCode).
+pub fn n_al_hash_code(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let _ = args;
+    let r = match recv {
+        Some(r) => r,
+        None => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    let (size, _mc, elems) = al_state(r);
+    let mut h: i32 = 1;
+    for i in 0..size {
+        let eh = match al_get_elem(&elems, i) {
+            Value::Ref(None) => 0,
+            Value::Ref(Some(er)) => {
+                let out = invoke_virtual(&er, "java/lang/Object", "hashCode", "()I", &[], ctx)?;
+                out.expect_int()
+            }
+            other => {
+                return Err(crate::internal_error(&format!(
+                    "j2r internal: list element {other:?}"
+                )))
+            }
+        };
+        h = h.wrapping_mul(31).wrapping_add(eh);
+    }
+    Ok(Value::Int(h))
+}
+
+/// `AbstractList.equals`: same object, or a List of the same size with
+/// pairwise-equal elements (`equals` dispatch on each pair).
+pub fn n_al_equals(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => r,
+        None => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    let other = match args.first() {
+        Some(Value::Ref(Some(o))) => *o,
+        Some(Value::Ref(None)) | None => return Ok(Value::Int(0)),
+        other => {
+            return Err(crate::internal_error(&format!(
+                "j2r internal: List.equals arg {other:?}"
+            )))
+        }
+    };
+    if other == *r {
+        return Ok(Value::Int(1));
+    }
+    let ocls = with_obj(other, |o| o.jclass.to_string());
+    if !ctx.is_subtype(&ocls, "java/util/List") {
+        return Ok(Value::Int(0));
+    }
+    let (size, _mc, elems) = al_state(r);
+    let osize =
+        invoke_virtual(&other, "java/util/List", "size", "()I", &[], ctx)?.expect_int();
+    if osize != size {
+        return Ok(Value::Int(0));
+    }
+    for i in 0..size {
+        let a = al_get_elem(&elems, i);
+        let b = invoke_virtual(
+            &other,
+            "java/util/List",
+            "get",
+            "(I)Ljava/lang/Object;",
+            &[Value::Int(i)],
+            ctx,
+        )?;
+        let eq = match (&a, &b) {
+            (Value::Ref(None), Value::Ref(None)) => true,
+            (Value::Ref(None), _) | (_, Value::Ref(None)) => false,
+            (Value::Ref(Some(x)), _) => dispatch_equals(x, &b, ctx)?,
+            (other_a, _) => {
+                return Err(crate::internal_error(&format!(
+                    "j2r internal: list element {other_a:?}"
+                )))
+            }
+        };
+        if !eq {
+            return Ok(Value::Int(0));
+        }
+    }
+    Ok(Value::Int(1))
+}
+
+/// `AbstractList.lastIndexOf`: scan from the end, `equals` dispatch.
+pub fn n_al_last_index_of(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => r,
+        None => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    let (size, _mc, elems) = al_state(r);
+    for i in (0..size).rev() {
+        let e = al_get_elem(&elems, i);
+        let eq = match (&e, &target) {
+            (Value::Ref(None), Value::Ref(None)) => true,
+            (Value::Ref(None), _) | (_, Value::Ref(None)) => false,
+            (Value::Ref(Some(x)), _) => dispatch_equals(x, &target, ctx)?,
+            (other_e, _) => {
+                return Err(crate::internal_error(&format!(
+                    "j2r internal: list element {other_e:?}"
+                )))
+            }
+        };
+        if eq {
+            return Ok(Value::Int(i));
+        }
+    }
+    Ok(Value::Int(-1))
 }
 
 pub fn n_al_add_at(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
@@ -1694,6 +1882,83 @@ mod tests {
         };
         let err = n_itr_remove(Some(&it4), &[], ctx()).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/IllegalStateException");
+    }
+
+    #[test]
+    fn arraylist_copy_constructor_copies_then_diverges() {
+        // source [a, b] -> copy; copy equals source; later source mutation
+        // must not touch the copy (real copy semantics, corpus wave 1)
+        let src = list_new();
+        list_add(&src, Value::Ref(Some(new_string("a"))));
+        list_add(&src, Value::Ref(Some(new_string("b"))));
+        let cp = new_obj("java/util/ArrayList", 3).unwrap();
+        n_al_init_from_collection(Some(&cp), &[Value::Ref(Some(src))], ctx()).unwrap();
+        assert_eq!(
+            n_al_size(Some(&cp), &[], ctx()).unwrap().expect_int(),
+            2
+        );
+        assert_eq!(
+            s(&n_al_get(Some(&cp), &[Value::Int(0)], ctx()).unwrap()),
+            "a"
+        );
+        assert_eq!(
+            s(&n_al_get(Some(&cp), &[Value::Int(1)], ctx()).unwrap()),
+            "b"
+        );
+        // mutate the source; the copy diverges
+        list_add(&src, Value::Ref(Some(new_string("c"))));
+        assert_eq!(
+            n_al_size(Some(&cp), &[], ctx()).unwrap().expect_int(),
+            2,
+            "copy must not see later source appends"
+        );
+        assert_eq!(
+            n_al_size(Some(&src), &[], ctx()).unwrap().expect_int(),
+            3
+        );
+        // null source -> NPE, like the JDK
+        let cp2 = new_obj("java/util/ArrayList", 3).unwrap();
+        let err = n_al_init_from_collection(Some(&cp2), &[Value::Ref(None)], ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/NullPointerException");
+    }
+
+    #[test]
+    fn arraylist_copy_constructor_reads_through_unmodifiable_view() {
+        // the copy-ctor must iterate through ANY collection impl — here the
+        // Collections$UnmodifiableList view over an ArrayList — and the view
+        // itself must reject writes with UnsupportedOperationException
+        let src = list_new();
+        list_add(&src, Value::Ref(Some(new_string("x"))));
+        list_add(&src, Value::Ref(Some(new_string("y"))));
+        let view = match crate::jdkutil::n_unmod_list(None, &[Value::Ref(Some(src))], ctx())
+            .unwrap()
+        {
+            Value::Ref(Some(v)) => v,
+            other => panic!("view: {other:?}"),
+        };
+        let cp = new_obj("java/util/ArrayList", 3).unwrap();
+        n_al_init_from_collection(Some(&cp), &[Value::Ref(Some(view))], ctx()).unwrap();
+        assert_eq!(
+            n_al_size(Some(&cp), &[], ctx()).unwrap().expect_int(),
+            2
+        );
+        assert_eq!(
+            s(&n_al_get(Some(&cp), &[Value::Int(1)], ctx()).unwrap()),
+            "y"
+        );
+        // the view rejects writes (JDK wrapper semantics), reads still live
+        let err =
+            crate::jdkutil::n_unmod_add(Some(&view), &[Value::Ref(Some(new_string("z")))], ctx())
+                .unwrap_err();
+        assert_eq!(
+            err.java_class(),
+            "java/lang/UnsupportedOperationException"
+        );
+        // the backing list is untouched by the rejected write
+        assert_eq!(
+            n_al_size(Some(&src), &[], ctx()).unwrap().expect_int(),
+            2
+        );
     }
 
     #[test]

@@ -311,6 +311,11 @@ fn builtin_is_instantiable(class: &str) -> bool {
             | "java/util/ArrayList"
             | "java/util/HashMap"
             | "java/util/HashSet"
+            // corpus wave 1 (F3): java.io StringWriter/StringReader —
+            // payloads managed by j2r-runtime/src/io.rs; the layout pass
+            // skips builtins
+            | "java/io/StringWriter"
+            | "java/io/StringReader"
     ) {
         return true;
     }

@@ -180,6 +180,187 @@ pub fn array_length(r: &JRef) -> Result<i32, Throw> {
     Ok(check_array(r)?.0)
 }
 
+/// `System.arraycopy` — JDK semantics with messages verified against
+/// Temurin 21.0.13 (corpus wave 1 probe, `corpus/AcpyProbe.java`):
+///
+/// 1. null src or dst → `NullPointerException` with message `null`;
+/// 2. negative length → `ArrayIndexOutOfBoundsException`
+///    `arraycopy: length {n} is negative`;
+/// 3. `srcPos < 0` → `arraycopy: source index {p} out of bounds for {src}[{len}]`;
+/// 4. `srcPos+len > srcLen` → `arraycopy: last source index {p+l} out of bounds for {src}[{len}]`;
+/// 5. mirrored destination checks;
+/// 6. type mismatch → `ArrayStoreException`
+///    `arraycopy: type mismatch: can not copy {src}[] into {dst}[]`
+///    (prim→prim different kinds, prim→ref; ref-element names print as
+///    `object array` for `java.lang.Object`, dotted class otherwise);
+/// 7. the copy itself is temp-buffered — overlapping regions behave as if
+///    the source were snapshotted first, which is the documented JDK
+///    behavior and exactly what the overlap probe observed;
+/// 8. ref→ref copies run the per-element `array_store` subtype check in
+///    destination order, so a failing element throws after its
+///    predecessors were already stored (the JDK's partial-copy behavior;
+///    the *message* in that path is the aastore-style one, which is a
+///    known, documented drift until a JDK vector pins arraycopy's own).
+pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (src, src_pos, dst, dst_pos, len) = match (
+        args.first(),
+        args.get(1),
+        args.get(2),
+        args.get(3),
+        args.get(4),
+    ) {
+        (
+            Some(Value::Ref(Some(src))),
+            Some(Value::Int(sp)),
+            Some(Value::Ref(Some(dst))),
+            Some(Value::Int(dp)),
+            Some(Value::Int(l)),
+        ) => (src, *sp, dst, *dp, *l),
+        // null src/dst or malformed arg shape → NPE with message `null`,
+        // exactly like Temurin
+        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    if len < 0 {
+        return Err(throw_new(
+            "java/lang/ArrayIndexOutOfBoundsException",
+            Some(&format!("arraycopy: length {len} is negative")),
+        ));
+    }
+    let (src_len, src_cls) = check_array(src)?;
+    let (dst_len, dst_cls) = check_array(dst)?;
+    if src_pos < 0 {
+        return Err(throw_new(
+            "java/lang/ArrayIndexOutOfBoundsException",
+            Some(&format!(
+                "arraycopy: source index {src_pos} out of bounds for {}[{src_len}]",
+                java_array_name(&src_cls)
+            )),
+        ));
+    }
+    if src_pos.checked_add(len).map_or(true, |last| last > src_len) {
+        return Err(throw_new(
+            "java/lang/ArrayIndexOutOfBoundsException",
+            Some(&format!(
+                "arraycopy: last source index {} out of bounds for {}[{src_len}]",
+                src_pos + len,
+                java_array_name(&src_cls)
+            )),
+        ));
+    }
+    if dst_pos < 0 {
+        return Err(throw_new(
+            "java/lang/ArrayIndexOutOfBoundsException",
+            Some(&format!(
+                "arraycopy: destination index {dst_pos} out of bounds for {}[{dst_len}]",
+                java_array_name(&dst_cls)
+            )),
+        ));
+    }
+    if dst_pos.checked_add(len).map_or(true, |last| last > dst_len) {
+        return Err(throw_new(
+            "java/lang/ArrayIndexOutOfBoundsException",
+            Some(&format!(
+                "arraycopy: last destination index {} out of bounds for {}[{dst_len}]",
+                dst_pos + len,
+                java_array_name(&dst_cls)
+            )),
+        ));
+    }
+    // Type-compatibility: primitive kinds must agree exactly; a primitive
+    // source into a reference destination is an upfront ArrayStoreException.
+    let src_ref_component = ref_elem(&src_cls);
+    let dst_ref_component = ref_elem(&dst_cls);
+    match (src_ref_component, dst_ref_component) {
+        (None, None) => {
+            if src_cls != dst_cls {
+                return Err(type_mismatch(&src_cls, &dst_cls));
+            }
+        }
+        (None, Some(_)) => return Err(type_mismatch(&src_cls, &dst_cls)),
+        (Some(_), None) => return Err(type_mismatch(&src_cls, &dst_cls)),
+        // ref→ref: element-by-element store checks happen during the copy.
+        (Some(_), Some(_)) => {}
+    }
+    // Temp-buffer the source range (overlap-safe, JDK-documented).
+    let mut temp: Vec<Value> = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        temp.push(array_load(src, src_pos + i)?);
+    }
+    for (i, v) in temp.into_iter().enumerate() {
+        array_store(dst, dst_pos + i as i32, v, ctx)?;
+    }
+    Ok(Value::Void)
+}
+
+/// The element descriptor of a reference-component array (`None` for
+/// primitive arrays).
+fn ref_elem(cls: &str) -> Option<String> {
+    let b = cls.as_bytes();
+    if b.len() >= 2 && (b[1] == b'L' || b[1] == b'[') {
+        if b[1] == b'L' {
+            cls.strip_prefix("[L")
+                .and_then(|s| s.strip_suffix(';'))
+                .map(|s| s.to_string())
+        } else {
+            Some(cls[1..].to_string())
+        }
+    } else {
+        None
+    }
+}
+
+fn type_mismatch(src_cls: &str, dst_cls: &str) -> Throw {
+    throw_new(
+        "java/lang/ArrayStoreException",
+        Some(&format!(
+            "arraycopy: type mismatch: can not copy {}[] into {}[]",
+            java_elem_name(src_cls),
+            java_elem_name(dst_cls)
+        )),
+    )
+}
+
+/// The Java-visible array name Temurin prints in arraycopy messages:
+/// `int` for `[I`, `object array` for `[Ljava/lang/Object;`, dotted class
+/// for other reference components.
+fn java_array_name(cls: &str) -> String {
+    match cls {
+        INT => "int".to_string(),
+        LONG => "long".to_string(),
+        CHAR => "char".to_string(),
+        BOOLEAN => "boolean".to_string(),
+        BYTE => "byte".to_string(),
+        SHORT => "short".to_string(),
+        FLOAT => "float".to_string(),
+        DOUBLE => "double".to_string(),
+        "[Ljava/lang/Object;" => "object array".to_string(),
+        other => other
+            .strip_prefix("[L")
+            .and_then(|s| s.strip_suffix(';'))
+            .unwrap_or(other)
+            .replace('/', "."),
+    }
+}
+
+fn java_elem_name(cls: &str) -> String {
+    match cls {
+        INT => "int".to_string(),
+        LONG => "long".to_string(),
+        CHAR => "char".to_string(),
+        BOOLEAN => "boolean".to_string(),
+        BYTE => "byte".to_string(),
+        SHORT => "short".to_string(),
+        FLOAT => "float".to_string(),
+        DOUBLE => "double".to_string(),
+        "[Ljava/lang/Object;" => "object array".to_string(),
+        other => other
+            .strip_prefix("[L")
+            .and_then(|s| s.strip_suffix(';'))
+            .unwrap_or(other)
+            .replace('/', "."),
+    }
+}
+
 pub fn array_load(r: &JRef, idx: i32) -> Result<Value, Throw> {
     let (len, _cls) = check_array(r)?;
     bounds_ok(len, idx)?;
