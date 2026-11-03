@@ -183,6 +183,21 @@ internal "finding" (alleged `#acro_export]` corruption at
 hashes — see the verification log in AUDIT_VERIFICATION.md for why
 tool output alone is not evidence in this repo.
 
+## M3.6 — strategic gap register (post-review concerns)
+
+Five structural concerns raised in review — mixins vs. the static
+binary, the static reflection subset, JNI, threads + memory ordering,
+and the absence of benchmarks — are registered with design answers,
+honest current-state statements and acceptance bars in
+[docs/STRATEGIC_GAPS.md](docs/STRATEGIC_GAPS.md). Nothing there claims
+a gap is closed. Owner milestones: R1/R3 → M5 (mixin applier class
+identity is an M5 design prerequisite; JNI vtable fidelity gates LWJGL
+bring-up), R2 → M4 reflection-metadata generator + M5 all-classes
+mode, R4 → M4 concurrency wave (JMM→Rust mapping table + litmus suite
++ deterministic differential fixtures), R5 → policy locked now, harness
+lands only after the real-world corpus wave. Benchmarks observe, they
+never gate.
+
 ## M4 — threads & concurrency (draft plan)
 
 The threads milestone M2_PLAN §7 promised: shared heap/statics/identity
