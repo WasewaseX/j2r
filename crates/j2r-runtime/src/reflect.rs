@@ -671,14 +671,14 @@ pub fn method_invoke(
 }
 
 /// Wraps a target exception in `java/lang/reflect/InvocationTargetException`
-/// with a `null` message (Temurin prints the bare class name; `getCause`
-/// is outside the M3 subset, M3_EVIDENCE.md).
+/// with a `null` message (Temurin prints the bare class name). The wrapped
+/// target rides in the cause slot (audit A2 added `Throwable.cause`), so
+/// `getCause()` returns it exactly like the JVM.
 fn wrap_in_ite(t: Throw) -> Throw {
     let obj = crate::heap::alloc(crate::object::JObj {
         jclass: Rc::from("java/lang/reflect/InvocationTargetException"),
-        slots: vec![Value::Ref(None)],
+        slots: vec![Value::Ref(None), Value::Ref(Some(t.obj)), Value::Ref(None)],
     });
-    let _ = t;
     Throw { obj }
 }
 

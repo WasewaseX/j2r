@@ -147,14 +147,14 @@ pub fn builtin_is_interface(class: &str) -> bool {
 }
 
 /// Number of field slots a class owns itself (not counting inherited ones).
-/// Slot 0 of `Throwable` is `detailMessage`; the boxed classes and
-/// `StringBuilder` keep their payload in slot 0; `PrintStream` keeps its
-/// sink id in slot 0.
+/// `Throwable`: slot 0 `detailMessage`, slot 1 `cause`, slot 2 the
+/// suppressed list (audit A2); the boxed classes and `StringBuilder` keep
+/// their payload in slot 0; `PrintStream` keeps its sink id in slot 0.
 fn builtin_own_slots(class: &str) -> Option<usize> {
     let n = match class {
         "java/lang/Object" | "java/lang/System" | "java/lang/Math" | "java/lang/Number" => 0,
-        "java/lang/Throwable"
-        | "java/lang/String"
+        "java/lang/Throwable" => 3,
+        "java/lang/String"
         | "java/lang/StringBuilder"
         | "java/lang/StringBuffer"
         | "java/lang/Integer"
@@ -224,11 +224,12 @@ mod tests {
     #[test]
     fn exception_slot_counts() {
         assert_eq!(builtin_total_slots("java/lang/Object"), Some(0));
-        assert_eq!(builtin_total_slots("java/lang/Throwable"), Some(1));
-        assert_eq!(builtin_total_slots("java/lang/Exception"), Some(1));
+        // Audit A2 layout: detailMessage + cause + suppressed list.
+        assert_eq!(builtin_total_slots("java/lang/Throwable"), Some(3));
+        assert_eq!(builtin_total_slots("java/lang/Exception"), Some(3));
         assert_eq!(
             builtin_total_slots("java/lang/ArrayIndexOutOfBoundsException"),
-            Some(1)
+            Some(3)
         );
         assert_eq!(builtin_total_slots("java/lang/StringBuilder"), Some(1));
         assert_eq!(builtin_total_slots("java/lang/Integer"), Some(1));

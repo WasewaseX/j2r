@@ -240,7 +240,9 @@ impl Dispatch {
 pub type NativeFn = fn(Option<&JRef>, &[Value], Dispatch) -> Result<Value, Throw>;
 
 /// Throwing helper used by natives: builds a heap exception object.
-/// The message slot (`Throwable.detailMessage`) is slot 0.
+/// Full `Throwable` layout (audit A2): slot 0 `detailMessage`, slot 1
+/// `cause` (null), slot 2 the suppressed list (null until first
+/// `addSuppressed`).
 pub fn throw_new(class: &str, msg: Option<&str>) -> Throw {
     let msg_val = match msg {
         Some(m) => Value::Ref(Some(object::new_string(m))),
@@ -248,7 +250,7 @@ pub fn throw_new(class: &str, msg: Option<&str>) -> Throw {
     };
     let obj = crate::heap::alloc(JObj {
         jclass: Rc::from(class),
-        slots: vec![msg_val],
+        slots: vec![msg_val, Value::Ref(None), Value::Ref(None)],
     });
     Throw { obj }
 }
@@ -404,6 +406,90 @@ pub fn throwable_display(t: &Throw, ctx: Dispatch) -> String {
     ) {
         Ok(Value::Ref(Some(s))) => object::string_value(&s).to_string(),
         _ => t.java_class(),
+    }
+}
+
+/// Renders the enclosed trace sections of a thrown throwable — the
+/// `Suppressed: ...` sections and the `Caused by: ...` chain — in exactly
+/// the JVM's `printStackTrace` order (audit A2): every suppressed section
+/// of an exception prints before that exception's cause chain; suppressed
+/// sections indent one tab deeper per nesting level while cause captions
+/// stay at the enclosing prefix; section titles go through real virtual
+/// `toString` dispatch so user overrides win, like the JVM.
+///
+/// Frame lines are not rendered (no `LineNumberTable` support yet); the
+/// differential harness normalizes JVM frames away at any tab depth, so
+/// the compared bytes are the caption lines only.
+pub fn throwable_enclosed_trace(t: &Throw, ctx: Dispatch) -> String {
+    let mut out = String::new();
+    enclosed_sections(&t.obj, "", ctx, &mut out);
+    out
+}
+
+/// `toString` for one trace section through real virtual dispatch; falls
+/// back to the dotted class name when dispatch fails (same fallback rule
+/// as [`throwable_display`]).
+fn enclosed_title(obj: &JRef, ctx: Dispatch) -> String {
+    let _nr = crate::frame::NativeRoots::push(std::slice::from_ref(obj));
+    match invoke_virtual(
+        obj,
+        "java/lang/Object",
+        "toString",
+        "()Ljava/lang/String;",
+        &[],
+        ctx,
+    ) {
+        Ok(Value::Ref(Some(s))) => object::string_value(&s).to_string(),
+        _ => crate::heap::with_obj(*obj, |o| o.jclass.replace('/', ".")),
+    }
+}
+
+fn throwable_slot(obj: &JRef, slot: usize) -> Option<JRef> {
+    crate::heap::with_obj(*obj, |o| match &o.slots[slot] {
+        Value::Ref(r) => *r,
+        _ => None,
+    })
+}
+
+fn enclosed_sections(obj: &JRef, prefix: &str, ctx: Dispatch, out: &mut String) {
+    // Root everything held across the `toString` dispatches below: the
+    // dispatch re-enters generated code, which can reach a safepoint and
+    // collect (M2_PLAN §4.4 native→Java rule).
+    let sup = throwable_slot(obj, 2);
+    let cause = throwable_slot(obj, 1);
+    let mut roots: Vec<JRef> = vec![*obj];
+    if let Some(a) = &sup {
+        roots.push(*a);
+    }
+    if let Some(c) = &cause {
+        roots.push(*c);
+    }
+    let _nr = crate::frame::NativeRoots::push(&roots);
+    if let Some(sup) = sup {
+        if let Ok(len) = crate::array::array_length(&sup) {
+            for i in 0..len {
+                let Ok(v) = crate::array::array_load(&sup, i) else {
+                    continue;
+                };
+                if let Value::Ref(Some(se)) = v {
+                    let _gr = crate::frame::NativeRoots::push(&[se]);
+                    let title = enclosed_title(&se, ctx);
+                    out.push_str(prefix);
+                    out.push_str("\tSuppressed: ");
+                    out.push_str(&title);
+                    out.push('\n');
+                    enclosed_sections(&se, &format!("{prefix}\t"), ctx, out);
+                }
+            }
+        }
+    }
+    if let Some(cause) = cause {
+        let title = enclosed_title(&cause, ctx);
+        out.push_str(prefix);
+        out.push_str("Caused by: ");
+        out.push_str(&title);
+        out.push('\n');
+        enclosed_sections(&cause, prefix, ctx, out);
     }
 }
 

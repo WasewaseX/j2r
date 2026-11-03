@@ -514,10 +514,30 @@ fn n_sb_length(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<V
 }
 
 // ---------------------------------------------------------------- Throwable
+//
+// Heap layout (audit A2 — suppressed-exception machinery): slot 0
+// `detailMessage`, slot 1 `cause`, slot 2 the suppressed list as a Ref to a
+// `java/lang/Throwable[]` snapshot in insertion order (null until the first
+// `addSuppressed`). `getSuppressed` returns a fresh copy of the snapshot —
+// the JVM returns a clone, so mutating the returned array must not affect
+// the throwable. Natives registered on `Throwable` resolve for every
+// builtin exception family through the parent-chain dispatch, which is what
+// makes javac's try-with-resources lowering (JLS 14.20.3 emits
+// `Throwable.addSuppressed`) run unmodified.
+//
+// Exception-message bytes probed on Temurin 21.0.13+9 (see
+// docs/AUDIT_VERIFICATION.md, 2026-11-03): "Self-suppression not permitted"
+// (IllegalArgumentException, checked before the null case, as in OpenJDK)
+// and "Cannot suppress a null exception." (NullPointerException, with the
+// trailing period).
 
 fn n_throwable_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "Throwable.<init>");
-    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Ref(None));
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = Value::Ref(None);
+        o.slots[1] = Value::Ref(None);
+        o.slots[2] = Value::Ref(None);
+    });
     Ok(Value::Void)
 }
 
@@ -528,7 +548,71 @@ fn n_throwable_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Re
         Value::Ref(Some(o)) if is_string(o) => Value::Ref(Some(*o)),
         other => return Err(internal_error(&format!("Throwable.<init> arg {other:?}"))),
     };
-    crate::heap::with_obj_mut(*r, |o| o.slots[0] = msg);
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = msg;
+        o.slots[1] = Value::Ref(None);
+        o.slots[2] = Value::Ref(None);
+    });
+    Ok(Value::Void)
+}
+
+/// `Throwable(String message, Throwable cause)` — the message is used
+/// verbatim (unlike the `(Throwable)` constructor, which derives one).
+fn n_throwable_init_msg_cause(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Throwable.<init>");
+    if args.len() != 2 {
+        return Err(internal_error("Throwable.<init> arity"));
+    }
+    let msg = match &args[0] {
+        Value::Ref(None) => Value::Ref(None),
+        Value::Ref(Some(o)) if is_string(o) => Value::Ref(Some(*o)),
+        other => return Err(internal_error(&format!("Throwable.<init> arg {other:?}"))),
+    };
+    let cause = match &args[1] {
+        Value::Ref(c) => *c,
+        other => return Err(internal_error(&format!("Throwable.<init> arg {other:?}"))),
+    };
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = msg;
+        o.slots[1] = Value::Ref(cause);
+        o.slots[2] = Value::Ref(None);
+    });
+    Ok(Value::Void)
+}
+
+/// `Throwable(Throwable cause)` — JVM semantics: when `cause != null` the
+/// detail message is `cause.toString()`, computed through real virtual
+/// dispatch so a user `toString` override wins (OpenJDK Throwable.java).
+fn n_throwable_init_cause(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Throwable.<init>");
+    let cause = match arg(args, "Throwable.<init>") {
+        Value::Ref(c) => *c,
+        other => return Err(internal_error(&format!("Throwable.<init> arg {other:?}"))),
+    };
+    let msg: Value = match cause {
+        None => Value::Ref(None),
+        Some(c) => {
+            let _nr = crate::frame::NativeRoots::push(&[c]);
+            match crate::invoke_virtual(&c, "java/lang/Object", "toString", "()Ljava/lang/String;", &[], ctx)
+            {
+                Ok(Value::Ref(Some(s))) => Value::Ref(Some(s)),
+                _ => Value::Ref(None),
+            }
+        }
+    };
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = msg;
+        o.slots[1] = Value::Ref(cause);
+        o.slots[2] = Value::Ref(None);
+    });
     Ok(Value::Void)
 }
 
@@ -539,6 +623,93 @@ fn n_throwable_get_message(
 ) -> Result<Value, Throw> {
     let r = this(recv, "Throwable.getMessage");
     Ok(crate::heap::with_obj(*r, |o| o.slots[0].clone()))
+}
+
+fn n_throwable_get_cause(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Throwable.getCause");
+    Ok(crate::heap::with_obj(*r, |o| o.slots[1].clone()))
+}
+
+/// Snapshot of the suppressed list as a fresh `Throwable[]` (empty when
+/// nothing was suppressed — `getSuppressed` never returns null, probed on
+/// Temurin: empty-len=0).
+fn n_throwable_get_suppressed(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Throwable.getSuppressed");
+    let cur = crate::heap::with_obj(*r, |o| match &o.slots[2] {
+        Value::Ref(x) => *x,
+        other => panic!("j2r internal: Throwable slot 2 is {other:?}"),
+    });
+    let out = match cur {
+        None => crate::array::array_new_ref("java/lang/Throwable", 0)?,
+        Some(a) => {
+            let len = crate::array::array_length(&a)?;
+            let out = crate::array::array_new_ref("java/lang/Throwable", len)?;
+            for i in 0..len {
+                let v = crate::array::array_load(&a, i)?;
+                crate::array::array_store(&out, i, v, ctx)?;
+            }
+            out
+        }
+    };
+    Ok(Value::Ref(Some(out)))
+}
+
+/// `addSuppressed`: append to the snapshot list, growing a fresh
+/// `Throwable[]` each time (no GC can run mid-native, so the read-copy-
+/// write is race-free and keeps every intermediate array reachable from
+/// slot 2 until the final store).
+fn n_throwable_add_suppressed(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Throwable.addSuppressed");
+    let exc = match arg(args, "Throwable.addSuppressed") {
+        Value::Ref(x) => *x,
+        other => return Err(internal_error(&format!("Throwable.addSuppressed arg {other:?}"))),
+    };
+    // OpenJDK order: the self check fires before the null check.
+    match exc {
+        Some(e) if *r == e => {
+            return Err(throw_new(
+                "java/lang/IllegalArgumentException",
+                Some("Self-suppression not permitted"),
+            ))
+        }
+        None => {
+            return Err(throw_new(
+                "java/lang/NullPointerException",
+                Some("Cannot suppress a null exception."),
+            ))
+        }
+        Some(_) => {}
+    }
+    let old = crate::heap::with_obj(*r, |o| match &o.slots[2] {
+        Value::Ref(x) => *x,
+        other => panic!("j2r internal: Throwable slot 2 is {other:?}"),
+    });
+    let len = match old {
+        Some(a) => crate::array::array_length(&a)?,
+        None => 0,
+    };
+    let out = crate::array::array_new_ref("java/lang/Throwable", len + 1)?;
+    if let Some(a) = old {
+        for i in 0..len {
+            let v = crate::array::array_load(&a, i)?;
+            crate::array::array_store(&out, i, v, ctx)?;
+        }
+    }
+    crate::array::array_store(&out, len, Value::Ref(exc), ctx)?;
+    crate::heap::with_obj_mut(*r, |o| o.slots[2] = Value::Ref(Some(out)));
+    Ok(Value::Void)
 }
 
 fn n_throwable_to_string(
@@ -1391,7 +1562,10 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_sb_to_string,
     ),
     ("java/lang/StringBuilder", "length", "()I", n_sb_length),
-    // java/lang/Throwable
+    // java/lang/Throwable (audit A2: cause + suppressed machinery; the
+    // natives resolve for every builtin exception family through the
+    // parent-chain dispatch, which is what runs javac's JLS 14.20.3
+    // try-with-resources lowering unmodified)
     ("java/lang/Throwable", "<init>", "()V", n_throwable_init),
     (
         "java/lang/Throwable",
@@ -1401,9 +1575,39 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ),
     (
         "java/lang/Throwable",
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+        n_throwable_init_msg_cause,
+    ),
+    (
+        "java/lang/Throwable",
+        "<init>",
+        "(Ljava/lang/Throwable;)V",
+        n_throwable_init_cause,
+    ),
+    (
+        "java/lang/Throwable",
         "getMessage",
         "()Ljava/lang/String;",
         n_throwable_get_message,
+    ),
+    (
+        "java/lang/Throwable",
+        "getCause",
+        "()Ljava/lang/Throwable;",
+        n_throwable_get_cause,
+    ),
+    (
+        "java/lang/Throwable",
+        "addSuppressed",
+        "(Ljava/lang/Throwable;)V",
+        n_throwable_add_suppressed,
+    ),
+    (
+        "java/lang/Throwable",
+        "getSuppressed",
+        "()[Ljava/lang/Throwable;",
+        n_throwable_get_suppressed,
     ),
     (
         "java/lang/Throwable",

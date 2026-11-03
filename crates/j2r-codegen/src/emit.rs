@@ -415,6 +415,15 @@ fn main_run() -> i32 {{
                 "Exception in thread \"main\" {{}}",
                 ::j2r_runtime::throwable_display(&t, {lib_crate}::j2r_dispatch())
             );
+            // Audit A2: the enclosed trace sections (Suppressed:/Caused by:)
+            // ride behind the header, matching the JVM's printStackTrace
+            // order; frame lines are not rendered (no LineNumberTable yet)
+            // and the harness normalizes them away on the JVM side.
+            let trace =
+                ::j2r_runtime::throwable_enclosed_trace(&t, {lib_crate}::j2r_dispatch());
+            if !trace.is_empty() {{
+                eprint!("{{trace}}");
+            }}
             1
         }}
     }}

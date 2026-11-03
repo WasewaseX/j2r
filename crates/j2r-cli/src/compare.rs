@@ -31,21 +31,28 @@ pub struct RunResult {
 
 /// Removes JVM stack-trace frame lines from a stderr capture.
 ///
-/// Normalized away (location details only, never types or messages):
-/// * lines starting with a tab + `at ` — `\tat Uncaught.main(Uncaught.java:8)`
-/// * lines starting with a tab + `... ` — the `\t... 3 more` tail
-///   (also the frame tail under a `Suppressed:` section)
+/// Normalized away (location details only, never types or messages), at
+/// **any leading-tab depth** — the JVM indents frames one tab deeper for
+/// every enclosing `Suppressed:` section:
+/// * lines whose content after leading tabs starts with `at ` —
+///   `\tat Uncaught.main(...)`, `\t\tat Uncaught.main(...)` under a
+///   suppressed section, and so on;
+/// * lines whose content after leading tabs starts with `... ` — the
+///   `\t... 3 more` / `\t\t... 2 more` "frames omitted" tails.
 ///
 /// Kept (must match exactly): the `Exception in thread "main" ...` header,
 /// `Caused by: ...` sections, `Suppressed: <type>: <message>` headers —
 /// types and messages are semantics, not locations (audit A1) — and every
-/// line a program prints itself, including a literal `...`.
+/// line a program prints itself, including a literal `...`. A suppressed
+/// header survives because after tab-trimming it starts with `Suppressed: `,
+/// not `at `/`... `.
 pub fn normalize_stderr(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes);
     let mut kept: Vec<&str> = Vec::new();
     for line in text.lines() {
         let t = line.trim_end();
-        if t.starts_with("\tat ") || t.starts_with("\t... ") {
+        let content = t.trim_start_matches('\t');
+        if content.starts_with("at ") || content.starts_with("... ") {
             continue;
         }
         kept.push(t);
@@ -139,13 +146,32 @@ mod tests {
 
     #[test]
     fn suppressed_header_is_kept_but_its_frames_are_normalized() {
+        // Real JVM byte shape (probed on Temurin 21.0.13+9): the suppressed
+        // header is tab-indented, its frames one tab deeper than primary.
         let jvm = "Exception in thread \"main\" java.lang.Exception: x\n\
                    \tat A.main(A.java:1)\n\
-                   Suppressed: java.lang.Exception: y\n\
-                   \tat B.main(B.java:2)\n\
-                   \t... 3 more\n";
+                   \tSuppressed: java.lang.Exception: y\n\
+                   \t\tat B.main(B.java:2)\n\
+                   \t\t... 2 more\n";
         let native = "Exception in thread \"main\" java.lang.Exception: x\n\
-                      Suppressed: java.lang.Exception: y\n";
+                      \tSuppressed: java.lang.Exception: y\n";
+        assert_eq!(
+            normalize_stderr(jvm.as_bytes()),
+            normalize_stderr(native.as_bytes())
+        );
+    }
+
+    #[test]
+    fn nested_suppressed_frames_at_any_tab_depth_are_normalized() {
+        let jvm = "Exception in thread \"main\" java.lang.Exception: x\n\
+                   \tSuppressed: java.lang.Exception: y\n\
+                   \t\tat B.main(B.java:2)\n\
+                   \t\t... 2 more\n\
+                   Caused by: java.lang.Exception: root\n\
+                   \tat C.main(C.java:9)\n";
+        let native = "Exception in thread \"main\" java.lang.Exception: x\n\
+                      \tSuppressed: java.lang.Exception: y\n\
+                      Caused by: java.lang.Exception: root\n";
         assert_eq!(
             normalize_stderr(jvm.as_bytes()),
             normalize_stderr(native.as_bytes())
@@ -157,13 +183,13 @@ mod tests {
         let a = run(
             "",
             "Exception in thread \"main\" java.lang.Exception: x\n\
-             Suppressed: java.lang.Exception: y\n",
+             \tSuppressed: java.lang.Exception: y\n",
             1,
         );
         let b = run(
             "",
             "Exception in thread \"main\" java.lang.Exception: x\n\
-             Suppressed: java.lang.IllegalStateException: y\n",
+             \tSuppressed: java.lang.IllegalStateException: y\n",
             1,
         );
         assert!(streams_match(&a, &b).is_err());
@@ -174,13 +200,13 @@ mod tests {
         let a = run(
             "",
             "Exception in thread \"main\" java.lang.Exception: x\n\
-             Suppressed: java.lang.Exception: y\n",
+             \tSuppressed: java.lang.Exception: y\n",
             1,
         );
         let b = run(
             "",
             "Exception in thread \"main\" java.lang.Exception: x\n\
-             Suppressed: java.lang.Exception: z\n",
+             \tSuppressed: java.lang.Exception: z\n",
             1,
         );
         assert!(streams_match(&a, &b).is_err());
@@ -191,7 +217,7 @@ mod tests {
         let a = run(
             "",
             "Exception in thread \"main\" java.lang.Exception: x\n\
-             Suppressed: java.lang.Exception: y\n",
+             \tSuppressed: java.lang.Exception: y\n",
             1,
         );
         let b = run(

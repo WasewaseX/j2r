@@ -58,10 +58,12 @@ fn differential_suite_matches_jvm() {
     // through M3 Wave 5 (reflection) plus the five real-program-scale
     // fixtures (BigJson, BigHuffman, BigRpg, BigLang, BigCache — 300-500
     // line multi-class programs, not micro-probes). Standing policy from
-    // the M3 review: every wave adds real-program fixtures too.
+    // the M3 review: every wave adds real-program fixtures too. M3.5 (audit
+    // A2) added the four try-with-resources fixtures (TwrSuppress, TwrCaught,
+    // TwrCause, TwrThree) — 82 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 77,
-        "differential suite shrank: {} fixtures (expected >= 77)",
+        fixtures.len() >= 81,
+        "differential suite shrank: {} fixtures (expected >= 81)",
         fixtures.len()
     );
 
