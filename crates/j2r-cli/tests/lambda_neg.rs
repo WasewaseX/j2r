@@ -26,6 +26,12 @@ fn which(program: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+fn javac_binary() -> String {
+    // honor J2R_JAVAC like the availability check does (corpus wave 1 fix:
+    // the two must never disagree or the suite panics on spawn)
+    std::env::var("J2R_JAVAC").unwrap_or_else(|_| "javac".to_string())
+}
+
 fn compile_fails_with(src: &str, class_name: &str, needle: &str) {
     let exe = env!("CARGO_BIN_EXE_j2r");
     let dir = std::env::temp_dir().join(format!(
@@ -37,7 +43,7 @@ fn compile_fails_with(src: &str, class_name: &str, needle: &str) {
     let java = dir.join(format!("{class_name}.java"));
     std::fs::write(&java, src).expect("write source");
 
-    let out = Command::new("javac")
+    let out = Command::new(javac_binary())
         .arg("-d")
         .arg(&dir)
         .arg(&java)

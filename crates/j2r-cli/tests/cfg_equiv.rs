@@ -43,6 +43,12 @@ fn which(program: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+fn javac_binary() -> String {
+    // honor J2R_JAVAC like the availability check does (corpus wave 1 fix:
+    // the two must never disagree or the suite panics on spawn)
+    std::env::var("J2R_JAVAC").unwrap_or_else(|_| "javac".to_string())
+}
+
 struct Out {
     code: i32,
     stdout: String,
@@ -62,7 +68,7 @@ fn build_and_run(fixture: &std::path::Path, emit_cfg: bool, tag: &str) -> Out {
 
     let classes = tmp.join("classes");
     std::fs::create_dir_all(&classes).expect("classes dir");
-    let jc = Command::new("javac")
+    let jc = Command::new(javac_binary())
         .arg("-d")
         .arg(&classes)
         .arg(fixture)

@@ -66,8 +66,8 @@ fn differential_suite_matches_jvm() {
     // one below that (the count itself is machine-checked by
     // scripts/check_doc_counts.py, audit A8).
     assert!(
-        fixtures.len() >= 82,
-        "differential suite shrank: {} fixtures (expected >= 82)",
+        fixtures.len() >= 83,
+        "differential suite shrank: {} fixtures (expected >= 83)",
         fixtures.len()
     );
 
