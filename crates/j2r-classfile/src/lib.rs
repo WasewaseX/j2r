@@ -777,6 +777,16 @@ fn parse_fields(r: &mut Reader<'_>, cp: &ConstantPool) -> Result<Vec<FieldInfo>>
             let attr_name = cp.utf8(r.u2()?)?.to_string();
             let len = r.u4()?;
             if attr_name == "ConstantValue" {
+                // JVMS §4.7.16: the attribute length must be exactly 2.
+                // Anything else shifts the reader onto the next attribute
+                // and misparses silently — reject with a precise offset
+                // (audit A4).
+                if len != 2 {
+                    return Err(Error::new(
+                        r.pos,
+                        format!("ConstantValue.attribute_length must be 2, got {len}"),
+                    ));
+                }
                 let idx = r.u2()?;
                 constant_value = Some(match cp.entry(idx)? {
                     CpEntry::Integer(v) => ConstantValue::Int(*v),
@@ -842,6 +852,15 @@ fn parse_code(body: &[u8], cp: &ConstantPool) -> Result<CodeAttribute> {
     let max_stack = r.u2()?;
     let max_locals = r.u2()?;
     let code_len = r.u4()? as usize;
+    // JVMS §4.7.3: 0 < code_length < 65536. Enforce the bound here so a
+    // malformed length is a precise error instead of an allocation-size
+    // surprise in the byte read below (audit A4).
+    if code_len == 0 || code_len >= 65536 {
+        return Err(Error::new(
+            r.pos,
+            format!("code_length must be in 1..=65535, got {code_len}"),
+        ));
+    }
     let code = r.bytes(code_len)?.to_vec();
     let ex_count = r.u2()?;
     let mut exception_table = Vec::with_capacity(ex_count as usize);
@@ -862,8 +881,27 @@ fn parse_code(body: &[u8], cp: &ConstantPool) -> Result<CodeAttribute> {
             catch_type,
         });
     }
-    // Remaining attributes of Code (LineNumberTable, StackMapTable, ...) are
-    // skipped by length — the class-file format allows this.
+    // Walk the Code sub-attributes (LineNumberTable, StackMapTable, ...)
+    // explicitly (JVMS §4.7.3: attributes_count + attribute_info entries),
+    // validating each name index and length instead of trusting the
+    // enclosing slice — a truncated or padded Code body is now a precise
+    // error, and the pool walk catches garbage name indices (audit A4).
+    let sub_count = r.u2()?;
+    for _ in 0..sub_count {
+        let sub_name_idx = r.u2()?;
+        let sub_len = r.u4()? as usize;
+        cp.utf8(sub_name_idx)?;
+        r.skip(sub_len)?;
+    }
+    if r.pos != body.len() {
+        return Err(Error::new(
+            r.pos,
+            format!(
+                "Code attribute has {} unread trailing byte(s) after its sub-attributes",
+                body.len() - r.pos
+            ),
+        ));
+    }
     Ok(CodeAttribute {
         max_stack,
         max_locals,
@@ -1134,6 +1172,94 @@ pub(crate) mod testclass {
         m
     }
 
+    /// Like `method`, but with an explicit `code_length` field and no
+    /// exception table — for the negative bounds tests (0 and >= 65536 must
+    /// be rejected, audit A4).
+    pub fn method_with_code_len(
+        access: u16,
+        name_idx: u16,
+        desc_idx: u16,
+        max_stack: u16,
+        max_locals: u16,
+        code_len: u32,
+        code: &[u8],
+        code_attr_name_idx: u16,
+    ) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(&max_stack.to_be_bytes());
+        body.extend_from_slice(&max_locals.to_be_bytes());
+        body.extend_from_slice(&code_len.to_be_bytes());
+        body.extend_from_slice(code);
+        body.extend_from_slice(&0u16.to_be_bytes()); // exception_table_length
+        body.extend_from_slice(&0u16.to_be_bytes()); // attributes_count
+
+        let mut m = Vec::new();
+        m.extend_from_slice(&access.to_be_bytes());
+        m.extend_from_slice(&name_idx.to_be_bytes());
+        m.extend_from_slice(&desc_idx.to_be_bytes());
+        m.extend_from_slice(&1u16.to_be_bytes());
+        m.extend_from_slice(&code_attr_name_idx.to_be_bytes());
+        m.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        m.extend_from_slice(&body);
+        m
+    }
+
+    /// Like `method`, but with explicit fully-formed Code sub-attribute
+    /// blobs (`attribute_info`: name_idx u2, length u4, payload) — for the
+    /// sub-attribute walk tests (audit A4).
+    pub fn method_with_sub_attrs(
+        access: u16,
+        name_idx: u16,
+        desc_idx: u16,
+        max_stack: u16,
+        max_locals: u16,
+        code: &[u8],
+        sub_attrs: &[&[u8]],
+        code_attr_name_idx: u16,
+    ) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(&max_stack.to_be_bytes());
+        body.extend_from_slice(&max_locals.to_be_bytes());
+        body.extend_from_slice(&(code.len() as u32).to_be_bytes());
+        body.extend_from_slice(code);
+        body.extend_from_slice(&0u16.to_be_bytes()); // exception_table_length
+        body.extend_from_slice(&(sub_attrs.len() as u16).to_be_bytes());
+        for a in sub_attrs {
+            body.extend_from_slice(a);
+        }
+
+        let mut m = Vec::new();
+        m.extend_from_slice(&access.to_be_bytes());
+        m.extend_from_slice(&name_idx.to_be_bytes());
+        m.extend_from_slice(&desc_idx.to_be_bytes());
+        m.extend_from_slice(&1u16.to_be_bytes());
+        m.extend_from_slice(&code_attr_name_idx.to_be_bytes());
+        m.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        m.extend_from_slice(&body);
+        m
+    }
+
+    /// Like `field`, but with an explicit ConstantValue attribute length —
+    /// negative tests: anything but 2 must be rejected (audit A4).
+    pub fn field_with_constant_value_len(
+        access: u16,
+        name_idx: u16,
+        desc_idx: u16,
+        cv_len: u32,
+        constant_value: u16,
+        constvalue_name_idx: u16,
+    ) -> Vec<u8> {
+        let mut f = Vec::new();
+        f.extend_from_slice(&access.to_be_bytes());
+        f.extend_from_slice(&name_idx.to_be_bytes());
+        f.extend_from_slice(&desc_idx.to_be_bytes());
+        f.extend_from_slice(&1u16.to_be_bytes());
+        f.extend_from_slice(&constvalue_name_idx.to_be_bytes());
+        f.extend_from_slice(&cv_len.to_be_bytes());
+        f.extend_from_slice(&constant_value.to_be_bytes());
+        f
+    }
+
     pub fn access_public_static() -> u16 {
         flags::ACC_PUBLIC | flags::ACC_STATIC
     }
@@ -1251,5 +1377,190 @@ mod tests {
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[], &[]);
         let cf = ClassFile::parse(&bytes).unwrap();
         assert_eq!(cf.this_class, "a\u{0}");
+    }
+
+    // -------------------------------------------------- audit A4 validation
+
+    #[test]
+    fn rejects_constant_value_with_wrong_attribute_length() {
+        for bad_len in [0u32, 1, 3, 4] {
+            let mut b = Builder::new();
+            let name = b.utf8("T");
+            let cls = b.class(name);
+            let obj_name = b.utf8("java/lang/Object");
+            let obj_cls = b.class(obj_name);
+            let f_name = b.utf8("K");
+            let f_desc = b.utf8("I");
+            let int_idx = b.integer(42);
+            let cv_name = b.utf8("ConstantValue");
+            let field = testclass::field_with_constant_value_len(
+                flags::ACC_PUBLIC | flags::ACC_STATIC | flags::ACC_FINAL,
+                f_name,
+                f_desc,
+                bad_len,
+                int_idx,
+                cv_name,
+            );
+            let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[&field], &[], &[]);
+            let err = ClassFile::parse(&bytes).unwrap_err();
+            assert!(
+                err.message.contains("ConstantValue"),
+                "attribute_length {bad_len}: {}",
+                err.message
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_constant_value_with_exact_length() {
+        // Control for the rejection test above: length 2 parses and yields
+        // the constant (JVMS §4.7.16, audit A4).
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let f_name = b.utf8("K");
+        let f_desc = b.utf8("I");
+        let int_idx = b.integer(42);
+        let cv_name = b.utf8("ConstantValue");
+        let field = testclass::field_with_constant_value_len(
+            flags::ACC_PUBLIC | flags::ACC_STATIC | flags::ACC_FINAL,
+            f_name,
+            f_desc,
+            2,
+            int_idx,
+            cv_name,
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[&field], &[], &[]);
+        let cf = ClassFile::parse(&bytes).unwrap();
+        assert_eq!(cf.field("K").unwrap().constant_value, Some(ConstantValue::Int(42)));
+    }
+
+    #[test]
+    fn rejects_zero_code_length() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let m_name = b.utf8("run");
+        let m_desc = b.utf8("()V");
+        let code_name = b.utf8("Code");
+        let m = testclass::method_with_code_len(
+            testclass::access_public_static(),
+            m_name,
+            m_desc,
+            1,
+            1,
+            0,
+            &[],
+            code_name,
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
+        let err = ClassFile::parse(&bytes).unwrap_err();
+        assert!(err.message.contains("code_length"), "{}", err.message);
+    }
+
+    #[test]
+    fn rejects_oversized_code_length() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let m_name = b.utf8("run");
+        let m_desc = b.utf8("()V");
+        let code_name = b.utf8("Code");
+        // JVMS §4.7.3 upper bound: code_length < 65536. One real byte of
+        // code, a length field claiming 65536 — the bound check must fire
+        // before the byte read.
+        let m = testclass::method_with_code_len(
+            testclass::access_public_static(),
+            m_name,
+            m_desc,
+            1,
+            1,
+            65536,
+            &[0xB1],
+            code_name,
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
+        let err = ClassFile::parse(&bytes).unwrap_err();
+        assert!(
+            err.message.contains("code_length") && err.message.contains("65536"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn code_sub_attributes_are_walked() {
+        // Positive: a Code body carrying one well-formed sub-attribute
+        // (LineNumberTable with an empty table) parses, and the walk
+        // consumes the body exactly.
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let m_name = b.utf8("run");
+        let m_desc = b.utf8("()V");
+        let code_name = b.utf8("Code");
+        let lnt_name = b.utf8("LineNumberTable");
+        let mut lnt = Vec::new();
+        lnt.extend_from_slice(&lnt_name.to_be_bytes());
+        lnt.extend_from_slice(&2u32.to_be_bytes()); // length: u2 line-number count
+        lnt.extend_from_slice(&0u16.to_be_bytes()); // zero entries
+        let m = testclass::method_with_sub_attrs(
+            testclass::access_public_static(),
+            m_name,
+            m_desc,
+            1,
+            1,
+            &[0xB1],
+            &[&lnt],
+            code_name,
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
+        let cf = ClassFile::parse(&bytes).expect("sub-attribute walk must accept well-formed body");
+        assert!(cf.method("run", "()V").unwrap().code().is_ok());
+    }
+
+    #[test]
+    fn code_sub_attribute_with_wrong_length_is_rejected() {
+        // The sub-attribute length undershoots its payload (claims 1,
+        // payload is 2 bytes): the walk leaves trailing bytes inside the
+        // Code body — previously silent, now a precise error (audit A4).
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let m_name = b.utf8("run");
+        let m_desc = b.utf8("()V");
+        let code_name = b.utf8("Code");
+        let lnt_name = b.utf8("LineNumberTable");
+        let mut lnt = Vec::new();
+        lnt.extend_from_slice(&lnt_name.to_be_bytes());
+        lnt.extend_from_slice(&1u32.to_be_bytes()); // claims 1...
+        lnt.extend_from_slice(&[0x00, 0x00]); // ...payload is 2
+        let m = testclass::method_with_sub_attrs(
+            testclass::access_public_static(),
+            m_name,
+            m_desc,
+            1,
+            1,
+            &[0xB1],
+            &[&lnt],
+            code_name,
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
+        let err = ClassFile::parse(&bytes).unwrap_err();
+        assert!(
+            err.message.contains("trailing") || err.message.contains("unexpected"),
+            "{}",
+            err.message
+        );
     }
 }
