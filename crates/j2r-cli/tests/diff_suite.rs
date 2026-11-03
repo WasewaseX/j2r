@@ -62,9 +62,12 @@ fn differential_suite_matches_jvm() {
     // the M3 review: every wave adds real-program fixtures too. M3.5 (audit
     // A2) added the four try-with-resources fixtures (TwrSuppress, TwrCaught,
     // TwrCause, TwrThree) — 82 on disk, guard one below that.
+    // A3 added the MultiMain stem-preference fixture — 83 on disk, guard
+    // one below that (the count itself is machine-checked by
+    // scripts/check_doc_counts.py, audit A8).
     assert!(
-        fixtures.len() >= 81,
-        "differential suite shrank: {} fixtures (expected >= 81)",
+        fixtures.len() >= 82,
+        "differential suite shrank: {} fixtures (expected >= 82)",
         fixtures.len()
     );
 

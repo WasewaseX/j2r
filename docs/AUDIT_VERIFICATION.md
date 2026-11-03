@@ -251,3 +251,44 @@ Method note for the whole log: the same standard applied to the external
 reviewer's claims was applied to our own internal claim, and it is the
 only internal claim so far that failed. Zero hallucinations came from the
 reviewer; one came from us.
+
+## Completion log — A2 through A8 (2026-11-03, same day)
+
+All eight audit-response tasks landed, one commit each, gates re-run
+green after every landing. Evidence per task:
+
+* **A2** (`9d3a043`) — suppressed-exception machinery. Temurin probe
+  established the exact bytes before implementation (`\tSuppressed: `
+  headers — the probe corrected the implementer's memory of OpenJDK
+  formatting; "Self-suppression not permitted"; "Cannot suppress a null
+  exception."; `getSuppressed()` starts empty). Four TWR fixtures
+  differentially green. The **cfg-equivalence gate caught a real bug
+  the wave introduced**: `throw_new` still allocated the old 1-slot
+  layout, so enclosed-trace rendering panicked on any runtime-raised
+  exception (and the panic text embedded the OS thread id, which made
+  the two emit modes differ — the gate did precisely its job). Fixed in
+  the same wave; gate re-run green at 82 fixtures.
+* **A3** (`5ebbeed`) — `select_main_class`: stem preference, sorted
+  candidates, loud ambiguity error; the selection feeds BOTH the JVM run
+  and the native compile. `MultiMain` fixture pins the preference; a
+  stem-less two-main source errors loudly listing both candidates.
+* **A4** (`d9713b2`) — ConstantValue length==2, `0 < code_length <
+  65536`, explicit Code sub-attribute walk. Six new negative/positive
+  tests on hand-crafted class files; the walk accepts real javac output
+  (full codegen suite green).
+* **A5+A6** (`6062d5b`) — `TableKind`-parameterized zlib-exact table
+  validation; fixed distance table in the complete 32×5-bit form; CRC
+  table in a `LazyLock`. Six rule-pinning tests; JDK deflate vectors
+  green (no valid-stream regression); JAR suite green.
+* **A7** (`d209f84`) — `split_paths` PATH handling ×3 sites, cfg(unix)
+  jvm scan, cfg_attr classpath delimiter.
+* **A8** (this commit) — `scripts/check_doc_counts.py` + CI gate-11.
+  The checker measured fixtures=83, tests=245 — the implementer's
+  mental estimate (244) was wrong by one, which is the entire argument
+  for measuring instead of claiming. README corrected (70→83, 196→245,
+  39→83 ×2, duplicate JAR bullet removed, new suppressed-exceptions
+  bullet), suite guard checked by the same gate.
+
+Final state: 83 fixtures (guard ≥ 82), 245 tests, doc counts
+machine-checked, fmt + clippy clean, workspace green with the JDK
+wired.

@@ -43,7 +43,10 @@ enum Cmd {
         /// classes not named on the command line (M3 Wave 1). Separator is
         /// ':' on Unix, ';' on Windows (drive-letter safe) — audit A7.
         #[cfg_attr(windows, arg(short = 'p', long = "classpath", value_delimiter = ';'))]
-        #[cfg_attr(not(windows), arg(short = 'p', long = "classpath", value_delimiter = ':'))]
+        #[cfg_attr(
+            not(windows),
+            arg(short = 'p', long = "classpath", value_delimiter = ':')
+        )]
         classpath: Vec<PathBuf>,
         /// Main class (internal `a/b/C` or dotted `a.b.C` form).
         #[arg(long)]
@@ -68,7 +71,10 @@ enum Cmd {
         /// classes not named on the command line (M3 Wave 1). Separator is
         /// ':' on Unix, ';' on Windows (drive-letter safe) — audit A7.
         #[cfg_attr(windows, arg(short = 'p', long = "classpath", value_delimiter = ';'))]
-        #[cfg_attr(not(windows), arg(short = 'p', long = "classpath", value_delimiter = ':'))]
+        #[cfg_attr(
+            not(windows),
+            arg(short = 'p', long = "classpath", value_delimiter = ':')
+        )]
         classpath: Vec<PathBuf>,
         /// Main class (internal `a/b/C` or dotted `a.b.C` form).
         #[arg(long)]
@@ -334,9 +340,7 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
     // Audit A3: the main class is selected ONCE (source-stem preference,
     // loud ambiguity error) and used for BOTH the JVM run and the native
     // compile — the two sides cannot pick different mains anymore.
-    let source_stem = file
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned());
+    let source_stem = file.file_stem().map(|s| s.to_string_lossy().into_owned());
     let selected_main = std::cell::RefCell::new(None::<String>);
 
     let run_java = || -> Result<RunResult, String> {

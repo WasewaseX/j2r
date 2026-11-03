@@ -601,8 +601,14 @@ fn n_throwable_init_cause(
         None => Value::Ref(None),
         Some(c) => {
             let _nr = crate::frame::NativeRoots::push(&[c]);
-            match crate::invoke_virtual(&c, "java/lang/Object", "toString", "()Ljava/lang/String;", &[], ctx)
-            {
+            match crate::invoke_virtual(
+                &c,
+                "java/lang/Object",
+                "toString",
+                "()Ljava/lang/String;",
+                &[],
+                ctx,
+            ) {
                 Ok(Value::Ref(Some(s))) => Value::Ref(Some(s)),
                 _ => Value::Ref(None),
             }
@@ -674,7 +680,11 @@ fn n_throwable_add_suppressed(
     let r = this(recv, "Throwable.addSuppressed");
     let exc = match arg(args, "Throwable.addSuppressed") {
         Value::Ref(x) => *x,
-        other => return Err(internal_error(&format!("Throwable.addSuppressed arg {other:?}"))),
+        other => {
+            return Err(internal_error(&format!(
+                "Throwable.addSuppressed arg {other:?}"
+            )))
+        }
     };
     // OpenJDK order: the self check fires before the null check.
     match exc {

@@ -145,10 +145,22 @@ jobs:
           fi
           echo "zero unsafe: confirmed"
 
+  doc-counts:
+    name: gate-11-doc-counts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: README/doc counts match the repository (audit A8)
+        run: |
+          cargo test --workspace -- --list > /dev/null
+          python3 scripts/check_doc_counts.py
+
   all-gates:
     name: gate-8-all-gates-green
-    needs: [fmt, clippy, test, build-release, standalone, doc, security, gc-stress, no-unsafe]
+    needs: [fmt, clippy, test, build-release, standalone, doc, security, gc-stress, no-unsafe, doc-counts]
     runs-on: ubuntu-latest
     steps:
       - name: Summary
-        run: echo "All 9 upstream gates are green."
+        run: echo "All 10 upstream gates are green."

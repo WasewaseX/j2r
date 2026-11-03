@@ -365,12 +365,14 @@ pub fn inflate_capped(
                 for i in 0..hclen {
                     clc_lengths[CLC_ORDER[i]] = br.bits(3)? as u8;
                 }
-                let clc = Huffman::from_lengths(&clc_lengths, TableKind::CodeLengths).map_err(|e| match e {
-                    TableError::OverSubscribed => {
-                        err(br.byte_pos(), "over-subscribed code-length code")
-                    }
-                    TableError::Incomplete => err(br.byte_pos(), "incomplete code-length code"),
-                })?;
+                let clc = Huffman::from_lengths(&clc_lengths, TableKind::CodeLengths).map_err(
+                    |e| match e {
+                        TableError::OverSubscribed => {
+                            err(br.byte_pos(), "over-subscribed code-length code")
+                        }
+                        TableError::Incomplete => err(br.byte_pos(), "incomplete code-length code"),
+                    },
+                )?;
 
                 let mut lengths = vec![0u8; hlit + hdist];
                 let mut i = 0;
@@ -415,12 +417,15 @@ pub fn inflate_capped(
                 if lengths[256] == 0 {
                     return Err(err(br.byte_pos(), "no end-of-block code"));
                 }
-                let lit = Huffman::from_lengths(&lengths[..hlit], TableKind::Literals).map_err(|e| match e {
-                    TableError::OverSubscribed => {
-                        err(br.byte_pos(), "over-subscribed literal code")
-                    }
-                    TableError::Incomplete => err(br.byte_pos(), "incomplete literal code"),
-                })?;
+                let lit =
+                    Huffman::from_lengths(&lengths[..hlit], TableKind::Literals).map_err(|e| {
+                        match e {
+                            TableError::OverSubscribed => {
+                                err(br.byte_pos(), "over-subscribed literal code")
+                            }
+                            TableError::Incomplete => err(br.byte_pos(), "incomplete literal code"),
+                        }
+                    })?;
                 let dist = build_distance_table(&lengths[hlit..], br.byte_pos())?;
                 inflate_block(&mut br, &lit, &dist, out, max_output)?;
             }
@@ -517,7 +522,11 @@ mod tests {
     fn multi_code_incomplete_sets_are_rejected() {
         // Three 2-bit codes use 3/4 of the space: incomplete with max != 1
         // — rejected for every symbol role, exactly like zlib.
-        for kind in [TableKind::CodeLengths, TableKind::Literals, TableKind::Distances] {
+        for kind in [
+            TableKind::CodeLengths,
+            TableKind::Literals,
+            TableKind::Distances,
+        ] {
             let e = Huffman::from_lengths(&[2, 2, 2, 0], kind).unwrap_err();
             assert!(matches!(e, TableError::Incomplete));
         }
@@ -527,7 +536,11 @@ mod tests {
     fn empty_tables_are_accepted_and_error_on_demand() {
         // zlib's max == 0 case: build succeeds with an error marker; the
         // error surfaces only when a symbol is demanded.
-        for kind in [TableKind::CodeLengths, TableKind::Literals, TableKind::Distances] {
+        for kind in [
+            TableKind::CodeLengths,
+            TableKind::Literals,
+            TableKind::Distances,
+        ] {
             let t = Huffman::from_lengths(&[0, 0, 0], kind).expect("empty set accepted");
             assert!(t.empty);
         }
@@ -535,7 +548,11 @@ mod tests {
 
     #[test]
     fn over_subscribed_sets_are_always_rejected() {
-        for kind in [TableKind::CodeLengths, TableKind::Literals, TableKind::Distances] {
+        for kind in [
+            TableKind::CodeLengths,
+            TableKind::Literals,
+            TableKind::Distances,
+        ] {
             let e = Huffman::from_lengths(&[1, 1, 1], kind).unwrap_err();
             assert!(matches!(e, TableError::OverSubscribed));
         }

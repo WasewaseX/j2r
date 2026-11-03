@@ -1434,7 +1434,10 @@ mod tests {
         );
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[&field], &[], &[]);
         let cf = ClassFile::parse(&bytes).unwrap();
-        assert_eq!(cf.field("K").unwrap().constant_value, Some(ConstantValue::Int(42)));
+        assert_eq!(
+            cf.field("K").unwrap().constant_value,
+            Some(ConstantValue::Int(42))
+        );
     }
 
     #[test]

@@ -148,15 +148,40 @@ line-level evidence and severity re-ratings:
   banned. Standing policy from this audit: test-count updates stay
   synchronized with the documentation, mechanically.
 
-Status (2026-11-03): **A1 done** — masking rule deleted from
-`normalize_stderr`, five honesty tests pin the new semantics, and the
-first differential run *after* the fix is green: 78/78 fixtures,
-stdout/stderr/exit all matching Temurin 21.0.13+9, 232 workspace tests
-passing. A2–A8 in progress; a fourth internal "finding" (alleged
-`#acro_export]` syntax corruption at `j2r-runtime/src/lib.rs:421`) was
-**disproven** by compiler run and byte-hash evidence — see the
-verification log in AUDIT_VERIFICATION.md for why tool output alone is
-not evidence in this repo.
+Status (2026-11-03): **A1–A8 all done**, one commit each, every gate
+re-run green after every landing:
+
+* A1 `2fc965a` — harness honesty: masking rule deleted, real-JVM byte
+  shapes pinned (the `Suppressed:` headers are tab-indented; probed on
+  Temurin 21.0.13+9), frame normalization generalized to any tab depth.
+* A2 `9d3a043` — full suppressed-exception machinery (3-slot Throwable:
+  message/cause/suppressed, natives, uncaught-handler section printing)
+  + four try-with-resources fixtures; javac's JLS 14.20.3 lowering runs
+  unmodified. The cfg-equivalence gate caught a real bug the wave
+  introduced (throw_new's 1-slot allocation) before it could reach a
+  differential claim.
+* A3 `5ebbeed` — one main-class selection for both differential sides
+  (source-stem preference, sorted candidates, loud ambiguity error);
+  MultiMain fixture.
+* A4 `d9713b2` — ConstantValue length==2, code_length bounds, explicit
+  Code sub-attribute walk + six negative tests.
+* A5+A6 `6062d5b` — zlib-exact Huffman table validation (TableKind:
+  incomplete only as a single 1-bit code, never for the code-length
+  alphabet; fixed distance table in the complete 32×5-bit form) and the
+  CRC table built once (LazyLock).
+* A7 `d209f84` — Windows-safe PATH/classpath handling (split_paths,
+  cfg_attr delimiter, cfg(unix) jvm scan).
+* A8 (this commit) — `scripts/check_doc_counts.py` wired into CI as
+  gate-11: README counts are measured, not claimed (fixtures=83,
+  tests=245 at gate introduction); the suite guard is checked too.
+
+Suite: 78 → 83 fixtures (4 TWR + MultiMain), guard ≥ 82. The
+differential suite, cfg-equivalence gate (83/83 output-identical) and
+the full workspace test run are green on every commit above. An
+internal "finding" (alleged `#acro_export]` corruption at
+`j2r-runtime/src/lib.rs:421`) was disproven by compiler run and byte
+hashes — see the verification log in AUDIT_VERIFICATION.md for why
+tool output alone is not evidence in this repo.
 
 ## M4 — threads & concurrency (draft plan)
 
