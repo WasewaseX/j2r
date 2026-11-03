@@ -117,6 +117,47 @@ carried from M2), streams/`Optional`/`java.time`, regex, serialization,
 candidates for the follow-up quality milestone alongside the M4
 threads work.
 
+## M3.5 — audit response (post external review)
+
+An external review of a partial source dump produced seven findings.
+Every claim was re-verified against the actual source before being
+accepted — two were directionally right but overweighted, none were pure
+hallucination, and two hid more than the reviewer saw. Verdicts,
+line-level evidence and severity re-ratings:
+[docs/AUDIT_VERIFICATION.md](docs/AUDIT_VERIFICATION.md). Register:
+
+* **A1 (P0)** — `compare.rs`: stop stripping `Suppressed:` header lines
+  and bare `...` output; normalize only tab-prefixed frame lines. The
+  differential harness must not be able to mask a semantic divergence.
+* **A2 (P0)** — runtime suppressed-exception machinery:
+  `Throwable.addSuppressed`/`getSuppressed`, uncaught-handler printing,
+  try-with-resources differential fixture with a throwing `close()`.
+* **A3 (P1)** — one main-class selection shared by CLI and codegen:
+  source-stem preference, single-candidate rule, loud error on
+  ambiguity; no more `read_dir`-order luck.
+* **A4 (P2)** — `j2r-classfile` attribute-length validation:
+  `ConstantValue` length must be 2, `0 < code_length < 65536`.
+* **A5 (P2)** — `inflate.rs` zlib-exact table validation (incomplete
+  codes rejected unless empty or a single 1-bit code); fixed distance
+  table becomes the complete RFC 32×5-bit form.
+* **A6 (P2)** — `crc32.rs`: table built once (`LazyLock`).
+* **A7 (P2)** — Windows portability: separator-safe `PATH`/classpath
+  handling, `/usr/lib/jvm` scan behind `#[cfg(unix)]`.
+* **A8 (P2)** — README counts corrected and machine-checked:
+  `scripts/check_doc_counts.py` wired into CI; hand-edited prose counts
+  banned. Standing policy from this audit: test-count updates stay
+  synchronized with the documentation, mechanically.
+
+Status (2026-11-03): **A1 done** — masking rule deleted from
+`normalize_stderr`, five honesty tests pin the new semantics, and the
+first differential run *after* the fix is green: 78/78 fixtures,
+stdout/stderr/exit all matching Temurin 21.0.13+9, 232 workspace tests
+passing. A2–A8 in progress; a fourth internal "finding" (alleged
+`#acro_export]` syntax corruption at `j2r-runtime/src/lib.rs:421`) was
+**disproven** by compiler run and byte-hash evidence — see the
+verification log in AUDIT_VERIFICATION.md for why tool output alone is
+not evidence in this repo.
+
 ## M4 — threads & concurrency (draft plan)
 
 The threads milestone M2_PLAN §7 promised: shared heap/statics/identity

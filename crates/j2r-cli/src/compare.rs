@@ -4,19 +4,22 @@
 //! All three observable channels are compared:
 //!
 //! * **stdout** — byte-for-byte.
-//! * **stderr** — byte-for-byte *after* removing JVM stack-trace frame
-//!   lines (`\tat ...`, `Suppressed: ...`, `\t... N more`). Frames carry
-//!   source locations the milestone-1 runtime cannot produce (it has no
-//!   `LineNumberTable` support yet); they contain no exception type or
-//!   message information, which is why normalizing them away is sound.
-//!   Everything else — the `Exception in thread "main" <type>: <message>`
-//!   line, `Caused by:` chains, plain program output on stderr — must
-//!   match exactly.
+//! * **stderr** — byte-for-byte *after* removing only JVM stack-trace
+//!   frame lines (`\tat ...`, `\t... N more`). Frames carry source
+//!   locations the runtime cannot produce (it has no `LineNumberTable`
+//!   support yet); they contain no exception type or message information,
+//!   which is why normalizing them away is sound. **Everything else must
+//!   match exactly** — the `Exception in thread "main" <type>: <message>`
+//!   line, `Caused by:` chains, `Suppressed: <type>: <message>` headers
+//!   (types and messages are semantic, never normalized), and plain
+//!   program output on stderr. (Audit A1: `Suppressed:` lines used to be
+//!   stripped wholesale, which could mask a suppressed-exception
+//!   divergence between the JVM and the native run.)
 //! * **exit status** — exact.
 //!
 //! Unit tests below pin the semantics: different exception types, different
-//! messages, different stderr output or different exit codes must all fail;
-//! only frame lines may differ.
+//! messages, different suppressed exceptions, different stderr output or
+//! different exit codes must all fail; only frame lines may differ.
 
 /// The observable result of one program run (JVM or native).
 #[derive(Debug, Clone, PartialEq)]
@@ -31,20 +34,18 @@ pub struct RunResult {
 /// Normalized away (location details only, never types or messages):
 /// * lines starting with a tab + `at ` — `\tat Uncaught.main(Uncaught.java:8)`
 /// * lines starting with a tab + `... ` — the `\t... 3 more` tail
-/// * `Suppressed: ...` lines (themselves frame-carrying)
-/// * bare `...` continuation lines
+///   (also the frame tail under a `Suppressed:` section)
 ///
 /// Kept (must match exactly): the `Exception in thread "main" ...` header,
-/// `Caused by: ...` sections, and every line a program prints itself.
+/// `Caused by: ...` sections, `Suppressed: <type>: <message>` headers —
+/// types and messages are semantics, not locations (audit A1) — and every
+/// line a program prints itself, including a literal `...`.
 pub fn normalize_stderr(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes);
     let mut kept: Vec<&str> = Vec::new();
     for line in text.lines() {
         let t = line.trim_end();
         if t.starts_with("\tat ") || t.starts_with("\t... ") {
-            continue;
-        }
-        if t == "..." || t.starts_with("Suppressed: ") {
             continue;
         }
         kept.push(t);
@@ -137,17 +138,78 @@ mod tests {
     }
 
     #[test]
-    fn suppressed_and_more_lines_are_normalized() {
+    fn suppressed_header_is_kept_but_its_frames_are_normalized() {
         let jvm = "Exception in thread \"main\" java.lang.Exception: x\n\
                    \tat A.main(A.java:1)\n\
                    Suppressed: java.lang.Exception: y\n\
                    \tat B.main(B.java:2)\n\
                    \t... 3 more\n";
-        let native = "Exception in thread \"main\" java.lang.Exception: x\n";
+        let native = "Exception in thread \"main\" java.lang.Exception: x\n\
+                      Suppressed: java.lang.Exception: y\n";
         assert_eq!(
             normalize_stderr(jvm.as_bytes()),
             normalize_stderr(native.as_bytes())
         );
+    }
+
+    #[test]
+    fn different_suppressed_types_fail() {
+        let a = run(
+            "",
+            "Exception in thread \"main\" java.lang.Exception: x\n\
+             Suppressed: java.lang.Exception: y\n",
+            1,
+        );
+        let b = run(
+            "",
+            "Exception in thread \"main\" java.lang.Exception: x\n\
+             Suppressed: java.lang.IllegalStateException: y\n",
+            1,
+        );
+        assert!(streams_match(&a, &b).is_err());
+    }
+
+    #[test]
+    fn different_suppressed_messages_fail() {
+        let a = run(
+            "",
+            "Exception in thread \"main\" java.lang.Exception: x\n\
+             Suppressed: java.lang.Exception: y\n",
+            1,
+        );
+        let b = run(
+            "",
+            "Exception in thread \"main\" java.lang.Exception: x\n\
+             Suppressed: java.lang.Exception: z\n",
+            1,
+        );
+        assert!(streams_match(&a, &b).is_err());
+    }
+
+    #[test]
+    fn missing_suppressed_section_fails() {
+        let a = run(
+            "",
+            "Exception in thread \"main\" java.lang.Exception: x\n\
+             Suppressed: java.lang.Exception: y\n",
+            1,
+        );
+        let b = run(
+            "",
+            "Exception in thread \"main\" java.lang.Exception: x\n",
+            1,
+        );
+        assert!(streams_match(&a, &b).is_err());
+    }
+
+    #[test]
+    fn a_programs_own_ellipsis_output_survives() {
+        let a = run("ok\n", "...\n", 0);
+        let b = run("ok\n", "other\n", 0);
+        assert!(streams_match(&a, &b).is_err());
+        let c = run("ok\n", "...\n", 0);
+        let d = run("ok\n", "...\n", 0);
+        assert_eq!(streams_match(&c, &d), Ok(()));
     }
 
     #[test]
