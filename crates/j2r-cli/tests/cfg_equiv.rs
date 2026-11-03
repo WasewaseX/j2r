@@ -19,6 +19,8 @@ fn javac_available() -> bool {
     if which("javac").is_some() {
         return true;
     }
+    // common Linux JDK locations (Unix-only scan — audit A7)
+    #[cfg(unix)]
     if let Ok(entries) = std::fs::read_dir("/usr/lib/jvm") {
         for entry in entries.flatten() {
             if entry.path().join("bin").join("javac").is_file() {
@@ -31,8 +33,9 @@ fn javac_available() -> bool {
 
 fn which(program: &str) -> Option<std::path::PathBuf> {
     let path = std::env::var("PATH").ok()?;
-    for dir in path.split(':') {
-        let candidate = std::path::Path::new(dir).join(program);
+    // Platform separator via std (':' Unix, ';' Windows) — audit A7.
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(program);
         if candidate.is_file() {
             return Some(candidate);
         }

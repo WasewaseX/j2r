@@ -40,8 +40,10 @@ enum Cmd {
         #[arg(short, long, default_value = "j2r-out")]
         out: PathBuf,
         /// Classpath entries (dirs, .jar, .zip), searched in order for
-        /// classes not named on the command line (M3 Wave 1).
-        #[arg(short = 'p', long = "classpath", value_delimiter = ':')]
+        /// classes not named on the command line (M3 Wave 1). Separator is
+        /// ':' on Unix, ';' on Windows (drive-letter safe) — audit A7.
+        #[cfg_attr(windows, arg(short = 'p', long = "classpath", value_delimiter = ';'))]
+        #[cfg_attr(not(windows), arg(short = 'p', long = "classpath", value_delimiter = ':'))]
         classpath: Vec<PathBuf>,
         /// Main class (internal `a/b/C` or dotted `a.b.C` form).
         #[arg(long)]
@@ -63,8 +65,10 @@ enum Cmd {
         #[arg(short, long, default_value = "j2r-out")]
         out: PathBuf,
         /// Classpath entries (dirs, .jar, .zip), searched in order for
-        /// classes not named on the command line (M3 Wave 1).
-        #[arg(short = 'p', long = "classpath", value_delimiter = ':')]
+        /// classes not named on the command line (M3 Wave 1). Separator is
+        /// ':' on Unix, ';' on Windows (drive-letter safe) — audit A7.
+        #[cfg_attr(windows, arg(short = 'p', long = "classpath", value_delimiter = ';'))]
+        #[cfg_attr(not(windows), arg(short = 'p', long = "classpath", value_delimiter = ':'))]
         classpath: Vec<PathBuf>,
         /// Main class (internal `a/b/C` or dotted `a.b.C` form).
         #[arg(long)]
@@ -539,13 +543,16 @@ fn locate_java() -> Result<(PathBuf, PathBuf), String> {
 
 fn which(program: &str) -> Option<PathBuf> {
     let path = std::env::var("PATH").ok()?;
-    for dir in path.split(':') {
-        let candidate = Path::new(dir).join(program);
+    // std::env::split_paths uses the platform separator (':' Unix, ';'
+    // Windows) — audit A7.
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(program);
         if candidate.is_file() {
             return Some(candidate);
         }
     }
-    // common Linux JDK locations
+    // common Linux JDK locations (Unix-only scan — audit A7)
+    #[cfg(unix)]
     if let Ok(entries) = std::fs::read_dir("/usr/lib/jvm") {
         for entry in entries.flatten() {
             let candidate = entry.path().join("bin").join(program);
