@@ -616,6 +616,11 @@ pub fn compile(opts: &Options) -> Result<Program> {
             Some(internal)
         }
         None => {
+            // Programmatic default only (first declared main in input
+            // order). The `j2r test` differential path (audit A3) now
+            // always passes an explicit --main-class selected once for
+            // BOTH sides, so the JVM run and the native run cannot pick
+            // different mains.
             let found = prog.classes.iter().find(|c| {
                 c.method("main", "([Ljava/lang/String;)V")
                     .map(|m| m.is_static)

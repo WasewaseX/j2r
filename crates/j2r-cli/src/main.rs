@@ -327,6 +327,14 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
     let out_dir = work.join("out");
     std::fs::create_dir_all(&classes_dir).expect("create work dir");
 
+    // Audit A3: the main class is selected ONCE (source-stem preference,
+    // loud ambiguity error) and used for BOTH the JVM run and the native
+    // compile — the two sides cannot pick different mains anymore.
+    let source_stem = file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned());
+    let selected_main = std::cell::RefCell::new(None::<String>);
+
     let run_java = || -> Result<RunResult, String> {
         // 1. javac
         let status = Command::new(&javac)
@@ -339,7 +347,8 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
             return Err("javac failed".to_string());
         }
         // 2. find the main class among the produced class files
-        let main_class = find_main_class(&classes_dir)?;
+        let main_class = select_main_class(&classes_dir, source_stem.as_deref())?;
+        *selected_main.borrow_mut() = Some(main_class.clone());
         // 3. run java
         run_java_program(&java, &classes_dir, &main_class, args)
     };
@@ -348,8 +357,19 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
         // 1. collect class files
         let mut class_files = Vec::new();
         collect_class_files(&classes_dir, &mut class_files);
-        // 2. j2r compile
-        let dir = compile_crate(&class_files, &out_dir, &[], None, "j2r-test-app", false)?;
+        // 2. j2r compile — with the SAME main class the JVM side ran
+        let main_class = selected_main
+            .borrow()
+            .clone()
+            .ok_or_else(|| "internal: main class not selected yet".to_string())?;
+        let dir = compile_crate(
+            &class_files,
+            &out_dir,
+            &[],
+            Some(main_class),
+            "j2r-test-app",
+            false,
+        )?;
         // 3. cargo build
         let mut cmd = Command::new(cargo_binary());
         cmd.arg("build")
@@ -431,10 +451,22 @@ fn exit_code(status: &std::process::ExitStatus) -> i32 {
     status.code().unwrap_or(-1)
 }
 
-fn find_main_class(classes_dir: &Path) -> Result<String, String> {
+/// Picks the main class for a differential run (audit A3: ONE selection,
+/// used for both the JVM run and the native compile — no more independent
+/// fallbacks that can drift apart).
+///
+/// Rules: with zero main-bearing classes → error; with exactly one → it.
+/// With several, the class whose **simple name matches the source-file
+/// stem** wins (the JVM's `java <stem>` behavior); if no candidate or
+/// several candidates match the stem, the ambiguity is a loud error that
+/// lists every candidate — never a silent `read_dir`-order pick.
+///
+/// Candidates are sorted, so neither the choice nor the error text depends
+/// on directory order.
+fn select_main_class(classes_dir: &Path, source_stem: Option<&str>) -> Result<String, String> {
     let mut class_files = Vec::new();
     collect_class_files(classes_dir, &mut class_files);
-    let mut fallback: Option<String> = None;
+    let mut candidates: Vec<String> = Vec::new();
     for cf_path in &class_files {
         let bytes = std::fs::read(cf_path).map_err(|e| e.to_string())?;
         let cf = j2r_classfile::ClassFile::parse(&bytes)
@@ -444,15 +476,32 @@ fn find_main_class(classes_dir: &Path) -> Result<String, String> {
             .map(|m| m.is_static())
             .unwrap_or(false);
         if has_main {
-            // prefer the class matching the source file name
-            let simple = cf.this_class.rsplit('/').next().unwrap_or("");
-            let _ = simple;
-            if fallback.is_none() {
-                fallback = Some(cf.this_class.clone());
+            candidates.push(cf.this_class.clone());
+        }
+    }
+    candidates.sort();
+    match candidates.len() {
+        0 => Err("no class with `public static void main(String[])` found".to_string()),
+        1 => Ok(candidates.remove(0)),
+        _ => {
+            let stem_matches: Vec<&String> = candidates
+                .iter()
+                .filter(|c| {
+                    source_stem
+                        .map(|stem| c.rsplit('/').next() == Some(stem))
+                        .unwrap_or(false)
+                })
+                .collect();
+            match stem_matches.len() {
+                1 => Ok(stem_matches[0].clone()),
+                _ => Err(format!(
+                    "multiple classes declare `public static void main(String[])`: {}; \
+                     pass --main-class or rename so exactly one matches the source file",
+                    candidates.join(", ")
+                )),
             }
         }
     }
-    fallback.ok_or_else(|| "no class with `public static void main(String[])` found".to_string())
 }
 
 fn collect_class_files(dir: &Path, out: &mut Vec<PathBuf>) {
