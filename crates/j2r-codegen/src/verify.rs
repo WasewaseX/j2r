@@ -474,12 +474,14 @@ impl<'a> Sim<'a> {
     }
 
     /// Pops one value that must be exactly `want` (`Top` is accepted for
-    /// any category-1 `want`, `Null` and typed arrays for `Ref`).
+    /// any category-1 `want`; `Null` is accepted for every reference shape
+    /// — `Ref` *and* typed arrays, because `null` is assignable to any
+    /// array type, corpus F2 — and typed arrays for `Ref`).
     fn pop_exact(&mut self, want: VTy) -> std::result::Result<VTy, VerifyError> {
         let v = self.pop()?;
         let ok = v == want
             || (v == VTy::Top && want.is_cat1())
-            || (v == VTy::Null && want == VTy::Ref)
+            || (v == VTy::Null && matches!(want, VTy::Ref | VTy::Array(_)))
             || (matches!(v, VTy::Array(_)) && want == VTy::Ref);
         if ok {
             Ok(want)
@@ -1853,6 +1855,110 @@ mod tests {
         );
         let e = verify_err(&m);
         assert!(e.message.contains("expected Int"), "{e}");
+    }
+
+    #[test]
+    fn putstatic_accepts_null_for_array_typed_static() {
+        // Corpus F2: javac compiles `static char[] NONE = null;` in
+        // <clinit> as aconst_null; putstatic F:[C. null is assignable to
+        // every reference type — arrays included — so the verifier must
+        // accept it for a typed-array slot.
+        let m = plan(
+            "()V",
+            true,
+            1,
+            0,
+            vec![
+                (0, Instr::AConstNull),
+                (
+                    1,
+                    Instr::PutStatic {
+                        class: "C".to_string(),
+                        field: "f".to_string(),
+                        desc: "[C".to_string(),
+                    },
+                ),
+                (2, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        verify_ok(&m);
+    }
+
+    #[test]
+    fn null_argument_to_array_typed_parameter_verifies() {
+        // `foo((int[]) null)` — the same null-for-reference-shape
+        // polymorphism at an invokestatic call site.
+        let m = plan(
+            "()V",
+            true,
+            1,
+            0,
+            vec![
+                (0, Instr::AConstNull),
+                (
+                    1,
+                    Instr::InvokeStatic {
+                        class: "C".to_string(),
+                        name: "m".to_string(),
+                        desc: "([I)V".to_string(),
+                    },
+                ),
+                (2, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        verify_ok(&m);
+    }
+
+    #[test]
+    fn null_still_rejected_for_primitive_static() {
+        // The polymorphism is one-directional: null is a reference. An
+        // int-typed static keeps rejecting it.
+        let m = plan(
+            "()V",
+            true,
+            1,
+            0,
+            vec![
+                (0, Instr::AConstNull),
+                (
+                    1,
+                    Instr::PutStatic {
+                        class: "C".to_string(),
+                        field: "f".to_string(),
+                        desc: "I".to_string(),
+                    },
+                ),
+                (2, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        let e = verify_err(&m);
+        assert!(e.message.contains("expected Int"), "{e}");
+    }
+
+    #[test]
+    fn wrong_primitive_still_rejected_for_array_typed_static() {
+        // Exactness is kept beyond null: an int must not slip into a
+        // char[]-typed static either.
+        let m = plan(
+            "()V",
+            true,
+            1,
+            0,
+            vec![
+                (0, Instr::IConst(0)),
+                (
+                    1,
+                    Instr::PutStatic {
+                        class: "C".to_string(),
+                        field: "f".to_string(),
+                        desc: "[C".to_string(),
+                    },
+                ),
+                (2, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        let e = verify_err(&m);
+        assert!(e.message.contains("expected Array"), "{e}");
     }
 
     #[test]
