@@ -71,6 +71,32 @@ fn differential_suite_matches_jvm() {
         fixtures.len()
     );
 
+    // Optional sharding (ops): J2R_DIFF_SHARD=i/N keeps only the fixtures
+    // whose sorted index satisfies index % N == i. The corpus guard above
+    // still asserts the full on-disk suite, so a shard can never silently
+    // shrink the evidence. Unset (CI, default) = every fixture, unchanged.
+    // Introduced to shard the gate-9 gc-stress run (a collection at every
+    // allocation point) into bounded chunks on constrained machines; the
+    // gate itself always runs unfiltered.
+    if let Ok(spec) = std::env::var("J2R_DIFF_SHARD") {
+        let (i, n) = spec
+            .split_once('/')
+            .unwrap_or_else(|| panic!("J2R_DIFF_SHARD must be i/N, got {spec}"));
+        let (i, n): (usize, usize) = (
+            i.parse().unwrap_or_else(|_| panic!("bad shard index {i}")),
+            n.parse().unwrap_or_else(|_| panic!("bad shard total {n}")),
+        );
+        assert!(n > 0 && i < n, "bad shard spec {spec}");
+        let total = fixtures.len();
+        fixtures = fixtures
+            .into_iter()
+            .enumerate()
+            .filter(|(k, _)| k % n == i)
+            .map(|(_, p)| p)
+            .collect();
+        eprintln!("shard {spec}: {} of {total} fixtures", fixtures.len());
+    }
+
     let mut failures = Vec::new();
     for fixture in &fixtures {
         let out = Command::new(exe)
