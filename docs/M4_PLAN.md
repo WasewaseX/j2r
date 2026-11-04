@@ -1,7 +1,10 @@
-# M4_PLAN — Threads & Concurrency (rev 0 — DRAFT, pending review)
+# M4_PLAN — Threads & Concurrency (rev 1 — ACCEPTED)
 
-**Status: draft.** Every task in §6 is unchecked and stays unchecked until
-it has recorded evidence, same standing discipline as M2/M3. This plan
+**Status: accepted (rev 1, 2026-11-04).** The owner reviewed rev 0 against
+the roadmap and accepted the plan: wave order, risk register, determinism
+strategy, and the out-of-scope fence all stand as drafted. Every task in
+§6 is still unchecked and stays unchecked until it has recorded evidence,
+same standing discipline as M2/M3. This plan
 inherits two iron rules from the M2 review: no concurrency claims without
 differential evidence, and zero `unsafe` (no exceptions, no "just this
 once" — `#![forbid(unsafe_code)]` stays in every crate root).
@@ -130,7 +133,7 @@ the program-visible behaviour stays byte-identical single-threaded.
   shared even if the program is still single-threaded.
 * `frame.rs:195`'s `!Send` marker stays for Wave 1 (frames are still
   per-thread); Wave 2 owns the registry part.
-* Evidence: full suite (70) green + gc-stress gate green + new unit test
+* Evidence: full suite (84) green + gc-stress gate green + new unit test
   asserting the shared caches are actually shared-visible (compile-level
   `Send`/`Sync` assertions on the container types).
 
@@ -258,15 +261,15 @@ is proven, document exactly what is not.
 
 ---
 
-## §6 Task register (all unchecked — evidence before check)
+## §6 Task register (evidence before check — T01 accepted)
 
 | Task | Wave | Delivers |
 | --- | --- | --- |
-| T01 | 0 | This plan reviewed/rev'd; ROADMAP renumbering (M4→threads, Minecraft→M5, mods→M6) |
+| T01 | 0 | Plan reviewed/accepted (rev 1, owner directive 2026-11-04); ROADMAP renumbering verified in repo: `M4 — threads & concurrency`, `M5 — Minecraft readiness (was M4)`, `M6 — Mod ecosystem (was M5)` |
 | T02 | 1 | Shared heap container + migration checklist for every `thread_local!` (§1 list) |
 | T03 | 1 | Shared statics pool (generated crate changes) |
 | T04 | 1 | Shared identity caches (intern, boxing, out/err, Class objects) |
-| T05 | 1 | Wave-1 evidence: suite 70 green, gc-stress green, sharing unit tests |
+| T05 | 1 | Wave-1 evidence: suite (84 fixtures) green, gc-stress green, sharing unit tests |
 | T06 | 2 | `thread.rs` natives (start/join/sleep/yield/currentThread/daemon flag) |
 | T07 | 2 | Per-thread frame registries + global thread registry + worker-stack sizing |
 | T08 | 2 | STW safepoint protocol (GC_REQUESTED flag, park/resume, collector scans all registries) |
@@ -289,6 +292,11 @@ before the previous wave's CI evidence exists.
 
 ## Revision history
 
+- Rev 1 (2026-11-04): accepted. Owner directive "continue the roadmap"
+  recorded as plan acceptance; renumbering re-verified in ROADMAP.md
+  (M4 threads / M5 Minecraft readiness / M6 mod ecosystem); §1 audit line
+  numbers to be re-verified against source at Wave-1 start (T02 evidence,
+  docs/M4_EVIDENCE.md) since the corpus wave touched neighboring files.
 - Rev 0 (2026-11-02): draft. Architecture audit verified against source
   (11 seams, §1); risks R1–R7; four waves; determinism strategy §4;
   18-task register, all unchecked. Pending review before any task starts.

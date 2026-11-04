@@ -213,18 +213,15 @@ clinit-initialized reference statics — the singleton-factory pattern)
 **open, high priority**, blocks the corpus; F3 (java.io behavior
 natives) follows F2 by design.
 
-## M4 — threads & concurrency (draft plan)
+## M4 — threads & concurrency (accepted)
 
 The threads milestone M2_PLAN §7 promised: shared heap/statics/identity
 caches, real `Thread`, STW safepoints, monitor contention,
 `wait`/`notify`, interrupt, a cooperative-scheduler determinism strategy
-for differential testing, and a concurrency CI gate. Draft with an
-18-task register (all unchecked) at
-[docs/M4_PLAN.md](docs/M4_PLAN.md) — rev 0, pending review; no task
-starts before the plan is accepted. On acceptance, the milestone labels
-renumber: Minecraft readiness → M5, mod ecosystem → M6 — the renumbering
-is applied below in this same change so the register stays internally
-consistent.
+for differential testing, and a concurrency CI gate. **Accepted at rev 1
+(2026-11-04, owner directive); T01 closed, Wave 1 — shared substrate — is
+the current work.** 18-task register (evidence-before-check) at
+[docs/M4_PLAN.md](docs/M4_PLAN.md).
 
 ## M5 — Minecraft readiness (was M4)
 

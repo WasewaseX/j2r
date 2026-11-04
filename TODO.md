@@ -60,7 +60,10 @@ Mixin, LWJGL). Sole contributor: wasewasex.
 ## 2. DONE — this wave: CI repair (gate-1 + gate-2 + gate-6)
 
 The corpus wave landed with test evidence but without fmt/clippy/doc —
-CI went red on three gates. Reproduced locally, all fixed:
+CI went red on three gates. Reproduced locally, all fixed. **CI status at
+HEAD `e71442e`: green — all 11 check runs success, including the
+all-gates aggregate (verified via the GitHub API check-runs and by a
+local full-gate sweep at the same tree).**
 
 - [x] gate-1 fmt — `cargo fmt --all` applied across the corpus wave files
 - [x] gate-2 clippy — 5 lints fixed (4× map_or→is_none_or, 1× clone on Copy)
@@ -72,12 +75,13 @@ CI went red on three gates. Reproduced locally, all fixed:
       vs Temurin (281s) + corpus runner (real minimal-json vs Temurin)
       + lambda/SOE batteries — all green
 - [x] gate-4 release build green (RUSTFLAGS -D warnings)
-- [~] gate-9 gc-stress — 83/84 fixtures green in sharded forced-GC runs
-      (new J2R_DIFF_SHARD=i/N harness capability, corpus guard untouched).
+- [x] gate-9 gc-stress — CI-verified green at e71442e (the all-gates
+      aggregate only succeeds when gate-9 passes, and it did). Local
+      sharded evidence retained: 83/84 fixtures green with
+      J2R_DIFF_SHARD=i/N (new harness capability, corpus guard untouched).
       ReflectGC is an O(n^2) torture case under a-collection-at-every-
       allocation (200k live nodes) and exceeds the 10-minute local tool
-      cap; the authoritative unfiltered gate-9 run is CI's. Watch its
-      wall time on the next push.
+      cap; the authoritative unfiltered gate-9 run is CI's.
 
 ## 3. IN PROGRESS / NEXT (ordered)
 
@@ -93,12 +97,13 @@ CI went red on three gates. Reproduced locally, all fixed:
 - [ ] **F4, F5** — open corpus gaps, loud (docs/CORPUS_WAVE.md).
 - [ ] **Corpus entry 2** — next real-world library/program; each corpus
       wave must add differential evidence, not micro-probes.
-- [ ] **M4 threads & concurrency** — 18-task register drafted at
-      docs/M4_PLAN.md (rev 0, pending review, nothing starts before
-      acceptance): shared heap/statics, real Thread, safepoints,
-      monitor contention, wait/notify, interrupt, cooperative
-      scheduler for deterministic differential testing, JMM→Rust
-      mapping table + litmus suite (R4 acceptance).
+- [~] **M4 threads & concurrency — ACCEPTED (owner directive
+      2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6
+      (T01 accepted; Wave 1 shared substrate in progress): shared
+      heap/statics, real Thread, safepoints, monitor contention,
+      wait/notify, interrupt, cooperative scheduler for deterministic
+      differential testing, JMM→Rust mapping table + litmus suite
+      (R4 acceptance).
 - [ ] **R2 metadata generator (M4 scope)** — reflection metadata
       retention so runtime string lookups resolve (closed-world design
       in docs/STRATEGIC_GAPS.md).
