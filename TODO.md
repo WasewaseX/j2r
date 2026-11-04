@@ -111,6 +111,14 @@ local full-gate sweep at the same tree).**
       clean compile, positive controls on a known-bad fixture DB, zero
       findings on the repo DB), pack dependency caching, workflow_dispatch,
       action v4 SHA-pinned; .github/codeql/codeql-config.yml.
+      **gate-9 unblocked by sharding** (2026-11-05): the gc-stress suite
+      outgrew its 60-minute runner cap at the 88-fixture census — the
+      three runs after 98be983 (e5b152c, d302c2b, 50e0ed6) died at exactly
+      60m15s into gate-9 (GitHub renders the timeout kill as a cancelled
+      job). The J2R_DIFF_SHARD=i/N stride harness (71483a0, built for
+      exactly this but never wired) is now a 3-way matrix in ci.yml;
+      plumbing proven locally (shard 2/3 → 29 of 89 fixtures, bad spec
+      parse verified by inspection).
 - [~] **M4 threads & concurrency — ACCEPTED (owner directive
       2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
       **Wave 1 shared substrate LANDED** (T02–T05, commit 4ddfe1b; CI
