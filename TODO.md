@@ -110,8 +110,13 @@ local full-gate sweep at the same tree).**
       aggregate green on that push). **Wave 2 real threads LANDED**
       (T06–T09: Thread natives + registry + STW safepoints + coop
       scheduler; two new real-thread fixtures byte-identical vs Temurin;
-      docs/M4_EVIDENCE.md §Wave 2). Next: Wave 3 monitor contention +
-      wait/notify (T10–T13). Later: interrupt/daemon/JMM-lite/stress
+      docs/M4_EVIDENCE.md §Wave 2). **Wave 3 monitor contention +
+      wait/notify LANDED** (T10–T12: real per-entry monitor state
+      machine, Mesa wait/notify/notifyAll, JDK-exact wait(long,int),
+      STW/coop park protocol, lock law L7; 9 monitor unit tests,
+      runtime 123 → 132 green — docs/M4_EVIDENCE.md §Wave 3). Next:
+      T13 differential fixtures (WaitNotify / MonitorContention /
+      WaitTimeout), then Wave 4 interrupt/daemon/JMM-lite/stress
       (T14–T18, gate-13).
 
 ### M4 Wave 2 — real threads (T06–T09) — LANDED, CI pending
@@ -143,21 +148,25 @@ local full-gate sweep at the same tree).**
 
 ### M4 Wave 3 — monitor contention + wait/notify (T10–T13)
 
-- [ ] **T10** — contention monitor state machine per heap entry:
+- [x] **T10** — contention monitor state machine per heap entry:
       `unowned | owned{owner, count}` with owner thread id; contended
-      enter parks on a per-monitor `Condvar`.
-- [ ] **T11** — `wait`/`notify`/`notifyAll` with JDK-exact semantics:
-      ownership required (else `IllegalMonitorStateException`, existing
-      message pinned); atomic full-count release + park; wake restores
-      the full count; spurious Condvar wakeups absorbed internally,
-      invisible to Java code.
-- [ ] **T12** — `wait(timeout)`/`wait(timeout, nanos)`: millisecond-
+      enter parks on a per-monitor `Condvar` (crates/j2r-runtime/src/
+      monitor.rs; `Entry.mon` lazy `Arc<Monitor>`; park/wake protocol in
+      thread.rs; lock law L7).
+- [x] **T11** — `wait`/`notify`/`notifyAll` with JDK-exact semantics:
+      ownership required (IMSE, "current thread not owner", checked
+      BEFORE argument ranges — HotSpot CHECK_OWNER order); atomic
+      full-count release + park; wake restores the full count; spurious
+      Condvar wakeups absorbed internally, invisible to Java code.
+- [x] **T12** — `wait(timeout)`/`wait(timeout, nanos)`: millisecond-
       effective timing, JDK-faithful rounding (nanos ≥ 500000 rounds up),
       `IllegalArgumentException` on negatives with exact messages.
-- [ ] **T13** — fixtures `WaitNotify` (producer/consumer handoff,
+- [~] **T13** — unit half LANDED (9 monitor tests incl. re-entrancy
+      across wait, contended-enter handover, timed-wait deadline);
+      fixture half OPEN: `WaitNotify` (producer/consumer handoff,
       coop-deterministic), `MonitorContention` (two threads, 10k
       uncontended + contended cycles), `WaitTimeout` (loose timing
-      windows for CI runners); unit tests incl. re-entrancy across wait.
+      windows for CI runners) — differential vs Temurin.
 
 ### M4 Wave 4 — interrupt, daemon shutdown, JMM-lite, stress (T14–T18)
 

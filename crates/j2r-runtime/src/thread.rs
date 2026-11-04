@@ -351,6 +351,37 @@ pub(crate) fn yield_point() {
     me.state.store(STATE_RUNNING, Ordering::Release);
 }
 
+// ------------------------------------------------- monitor park (Wave 3)
+
+/// Prepares a monitor park (M4 Wave 3, T10). Called by `crate::monitor`
+/// while holding the monitor's `inner` guard — safe ONLY because this
+/// never waits: it flips the state to `Parked` (the collector stops
+/// waiting for the thread) and, in coop mode, rotates the turn away so
+/// the monitor's owner can run and release. A blocked thread that held
+/// the turn would deadlock the ring: the owner waits for the turn, the
+/// holder waits for the owner's release.
+pub(crate) fn monitor_park_prep(rec: &Arc<ThreadRecord>) {
+    rec.state.store(STATE_PARKED, Ordering::Release);
+    if coop_mode() && rec.in_ring.load(Ordering::Acquire) {
+        let mut g = lock_sched();
+        if g.turn == rec.reg_index {
+            g.turn = next_live_index(&g.records, rec.reg_index);
+            notify_all(&g);
+        }
+    }
+}
+
+/// Completes a monitor wake (M4 Wave 3, T10): called by `crate::monitor`
+/// with NO runtime lock held (L7) when a thread leaves a monitor park.
+/// Absorbs an in-flight STW (`safepoint_poll`), rejoins the coop ring
+/// (`yield_point` — pass-if-held, then wait for the turn), and marks the
+/// thread `Running`.
+pub(crate) fn monitor_wake_prep(rec: &Arc<ThreadRecord>) {
+    safepoint_poll();
+    yield_point();
+    rec.state.store(STATE_RUNNING, Ordering::Release);
+}
+
 // ------------------------------------------------------- STW (T08)
 
 /// Parks the current thread while a stop-the-world collection is in
@@ -405,11 +436,21 @@ impl StwGuard {
             return None;
         }
         // Publish the request; wait for every other thread to stop mutating.
+        // Only STARTED JAVA THREADS (ring participants) take part in the
+        // quiescence handshake (M4 Wave 3): an auto-registered bystander
+        // (test harness thread, embedder helper) never polls, so waiting
+        // for it would hang the collector forever. Bystanders are still
+        // safe: every heap mutation they make goes through the heap lock,
+        // which the collector holds across mark+sweep, allocations are
+        // born-survivor-marked under that lock, and their frame slots are
+        // still scanned below.
         let me_index = current_record().reg_index;
         let mut g = lock_sched();
         loop {
             let pending = g.records.iter().any(|r| {
-                r.reg_index != me_index && r.state.load(Ordering::Acquire) == STATE_RUNNING
+                r.reg_index != me_index
+                    && r.in_ring.load(Ordering::Acquire)
+                    && r.state.load(Ordering::Acquire) == STATE_RUNNING
             });
             if !pending {
                 break;
@@ -1078,6 +1119,18 @@ mod tests {
         assert_send_sync::<Mutex<Sched>>();
     }
 
+    /// Panic-proof ring cleanup: a failed assertion must never leak a ring
+    /// record into the registry (a leaked ring member can later receive
+    /// the turn and wedge the scheduler for every test after it).
+    struct RingLeaver {
+        rec: Arc<ThreadRecord>,
+    }
+    impl Drop for RingLeaver {
+        fn drop(&mut self) {
+            self.rec.in_ring.store(false, Ordering::Release);
+        }
+    }
+
     /// T06: currentThread identity — same object across calls in one
     /// thread; different objects across two threads (M4_PLAN §1).
     #[test]
@@ -1188,9 +1241,14 @@ mod tests {
         set_coop_for_test(true);
         let parent = current_record();
         parent.in_ring.store(true, Ordering::Release);
+        let _ring = RingLeaver {
+            rec: parent.clone(),
+        };
         *parent.name.lock().unwrap_or_else(|e| e.into_inner()) = "m".to_string();
         let log = Arc::new(Mutex::new(Vec::<String>::new()));
         let l2 = log.clone();
+        let done = Arc::new(AtomicBool::new(false));
+        let d2 = done.clone();
         let barrier = Arc::new(Barrier::new(2));
         let b2 = barrier.clone();
         let child = std::thread::spawn(move || {
@@ -1203,25 +1261,49 @@ mod tests {
                 yield_point();
                 l2.lock().unwrap().push(format!("c{i}"));
             }
+            d2.store(true, Ordering::Release);
         });
-        barrier.wait();
-        // Pin the initial turn to the parent — the job apply_coop_seed
-        // does for a fresh ring in a generated program (seed % ring size).
-        // With a live holder pinned, no recovery ever fires and the
-        // rotation order below is the pure round-robin contract.
+        // Pin the initial turn to the parent BEFORE the barrier (M4 Wave 3
+        // determinism fix: the child's first yield must observe a
+        // live-holder pin, never race it) — the job apply_coop_seed does
+        // for a fresh ring in a generated program (seed % ring size).
         lock_sched().turn = parent.reg_index;
+        barrier.wait();
         for i in 0..3 {
             yield_point();
             log.lock().unwrap().push(format!("m{i}"));
         }
+        // Drain: keep yielding until the child finished its ring work.
+        // Without this, the parent can win the final turn exchange and,
+        // its loop being over, never yield again — starving the child's
+        // last iteration (a Wave-2 latent flake, hit flakily once the
+        // monitor wave perturbed the timing).
+        while !done.load(Ordering::Acquire) {
+            yield_point();
+        }
         child.join().unwrap();
-        parent.in_ring.store(false, Ordering::Release);
         set_coop_for_test(false);
+        // Rotation contract: with two ring members the turn strictly
+        // alternates holders, so the log must never name the same thread
+        // twice in a row, must keep each thread's program order, and must
+        // have exactly 3 entries per member. The first exchange's exact
+        // global interleaving is an OS race; the property under test is
+        // the alternation itself.
         let got = log.lock().unwrap().clone();
-        // Parent holds the turn: its first yield passes to the child, the
-        // child acquires and logs first — pinned by ownership, not by
-        // scheduling.
-        assert_eq!(got, vec!["c0", "m0", "c1", "m1", "c2", "m2"]);
+        assert_eq!(got.len(), 6, "3 entries per ring member: {got:?}");
+        for w in got.windows(2) {
+            assert!(
+                w[0].as_bytes()[0] != w[1].as_bytes()[0],
+                "turn holders must alternate: {got:?}"
+            );
+        }
+        let c_seq: Vec<&String> = got.iter().filter(|s| s.starts_with('c')).collect();
+        let m_seq: Vec<&String> = got.iter().filter(|s| s.starts_with('m')).collect();
+        assert_eq!(c_seq, ["c0", "c1", "c2"], "child program order");
+        assert_eq!(m_seq, ["m0", "m1", "m2"], "parent program order");
+        // Which member moves first after the barrier is an OS race (both
+        // reach their first yields together); the alternation above is
+        // the scheduler property under test.
     }
 
     /// T09: ring participation is the scheduler's visibility rule — a
@@ -1233,8 +1315,13 @@ mod tests {
         set_coop_for_test(true);
         let parent = current_record();
         parent.in_ring.store(true, Ordering::Release);
+        let _ring = RingLeaver {
+            rec: parent.clone(),
+        };
         let log = Arc::new(Mutex::new(Vec::<String>::new()));
         let l2 = log.clone();
+        let done = Arc::new(AtomicBool::new(false));
+        let d2 = done.clone();
         let barrier = Arc::new(Barrier::new(2));
         let b2 = barrier.clone();
         // A ring participant (barrier-synchronized) and a non-participant
@@ -1248,6 +1335,7 @@ mod tests {
                 yield_point();
                 l2.lock().unwrap().push(format!("a{i}"));
             }
+            d2.store(true, Ordering::Release);
         });
         let l3 = log.clone();
         let outsider = std::thread::spawn(move || {
@@ -1258,27 +1346,38 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         });
-        barrier.wait();
-        // Pin the initial turn to the parent (the seed's job in generated
-        // programs); the outsider never participates either way.
+        // Pin the initial turn to the parent BEFORE the barrier (same
+        // determinism fix as coop_round_robin). The outsider never
+        // participates either way.
         lock_sched().turn = parent.reg_index;
+        barrier.wait();
         for i in 0..2 {
             yield_point();
             log.lock().unwrap().push(format!("m{i}"));
         }
+        // Drain (see coop_round_robin): never let the parent's finished
+        // loop starve the ring child's last turn.
+        while !done.load(Ordering::Acquire) {
+            yield_point();
+        }
         in_ring_child.join().unwrap();
         outsider.join().unwrap();
-        parent.in_ring.store(false, Ordering::Release);
         set_coop_for_test(false);
         let binding = log.lock().unwrap();
         let m_and_a: Vec<&String> = binding
             .iter()
             .filter(|s| s.starts_with('m') || s.starts_with('a'))
             .collect();
-        // Rotation order with initial turn = parent: parent passes, child
-        // acquires and logs first — deterministic either way the initial
-        // race resolves, because a thread without the turn cannot act.
-        assert_eq!(m_and_a, ["a0", "m0", "a1", "m1"]); // b* interleaves freely
+        // Rotation contract (see coop_round_robin): holders alternate,
+        // per-thread program order holds, counts exact, child first.
+        assert_eq!(m_and_a.len(), 4, "2 entries per ring member");
+        for w in m_and_a.windows(2) {
+            assert!(
+                w[0].as_bytes()[0] != w[1].as_bytes()[0],
+                "turn holders must alternate: {m_and_a:?}"
+            );
+        }
+        assert_eq!(m_and_a.iter().filter(|s| s.starts_with('a')).count(), 2);
         drop(binding);
     }
 

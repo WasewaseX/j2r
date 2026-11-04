@@ -282,7 +282,7 @@ impl Drop for FrameGuard {
         // ACC_SYNCHRONIZED prologues, or exceptional exits that outrun
         // javac's structured release paths). LIFO order.
         for r in self.monitors.borrow().iter().rev() {
-            crate::heap::monitor_release(r);
+            crate::monitor::monitor_release(r);
         }
         self.monitors.borrow_mut().clear();
         // Runs on normal return, on `Err` propagation and on panic unwind:

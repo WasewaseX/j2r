@@ -92,11 +92,12 @@ impl JRef {
 struct Entry {
     obj: RefCell<JObj>,
     mark: Cell<bool>,
-    /// Intrinsic monitor (M3 Wave 4): re-entrancy count, 0 = unlocked.
-    /// The runtime is single-threaded, so a nonzero count means the one
-    /// thread owns it; `monitorexit` without ownership is
-    /// `IllegalMonitorStateException`, exactly HotSpot's behavior.
-    monitor: Cell<u32>,
+    /// Intrinsic monitor (M4 Wave 3, T10): a real contention state machine
+    /// (`unowned | owned{owner, count}` + wait set), lazily created on
+    /// first monitor use. `Arc` so the monitor code can operate it after
+    /// the heap lock is dropped (L7: never park holding the heap lock).
+    /// M3's `Cell<u32>` counter was only sound single-threaded.
+    mon: Mutex<Option<std::sync::Arc<crate::monitor::Monitor>>>,
 }
 
 struct Heap {
@@ -194,7 +195,7 @@ pub fn alloc(obj: JObj) -> JRef {
             heap.entries[i] = Some(Entry {
                 obj: RefCell::new(obj),
                 mark: Cell::new(born_survivor),
-                monitor: Cell::new(0),
+                mon: Mutex::new(None),
             });
             (i, heap.gens[i])
         }
@@ -202,7 +203,7 @@ pub fn alloc(obj: JObj) -> JRef {
             heap.entries.push(Some(Entry {
                 obj: RefCell::new(obj),
                 mark: Cell::new(born_survivor),
-                monitor: Cell::new(0),
+                mon: Mutex::new(None),
             }));
             heap.gens.push(0);
             (heap.entries.len() - 1, 0)
@@ -215,69 +216,29 @@ pub fn alloc(obj: JObj) -> JRef {
 
 // ------------------------------------------------------------------ monitors
 
-/// `monitorenter`: re-entrant acquisition (M3 Wave 4). The runtime is
-/// single-threaded, so there is no contention path; the only failures are
-/// the null receiver (NPE at the caller) and counter overflow (internal
-/// error — a u32 recursion depth in one object is not reachable by any
-/// real program given the frame ceiling).
-pub fn monitor_enter(r: &JRef) -> Result<(), crate::Throw> {
+/// Fetches (or lazily creates) the entry's monitor and clones its `Arc`
+/// out (M4 Wave 3, T10). The heap lock is taken ONLY for this — the
+/// clone is returned and all monitor operations (including parks) happen
+/// without it (L7: heap → monitor-inner, never parked on inner while
+/// holding the heap lock). The receiver must be live: a stale handle
+/// panics loudly (rooting bug), same law as every other heap accessor.
+pub(crate) fn entry_monitor(r: JRef) -> std::sync::Arc<crate::monitor::Monitor> {
     let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
-    let i = live_slot_index(heap, *r);
+    let i = live_slot_index(heap, r);
     let e = heap.entries[i].as_ref().expect("live entry");
-    let n = e.monitor.get();
-    e.monitor.set(
-        n.checked_add(1)
-            .expect("j2r internal: monitor count overflow"),
-    );
-    Ok(())
-}
-
-/// `monitorexit`: releases one level of ownership. Exiting a monitor the
-/// thread does not hold throws `IllegalMonitorStateException` with
-/// HotSpot's message.
-pub fn monitor_exit(r: &JRef) -> Result<(), crate::Throw> {
-    // The IMSE object is allocated AFTER the borrow ends: `throw_new`
-    // itself allocates, and the heap RefCell must not be re-entered.
-    let unowned = {
-        let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
-        let i = live_slot_index(heap, *r);
-        let e = heap.entries[i].as_ref().expect("live entry");
-        let n = e.monitor.get();
-        if n == 0 {
-            true
-        } else {
-            e.monitor.set(n - 1);
-            false
-        }
-    };
-    if unowned {
-        return Err(crate::throw_new(
-            "java/lang/IllegalMonitorStateException",
-            Some("current thread not owner"),
-        ));
+    let mut slot = e.mon.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(m) = slot.as_ref() {
+        return m.clone();
     }
-    Ok(())
+    let m = std::sync::Arc::new(crate::monitor::Monitor::new());
+    *slot = Some(m.clone());
+    m
 }
 
-/// Unwind-release (FrameGuard `Drop` safety net): decrements without the
-/// ownership check, because the frame recorded the acquisition. Debug-
-/// asserted to never underflow.
-pub(crate) fn monitor_release(r: &JRef) {
-    let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
-    let i = live_slot_index(heap, *r);
-    let e = heap.entries[i].as_ref().expect("live entry");
-    let n = e.monitor.get();
-    debug_assert!(n >= 1, "j2r internal: monitor release underflow");
-    e.monitor.set(n.saturating_sub(1));
-}
-
-/// Current monitor count (test/observation helper).
-#[cfg(test)]
-pub(crate) fn monitor_count(r: &JRef) -> u32 {
-    let heap = heap().lock().unwrap_or_else(|e| e.into_inner());
-    let i = live_slot_index(&heap, *r);
-    heap.entries[i].as_ref().expect("live entry").monitor.get()
-}
+// The monitor operations themselves (`monitor_enter`, `monitor_exit`,
+// `monitor_release`, `Object.wait`/`notify`/`notifyAll`) live in
+// `crate::monitor` — a monitor park must not happen under the heap lock,
+// so the state machine is one module boundary away from the allocator.
 
 fn live_slot_index(heap: &Heap, r: JRef) -> usize {
     let i = (r.idx.get() - 1) as usize;
@@ -888,21 +849,21 @@ mod tests {
     fn monitor_enter_exit_counts() {
         let _rt = crate::test_support::runtime();
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
-        assert_eq!(monitor_count(&r), 0);
-        monitor_enter(&r).unwrap();
-        monitor_enter(&r).unwrap(); // re-entrant
-        assert_eq!(monitor_count(&r), 2);
-        monitor_exit(&r).unwrap();
-        assert_eq!(monitor_count(&r), 1);
-        monitor_exit(&r).unwrap();
-        assert_eq!(monitor_count(&r), 0);
+        assert_eq!(crate::monitor::monitor_count(&r), 0);
+        crate::monitor::monitor_enter(&r).unwrap();
+        crate::monitor::monitor_enter(&r).unwrap(); // re-entrant
+        assert_eq!(crate::monitor::monitor_count(&r), 2);
+        crate::monitor::monitor_exit(&r).unwrap();
+        assert_eq!(crate::monitor::monitor_count(&r), 1);
+        crate::monitor::monitor_exit(&r).unwrap();
+        assert_eq!(crate::monitor::monitor_count(&r), 0);
     }
 
     #[test]
     fn monitor_exit_without_ownership_is_imse() {
         let _rt = crate::test_support::runtime();
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
-        let err = monitor_exit(&r).unwrap_err();
+        let err = crate::monitor::monitor_exit(&r).unwrap_err();
         let cls = with_obj(err.obj, |o| o.jclass.to_string());
         assert_eq!(cls, "java/lang/IllegalMonitorStateException");
         let msg_ref = with_obj(err.obj, |o| match &o.slots[0] {
@@ -920,11 +881,11 @@ mod tests {
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
         {
             let g = crate::frame::FrameGuard::enter().unwrap();
-            monitor_enter(&r).unwrap();
+            crate::monitor::monitor_enter(&r).unwrap();
             g.record_monitor(r);
-            assert_eq!(monitor_count(&r), 1);
+            assert_eq!(crate::monitor::monitor_count(&r), 1);
         } // Drop releases the recorded acquisition
-        assert_eq!(monitor_count(&r), 0);
+        assert_eq!(crate::monitor::monitor_count(&r), 0);
     }
 
     #[test]
@@ -933,20 +894,20 @@ mod tests {
         let a = crate::object::new_obj("java/lang/Object", 0).unwrap();
         let b = crate::object::new_obj("java/lang/Object", 0).unwrap();
         let g = crate::frame::FrameGuard::enter().unwrap();
-        monitor_enter(&a).unwrap();
+        crate::monitor::monitor_enter(&a).unwrap();
         g.record_monitor(a);
-        monitor_enter(&b).unwrap();
+        crate::monitor::monitor_enter(&b).unwrap();
         g.record_monitor(b);
-        monitor_enter(&a).unwrap();
+        crate::monitor::monitor_enter(&a).unwrap();
         g.record_monitor(a);
         // exit of a pops only the most recent a record; b stays recorded
-        monitor_exit(&a).unwrap();
+        crate::monitor::monitor_exit(&a).unwrap();
         g.unrecord_monitor(&a);
-        assert_eq!(monitor_count(&a), 1);
-        assert_eq!(monitor_count(&b), 1);
+        assert_eq!(crate::monitor::monitor_count(&a), 1);
+        assert_eq!(crate::monitor::monitor_count(&b), 1);
         // the Drop releases the remaining two records
         drop(g);
-        assert_eq!(monitor_count(&a), 0);
-        assert_eq!(monitor_count(&b), 0);
+        assert_eq!(crate::monitor::monitor_count(&a), 0);
+        assert_eq!(crate::monitor::monitor_count(&b), 0);
     }
 }

@@ -676,7 +676,7 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) ->
         if instance {
             out.push_str("    if let ::core::option::Option::Some(r) = recv {\n");
             out.push_str(&format!(
-                "        if let ::core::result::Result::Err(t) = {RT}::heap::monitor_enter(r) {{ return ::core::result::Result::Err(t); }}\n"
+                "        if let ::core::result::Result::Err(t) = {RT}::monitor::monitor_enter(r) {{ return ::core::result::Result::Err(t); }}\n"
             ));
             out.push_str("        __frame.record_monitor(*r);\n    }\n");
         } else {
@@ -685,7 +685,7 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) ->
                 "    let __cm = crate::statics::class_monitor({idx}u32);\n"
             ));
             out.push_str(&format!(
-                "    if let ::core::result::Result::Err(t) = {RT}::heap::monitor_enter(&__cm) {{ return ::core::result::Result::Err(t); }}\n"
+                "    if let ::core::result::Result::Err(t) = {RT}::monitor::monitor_enter(&__cm) {{ return ::core::result::Result::Err(t); }}\n"
             ));
             out.push_str("    __frame.record_monitor(__cm);\n");
         }
@@ -1241,7 +1241,7 @@ fn emit_instr(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             out.push(format!(
-                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::heap::monitor_enter(&__r));"
+                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::monitor::monitor_enter(&__r));"
             ));
             out.push("__frame.record_monitor(__r);".into());
         }
@@ -1250,7 +1250,7 @@ fn emit_instr(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
             out.push(format!(
-                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::heap::monitor_exit(&__r));"
+                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::monitor::monitor_exit(&__r));"
             ));
             out.push("__frame.unrecord_monitor(&__r);".into());
         }

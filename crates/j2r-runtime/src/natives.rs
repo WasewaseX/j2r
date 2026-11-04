@@ -113,33 +113,35 @@ fn n_object_init(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
     Ok(Value::Void)
 }
 
-// Object monitor condition methods (M3 Wave 4): loud-unsupported — the
-// threading boundary of M3_PLAN §7.1 (wait/notify need a multi-threaded
-// monitor). Registered so javac-compiled calls fail loudly at *runtime*
-// with a named reason, never silently.
-fn n_object_wait(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
-    Err(throw_new(
-        "java/lang/UnsupportedOperationException",
-        Some("J2R M3: Object.wait is not supported (single-threaded runtime)"),
-    ))
+// Object monitor condition methods (M4 Wave 3, T11/T12): real
+// implementations over the Wave-3 monitor (crate::monitor). All three
+// `wait` shapes funnel into one implementation; argument validation and
+// the ownership check live there (HotSpot order: ownership first).
+fn n_object_wait(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Object.wait");
+    let (millis, nanos) = match args {
+        [] => (0i64, 0i32),
+        [Value::Long(v)] => (*v, 0i32),
+        [Value::Long(v), Value::Int(n)] => (*v, *n),
+        _ => (0, 0), // unreachable through the registered shapes
+    };
+    crate::monitor::object_wait(r, millis, nanos)
 }
 
-fn n_object_notify(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
-    Err(throw_new(
-        "java/lang/UnsupportedOperationException",
-        Some("J2R M3: Object.notify is not supported (single-threaded runtime)"),
-    ))
+fn n_object_notify(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Object.notify");
+    crate::monitor::object_notify(r, false)?;
+    Ok(Value::Void)
 }
 
 fn n_object_notify_all(
-    _recv: Option<&JRef>,
+    recv: Option<&JRef>,
     _args: &[Value],
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
-    Err(throw_new(
-        "java/lang/UnsupportedOperationException",
-        Some("J2R M3: Object.notifyAll is not supported (single-threaded runtime)"),
-    ))
+    let r = this(recv, "Object.notifyAll");
+    crate::monitor::object_notify(r, true)?;
+    Ok(Value::Void)
 }
 
 fn n_object_hash_code(

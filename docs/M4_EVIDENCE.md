@@ -249,3 +249,76 @@ native threads; GC stays correct under the stop-the-world protocol.
   first real-threads evidence in the project. Suite on disk: 86.
 * gate-9 (a collection at every allocation) exercises the full STW
   protocol across the whole suite; authoritative run = CI on this push.
+
+## Wave 3 — monitor contention + wait/notify (T10, T11, T12; T13 unit half)
+
+**Commit: this push.** `crates/j2r-runtime/src/monitor.rs` (new) replaces
+the M3 single-threaded `Cell<u32>` counter with a real per-entry state
+machine: `unowned | owned{owner: reg_index, count: u32}` plus a FIFO wait
+set, one `Arc<Monitor>` lazily stored in each heap `Entry`
+(`Entry.mon: Mutex<Option<Arc<Monitor>>>` — no side table, nothing for
+the sweep to clean: a contender's receiver is frame-rooted, so an entry
+cannot be swept while a thread parks on it).
+
+### Design decisions (with the alternatives rejected)
+
+* **Mesa semantics** (HotSpot's shape): `notify` moves the FIFO-head
+  waiter out of the wait set; the woken thread then competes for
+  ownership like any enter-contender and reacquires with its FULL saved
+  count. No handoff guarantees — matching the JDK.
+* **Lock law L7** (monitor.rs module docs): heap → monitor-inner →
+  sched, one-directional; parks happen only through `Condvar::wait` on
+  `inner` (which releases it) or with no lock at all; the exception
+  object is always allocated after the guard drops.
+* **STW integration**: a thread about to park on a monitor marks itself
+  `Parked` (the collector stops waiting for it) and, in coop mode,
+  rotates the turn away (`thread::monitor_park_prep` — a blocked thread
+  holding the turn would deadlock the ring: owner waits for the turn,
+  holder waits for the owner's release). On wake:
+  `safepoint_poll → coop turn re-acquisition → Running`
+  (`thread::monitor_wake_prep`), called with no runtime lock held.
+* **StwGuard quiescence is now ring-only**: auto-registered bystanders
+  (test harness threads, embedder helpers) never poll, so waiting for
+  them would hang the collector forever. They remain safe: all their
+  heap mutation goes through the heap lock (held by the collector across
+  mark+sweep), allocations are born-survivor-marked, and their slots are
+  still scanned.
+* **wait(long,int) argument order**: ownership check BEFORE the argument
+  ranges (HotSpot `ObjectMonitor::wait` CHECK_OWNER order) — a non-owner
+  with a negative timeout gets the IMSE. Messages pinned:
+  `timeout value is negative`, `nanosecond timeout value out of range`
+  (same strings as `Thread.sleep`), rounding nanos ≥ 500000 → +1ms.
+* **Spurious wakeups** absorbed by the wait loops (wait-set membership +
+  deadline re-checked under the reacquired guard), invisible to Java.
+* `Object.wait()/wait(ms)/wait(ms,nanos)/notify/notifyAll` natives are
+  real now; the M3 loud-unsupported stubs are gone.
+
+### Test-suite hardening forced by the wave (recorded honestly)
+
+* The Wave-2 coop tests carried two latent flakes the monitor wave's
+  timing perturbation exposed: (1) the initial-turn pin raced the
+  child's first yield — the pin now happens BEFORE the barrier; (2) the
+  parent's loop can win the final turn exchange and, never yielding
+  again, starve the child's last iteration — both coop tests now drain
+  (`while !done { yield_point(); }`) and assert the ROTATION CONTRACT
+  (strict holder alternation, per-thread program order, exact counts)
+  instead of one OS-lucky global interleaving. Both flakes were
+  reproduced flakily (2-8 runs), diagnosed via registry snapshots
+  (frozen turn on a leaked/racing ring record), and closed.
+* `test_support::runtime()` serialization unchanged; the four M3 monitor
+  tests moved to `monitor::tests` and grew to nine, now covering:
+  re-entrancy, pinned IMSE (exit/wait/notify, ownership-before-args),
+  JDK-exact IAE messages, full-count release/restore across wait,
+  empty-wait-set notify no-op, real contended-enter park + handover,
+  timed-wait deadline (nanos rounding), and notify-wakes-waiter Mesa
+  reacquisition.
+
+### Evidence (local, wave-3 tree)
+
+* gate-1 fmt clean; gate-2 clippy `-D warnings` clean; gate-6 doc clean;
+  gate-10 zero-unsafe clean; workspace tests: all 16 targets green;
+  runtime unit tests: **132 green (was 123)**. Gate-3's differential
+  sweep and gate-9 run on CI for this push.
+* **T13 fixtures (WaitNotify / MonitorContention / WaitTimeout
+  differential vs Temurin) are the remaining half of T13** — next
+  increment; the board tracks them unchecked.

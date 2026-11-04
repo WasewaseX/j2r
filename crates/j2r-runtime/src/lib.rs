@@ -34,6 +34,7 @@ pub mod javafmt;
 pub mod jdkutil;
 pub mod lambda;
 pub mod langext;
+pub mod monitor;
 pub mod natives;
 pub mod object;
 pub mod reflect;
