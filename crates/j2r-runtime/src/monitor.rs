@@ -159,9 +159,12 @@ pub fn monitor_exit(r: &JRef) -> Result<(), crate::Throw> {
         }
     }
     if unowned {
+        // monitorexit's IMSE carries NO message on Temurin 21 (pinned with
+        // a hand-built classfile, T13) — unlike Object.wait/notify's
+        // "current thread is not owner".
         return Err(crate::throw_new(
             "java/lang/IllegalMonitorStateException",
-            Some("current thread not owner"),
+            None,
         ));
     }
     Ok(())
@@ -210,13 +213,17 @@ pub(crate) fn monitor_owner(r: &JRef) -> Option<usize> {
 /// `Object.wait(timeoutMillis, nanos)` (T11/T12) — all three JDK shapes
 /// funnel here (`wait()` = `(0, 0)` = wait forever, `wait(ms)` = `(ms, 0)`).
 ///
-/// Semantics (JDK-faithful):
-/// * ownership required — `IllegalMonitorStateException("current thread
-///   not owner")`, and HotSpot checks the owner BEFORE the argument
-///   ranges, so a non-owner gets the IMSE even with a negative timeout;
-/// * negative millis → `IllegalArgumentException("timeout value is
+/// Semantics (JDK-faithful, pinned empirically against Temurin 21.0.13
+/// with an OrderProbe covering owner × arg-validity — see T13):
+/// * the ARGUMENT ranges are checked first (the JDK checks them in the
+///   Java-level `Object.wait` wrapper, before the native ever runs):
+///   negative millis → `IllegalArgumentException("timeout value is
 ///   negative")`; nanos outside 0..=999_999 →
 ///   `IllegalArgumentException("nanosecond timeout value out of range")`;
+///   so a non-owner with a negative timeout gets the IAE, not the IMSE;
+/// * then ownership — `IllegalMonitorStateException("current thread is
+///   not owner")` (JDK 21 wording; the old bare "current thread not
+///   owner" is the pre-15 raw-monitor string);
 /// * nanos >= 500_000 rounds the effective budget up one millisecond
 ///   (same rounding as `Thread.sleep`, pinned in T12);
 /// * `(0, 0)` waits forever; any other `(0, nanos)` waits a sub-
@@ -236,22 +243,10 @@ pub fn object_wait(
     let rec = crate::thread::current_record();
     let me = rec.reg_index;
 
-    // HotSpot checks the monitor owner BEFORE the argument ranges
-    // (ObjectMonitor::wait's CHECK_OWNER), so a non-owner gets the IMSE
-    // even with a negative timeout. The throw is built after the guard
-    // scope ends (throw_new allocates).
-    {
-        let st = m.lock();
-        if st.owner != Some(me) {
-            drop(st);
-            return Err(crate::throw_new(
-                "java/lang/IllegalMonitorStateException",
-                Some("current thread not owner"),
-            ));
-        }
-    }
-
-    // Argument validation mirrors Thread.sleep's pinned messages (T12).
+    // Argument validation FIRST: the JDK range-checks in the Java-level
+    // wrapper, before the native wait0 (pinned on Temurin 21 — a non-owner
+    // with a negative timeout gets the IAE). Messages mirror Thread.sleep's
+    // pinned strings (T12).
     if timeout_millis < 0 {
         return Err(crate::throw_new(
             "java/lang/IllegalArgumentException",
@@ -263,6 +258,19 @@ pub fn object_wait(
             "java/lang/IllegalArgumentException",
             Some("nanosecond timeout value out of range"),
         ));
+    }
+
+    // Ownership check AFTER the ranges (JDK order). The throw is built
+    // without holding the monitor lock (throw_new allocates; L7).
+    {
+        let st = m.lock();
+        if st.owner != Some(me) {
+            drop(st);
+            return Err(crate::throw_new(
+                "java/lang/IllegalMonitorStateException",
+                Some("current thread is not owner"),
+            ));
+        }
     }
     let forever = timeout_millis == 0 && nanos == 0;
     let budget_ms: u64 = if nanos >= 500_000 {
@@ -279,13 +287,14 @@ pub fn object_wait(
     };
 
     let mut st = m.lock();
-    // Ownership check AFTER argument validation is HotSpot's order? No —
-    // HotSpot's CHECK_OWNER runs first; match it (documented above).
     if st.owner != Some(me) {
+        // Unreachable via the natives (the check above already returned),
+        // but object_wait is also the re-entry point for callers that
+        // validated earlier — keep the invariant enforced.
         drop(st);
         return Err(crate::throw_new(
             "java/lang/IllegalMonitorStateException",
-            Some("current thread not owner"),
+            Some("current thread is not owner"),
         ));
     }
     let saved = st.count;
@@ -363,7 +372,7 @@ pub fn object_wait(
 }
 
 /// `Object.notify` (`all = false`) / `Object.notifyAll` (T11). Ownership
-/// required — the same pinned IMSE as `monitorexit`. `notify` moves the
+/// required — the JDK-21 IMSE wording pinned by the OrderProbe. `notify` moves the
 /// FIFO head out of the wait set; `notifyAll` clears it. Removed waiters
 /// then compete for the monitor like enter-contenders; none of them can
 /// actually acquire until the notifier releases (the notifier still owns
@@ -387,7 +396,7 @@ pub fn object_notify(r: &JRef, all: bool) -> Result<(), crate::Throw> {
     if unowned {
         return Err(crate::throw_new(
             "java/lang/IllegalMonitorStateException",
-            Some("current thread not owner"),
+            Some("current thread is not owner"),
         ));
     }
     m.cv.notify_all();
@@ -421,9 +430,13 @@ mod tests {
     fn message_of(err: &crate::Throw) -> String {
         let m = crate::heap::with_obj(err.obj, |o| match &o.slots[0] {
             crate::Value::Ref(Some(m)) => Some(*m),
+            crate::Value::Ref(None) => None, // message-less throw (monitorexit)
             other => panic!("unexpected message slot {other:?}"),
         });
-        crate::object::string_value(&m.expect("message ref")).to_string()
+        match m {
+            Some(r) => crate::object::string_value(&r).to_string(),
+            None => String::new(),
+        }
     }
 
     /// T10: re-entrant acquisition on the real state machine.
@@ -441,29 +454,41 @@ mod tests {
         assert_eq!(monitor_owner(&r), None);
     }
 
-    /// T10: exiting an unowned monitor is the pinned IMSE.
+    /// T10: exiting an unowned monitor is the pinned message-less IMSE
+    /// (Temurin 21 monitorexit carries no message).
     #[test]
     fn monitor_exit_without_ownership_is_imse() {
         let _rt = crate::test_support::runtime();
         let r = new_object();
         let err = monitor_exit(&r).unwrap_err();
         assert_eq!(class_of(&err), "java/lang/IllegalMonitorStateException");
-        assert_eq!(message_of(&err), "current thread not owner");
+        assert!(message_of(&err).is_empty());
     }
 
-    /// T11: wait/notify without ownership is the pinned IMSE, and —
-    /// HotSpot order — the ownership check fires BEFORE argument
-    /// validation (a non-owner with a negative timeout gets the IMSE).
+    /// T11/T13: wait/notify without ownership is the JDK-21 IMSE — and
+    /// the ORDER is ranges-first (pinned by the Temurin OrderProbe): a
+    /// non-owner with a negative timeout gets the IAE, not the IMSE.
     #[test]
     fn wait_notify_without_ownership_is_imse() {
         let _rt = crate::test_support::runtime();
         let r = new_object();
+        // Ranges run before the ownership check (Java-level wrapper).
         let err = object_wait(&r, -1, 0).unwrap_err();
+        assert_eq!(class_of(&err), "java/lang/IllegalArgumentException");
+        assert_eq!(message_of(&err), "timeout value is negative");
+        let err = object_wait(&r, 1, -1).unwrap_err();
+        assert_eq!(class_of(&err), "java/lang/IllegalArgumentException");
+        assert_eq!(message_of(&err), "nanosecond timeout value out of range");
+        // Valid args reach the ownership check.
+        let err = object_wait(&r, 0, 0).unwrap_err();
         assert_eq!(class_of(&err), "java/lang/IllegalMonitorStateException");
-        assert_eq!(message_of(&err), "current thread not owner");
+        assert_eq!(message_of(&err), "current thread is not owner");
         let err = object_notify(&r, false).unwrap_err();
         assert_eq!(class_of(&err), "java/lang/IllegalMonitorStateException");
-        assert_eq!(message_of(&err), "current thread not owner");
+        assert_eq!(message_of(&err), "current thread is not owner");
+        let err = object_notify(&r, true).unwrap_err();
+        assert_eq!(class_of(&err), "java/lang/IllegalMonitorStateException");
+        assert_eq!(message_of(&err), "current thread is not owner");
     }
 
     /// T12: JDK-exact argument validation messages (owner required for

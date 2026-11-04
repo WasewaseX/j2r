@@ -866,13 +866,14 @@ mod tests {
         let err = crate::monitor::monitor_exit(&r).unwrap_err();
         let cls = with_obj(err.obj, |o| o.jclass.to_string());
         assert_eq!(cls, "java/lang/IllegalMonitorStateException");
-        let msg_ref = with_obj(err.obj, |o| match &o.slots[0] {
-            Value::Ref(Some(m)) => Some(*m),
+        // Temurin 21 monitorexit IMSE carries NO message (pinned by the
+        // hand-built classfile probe, T13) — the message slot is null.
+        let msg: Option<i32> = with_obj(err.obj, |o| match &o.slots[0] {
+            Value::Ref(None) => None,
+            Value::Ref(Some(_)) => panic!("monitorexit IMSE must carry no message"),
             other => panic!("unexpected message slot {other:?}"),
         });
-        // L3: string_value's own heap access runs AFTER the guard ends.
-        let msg = crate::object::string_value(&msg_ref.expect("message ref")).to_string();
-        assert_eq!(msg, "current thread not owner");
+        assert!(msg.is_none());
     }
 
     #[test]

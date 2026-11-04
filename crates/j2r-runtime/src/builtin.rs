@@ -37,6 +37,13 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/ArrayStoreException" => "java/lang/RuntimeException",
         "java/lang/IllegalArgumentException" => "java/lang/RuntimeException",
         "java/lang/NumberFormatException" => "java/lang/IllegalArgumentException",
+        // M4 Wave 3 (T13): monitor/conditioning exceptions. IMSE is thrown
+        // by monitorexit and Object.wait/notify on a non-owned monitor;
+        // InterruptedException by Thread.sleep/join/wait. Both must resolve
+        // through the parent chain for catch-type verification and handler
+        // matching.
+        "java/lang/IllegalMonitorStateException" => "java/lang/RuntimeException",
+        "java/lang/InterruptedException" => "java/lang/Exception",
         "java/lang/IllegalStateException" => "java/lang/RuntimeException",
         "java/lang/UnsupportedOperationException" => "java/lang/RuntimeException",
         "java/lang/StackOverflowError" => "java/lang/VirtualMachineError",

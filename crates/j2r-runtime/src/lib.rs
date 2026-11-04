@@ -24,6 +24,7 @@
 
 pub mod array;
 pub mod builtin;
+pub mod clinit;
 pub mod collections;
 pub mod concat;
 pub mod desc;
