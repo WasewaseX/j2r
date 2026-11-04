@@ -33,10 +33,32 @@
 //! Identity: `JRef` equality is `(idx, gen)` pair equality; for a live
 //! object `gen` never advances (a rooted entry never re-enters the free
 //! list), so this is exactly the old reference equality.
+//!
+//! **M4 Wave 1 — the heap is process-global.** One [`Mutex`] guards the
+//! whole arena (`HEAP` below; `heap()` is the accessor). The lock-ordering
+//! law that keeps this deadlock-free (M4_PLAN §3 Wave 1, enforced by
+//! review + the suite):
+//!
+//! * **L1 — the heap lock is a leaf.** While a heap guard is alive, no
+//!   code may lock another runtime container (caches, statics pool, frame
+//!   registry). The collector honors this by construction: the root scan
+//!   is pointer-free and runs *before* the lock is taken.
+//! * **L2 — caches may nest heap locks, never the reverse.** `intern`,
+//!   the boxed-identity cache and the Class-object cache allocate while
+//!   holding their own lock (the same nesting shape the `RefCell` era
+//!   had). A cache lock must never be acquired while a heap guard lives.
+//! * **L3 — no heap re-entry.** A `with_obj`/`with_obj_mut` closure must
+//!   not call back into the heap (`alloc`, nested `with_obj`, …): the
+//!   RefCell era allowed nested *shared* borrows, a `Mutex` deadlocks on
+//!   ANY re-entry. A full census (M4_EVIDENCE §migration) found four
+//!   pre-existing nested sites; all were restructured flat, and the
+//!   suite (253 tests + 84 diff fixtures + corpus) is the tripwire. Wave
+//!   2's scheduler must additionally never hold a guard while parking.
 
 use crate::object::JObj;
 use std::cell::{Cell, RefCell};
 use std::num::NonZeroU32;
+use std::sync::{Mutex, OnceLock};
 
 /// Copy object handle: 1-based arena index + generation tag.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -126,44 +148,54 @@ fn read_forced_env() -> Option<u32> {
 /// Root-scanner signature: collects the indices of the roots it owns.
 pub type StaticsScanner = fn(&mut Vec<u32>);
 
-thread_local! {
-    static HEAP: RefCell<Heap> = RefCell::new(Heap::new());
-    /// Registered by the generated `main_run`: scans the statics pool into
-    /// the root vector.
-    static STATICS_SCANNER: RefCell<Option<StaticsScanner>> = const { RefCell::new(None) };
+/// The process-global heap (M4 Wave 1, T02). `OnceLock` because `Heap::new`
+/// reads `J2R_GC_EVERY_N` (not const); cross-thread sharing because Wave 2
+/// runs Java threads.
+///
+/// `Mutex` (the plan's preferred shape): a static requires `Sync`, which
+/// rules out a bare `RefCell` container, and the nested-shared-borrow
+/// patterns the RefCell era allowed were censused (M4_EVIDENCE §migration)
+/// down to four sites, all restructured flat. See the lock law L1–L3 in
+/// the module docs.
+static HEAP: OnceLock<Mutex<Heap>> = OnceLock::new();
+
+/// Registered by the generated `main_run`: scans the statics pool into
+/// the root vector.
+static STATICS_SCANNER: Mutex<Option<StaticsScanner>> = Mutex::new(None);
+
+fn heap() -> &'static Mutex<Heap> {
+    HEAP.get_or_init(|| Mutex::new(Heap::new()))
 }
 
 /// Allocates an object; **never collects** (M2_PLAN §4.3 — natives and
 /// runtime helpers may allocate freely).
 pub fn alloc(obj: JObj) -> JRef {
-    HEAP.with(|h| {
-        let mut heap = h.borrow_mut();
-        debug_assert!(!heap.collecting, "alloc during collection");
-        heap.since_gc += 1;
-        let (idx, gen) = match heap.free.pop() {
-            Some(i) => {
-                let i = i as usize;
-                heap.entries[i] = Some(Entry {
-                    obj: RefCell::new(obj),
-                    mark: Cell::new(false),
-                    monitor: Cell::new(0),
-                });
-                (i, heap.gens[i])
-            }
-            None => {
-                heap.entries.push(Some(Entry {
-                    obj: RefCell::new(obj),
-                    mark: Cell::new(false),
-                    monitor: Cell::new(0),
-                }));
-                heap.gens.push(0);
-                (heap.entries.len() - 1, 0)
-            }
-        };
-        heap.live += 1;
-        heap.high_water = heap.high_water.max(heap.live);
-        JRef::from_parts(idx as u32 + 1, gen)
-    })
+    let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
+    debug_assert!(!heap.collecting, "alloc during collection");
+    heap.since_gc += 1;
+    let (idx, gen) = match heap.free.pop() {
+        Some(i) => {
+            let i = i as usize;
+            heap.entries[i] = Some(Entry {
+                obj: RefCell::new(obj),
+                mark: Cell::new(false),
+                monitor: Cell::new(0),
+            });
+            (i, heap.gens[i])
+        }
+        None => {
+            heap.entries.push(Some(Entry {
+                obj: RefCell::new(obj),
+                mark: Cell::new(false),
+                monitor: Cell::new(0),
+            }));
+            heap.gens.push(0);
+            (heap.entries.len() - 1, 0)
+        }
+    };
+    heap.live += 1;
+    heap.high_water = heap.high_water.max(heap.live);
+    JRef::from_parts(idx as u32 + 1, gen)
 }
 
 // ------------------------------------------------------------------ monitors
@@ -174,16 +206,14 @@ pub fn alloc(obj: JObj) -> JRef {
 /// error — a u32 recursion depth in one object is not reachable by any
 /// real program given the frame ceiling).
 pub fn monitor_enter(r: &JRef) -> Result<(), crate::Throw> {
-    HEAP.with(|h| {
-        let heap = h.borrow_mut();
-        let i = live_slot_index(&heap, *r);
-        let e = heap.entries[i].as_ref().expect("live entry");
-        let n = e.monitor.get();
-        e.monitor.set(
-            n.checked_add(1)
-                .expect("j2r internal: monitor count overflow"),
-        );
-    });
+    let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
+    let i = live_slot_index(heap, *r);
+    let e = heap.entries[i].as_ref().expect("live entry");
+    let n = e.monitor.get();
+    e.monitor.set(
+        n.checked_add(1)
+            .expect("j2r internal: monitor count overflow"),
+    );
     Ok(())
 }
 
@@ -193,9 +223,9 @@ pub fn monitor_enter(r: &JRef) -> Result<(), crate::Throw> {
 pub fn monitor_exit(r: &JRef) -> Result<(), crate::Throw> {
     // The IMSE object is allocated AFTER the borrow ends: `throw_new`
     // itself allocates, and the heap RefCell must not be re-entered.
-    let unowned = HEAP.with(|h| {
-        let heap = h.borrow_mut();
-        let i = live_slot_index(&heap, *r);
+    let unowned = {
+        let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
+        let i = live_slot_index(heap, *r);
         let e = heap.entries[i].as_ref().expect("live entry");
         let n = e.monitor.get();
         if n == 0 {
@@ -204,7 +234,7 @@ pub fn monitor_exit(r: &JRef) -> Result<(), crate::Throw> {
             e.monitor.set(n - 1);
             false
         }
-    });
+    };
     if unowned {
         return Err(crate::throw_new(
             "java/lang/IllegalMonitorStateException",
@@ -218,24 +248,20 @@ pub fn monitor_exit(r: &JRef) -> Result<(), crate::Throw> {
 /// ownership check, because the frame recorded the acquisition. Debug-
 /// asserted to never underflow.
 pub(crate) fn monitor_release(r: &JRef) {
-    HEAP.with(|h| {
-        let heap = h.borrow_mut();
-        let i = live_slot_index(&heap, *r);
-        let e = heap.entries[i].as_ref().expect("live entry");
-        let n = e.monitor.get();
-        debug_assert!(n >= 1, "j2r internal: monitor release underflow");
-        e.monitor.set(n.saturating_sub(1));
-    });
+    let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
+    let i = live_slot_index(heap, *r);
+    let e = heap.entries[i].as_ref().expect("live entry");
+    let n = e.monitor.get();
+    debug_assert!(n >= 1, "j2r internal: monitor release underflow");
+    e.monitor.set(n.saturating_sub(1));
 }
 
 /// Current monitor count (test/observation helper).
 #[cfg(test)]
 pub(crate) fn monitor_count(r: &JRef) -> u32 {
-    HEAP.with(|h| {
-        let heap = h.borrow_mut();
-        let i = live_slot_index(&heap, *r);
-        heap.entries[i].as_ref().expect("live entry").monitor.get()
-    })
+    let heap = heap().lock().unwrap_or_else(|e| e.into_inner());
+    let i = live_slot_index(&heap, *r);
+    heap.entries[i].as_ref().expect("live entry").monitor.get()
 }
 
 fn live_slot_index(heap: &Heap, r: JRef) -> usize {
@@ -252,56 +278,54 @@ fn live_slot_index(heap: &Heap, r: JRef) -> usize {
 }
 
 /// Scoped shared access to an object (replaces the old `r.borrow()` —
-/// a `Ref` must never escape the heap's `thread_local`, M2_PLAN §4.7).
+/// a `Ref` must never escape the heap lock guard, M2_PLAN §4.7 + M4 L3:
+/// the closure must not re-enter the heap).
 pub fn with_obj<T>(r: JRef, f: impl FnOnce(&JObj) -> T) -> T {
-    HEAP.with(|h| {
-        let heap = h.borrow();
-        let i = live_slot_index(&heap, r);
-        let entry = heap.entries[i].as_ref().expect("checked live");
-        let result = f(&entry.obj.borrow());
-        result
-    })
+    let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
+    let i = live_slot_index(heap, r);
+    let entry = heap.entries[i].as_ref().expect("checked live");
+    let result = f(&entry.obj.borrow());
+    result
 }
 
 /// Scoped exclusive access to an object (replaces `r.borrow_mut()`).
 pub fn with_obj_mut<T>(r: JRef, f: impl FnOnce(&mut JObj) -> T) -> T {
-    HEAP.with(|h| {
-        let mut heap = h.borrow_mut();
-        let i = live_slot_index(&heap, r);
-        let entry = heap.entries[i].as_mut().expect("checked live");
-        let result = f(&mut entry.obj.borrow_mut());
-        result
-    })
+    let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
+    let i = live_slot_index(heap, r);
+    let entry = heap.entries[i].as_mut().expect("checked live");
+    let result = f(&mut entry.obj.borrow_mut());
+    result
 }
 
 /// True when the handle names a live object (test/observation helper).
 pub fn is_live(r: JRef) -> bool {
-    HEAP.with(|h| {
-        let heap = h.borrow();
-        let i = (r.idx.get() - 1) as usize;
-        matches!(heap.entries.get(i), Some(Some(_))) && heap.gens[i] == r.gen
-    })
+    let heap = heap().lock().unwrap_or_else(|e| e.into_inner());
+    let i = (r.idx.get() - 1) as usize;
+    matches!(heap.entries.get(i), Some(Some(_))) && heap.gens[i] == r.gen
 }
 
 /// Peak number of simultaneously occupied slots (evidence metric, T17).
 pub fn high_water() -> usize {
-    HEAP.with(|h| h.borrow().high_water)
+    heap().lock().unwrap_or_else(|e| e.into_inner()).high_water
 }
 
 /// Currently occupied slots (evidence metric).
 pub fn live_count() -> usize {
-    HEAP.with(|h| h.borrow().live)
+    heap().lock().unwrap_or_else(|e| e.into_inner()).live
 }
 
 /// Collections run so far (evidence metric).
 pub fn total_collections() -> usize {
-    HEAP.with(|h| h.borrow().total_collections)
+    heap()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .total_collections
 }
 
 /// Registers the generated crate's statics-pool root scanner. Called by the
 /// generated `main_run` before any Java code runs.
 pub fn set_statics_scanner(f: fn(&mut Vec<u32>)) {
-    STATICS_SCANNER.with(|s| *s.borrow_mut() = Some(f));
+    *STATICS_SCANNER.lock().unwrap_or_else(|e| e.into_inner()) = Some(f);
 }
 
 /// `System.gc()`: a full collection at an explicit native boundary. Safe
@@ -315,18 +339,17 @@ pub fn gc_now() {
 /// (`N = 1` = collect at every collection point). Overrides the
 /// `J2R_GC_EVERY_N` env var.
 pub fn set_forced_gc_every(n: Option<u32>) {
-    HEAP.with(|h| {
-        h.borrow_mut().forced = n;
-        h.borrow_mut().forced_counter = 0;
-    });
+    let mut heap = heap().lock().unwrap_or_else(|e| e.into_inner());
+    heap.forced = n;
+    heap.forced_counter = 0;
 }
 
 /// The one collection point in the entire system (M2_PLAN §4.3). Generated
 /// code emits `__frame.refresh(..); heap::gc_point();` immediately before
 /// each of the four allocating opcodes; nothing else ever calls this.
 pub fn gc_point() {
-    let should = HEAP.with(|h| {
-        let mut heap = h.borrow_mut();
+    let should = {
+        let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
         debug_assert!(!heap.collecting, "gc_point re-entered during collection");
         match heap.forced {
             Some(n) => {
@@ -340,7 +363,7 @@ pub fn gc_point() {
             }
             None => heap.since_gc > heap.threshold(),
         }
-    });
+    };
     if should {
         collect();
     }
@@ -355,8 +378,11 @@ fn collect() {
     //    refreshed at their call boundaries — their state cannot have
     //    changed while suspended)
     crate::frame::for_each_live_slot(|slot| roots.extend_from_slice(slot));
-    // 2. the generated statics pool
-    if let Some(f) = STATICS_SCANNER.with(|s| *s.borrow()) {
+    // 2. the generated statics pool — the fn pointer is copied out under
+    //    the scanner lock and called with NO lock held (L1: the scan is
+    //    pointer-free and lock-free by design)
+    let scanner = *STATICS_SCANNER.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(f) = scanner {
         f(&mut roots);
     }
     // 3. runtime roots (intern cache, System.out, boxed-identity cache,
@@ -365,8 +391,8 @@ fn collect() {
     crate::natives::scan_runtime_roots(&mut roots);
     crate::reflect::scan_roots(&mut roots);
 
-    HEAP.with(|h| {
-        let mut heap = h.borrow_mut();
+    {
+        let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
         heap.collecting = true;
         heap.total_collections += 1;
 
@@ -411,12 +437,23 @@ fn collect() {
         heap.collecting = false;
         heap.since_gc = 0;
         heap.live_at_last_gc = heap.live;
-    });
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T05: the shared heap container is compile-proven Send+Sync — the
+    /// property Wave 2's real threads depend on (M4_PLAN §3 Wave 1).
+    #[test]
+    fn shared_heap_container_is_send_sync() {
+        let _rt = crate::test_support::runtime();
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Mutex<Heap>>();
+        assert_send_sync::<std::sync::Mutex<Option<StaticsScanner>>>();
+    }
+
     use crate::object::{new_obj, new_string, obj_get, obj_set, string_value, JObj};
     use crate::Value;
     use std::sync::Arc;
@@ -437,6 +474,7 @@ mod tests {
 
     #[test]
     fn alloc_and_access_roundtrip() {
+        let _rt = crate::test_support::runtime();
         let r = new_obj("test/A", 3).unwrap();
         obj_set(&r, 1, Value::Int(42));
         assert_eq!(obj_get(&r, 1).expect_int(), 42);
@@ -445,19 +483,25 @@ mod tests {
 
     #[test]
     fn unreachable_object_is_collected() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
-        let before = live_count();
-        {
-            let _dead = new_string("short-lived-gc-test");
-            assert!(live_count() == before + 1);
-            gc_point();
-        }
-        assert_eq!(live_count(), before, "unreachable object must be freed");
+        // M4 Wave 1: the heap is shared across the test binary, so a
+        // collection also sweeps unrooted residue from other tests —
+        // `live` deltas are not a stable invariant. The intent lives on
+        // the handle: an unreachable object must be STALE after gc_point.
+        let dead = new_string("short-lived-gc-test");
+        assert!(is_live(dead), "fresh object is live");
+        gc_point();
+        assert!(
+            !is_live(dead),
+            "unreachable object must be freed (stale handle)"
+        );
         set_forced_gc_every(None);
     }
 
     #[test]
     fn rooted_object_survives_forced_collections() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let keep = new_string("kept-alive");
         let gen_before = keep.gen;
@@ -479,22 +523,26 @@ mod tests {
 
     #[test]
     fn simple_cycle_is_collected() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
-        let before = live_count();
-        {
-            let a = obj("test/Node", vec![Value::Ref(None)]);
-            let b = obj("test/Node", vec![Value::Ref(None)]);
-            obj_set(&a, 0, Value::Ref(Some(b)));
-            obj_set(&b, 0, Value::Ref(Some(a)));
-            // handles die here; the cycle is unreachable
-        }
+        // M4 Wave 1: asserted on handle staleness (see
+        // unreachable_object_is_collected) — shared-heap residue makes
+        // live-count deltas unstable across tests.
+        let a = obj("test/Node", vec![Value::Ref(None)]);
+        let b = obj("test/Node", vec![Value::Ref(None)]);
+        obj_set(&a, 0, Value::Ref(Some(b)));
+        obj_set(&b, 0, Value::Ref(Some(a)));
         gc_point();
-        assert_eq!(live_count(), before, "unreachable cycle must be reclaimed");
+        assert!(
+            !is_live(a) && !is_live(b),
+            "unreachable cycle must be reclaimed (stale handles)"
+        );
         set_forced_gc_every(None);
     }
 
     #[test]
     fn reachable_cycle_is_kept() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let a = obj("test/Node", vec![Value::Ref(None)]);
         let b = obj("test/Node", vec![Value::Ref(None)]);
@@ -511,6 +559,7 @@ mod tests {
 
     #[test]
     fn array_children_are_marked() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let child = new_string("array-child");
         let arr = obj("test/Arr", vec![Value::Int(2), Value::Ref(Some(child))]);
@@ -528,6 +577,7 @@ mod tests {
 
     #[test]
     fn interned_strings_are_roots() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let s = crate::object::intern_string("gc-intern-test-literal");
         for _ in 0..50 {
@@ -545,6 +595,7 @@ mod tests {
 
     #[test]
     fn boxed_cache_objects_are_roots() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let b = crate::natives::boxed_cached_for_test(127i64).expect("boxed cache");
         for _ in 0..50 {
@@ -560,6 +611,7 @@ mod tests {
 
     #[test]
     fn stale_handle_use_panics_loudly() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let victim = new_string("dies-soon");
         let idx = victim.index();
@@ -591,6 +643,7 @@ mod tests {
 
     #[test]
     fn stale_handle_never_aliases_the_replacement() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let victim = new_string("victim");
         obj_set(
@@ -614,6 +667,7 @@ mod tests {
 
     #[test]
     fn suspended_frame_snapshot_keeps_handle_alive() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let payload = new_string("suspended-frame-payload");
         // Simulate a suspended caller: a frame slot that names the handle
@@ -630,6 +684,7 @@ mod tests {
 
     #[test]
     fn one_million_node_worklist_does_not_overflow() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         // A singly linked list 1_000_000 nodes long, rooted at the head.
         let mut head: Option<JRef> = None;
@@ -661,6 +716,7 @@ mod tests {
 
     #[test]
     fn gc_point_reentrancy_is_a_bug() {
+        let _rt = crate::test_support::runtime();
         // The debug assertion in gc_point/alloc fires when collection
         // re-enters; verify the flag mechanism exists by checking that
         // ordinary interleaving works and total_collections advances.
@@ -673,9 +729,10 @@ mod tests {
 
     #[test]
     fn threshold_policy_collects_when_grown() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(None);
-        HEAP.with(|h| {
-            let mut heap = h.borrow_mut();
+        {
+            let mut heap = heap().lock().unwrap_or_else(|e| e.into_inner());
             heap.live_at_last_gc = 0;
             heap.since_gc = 0;
             // threshold with live_at_last_gc == 0 is 4096
@@ -684,17 +741,18 @@ mod tests {
             assert_eq!(heap.threshold(), 20_000, "2x live when above the floor");
             heap.live_at_last_gc = 100;
             assert_eq!(heap.threshold(), 4096, "floor dominates");
-        });
+        }
         // Restore a clean policy state.
-        HEAP.with(|h| {
-            let mut heap = h.borrow_mut();
+        {
+            let mut heap = heap().lock().unwrap_or_else(|e| e.into_inner());
             heap.live_at_last_gc = heap.live;
             heap.since_gc = 0;
-        });
+        }
     }
 
     #[test]
     fn identity_hash_is_the_index_and_stable_across_gc() {
+        let _rt = crate::test_support::runtime();
         set_forced_gc_every(Some(1));
         let a = new_obj("test/H", 1).unwrap();
         let b = new_obj("test/H", 1).unwrap();
@@ -715,10 +773,22 @@ mod tests {
 
     #[test]
     fn cycle_churn_two_hundred_k_high_water_under_64() {
+        let _rt = crate::test_support::runtime();
         // T17 acceptance (M2_PLAN §4.8b): 200_000 build-and-drop cycle
         // allocations with 10 live objects — the R1 leak is gone,
         // numerically.
+        //
+        // M4 Wave 1: the heap (and therefore `high_water`, a monotonic
+        // process-wide maximum, and `live`) is shared across the whole test
+        // binary now, so the test measures its OWN footprint: high_water is
+        // snapshotted/reset and restored, and `live` is checked as a delta
+        // against the pre-ring baseline.
         set_forced_gc_every(Some(1));
+        let high_water_before = high_water();
+        {
+            let mut heap = heap().lock().unwrap_or_else(|e| e.into_inner());
+            heap.high_water = heap.live;
+        }
         // 10 live objects in a ring, rooted via NativeRoots.
         let mut ring: Vec<JRef> = Vec::new();
         for i in 0..10 {
@@ -747,12 +817,21 @@ mod tests {
             "arena must stay tiny under cycle churn (high_water={})",
             high_water()
         );
-        assert_eq!(live_count(), 10, "only the ring survives");
+        assert!(
+            ring.iter().all(|h| is_live(*h)),
+            "only the ring survives (every ring handle still live)"
+        );
+        // Restore the shared-metric history this test consumed.
+        {
+            let mut heap = heap().lock().unwrap_or_else(|e| e.into_inner());
+            heap.high_water = high_water_before;
+        }
         set_forced_gc_every(None);
     }
 
     #[test]
     fn monitor_enter_exit_counts() {
+        let _rt = crate::test_support::runtime();
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
         assert_eq!(monitor_count(&r), 0);
         monitor_enter(&r).unwrap();
@@ -766,19 +845,23 @@ mod tests {
 
     #[test]
     fn monitor_exit_without_ownership_is_imse() {
+        let _rt = crate::test_support::runtime();
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
         let err = monitor_exit(&r).unwrap_err();
         let cls = with_obj(err.obj, |o| o.jclass.to_string());
         assert_eq!(cls, "java/lang/IllegalMonitorStateException");
-        let msg = with_obj(err.obj, |o| match &o.slots[0] {
-            Value::Ref(Some(m)) => crate::object::string_value(m).to_string(),
+        let msg_ref = with_obj(err.obj, |o| match &o.slots[0] {
+            Value::Ref(Some(m)) => Some(*m),
             other => panic!("unexpected message slot {other:?}"),
         });
+        // L3: string_value's own heap access runs AFTER the guard ends.
+        let msg = crate::object::string_value(&msg_ref.expect("message ref")).to_string();
         assert_eq!(msg, "current thread not owner");
     }
 
     #[test]
     fn frame_guard_releases_monitors_on_drop() {
+        let _rt = crate::test_support::runtime();
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
         {
             let g = crate::frame::FrameGuard::enter().unwrap();
@@ -791,6 +874,7 @@ mod tests {
 
     #[test]
     fn frame_monitor_unrecord_pops_last_matching() {
+        let _rt = crate::test_support::runtime();
         let a = crate::object::new_obj("java/lang/Object", 0).unwrap();
         let b = crate::object::new_obj("java/lang/Object", 0).unwrap();
         let g = crate::frame::FrameGuard::enter().unwrap();

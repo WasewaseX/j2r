@@ -142,6 +142,7 @@ mod tests {
 
     #[test]
     fn parses_primitives() {
+        let _rt = crate::test_support::runtime();
         let (params, ret) = parse_method_desc("(IJFD)V").unwrap();
         assert_eq!(
             params,
@@ -157,6 +158,7 @@ mod tests {
 
     #[test]
     fn parses_objects_and_arrays() {
+        let _rt = crate::test_support::runtime();
         let (params, ret) = parse_method_desc("([Ljava/lang/String;[[ID)J").unwrap();
         assert_eq!(
             params,
@@ -171,18 +173,21 @@ mod tests {
 
     #[test]
     fn parses_object_containing_semicolon_class_names() {
+        let _rt = crate::test_support::runtime();
         let (params, _) = parse_method_desc("(Ljava/lang/String;)Ljava/lang/String;").unwrap();
         assert_eq!(params, vec![TypeDesc::Object("java/lang/String".into())]);
     }
 
     #[test]
     fn rejects_garbage() {
+        let _rt = crate::test_support::runtime();
         assert!(parse_method_desc("(X)V").is_none());
         assert!(parse_method_desc("(I").is_none());
     }
 
     #[test]
     fn unmarshal_two_slot_args() {
+        let _rt = crate::test_support::runtime();
         let mut locals = vec![Value::Void; 6];
         unmarshal_args(&mut locals, &[Value::Int(7), Value::Long(9)], "(IJ)V", 0).unwrap();
         assert_eq!(locals[0].expect_int(), 7);

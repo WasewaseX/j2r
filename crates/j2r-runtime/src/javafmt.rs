@@ -381,6 +381,7 @@ mod tests {
 
     #[test]
     fn doubles_match_java() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(double_to_string(1.0), "1.0");
         assert_eq!(double_to_string(-1.0), "-1.0");
         assert_eq!(double_to_string(0.5), "0.5");
@@ -407,6 +408,7 @@ mod tests {
 
     #[test]
     fn doubles_subnormal_match_java() {
+        let _rt = crate::test_support::runtime();
         // ground truth captured from OpenJDK 21 (see repo notes)
         assert_eq!(double_to_string(f64::from_bits(1)), "4.9E-324");
         assert_eq!(double_to_string(f64::from_bits(2)), "9.9E-324");
@@ -427,6 +429,7 @@ mod tests {
 
     #[test]
     fn floats_match_java() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(float_to_string(1.0f32), "1.0");
         assert_eq!(float_to_string(3.75f32), "3.75");
         assert_eq!(float_to_string(0.001f32), "0.001");
@@ -440,11 +443,13 @@ mod tests {
 
     #[test]
     fn floats_subnormal_match_java() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(float_to_string(f32::from_bits(1)), "1.4E-45");
     }
 
     #[test]
     fn hex_matches_java() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(int_to_hex_string(255), "ff");
         assert_eq!(int_to_hex_string(-1), "ffffffff");
         assert_eq!(int_to_hex_string(0), "0");

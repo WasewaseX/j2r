@@ -142,6 +142,7 @@ mod tests {
 
     #[test]
     fn plain_recipe() {
+        let _rt = crate::test_support::runtime();
         let r = string_concat("hello world", &[], &[], "", no_dispatch()).unwrap();
         assert_eq!(
             &*object::string_value(&r.expect_ref().unwrap()),
@@ -151,6 +152,7 @@ mod tests {
 
     #[test]
     fn mixed_args_and_constants() {
+        let _rt = crate::test_support::runtime();
         // javac for "x=" + 5 + 1.0d + 'c' + true + s, roughly:
         // recipe "x=\u0001=\u0002 \u0001..." — here a synthetic mix
         let r = string_concat(
@@ -169,6 +171,7 @@ mod tests {
 
     #[test]
     fn null_and_boolean() {
+        let _rt = crate::test_support::runtime();
         let r = string_concat(
             "\u{1}/\u{1}",
             &[],
@@ -185,6 +188,7 @@ mod tests {
 
     #[test]
     fn char_kind() {
+        let _rt = crate::test_support::runtime();
         let r = string_concat("[\u{1}]", &[], &[Value::Int(65)], "C", no_dispatch()).unwrap();
         assert_eq!(&*object::string_value(&r.expect_ref().unwrap()), "[A]");
     }

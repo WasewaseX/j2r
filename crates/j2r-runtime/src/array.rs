@@ -38,16 +38,17 @@ fn default_element(desc: &str) -> Value {
 }
 
 fn check_array(r: &JRef) -> Result<(i32, Arc<str>), Throw> {
-    with_obj(*r, |b| {
+    // M4 Wave 1 lock law L3: no heap re-entry — the error object is built
+    // AFTER the guard ends, from the class name the closure carried out.
+    let checked: Result<(i32, Arc<str>), Arc<str>> = with_obj(*r, |b| {
         let cls = b.jclass.clone();
         if !cls.starts_with('[') {
-            return Err(internal_error(&format!(
-                "array operation on non-array object {cls}"
-            )));
+            return Err(cls);
         }
         let len = b.slots[0].expect_int();
         Ok((len, cls))
-    })
+    });
+    checked.map_err(|cls| internal_error(&format!("array operation on non-array object {cls}")))
 }
 
 fn bounds_ok(len: i32, idx: i32) -> Result<(), Throw> {
@@ -425,6 +426,7 @@ mod tests {
 
     #[test]
     fn prim_array_roundtrip() {
+        let _rt = crate::test_support::runtime();
         let a = array_new_prim(INT, 3).unwrap();
         assert_eq!(array_length(&a).unwrap(), 3);
         array_store(&a, 1, Value::Int(42), Dispatch::default()).unwrap();
@@ -434,6 +436,7 @@ mod tests {
 
     #[test]
     fn bounds_message_matches_jdk() {
+        let _rt = crate::test_support::runtime();
         let a = array_new_prim(INT, 3).unwrap();
         let err = array_load(&a, 5).unwrap_err();
         let msg = crate::heap::with_obj(err.obj, |o| o.slots[0].clone())
@@ -444,12 +447,14 @@ mod tests {
 
     #[test]
     fn negative_size() {
+        let _rt = crate::test_support::runtime();
         let err = array_new_prim(INT, -1).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/NegativeArraySizeException");
     }
 
     #[test]
     fn ref_array_of_array_descriptor_is_canonical() {
+        let _rt = crate::test_support::runtime();
         // `anewarray [I` (javac's lowering of `new int[3][]`) must produce
         // the array class `[[I`, not `[L[I;`.
         let a = array_new_ref("[I", 3).unwrap();
@@ -459,6 +464,7 @@ mod tests {
 
     #[test]
     fn multi_fully_allocated() {
+        let _rt = crate::test_support::runtime();
         let grid = array_new_multi("[[I", &[2, 3]).unwrap();
         assert_eq!(&*with_obj(grid, |o| o.jclass.clone()), "[[I");
         let row0 = match array_load(&grid, 0).unwrap() {
@@ -472,6 +478,7 @@ mod tests {
 
     #[test]
     fn multi_partially_allocated_rows_are_null() {
+        let _rt = crate::test_support::runtime();
         let grid = array_new_multi("[[I", &[2]).unwrap();
         assert_eq!(&*with_obj(grid, |o| o.jclass.clone()), "[[I");
         assert!(matches!(array_load(&grid, 0).unwrap(), Value::Ref(None)));
@@ -479,12 +486,14 @@ mod tests {
 
     #[test]
     fn multi_negative_dim_raises() {
+        let _rt = crate::test_support::runtime();
         let err = array_new_multi("[[I", &[2, -5]).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/NegativeArraySizeException");
     }
 
     #[test]
     fn multi_ref_bottom() {
+        let _rt = crate::test_support::runtime();
         let m = array_new_multi("[[Ljava/lang/String;", &[1, 2]).unwrap();
         assert_eq!(&*with_obj(m, |o| o.jclass.clone()), "[[Ljava/lang/String;");
         let row = match array_load(&m, 0).unwrap() {
@@ -498,6 +507,7 @@ mod tests {
 
     #[test]
     fn store_into_nested_prim_array_rejects_wrong_ref() {
+        let _rt = crate::test_support::runtime();
         let m = array_new_multi("[[I", &[1, 1]).unwrap();
         let alien = crate::object::new_builtin("java/lang/StringBuilder").unwrap();
         let err = array_store(&m, 0, Value::Ref(Some(alien)), Dispatch::default()).unwrap_err();
@@ -506,6 +516,7 @@ mod tests {
 
     #[test]
     fn store_type_check() {
+        let _rt = crate::test_support::runtime();
         let a = array_new_ref("java/lang/StringBuilder", 1).unwrap();
         let s = crate::object::new_string("str");
         let err = array_store(&a, 0, Value::Ref(Some(s)), Dispatch::default()).unwrap_err();

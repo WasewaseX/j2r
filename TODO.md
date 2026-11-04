@@ -55,7 +55,7 @@ Mixin, LWJGL). Sole contributor: wasewasex.
       sources) vendored + mechanical assembly script + deterministic
       driver; output-identical to Temurin 21.0.13 on all three channels;
       corpus runner pinned in CI (corpus_suite.rs). Suite 83 → 84,
-      253 tests, fixtures=84 tests=253 machine-checked by gate-11.
+      256 tests, fixtures=84 tests=256 machine-checked by gate-11.
 
 ## 2. DONE — this wave: CI repair (gate-1 + gate-2 + gate-6)
 
@@ -70,7 +70,7 @@ local full-gate sweep at the same tree).**
 - [x] gate-6 doc — bare `<init>` in a doc comment parsed as HTML; backticked
 - [x] gate-10 no-unsafe re-verified (grep + forbid attribute)
 - [x] gate-11 doc-counts re-verified (fixtures=84 tests=253)
-- [x] gate-3 full re-run — 215 unit tests + codegen e2e/malformed/wide_ids
+- [x] gate-3 full re-run — 218 unit tests + codegen e2e/malformed/wide_ids
       + cfg-equivalence 84/84 (556s) + differential 84 fixtures x 3 channels
       vs Temurin (281s) + corpus runner (real minimal-json vs Temurin)
       + lambda/SOE batteries — all green
@@ -98,12 +98,14 @@ local full-gate sweep at the same tree).**
 - [ ] **Corpus entry 2** — next real-world library/program; each corpus
       wave must add differential evidence, not micro-probes.
 - [~] **M4 threads & concurrency — ACCEPTED (owner directive
-      2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6
-      (T01 accepted; Wave 1 shared substrate in progress): shared
-      heap/statics, real Thread, safepoints, monitor contention,
-      wait/notify, interrupt, cooperative scheduler for deterministic
-      differential testing, JMM→Rust mapping table + litmus suite
-      (R4 acceptance).
+      2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
+      **Wave 1 shared substrate LANDED** (T02–T04 done, T05 local evidence
+      green, docs/M4_EVIDENCE.md): heap + statics + identity caches on
+      process-global locks, Rc→Arc object graph, lock law L1–L3, seam
+      checker test; differential 84×3 channels byte-identical vs Temurin.
+      Next: Wave 2 real threads (T06–T09). Later waves: monitor
+      contention + wait/notify (T10–T13), interrupt/daemon/JMM-lite/stress
+      (T14–T18, R4 acceptance).
 - [ ] **R2 metadata generator (M4 scope)** — reflection metadata
       retention so runtime string lookups resolve (closed-world design
       in docs/STRATEGIC_GAPS.md).

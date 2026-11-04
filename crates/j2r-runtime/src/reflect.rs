@@ -23,9 +23,8 @@
 use crate::desc::{parse_method_desc, TypeDesc};
 use crate::heap::{with_obj, JRef};
 use crate::{natives, Dispatch, Throw, Value};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Temurin's exact NPE message when a reflective accessor is handed a null
 /// receiver for an instance member: the generated accessor's null check on
@@ -34,21 +33,28 @@ use std::sync::Arc;
 pub(crate) const NULL_RECV_NPE: &str =
     "Cannot invoke \"Object.getClass()\" because \"obj\" is null";
 
-thread_local! {
-    /// Per-name interned `java/lang/Class` objects — pinned forever via
-    /// [`scan_roots`] so `X.class` identity is stable across GC cycles.
-    static CLASS_OBJECTS: RefCell<HashMap<Arc<str>, JRef>> = RefCell::new(HashMap::new());
+/// Per-name interned `java/lang/Class` objects — pinned forever via
+/// [`scan_roots`] so `X.class` identity is stable across GC cycles.
+/// Process-global since M4 Wave 1 (T04); `OnceLock` because `HashMap::new`
+/// is not const. Allocation under its own lock is heap-lock law L2
+/// (cache→heap nesting, never the reverse).
+static CLASS_OBJECTS: OnceLock<Mutex<HashMap<Arc<str>, JRef>>> = OnceLock::new();
+
+fn class_objects() -> &'static Mutex<HashMap<Arc<str>, JRef>> {
+    CLASS_OBJECTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Root scanner: the interned class objects are permanent roots (plan §8.1
 /// "scanned as static roots"). Wired into `heap::collect` next to the
 /// interned-string / boxed-cache scanners.
 pub fn scan_roots(out: &mut Vec<u32>) {
-    CLASS_OBJECTS.with(|c| {
-        for r in c.borrow().values() {
-            out.push(r.index());
-        }
-    });
+    for r in class_objects()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+    {
+        out.push(r.index());
+    }
 }
 
 /// The internal class name carried by a `java/lang/Class` object (panics on
@@ -65,21 +71,24 @@ pub(crate) fn class_name_of(r: &JRef) -> Arc<String> {
 
 /// Interns and returns the `Class` object for an internal class name.
 pub fn class_ref(internal: &str) -> JRef {
-    if let Some(r) = CLASS_OBJECTS.with(|c| c.borrow().get(internal).copied()) {
+    if let Some(r) = class_objects()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(internal)
+        .copied()
+    {
         return r;
     }
     let r = crate::heap::alloc(crate::object::JObj {
         jclass: Arc::from("java/lang/Class"),
         slots: vec![Value::Str(Arc::new(internal.to_string()))],
     });
-    CLASS_OBJECTS.with(|c| {
-        let mut b = c.borrow_mut();
-        if let Some(existing) = b.get(internal) {
-            return *existing;
-        }
-        b.insert(Arc::from(internal), r);
-        r
-    })
+    let mut b = class_objects().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(existing) = b.get(internal) {
+        return *existing;
+    }
+    b.insert(Arc::from(internal), r);
+    r
 }
 
 /// `Class` object as a `Value` (the shape `ldc CONST_Class` pushes).
@@ -328,20 +337,26 @@ fn param_desc(class_internal: &str) -> String {
 pub fn get_declared_method(ctx: Dispatch, owner: &str, args: &[Value]) -> Result<Value, Throw> {
     let name = str_arg(args, "getDeclaredMethod")?;
     // Arrays keep their length in slot 0; elements start at slot 1.
-    let params: Vec<Arc<String>> = match args.get(1) {
+    // M4 Wave 1 lock law L3: the array walk and the per-class lookups are
+    // separate flat heap accesses — refs first, names after the guard.
+    let param_refs: Vec<JRef> = match args.get(1) {
         Some(Value::Ref(Some(arr))) => with_obj(*arr, |o| {
             o.slots
                 .iter()
                 .skip(1)
                 .map(|v| match v {
-                    Value::Ref(Some(c)) => class_name_of(c),
+                    Value::Ref(Some(c)) => Some(*c),
                     other => panic!("j2r internal: bad param class {other:?}"),
                 })
-                .collect()
+                .collect::<Vec<Option<JRef>>>()
+                .into_iter()
+                .collect::<Option<Vec<JRef>>>()
+                .expect("j2r internal: null param class in getDeclaredMethod")
         }),
         Some(Value::Ref(None)) | None => Vec::new(),
         _ => return Err(crate::internal_error("getDeclaredMethod: bad param array")),
     };
+    let params: Vec<Arc<String>> = param_refs.iter().map(class_name_of).collect();
     let Some(info) = ctx.class_info(owner) else {
         return Err(crate::internal_error(
             "reflection on builtin classes is outside the M3 subset (getDeclaredMethod)",
@@ -693,6 +708,7 @@ mod tests {
 
     #[test]
     fn binary_names_match_temurin() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(binary_name("java/lang/String"), "java.lang.String");
         assert_eq!(binary_name("O$Nested"), "O$Nested");
         assert_eq!(binary_name("I"), "int");
@@ -704,6 +720,7 @@ mod tests {
 
     #[test]
     fn simple_names_derive_and_override() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(simple_name("java/lang/String", ctx()), "String");
         assert_eq!(simple_name("java/util/HashMap$Itr", ctx()), "Itr");
         assert_eq!(simple_name("I", ctx()), "int");
@@ -714,6 +731,7 @@ mod tests {
 
     #[test]
     fn to_string_shapes() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(
             to_string_of("java/lang/String", ctx()),
             "class java.lang.String"
@@ -731,6 +749,7 @@ mod tests {
 
     #[test]
     fn class_objects_are_interned_and_rooted() {
+        let _rt = crate::test_support::runtime();
         let a = class_ref("j2r/test/ReflIntern");
         let b = class_ref("j2r/test/ReflIntern");
         assert!(JRef::ptr_eq(&a, &b));
@@ -742,6 +761,7 @@ mod tests {
 
     #[test]
     fn superclass_edges() {
+        let _rt = crate::test_support::runtime();
         assert!(superclass_of("I", ctx()).is_none());
         assert_eq!(
             superclass_of("[I", ctx()).as_deref(),
@@ -756,6 +776,7 @@ mod tests {
 
     #[test]
     fn component_types() {
+        let _rt = crate::test_support::runtime();
         // Component types come back as *intern keys* (internal names /
         // primitive descriptors), never raw field descriptors — the caller
         // feeds them straight into `class_ref` for identity equality with

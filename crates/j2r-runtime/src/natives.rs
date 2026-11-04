@@ -26,9 +26,8 @@ use crate::object::{self, is_string, new_obj};
 use crate::reflect;
 use crate::Value;
 use crate::{internal_error, javafmt, throw_new, Dispatch, NativeFn, Throw};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 fn this<'a>(recv: Option<&'a JRef>, who: &str) -> &'a JRef {
     recv.unwrap_or_else(|| panic!("j2r internal: {who} called without receiver"))
@@ -956,11 +955,15 @@ fn n_throwable_to_string(
 // the JDK contract (Long folds high/low, Boolean 1231/1237, Float/Double
 // use canonicalized IEEE bits).
 
-thread_local! {
-    /// (class, payload-as-i64) -> cached boxed object. Only classes with a
-    /// mandatory cache are inserted; Float/Double never consult this.
-    static BOXED_CACHE: RefCell<HashMap<(&'static str, i64), JRef>> =
-        RefCell::new(HashMap::new());
+/// (class, payload-as-i64) -> cached boxed object. Only classes with a
+/// mandatory cache are inserted; Float/Double never consult this.
+/// Process-global since M4 Wave 1 (T04); `OnceLock` because `HashMap::new`
+/// is not const. Allocation under its own lock is heap-lock law L2
+/// (cache→heap nesting, never the reverse).
+static BOXED_CACHE: OnceLock<Mutex<HashMap<(&'static str, i64), JRef>>> = OnceLock::new();
+
+fn boxed_cache() -> &'static Mutex<HashMap<(&'static str, i64), JRef>> {
+    BOXED_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Returns the shared boxed object for `(class, v)` when `v` is inside the
@@ -969,21 +972,19 @@ fn boxed_cached(class: &'static str, v: i64, lo: i64, hi: i64) -> Option<JRef> {
     if v < lo || v > hi {
         return None;
     }
-    BOXED_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some(existing) = cache.get(&(class, v)) {
-            return Some(*existing);
-        }
-        let slot = if class == "java/lang/Long" {
-            Value::Long(v)
-        } else {
-            Value::Int(v as i32)
-        };
-        let r = new_obj(class, 1).ok()?;
-        object::obj_set(&r, 0, slot);
-        cache.insert((class, v), r);
-        Some(r)
-    })
+    let mut cache = boxed_cache().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(existing) = cache.get(&(class, v)) {
+        return Some(*existing);
+    }
+    let slot = if class == "java/lang/Long" {
+        Value::Long(v)
+    } else {
+        Value::Int(v as i32)
+    };
+    let r = new_obj(class, 1).ok()?;
+    object::obj_set(&r, 0, slot);
+    cache.insert((class, v), r);
+    Some(r)
 }
 
 /// Canonicalizes an f32 the way `Float.floatToIntBits` does: all NaNs become
@@ -1835,9 +1836,13 @@ fn n_method_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Re
 /// (fixture oracle: `m1 == m2` false but `m1.equals(m2)` true).
 fn n_method_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let m = this(recv, "Method.equals");
+    // M4 Wave 1 lock law L3: the class check and the slot reads are
+    // separate flat heap accesses, never nested inside one guard.
     let same = match &arg(args, "Method.equals") {
         Value::Ref(Some(other)) => {
-            crate::heap::with_obj(*other, |o| o.jclass.as_ref() == "java/lang/reflect/Method") && {
+            let is_method =
+                crate::heap::with_obj(*other, |o| o.jclass.as_ref() == "java/lang/reflect/Method");
+            is_method && {
                 let (o0, o1, o2, _) = reflect::method_slots(other);
                 let (s0, s1, s2, _) = reflect::method_slots(m);
                 o0 == s0 && o1 == s1 && o2 == s2
@@ -4114,11 +4119,13 @@ pub fn system_err() -> Value {
 /// permanent roots — `Integer.valueOf(127)` must return the same object for
 /// the whole process lifetime, across any number of collections.
 pub fn scan_runtime_roots(out: &mut Vec<u32>) {
-    BOXED_CACHE.with(|c| {
-        for r in c.borrow().values() {
-            out.push(r.index());
-        }
-    });
+    for r in boxed_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+    {
+        out.push(r.index());
+    }
 }
 
 /// Test-only access to the boxed cache (heap unit tests use it to prove the
@@ -4247,6 +4254,7 @@ mod tests {
 
     #[test]
     fn integer_value_of_caches_minus128_to_127() {
+        let _rt = crate::test_support::runtime();
         let f = |args: &[Value]| match n_integer_value_of(None, args, no_ctx()).unwrap() {
             Value::Ref(Some(r)) => r,
             other => panic!("expected a reference, got {other:?}"),
@@ -4267,6 +4275,7 @@ mod tests {
 
     #[test]
     fn boxed_equals_compares_payload_and_type() {
+        let _rt = crate::test_support::runtime();
         let i1 = boxed("java/lang/Integer", Value::Int(1000));
         let i2 = boxed("java/lang/Integer", Value::Int(1000));
         let r = n_integer_equals(Some(&i1), &[Value::Ref(Some(i2))], no_ctx()).unwrap();
@@ -4282,6 +4291,7 @@ mod tests {
 
     #[test]
     fn float_equals_uses_bits_nan_is_nan() {
+        let _rt = crate::test_support::runtime();
         let nan: f32 = f32::NAN;
         let a = boxed("java/lang/Float", Value::Float(nan));
         let b = boxed("java/lang/Float", Value::Float(nan));
@@ -4297,6 +4307,7 @@ mod tests {
 
     #[test]
     fn boxed_hash_codes_match_jdk_contract() {
+        let _rt = crate::test_support::runtime();
         let i = boxed("java/lang/Integer", Value::Int(42));
         assert_eq!(
             n_integer_hash_code(Some(&i), &[], no_ctx())
@@ -4331,6 +4342,7 @@ mod tests {
 
     #[test]
     fn lookup_finds_exact_entries() {
+        let _rt = crate::test_support::runtime();
         assert!(lookup_exact("java/lang/Math", "max", "(II)I").is_some());
         assert!(lookup_exact("java/lang/Math", "max", "(IJ)I").is_none());
         assert!(lookup_exact("java/io/PrintStream", "println", "(Ljava/lang/String;)V").is_some());
@@ -4338,6 +4350,7 @@ mod tests {
 
     #[test]
     fn string_hash_code_matches_java() {
+        let _rt = crate::test_support::runtime();
         let s = object::new_string("hello");
         let r = n_string_hash_code(Some(&s), &[], no_ctx()).unwrap();
         assert_eq!(r.expect_int(), 99162322);
@@ -4352,6 +4365,7 @@ mod tests {
 
     #[test]
     fn utf16_length_semantics() {
+        let _rt = crate::test_support::runtime();
         // U+1F600 is one code point, two UTF-16 units — Java length() == 2
         let s = object::new_string("\u{1F600}");
         assert_eq!(
@@ -4364,6 +4378,7 @@ mod tests {
 
     #[test]
     fn parse_int_java_semantics() {
+        let _rt = crate::test_support::runtime();
         let s = object::new_string("42");
         assert_eq!(
             n_integer_parse_int(None, &[Value::Ref(Some(s))], no_ctx())
@@ -4394,6 +4409,7 @@ mod tests {
 
     #[test]
     fn math_max_nan_and_zero_signs() {
+        let _rt = crate::test_support::runtime();
         let nan = f64::NAN;
         assert!(java_max_d(nan, 1.0).is_nan());
         assert_eq!(java_max_d(0.0, -0.0), 0.0f64.copysign(1.0));
@@ -4402,6 +4418,7 @@ mod tests {
 
     #[test]
     fn boxed_roundtrip() {
+        let _rt = crate::test_support::runtime();
         let b = n_integer_value_of(None, &[Value::Int(5)], no_ctx()).unwrap();
         let r = b.expect_ref().unwrap();
         assert_eq!(
@@ -4418,6 +4435,7 @@ mod tests {
 
     #[test]
     fn sb_append_and_to_string() {
+        let _rt = crate::test_support::runtime();
         let sb = object::new_builtin("java/lang/StringBuilder").unwrap();
         n_sb_init(Some(&sb), &[], no_ctx()).unwrap();
         n_sb_append_i(Some(&sb), &[Value::Int(12)], no_ctx()).unwrap();
@@ -4433,6 +4451,7 @@ mod tests {
 
     #[test]
     fn println_writes_to_stdout() {
+        let _rt = crate::test_support::runtime();
         let ps = object::system_out_ref();
         n_ps_println_s(
             Some(&ps),
@@ -4446,6 +4465,7 @@ mod tests {
 
     #[test]
     fn throwable_to_string_format() {
+        let _rt = crate::test_support::runtime();
         let t = throw_new("pkg/MyError", Some("boom"));
         let out = n_throwable_to_string(Some(&t.obj), &[], no_ctx()).unwrap();
         assert_eq!(

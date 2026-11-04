@@ -266,10 +266,10 @@ is proven, document exactly what is not.
 | Task | Wave | Delivers |
 | --- | --- | --- |
 | T01 | 0 | Plan reviewed/accepted (rev 1, owner directive 2026-11-04); ROADMAP renumbering verified in repo: `M4 — threads & concurrency`, `M5 — Minecraft readiness (was M4)`, `M6 — Mod ecosystem (was M5)` |
-| T02 | 1 | Shared heap container + migration checklist for every `thread_local!` (§1 list) |
-| T03 | 1 | Shared statics pool (generated crate changes) |
-| T04 | 1 | Shared identity caches (intern, boxing, out/err, Class objects) |
-| T05 | 1 | Wave-1 evidence: suite (84 fixtures) green, gc-stress green, sharing unit tests |
+| T02 | 1 | **DONE** — shared heap container (`Mutex<Heap>`) + full migration checklist: docs/M4_EVIDENCE.md §Wave 1 |
+| T03 | 1 | **DONE** — shared statics pool; generated `statics.rs` template on `Mutex` statics; gate-5 standalone re-proven |
+| T04 | 1 | **DONE** — shared identity caches (intern, boxing, out/err, Class objects), `Arc` keys/values |
+| T05 | 1 | **local evidence green** — suite 84×3ch byte-identical (288.1s), corpus 5.6s, cfg-equiv 84/84 (566.8s), standalone run, tests=256 in sync, sharing/seam unit tests; gate-9 authoritative run = CI on this push |
 | T06 | 2 | `thread.rs` natives (start/join/sleep/yield/currentThread/daemon flag) |
 | T07 | 2 | Per-thread frame registries + global thread registry + worker-stack sizing |
 | T08 | 2 | STW safepoint protocol (GC_REQUESTED flag, park/resume, collector scans all registries) |

@@ -276,6 +276,7 @@ mod tests {
 
     #[test]
     fn exception_slot_counts() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(builtin_total_slots("java/lang/Object"), Some(0));
         // Audit A2 layout: detailMessage + cause + suppressed list.
         assert_eq!(builtin_total_slots("java/lang/Throwable"), Some(3));
@@ -291,6 +292,7 @@ mod tests {
 
     #[test]
     fn corpus_wave1_io_hierarchy() {
+        let _rt = crate::test_support::runtime();
         // Real-world corpus wave 1 (minimal-json): java.io family must be
         // known to the loader (hierarchy, interfaces, slot layout).
         assert_eq!(

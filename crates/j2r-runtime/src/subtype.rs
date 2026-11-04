@@ -108,6 +108,7 @@ mod tests {
 
     #[test]
     fn builtin_chain() {
+        let _rt = crate::test_support::runtime();
         assert!(is_subtype(
             "java/lang/ArrayIndexOutOfBoundsException",
             "java/lang/Exception",
@@ -123,6 +124,7 @@ mod tests {
 
     #[test]
     fn user_classes_and_interfaces() {
+        let _rt = crate::test_support::runtime();
         assert!(is_subtype("MyEx", "java/lang/Throwable", Some(parents_of)));
         assert!(is_subtype("Shape", "Iface", Some(parents_of)));
         assert!(!is_subtype("Iface", "Shape", Some(parents_of)));
@@ -130,6 +132,7 @@ mod tests {
 
     #[test]
     fn builtin_interfaces() {
+        let _rt = crate::test_support::runtime();
         assert!(is_subtype(
             "java/lang/String",
             "java/lang/CharSequence",
@@ -139,6 +142,7 @@ mod tests {
 
     #[test]
     fn arrays() {
+        let _rt = crate::test_support::runtime();
         assert!(is_subtype("[I", "[I", None));
         assert!(is_subtype("[I", "java/lang/Object", None));
         assert!(is_subtype("[I", "java/lang/Cloneable", None));

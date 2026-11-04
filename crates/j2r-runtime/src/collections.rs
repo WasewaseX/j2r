@@ -47,9 +47,10 @@
 //! `size+1` rather than Java's 10. Capacity is not readable through any
 //! method in the supported set, so no differential test can observe this.
 //!
-//! Borrowing discipline: `heap::with_obj` may nest (shared borrows), but
-//! `with_obj_mut` must never nest inside any heap access — every mutating
-//! helper runs flat, sequential `with_obj_mut` calls (M2_PLAN §4.7).
+//! Borrowing discipline (M4 Wave 1 lock law L3): the heap is a plain
+//! `Mutex` — NOTHING nests inside a heap guard any more, shared or
+//! mutable. Every helper runs flat, sequential heap accesses, and error
+//! objects are built after the guard ends (M2_PLAN §4.7 as amended).
 
 use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
 use crate::object::{new_obj, string_value};
@@ -1729,6 +1730,7 @@ mod tests {
 
     #[test]
     fn table_size_for_matches_openjdk() {
+        let _rt = crate::test_support::runtime();
         assert_eq!(table_size_for(0), 1);
         assert_eq!(table_size_for(1), 1);
         assert_eq!(table_size_for(2), 2);
@@ -1748,6 +1750,7 @@ mod tests {
 
     #[test]
     fn hash_spreading_matches_java() {
+        let _rt = crate::test_support::runtime();
         // pinned by hand: 0x12345678 ^ (0x12345678 >>> 16) = 0x1234444C
         assert_eq!(
             map_hash(&boxed_i32(0x12345678u32 as i32), ctx()).unwrap(),
@@ -1765,6 +1768,7 @@ mod tests {
 
     #[test]
     fn arraylist_add_get_set_remove_tostring() {
+        let _rt = crate::test_support::runtime();
         let l = list_new();
         for k in 0..3 {
             list_add(&l, Value::Ref(Some(new_string(&format!("e{k}")))));
@@ -1796,6 +1800,7 @@ mod tests {
 
     #[test]
     fn arraylist_bounds_messages_are_java_exact() {
+        let _rt = crate::test_support::runtime();
         let l = list_new();
         list_add(&l, Value::Ref(Some(new_string("a"))));
         // get(-1) / get(size): Objects.checkIndex message
@@ -1817,6 +1822,7 @@ mod tests {
 
     #[test]
     fn arraylist_iterator_cme_and_exhaustion() {
+        let _rt = crate::test_support::runtime();
         let l = list_new();
         list_add(&l, Value::Ref(Some(new_string("a"))));
         list_add(&l, Value::Ref(Some(new_string("b"))));
@@ -1878,6 +1884,7 @@ mod tests {
 
     #[test]
     fn arraylist_copy_constructor_copies_then_diverges() {
+        let _rt = crate::test_support::runtime();
         // source [a, b] -> copy; copy equals source; later source mutation
         // must not touch the copy (real copy semantics, corpus wave 1)
         let src = list_new();
@@ -1910,6 +1917,7 @@ mod tests {
 
     #[test]
     fn arraylist_copy_constructor_reads_through_unmodifiable_view() {
+        let _rt = crate::test_support::runtime();
         // the copy-ctor must iterate through ANY collection impl — here the
         // Collections$UnmodifiableList view over an ArrayList — and the view
         // itself must reject writes with UnsupportedOperationException
@@ -1939,6 +1947,7 @@ mod tests {
 
     #[test]
     fn arraylist_clear_and_null_elements() {
+        let _rt = crate::test_support::runtime();
         let l = list_new();
         list_add(&l, Value::Ref(None));
         list_add(&l, Value::Ref(Some(new_string("z"))));
@@ -1955,6 +1964,7 @@ mod tests {
 
     #[test]
     fn hashmap_order_is_table_order_with_tail_bins() {
+        let _rt = crate::test_support::runtime();
         // Integer keys (hash = value). 14 distinct keys inserted in the
         // order 1, 17, 0, 2..=12: keys 1 and 17 collide in bin 1 of the
         // cap-16 table (17 tail-inserted after 1); the 13th put resizes to
@@ -1971,6 +1981,7 @@ mod tests {
 
     #[test]
     fn hashmap_put_replaces_and_returns_old_without_cme() {
+        let _rt = crate::test_support::runtime();
         let m = map_new();
         let old = n_hm_put(Some(&m), &[boxed_i32(7), boxed_i32(1)], ctx()).unwrap();
         assert!(old.is_null(), "fresh put returns null");
@@ -1994,6 +2005,7 @@ mod tests {
 
     #[test]
     fn hashmap_remove_and_views() {
+        let _rt = crate::test_support::runtime();
         let m = map_new();
         for k in 0..5 {
             n_hm_put(Some(&m), &[boxed_i32(k), boxed_i32(k + 100)], ctx()).unwrap();
@@ -2031,6 +2043,7 @@ mod tests {
 
     #[test]
     fn hashmap_iterator_cme_hasnext_no_check_next_checks() {
+        let _rt = crate::test_support::runtime();
         let m = map_new();
         for k in 0..3 {
             n_hm_put(Some(&m), &[boxed_i32(k), boxed_i32(k)], ctx()).unwrap();
@@ -2063,6 +2076,7 @@ mod tests {
 
     #[test]
     fn hashmap_null_key_and_value() {
+        let _rt = crate::test_support::runtime();
         let m = map_new();
         n_hm_put(Some(&m), &[Value::Ref(None), Value::Ref(None)], ctx()).unwrap();
         assert_eq!(n_hm_size(Some(&m), &[], ctx()).unwrap().expect_int(), 1);
@@ -2077,6 +2091,7 @@ mod tests {
 
     #[test]
     fn hashmap_initial_capacity_negative_is_java_exact() {
+        let _rt = crate::test_support::runtime();
         let m = new_obj("java/util/HashMap", 4).unwrap();
         let err = n_hm_init(Some(&m), &[Value::Int(-3)], ctx()).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/IllegalArgumentException");
@@ -2088,6 +2103,7 @@ mod tests {
 
     #[test]
     fn hashset_add_contains_remove_tostring() {
+        let _rt = crate::test_support::runtime();
         let st = set_new();
         assert_eq!(
             n_hs_add(Some(&st), &[boxed_i32(4)], ctx())
@@ -2138,6 +2154,7 @@ mod tests {
 
     #[test]
     fn objects_require_non_null_overloads() {
+        let _rt = crate::test_support::runtime();
         let v = Value::Ref(Some(new_string("ok")));
         assert!(matches!(
             n_objects_require_non_null(None, std::slice::from_ref(&v), ctx()).unwrap(),
@@ -2160,6 +2177,7 @@ mod tests {
 
     #[test]
     fn objects_to_string_is_null_and_hash() {
+        let _rt = crate::test_support::runtime();
         let out = n_objects_to_string(None, &[Value::Ref(None)], ctx()).unwrap();
         assert_eq!(s(&out), "null");
         let out = n_objects_to_string(None, &[Value::Ref(Some(new_string("x")))], ctx()).unwrap();
@@ -2188,6 +2206,7 @@ mod tests {
 
     #[test]
     fn rooted_collection_keeps_elements_alive_across_gc() {
+        let _rt = crate::test_support::runtime();
         crate::heap::set_forced_gc_every(Some(1));
         let l = list_new();
         let elem = new_string("kept-by-list");
@@ -2211,6 +2230,7 @@ mod tests {
 
     #[test]
     fn dropped_collection_lets_elements_be_collected() {
+        let _rt = crate::test_support::runtime();
         crate::heap::set_forced_gc_every(Some(1));
         let before = crate::heap::live_count();
         {

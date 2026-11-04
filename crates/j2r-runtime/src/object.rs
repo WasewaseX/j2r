@@ -9,15 +9,14 @@
 //! a direct index.
 //!
 //! Object access goes through `crate::heap::with_obj` / `with_obj_mut` —
-//! the arena is a `thread_local`, so a `Ref` must never escape it
-//! (M2_PLAN §4.7).
+//! the arena is a process-global `Mutex` (M4 Wave 1), so a `Ref` must
+//! never escape the lock guard (M2_PLAN §4.7; heap lock law L1–L3).
 
 use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
 use crate::Value;
 use crate::{throw_new, Throw};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, PartialEq)]
 pub struct JObj {
@@ -106,22 +105,27 @@ pub fn string_from_rc(s: Arc<String>) -> JRef {
     })
 }
 
-thread_local! {
-    static INTERNED: RefCell<HashMap<Arc<str>, JRef>> = RefCell::new(HashMap::new());
+/// The string-intern cache (JLS constant-pool identity: two `ldc`s of the
+/// same literal yield the same reference). Process-global since M4 Wave 1
+/// (T04). `OnceLock` because `HashMap::new` is not const. May allocate
+/// under its own lock — heap-lock law L2 allows cache→heap nesting, never
+/// the reverse.
+static INTERNED: OnceLock<Mutex<HashMap<Arc<str>, JRef>>> = OnceLock::new();
+
+fn interned() -> &'static Mutex<HashMap<Arc<str>, JRef>> {
+    INTERNED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Interns a string exactly like the JVM constant pool does: two `ldc`s of
 /// the same literal yield the same reference (`==` identity).
 pub fn intern_string(s: &str) -> JRef {
-    INTERNED.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some(existing) = cache.get(s) {
-            return *existing;
-        }
-        let r = new_string(s);
-        cache.insert(Arc::from(s), r);
-        r
-    })
+    let mut cache = interned().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(existing) = cache.get(s) {
+        return *existing;
+    }
+    let r = new_string(s);
+    cache.insert(Arc::from(s), r);
+    r
 }
 
 /// True when `r` is a `java/lang/String` object.
@@ -163,9 +167,8 @@ pub fn take_thrown(stack: &mut Vec<Value>) -> Result<JRef, Throw> {
     }
 }
 
-thread_local! {
-    static OUT_REF: RefCell<Option<JRef>> = const { RefCell::new(None) };
-}
+/// The lazily-created `System.out` object (permanent root; M4 Wave 1, T04).
+static OUT_REF: Mutex<Option<JRef>> = Mutex::new(None);
 
 fn native_stream(sink: i32) -> JRef {
     alloc(JObj {
@@ -176,13 +179,11 @@ fn native_stream(sink: i32) -> JRef {
 
 /// `java/lang/System.out` (sink id 1). Lazily created, process-wide.
 pub fn system_out_ref() -> JRef {
-    OUT_REF.with(|r| {
-        let mut r = r.borrow_mut();
-        if r.is_none() {
-            *r = Some(native_stream(1));
-        }
-        r.expect("just initialized")
-    })
+    let mut r = OUT_REF.lock().unwrap_or_else(|e| e.into_inner());
+    if r.is_none() {
+        *r = Some(native_stream(1));
+    }
+    r.expect("just initialized")
 }
 
 /// `java/lang/System.err` (sink id 2).
@@ -195,16 +196,16 @@ pub fn system_err_ref() -> JRef {
 /// vector. Interned literals and the shared stdout stream are permanent
 /// roots, matching the JVM's constant-pool lifetime.
 pub fn scan_runtime_roots(out: &mut Vec<u32>) {
-    INTERNED.with(|c| {
-        for r in c.borrow().values() {
-            out.push(r.index());
-        }
-    });
-    OUT_REF.with(|r| {
-        if let Some(x) = r.borrow().as_ref() {
-            out.push(x.index());
-        }
-    });
+    for r in interned()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+    {
+        out.push(r.index());
+    }
+    if let Some(x) = OUT_REF.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        out.push(x.index());
+    }
 }
 
 #[cfg(test)]
@@ -214,6 +215,7 @@ mod tests {
 
     #[test]
     fn intern_returns_same_object() {
+        let _rt = crate::test_support::runtime();
         let a = intern_string("hello-intern");
         let b = intern_string("hello-intern");
         assert!(JRef::ptr_eq(&a, &b));
@@ -223,6 +225,7 @@ mod tests {
 
     #[test]
     fn string_roundtrip() {
+        let _rt = crate::test_support::runtime();
         let r = new_string("héllo ✓");
         assert!(is_string(&r));
         assert_eq!(&*string_value(&r), "héllo ✓");
@@ -230,6 +233,7 @@ mod tests {
 
     #[test]
     fn string_array_layout() {
+        let _rt = crate::test_support::runtime();
         let arr = new_string_array(&["a".into(), "b".into()]);
         let cls = with_obj(arr, |o| o.jclass.to_string());
         assert_eq!(cls, "[Ljava/lang/String;");
@@ -238,6 +242,7 @@ mod tests {
 
     #[test]
     fn obj_mut_writes_are_visible() {
+        let _rt = crate::test_support::runtime();
         let r = new_obj("test/M", 2).unwrap();
         obj_set(&r, 0, Value::Int(7));
         with_obj_mut(r, |o| o.slots[1] = Value::Int(9));
