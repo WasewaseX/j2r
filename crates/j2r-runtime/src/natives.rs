@@ -1859,10 +1859,177 @@ fn n_system_gc(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<
 }
 
 // ---------------------------------------------------------------- Table
+// ---------------------------------------------------------- java/lang/Thread
+// M4 Wave 2 (T06): thin wrappers onto `crate::thread` (implementation,
+// JDK contract and honesty notes live there).
+
+fn n_thread_init_v_w(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_init_v(recv, args)
+}
+
+fn n_thread_init_r_w(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_init_r(recv, args)
+}
+
+fn n_thread_init_n_w(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_init_n(recv, args)
+}
+
+fn n_thread_init_rn_w(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_init_rn(recv, args)
+}
+
+fn n_thread_start_w(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_start(recv, ctx)
+}
+
+fn n_thread_run_w(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_run(recv, ctx)
+}
+
+fn n_thread_join0_w(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_join(recv, &[])
+}
+
+fn n_thread_join1_w(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_join(recv, args)
+}
+
+fn n_thread_join2_w(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_join(recv, args)
+}
+
+fn n_thread_sleep1_w(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_sleep(args)
+}
+
+fn n_thread_sleep2_w(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_sleep(args)
+}
+
+fn n_thread_yield_w(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    crate::thread::n_thread_yield()
+}
+
+fn n_thread_current_thread_w(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_current_thread()
+}
+
+fn n_thread_set_daemon_w(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_set_daemon(recv, args)
+}
+
+fn n_thread_is_daemon_w(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_is_daemon(recv)
+}
+
+fn n_thread_get_name_w(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_get_name(recv)
+}
+
+fn n_thread_set_name_w(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_set_name(recv, args)
+}
+
+fn n_thread_is_alive_w(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_is_alive(recv)
+}
+
+fn n_thread_active_count_w(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_active_count()
+}
 
 /// The natives table: `(class, method, descriptor, implementation)`.
 /// Classes use internal form (`a/b/C`). Keep sorted-ish by class for review.
 pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
+    // java/lang/Thread (M4 Wave 2, T06 — implementation in thread.rs)
+    ("java/lang/Thread", "<init>", "()V", n_thread_init_v_w),
+    (
+        "java/lang/Thread",
+        "<init>",
+        "(Ljava/lang/Runnable;)V",
+        n_thread_init_r_w,
+    ),
+    (
+        "java/lang/Thread",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_thread_init_n_w,
+    ),
+    (
+        "java/lang/Thread",
+        "<init>",
+        "(Ljava/lang/Runnable;Ljava/lang/String;)V",
+        n_thread_init_rn_w,
+    ),
+    ("java/lang/Thread", "start", "()V", n_thread_start_w),
+    ("java/lang/Thread", "run", "()V", n_thread_run_w),
+    ("java/lang/Thread", "join", "()V", n_thread_join0_w),
+    ("java/lang/Thread", "join", "(J)V", n_thread_join1_w),
+    ("java/lang/Thread", "join", "(JI)V", n_thread_join2_w),
+    ("java/lang/Thread", "sleep", "(J)V", n_thread_sleep1_w),
+    ("java/lang/Thread", "sleep", "(JI)V", n_thread_sleep2_w),
+    ("java/lang/Thread", "yield", "()V", n_thread_yield_w),
+    (
+        "java/lang/Thread",
+        "currentThread",
+        "()Ljava/lang/Thread;",
+        n_thread_current_thread_w,
+    ),
+    (
+        "java/lang/Thread",
+        "setDaemon",
+        "(Z)V",
+        n_thread_set_daemon_w,
+    ),
+    ("java/lang/Thread", "isDaemon", "()Z", n_thread_is_daemon_w),
+    (
+        "java/lang/Thread",
+        "getName",
+        "()Ljava/lang/String;",
+        n_thread_get_name_w,
+    ),
+    (
+        "java/lang/Thread",
+        "setName",
+        "(Ljava/lang/String;)V",
+        n_thread_set_name_w,
+    ),
+    ("java/lang/Thread", "isAlive", "()Z", n_thread_is_alive_w),
+    (
+        "java/lang/Thread",
+        "activeCount",
+        "()I",
+        n_thread_active_count_w,
+    ),
     // java/lang/Object
     ("java/lang/Object", "<init>", "()V", n_object_init),
     ("java/lang/Object", "wait", "()V", n_object_wait),

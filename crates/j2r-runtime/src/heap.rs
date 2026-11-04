@@ -58,6 +58,7 @@
 use crate::object::JObj;
 use std::cell::{Cell, RefCell};
 use std::num::NonZeroU32;
+use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock};
 
 /// Copy object handle: 1-based arena index + generation tag.
@@ -169,16 +170,30 @@ fn heap() -> &'static Mutex<Heap> {
 
 /// Allocates an object; **never collects** (M2_PLAN §4.3 — natives and
 /// runtime helpers may allocate freely).
+///
+/// M4 Wave 2 (T08): allocations that race a stop-the-world request window
+/// are **born survivors** — the entry is inserted with its mark bit set
+/// when `GC_REQUESTED` was observed under the heap lock, so the imminent
+/// sweep keeps it. This closes the last allocation/GC race: a thread that
+/// allocates between its failed safepoint poll and the collector's sweep
+/// can never hold a handle to a swept object. The extra kept object is
+/// conservative garbage at worst — the *next* collection reclaims it if
+/// it stayed unrooted (identical output either way; GC is invisible to
+/// program semantics).
 pub fn alloc(obj: JObj) -> JRef {
     let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
     debug_assert!(!heap.collecting, "alloc during collection");
+    // Born-survivor marker: a GC is requested (or in its wait phase) — the
+    // coming sweep must keep this object (its allocating thread may not
+    // have stored the handle into a refreshed frame slot yet).
+    let born_survivor = crate::thread::GC_REQUESTED.load(Ordering::Acquire);
     heap.since_gc += 1;
     let (idx, gen) = match heap.free.pop() {
         Some(i) => {
             let i = i as usize;
             heap.entries[i] = Some(Entry {
                 obj: RefCell::new(obj),
-                mark: Cell::new(false),
+                mark: Cell::new(born_survivor),
                 monitor: Cell::new(0),
             });
             (i, heap.gens[i])
@@ -186,7 +201,7 @@ pub fn alloc(obj: JObj) -> JRef {
         None => {
             heap.entries.push(Some(Entry {
                 obj: RefCell::new(obj),
-                mark: Cell::new(false),
+                mark: Cell::new(born_survivor),
                 monitor: Cell::new(0),
             }));
             heap.gens.push(0);
@@ -347,7 +362,18 @@ pub fn set_forced_gc_every(n: Option<u32>) {
 /// The one collection point in the entire system (M2_PLAN §4.3). Generated
 /// code emits `__frame.refresh(..); heap::gc_point();` immediately before
 /// each of the four allocating opcodes; nothing else ever calls this.
+///
+/// M4 Wave 2 (T08) — the point is now a full safepoint poll:
+///
+/// 1. `safepoint_poll()` — park here if a stop-the-world collection is in
+///    flight (before ANY runtime lock, law L6; the frame snapshot was
+///    refreshed immediately before this call by generated code).
+/// 2. the threshold check (unchanged; brief heap lock).
+/// 3. if a collection is due: win the collect token, publish
+///    `GC_REQUESTED`, wait for every other thread to park or exit, run
+///    the mark/sweep, release everyone (the `StwGuard` drop).
 pub fn gc_point() {
+    crate::thread::safepoint_poll();
     let should = {
         let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
         debug_assert!(!heap.collecting, "gc_point re-entered during collection");
@@ -365,18 +391,24 @@ pub fn gc_point() {
         }
     };
     if should {
-        collect();
+        if let Some(_stw) = crate::thread::StwGuard::begin() {
+            collect();
+        }
+        // Whether we collected or lost the token race, a collection just
+        // ran or is running: poll again so this thread parks through any
+        // in-flight one before its allocating opcode proceeds.
+        crate::thread::safepoint_poll();
     }
 }
 
 /// Marks from the root set with an explicit worklist, then sweeps.
+/// Runs ONLY inside a `StwGuard` (every other thread parked or exited).
 fn collect() {
     // ---- root set (pointer-free; M2_PLAN §4.4) ------------------------
     let mut roots: Vec<u32> = Vec::new();
-    // 1. every registered frame's owned snapshot slot (current frame
-    //    refreshed itself at this collection point; suspended callers
-    //    refreshed at their call boundaries — their state cannot have
-    //    changed while suspended)
+    // 1. every registered thread's frame snapshot slots (T08: the STW
+    //    protocol guarantees no owner mutates its slots during this walk;
+    //    the collector's own frames included)
     crate::frame::for_each_live_slot(|slot| roots.extend_from_slice(slot));
     // 2. the generated statics pool — the fn pointer is copied out under
     //    the scanner lock and called with NO lock held (L1: the scan is
@@ -390,6 +422,8 @@ fn collect() {
     crate::object::scan_runtime_roots(&mut roots);
     crate::natives::scan_runtime_roots(&mut roots);
     crate::reflect::scan_roots(&mut roots);
+    // 4. the thread registry (T07/T08): every record's Java Thread object
+    crate::thread::scan_registry_roots(&mut roots);
 
     {
         let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());
@@ -438,6 +472,27 @@ fn collect() {
         heap.since_gc = 0;
         heap.live_at_last_gc = heap.live;
     }
+}
+
+/// Test-only hook: runs one full mark/sweep through the real STW protocol
+/// (the same path `gc_point` takes when the threshold fires). Unit tests
+/// use this to drive collections directly. Callers must NOT already hold
+/// a `StwGuard` (the begin inside would park on its own request — use
+/// [`collect_under_held_stw_for_test`] there).
+#[cfg(test)]
+pub(crate) fn force_collect_for_test() {
+    if let Some(_stw) = crate::thread::StwGuard::begin() {
+        collect();
+    }
+    crate::thread::safepoint_poll();
+}
+
+/// Test-only hook: the raw mark/sweep, for callers already inside their
+/// own `StwGuard` (the STW handshake test drives protocol + collection in
+/// one held round).
+#[cfg(test)]
+pub(crate) fn collect_under_held_stw_for_test() {
+    collect();
 }
 
 #[cfg(test)]

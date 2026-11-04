@@ -14,7 +14,7 @@ Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM (Temurin 21), compiled with J2R, run natively,
 and **stdout, stderr and exit codes** must match (stderr with JVM
 stack-trace frames — and nothing else — normalized away).
-**84 fixture programs** cover arithmetic and integer/long edge cases,
+**86 fixture programs** cover arithmetic and integer/long edge cases,
 shifts, casts and
 saturating conversions, control flow (switch fallthrough, labeled
 break/continue), strings, string building, one- and two-dimensional arrays,
@@ -171,7 +171,7 @@ A **JDK-coverage milestone** (M3, [docs/ROADMAP.md](ROADMAP.md)) landed on
   generation-tagged handles (M2 Waves 1–2; see the milestone section above)
 * Investigation tooling: `j2r shape-report` (typed-storage decisions) and
   `j2r cfg-report` / `--emit-cfg` (CFG lift prototype, default off —
-  84/84 fixtures output-identical in both modes)
+  86/86 fixtures output-identical in both modes)
 * Classpath & JAR loading (M3 Wave 1): `-p/--classpath` with directories
   and `.jar`/`.zip` archives, transitive closure loading from a
   `--main-class`, a zero-dependency zip/inflate/CRC-32 reader with a
@@ -260,13 +260,13 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 256 tests: unit + differential/forced-GC/SOE-e2e/cfg-equivalence/jar suites
+$ cargo test                       # 266 tests: unit + differential/forced-GC/SOE-e2e/cfg-equivalence/jar suites
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar
 ```
 
-The differential suite (`crates/j2r-cli/tests/suite/*.java`, 84 programs)
+The differential suite (`crates/j2r-cli/tests/suite/*.java`, 86 programs)
 skips itself gracefully when no JDK is present; CI installs Temurin 21.
 Runtime guarantees and the panic-path inventory live in
 [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).

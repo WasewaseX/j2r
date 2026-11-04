@@ -51,7 +51,7 @@
 //! across a dispatch into user code (e.g. `toString` during concatenation).
 
 use crate::Throw;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 
 /// Native stack reserved for the generated program's worker thread
 /// (`emit.rs` main template spawns it with exactly this size).
@@ -79,22 +79,16 @@ const _: () = assert!(
     "DEFAULT_FRAMES exceeds the measured hard ceiling"
 );
 
-// M4-SEAM (M4_PLAN §3 Wave 1 / R3 checklist): frame registries stay
-// per-thread BY DESIGN in Wave 1 — frames are the one state that is
-// genuinely thread-owned. Wave 2 (T07) turns this block into a per-thread
-// struct instantiated once per Java thread; until then every generated
-// program is single-threaded and these thread_locals are the only
-// remaining seams in j2r-runtime (checked by
-// `thread_local_seams_are_annotated`).
+// M4-SEAM (M4_PLAN §3 Wave 2 / T07): the depth and limit counters are
+// owner-only scalars that never leave the thread — no collector or other
+// thread ever reads them, so thread_local is their final shape. The frame
+// SLOT storage itself moved to the per-thread `ThreadRecord` in
+// `crate::thread` (T07), which the collector scans under the STW protocol
+// (T08); that ended the last shared-state seam in the crate (gate-12
+// census: these two thread_local! blocks plus thread.rs's CURRENT handle).
 thread_local! {
     static DEPTH: Cell<usize> = const { Cell::new(0) };
     static LIMIT: Cell<Option<usize>> = const { Cell::new(None) };
-
-    /// The root-snapshot registry. `None` marks a released slot; released
-    /// `Vec`s move to [`SLOT_POOL`] so capacity is reused across calls.
-    static FRAME_SLOTS: RefCell<Vec<Option<Vec<u32>>>> = const { RefCell::new(Vec::new()) };
-    static FREE_SLOTS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
-    static SLOT_POOL: RefCell<Vec<Vec<u32>>> = const { RefCell::new(Vec::new()) };
 }
 
 // ---------------------------------------------------------------- limit policy
@@ -149,37 +143,53 @@ fn limit() -> usize {
 }
 
 // ------------------------------------------------------------- slot registry
+//
+// The slot storage lives in the current thread's `ThreadRecord` (T07,
+// `crate::thread`): one `Mutex<SlotState>` per Java thread. The owning
+// thread locks its own record; the collector locks each record in turn
+// under the STW protocol (everyone parked — no contention, and the slot
+// mutex is a leaf lock: law L4 in thread.rs's module docs).
+
+use crate::thread::frame_slots::SlotState;
+
+fn with_slots<R>(f: impl FnOnce(&mut SlotState) -> R) -> R {
+    let rec = crate::thread::current_record();
+    let mut s = rec.slots.lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut s)
+}
 
 fn take_slot() -> usize {
-    FREE_SLOTS.with(|f| {
-        if let Some(i) = f.borrow_mut().pop() {
-            FRAME_SLOTS.with(|s| s.borrow_mut()[i] = Some(Vec::new()));
+    with_slots(|s| {
+        if let Some(i) = s.free.pop() {
+            s.slots[i] = Some(Vec::new());
             return i;
         }
-        FRAME_SLOTS.with(|s| {
-            let mut s = s.borrow_mut();
-            s.push(Some(Vec::new()));
-            s.len() - 1
-        })
+        s.slots.push(Some(Vec::new()));
+        s.slots.len() - 1
     })
 }
 
 fn release_slot(slot: usize) {
-    let v = FRAME_SLOTS.with(|s| s.borrow_mut()[slot].take());
-    if let Some(v) = v {
-        SLOT_POOL.with(|p| p.borrow_mut().push(v));
-    }
-    FREE_SLOTS.with(|f| f.borrow_mut().push(slot));
+    with_slots(|s| {
+        if let Some(v) = s.slots[slot].take() {
+            s.pool.push(v);
+        }
+        s.free.push(slot);
+    })
 }
 
-/// Hands every occupied snapshot slot to the collector (heap-side root
-/// scan; M2_PLAN §4.4). Released slots are `None` and skipped.
+/// Hands every occupied snapshot slot of EVERY registered thread to the
+/// collector (heap-side root scan; M2_PLAN §4.4, T08). Released slots are
+/// `None` and skipped. Runs under the STW protocol: no thread mutates its
+/// slots while this walks (owners are parked), and each record's mutex is
+/// taken alone (L4/L5).
 pub(crate) fn for_each_live_slot(mut f: impl FnMut(&[u32])) {
-    FRAME_SLOTS.with(|s| {
-        for slot in s.borrow().iter().flatten() {
+    for rec in crate::thread::registry_records() {
+        let s = rec.slots.lock().unwrap_or_else(|e| e.into_inner());
+        for slot in s.slots.iter().flatten() {
             f(slot);
         }
-    });
+    }
 }
 
 // ---------------------------------------------------------------- FrameGuard
@@ -224,7 +234,7 @@ impl FrameGuard {
     /// this before every call of any kind and at every collection point, so
     /// the snapshot is exact for as long as the frame stays suspended.
     pub fn refresh(&self, locals: &[crate::Value], stack: &[crate::Value], thrown: &Option<Throw>) {
-        let mut handles: Vec<u32> = SLOT_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        let mut handles: Vec<u32> = with_slots(|s| s.pool.pop()).unwrap_or_default();
         handles.clear();
         for v in locals {
             if let crate::Value::Ref(Some(h)) = v {
@@ -239,9 +249,9 @@ impl FrameGuard {
         if let Some(t) = thrown {
             handles.push(t.obj.index());
         }
-        FRAME_SLOTS.with(|s| {
+        with_slots(|s| {
             // The slot exists for the guard's whole lifetime.
-            s.borrow_mut()[self.slot] = Some(handles);
+            s.slots[self.slot] = Some(handles);
         });
     }
 
@@ -280,11 +290,12 @@ impl Drop for FrameGuard {
         // into a plain method so both Drop paths share it; this Drop runs
         // exactly once per guard.)
         let slot = self.slot;
-        let v = FRAME_SLOTS.with(|s| s.borrow_mut()[slot].take());
-        if let Some(v) = v {
-            SLOT_POOL.with(|p| p.borrow_mut().push(v));
-        }
-        FREE_SLOTS.with(|f| f.borrow_mut().push(slot));
+        with_slots(|s| {
+            if let Some(v) = s.slots[slot].take() {
+                s.pool.push(v);
+            }
+            s.free.push(slot);
+        });
         DEPTH.with(|d| {
             let n = d.get();
             debug_assert!(n >= 1, "j2r internal: FrameGuard underflow");
@@ -306,19 +317,18 @@ pub struct NativeRoots {
 
 impl NativeRoots {
     pub fn push(handles: &[crate::heap::JRef]) -> NativeRoots {
-        let mut v: Vec<u32> = SLOT_POOL.with(|p| p.borrow_mut().pop()).unwrap_or_default();
+        let (v, slot) = with_slots(|s| {
+            let v = s.pool.pop().unwrap_or_default();
+            let slot = s.free.pop().unwrap_or_else(|| {
+                s.slots.push(None);
+                s.slots.len() - 1
+            });
+            (v, slot)
+        });
+        let mut v = v;
         v.clear();
         v.extend(handles.iter().map(|h| h.index()));
-        let slot = FREE_SLOTS.with(|f| {
-            f.borrow_mut().pop().unwrap_or_else(|| {
-                FRAME_SLOTS.with(|s| {
-                    let mut s = s.borrow_mut();
-                    s.push(None);
-                    s.len() - 1
-                })
-            })
-        });
-        FRAME_SLOTS.with(|s| s.borrow_mut()[slot] = Some(v));
+        with_slots(|s| s.slots[slot] = Some(v));
         NativeRoots {
             slot,
             _not_send: std::marker::PhantomData,
@@ -347,14 +357,14 @@ pub(crate) fn with_test_frame(f: impl FnOnce()) {
 /// for `FrameGuard::refresh` in tests that have no guard).
 #[cfg(test)]
 pub(crate) fn test_refresh_slot(handles: &[crate::heap::JRef]) {
-    let idx = FRAME_SLOTS.with(|s| {
-        s.borrow()
+    let idx = with_slots(|s| {
+        s.slots
             .iter()
             .rposition(|o| o.is_some())
             .expect("no live slot")
     });
     let v: Vec<u32> = handles.iter().map(|h| h.index()).collect();
-    FRAME_SLOTS.with(|s| s.borrow_mut()[idx] = Some(v));
+    with_slots(|s| s.slots[idx] = Some(v));
 }
 
 #[cfg(test)]

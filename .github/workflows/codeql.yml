@@ -1,0 +1,51 @@
+name: CodeQL
+
+# gate-14-codeql — CodeQL security & quality analysis (owner directive
+# 2026-11-04: "check code quality using GitHub Code Quality and code
+# security using CodeQL"). GitHub's own static analysis over the Rust
+# code: security queries (injection, resource leaks, race conditions...)
+# and quality queries. Results appear as SARIF on the Security tab and as
+# a "CodeQL" check run on every push to main.
+#
+# Runs in its own workflow (not inside ci.yml) because CodeQL maintains
+# its own queue and its findings land in GitHub Security rather than the
+# gate-8 aggregate — but it is still a numbered gate in the project
+# register (gate-14; 13 is reserved for the M4 Wave-4 concurrency gate),
+# and a red CodeQL run is treated like any other red gate: fix before the
+# next wave.
+#
+# `build-mode: none` — CodeQL's Rust autobuilder analyzes without an
+# explicit build; the workspace is a plain cargo tree, which is exactly
+# the shape it handles. Actions are pinned by commit SHA (same
+# supply-chain policy as ci.yml).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, Monday 03:23 UTC — catches new query packs even when the
+    # code is quiet.
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: gate-14-codeql
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # Required to upload the SARIF results to the Security tab.
+      security-events: write
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: github/codeql-action/init@a3d1b77a1ba1550fbb5c74db1dc3a11f4a481126 # v3
+        with:
+          languages: rust
+          build-mode: none
+      - uses: github/codeql-action/analyze@a3d1b77a1ba1550fbb5c74db1dc3a11f4a481126 # v3
+        with:
+          category: "/language:rust"

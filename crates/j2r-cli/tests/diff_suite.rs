@@ -65,9 +65,11 @@ fn differential_suite_matches_jvm() {
     // A3 added the MultiMain stem-preference fixture — 83 on disk, guard
     // one below that (the count itself is machine-checked by
     // scripts/check_doc_counts.py, audit A8).
+    // M4 Wave 2 added the real-thread fixtures (ThreadHello, ThreadSafepoint)
+    // — 86 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 83,
-        "differential suite shrank: {} fixtures (expected >= 83)",
+        fixtures.len() >= 85,
+        "differential suite shrank: {} fixtures (expected >= 85)",
         fixtures.len()
     );
 

@@ -42,6 +42,10 @@ pub const SUPPORTED_INTERFACES: &[&str] = &[
     // java.util.Comparator — the everyday sort key (real programs use it
     // constantly; the BigRpg fixture exercises it through a merge sort).
     "java/util/Comparator",
+    // M4 Wave 2: java.lang.Runnable — the Thread body (T06). The closure
+    // machinery is interface-generic; this adds the everyday
+    // `new Thread(() -> ...)` shape (ThreadHello/ThreadSafepoint).
+    "java/lang/Runnable",
 ];
 
 /// Shape of the implementation call, reassembled at SAM-invocation time:
@@ -323,6 +327,8 @@ fn sam_arity_of(interface: &str) -> Result<usize, String> {
         | "java/util/function/Consumer"
         | "java/util/function/Predicate"
         | "java/util/function/UnaryOperator" => 1,
+        // M4 Wave 2: Runnable.run()V — a 0-arity SAM (the Thread body).
+        "java/lang/Runnable" => 0,
         "java/util/function/BiFunction"
         | "java/util/function/BiConsumer"
         | "java/util/function/BiPredicate"
@@ -341,6 +347,8 @@ fn check_sam_return(interface: &str, ret: &TypeDesc) -> Result<(), String> {
         "java/util/function/Consumer" | "java/util/function/BiConsumer" => {
             matches!(ret, TypeDesc::Void)
         }
+        // M4 Wave 2: Runnable.run()V — void like the consumers.
+        "java/lang/Runnable" => matches!(ret, TypeDesc::Void),
         "java/util/function/Predicate" | "java/util/function/BiPredicate" => {
             matches!(ret, TypeDesc::Boolean)
         }

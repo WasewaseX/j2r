@@ -273,10 +273,10 @@ is proven, document exactly what is not.
 | T03 | 1 | **DONE** — shared statics pool; generated `statics.rs` template on `Mutex` statics; gate-5 standalone re-proven |
 | T04 | 1 | **DONE** — shared identity caches (intern, boxing, out/err, Class objects), `Arc` keys/values |
 | T05 | 1 | **local evidence green** — suite 84×3ch byte-identical (288.1s), corpus 5.6s, cfg-equiv 84/84 (566.8s), standalone run, tests=256 in sync, sharing/seam unit tests; gate-9 authoritative run = CI on this push |
-| T06 | 2 | `thread.rs` natives (start/join/sleep/yield/currentThread/daemon flag) |
-| T07 | 2 | Per-thread frame registries + global thread registry + worker-stack sizing |
-| T08 | 2 | STW safepoint protocol (GC_REQUESTED flag, park/resume, collector scans all registries) |
-| T09 | 2 | Thread fixtures + handshake unit tests |
+| T06 | 2 | **DONE** — `j2r-runtime/src/thread.rs`: Thread natives (start/join/sleep/yield/currentThread/daemon flag/name/isAlive/activeCount/run, four `<init>` shapes), JDK-exact failure strings; `java/lang/Runnable` joined the codegen SAM set — docs/M4_EVIDENCE.md §Wave 2 |
+| T07 | 2 | **DONE** — per-thread frame registries in the global thread registry (`ThreadRecord`), main thread registered first thing, `await_non_daemons` shutdown rule, worker-stack sizing (`J2R_THREAD_STACK`, M2-calibration default) |
+| T08 | 2 | **DONE** — STW safepoint protocol (`GC_REQUESTED`, `StwGuard`, park/resume, collector scans all registries) + born-survivor allocation marking; lock law L4–L6 |
+| T09 | 2 | **local evidence green** — runtime 123 tests (handshake, cross-thread rooting, identity, join HB, coop determinism/ring/recovery, registry stability); ThreadHello + ThreadSafepoint byte-identical vs Temurin (all 3 channels); gate-9 authoritative run = CI on this push |
 | T10 | 3 | Contention monitor state machine (owner + count + waiter queue) |
 | T11 | 3 | `wait/notify/notifyAll` with JDK-exact failure semantics |
 | T12 | 3 | `wait(timeout)` timing + rounding + exception messages |
@@ -284,12 +284,14 @@ is proven, document exactly what is not.
 | T14 | 4 | Interrupt semantics (status flag, wake-with-exception paths) |
 | T15 | 4 | Daemon shutdown rules + registry edge cases |
 | T16 | 4 | JMM-lite statement in RUNTIME_SAFETY.md §6 |
-| T17 | 4 | Stress suites (coop seeded + free-running) + gate-11-concurrency |
+| T17 | 4 | Stress suites (coop seeded + free-running) + gate-13-concurrency |
 | T18 | 4 | M4 completion package + review submission |
 
 Dependency chain: T01 → T02 → T03 → T04 → T05 → T06 → T07 → T08 → T09 →
 T10 → T11 → T12 → T13 → T14 → T15 → T16 → T17 → T18. No wave starts
-before the previous wave's CI evidence exists.
+before the previous wave's CI evidence exists. Wave 2 evidence:
+docs/M4_EVIDENCE.md §Wave 2 (four deadlock classes found and closed are
+recorded there too).
 
 ---
 

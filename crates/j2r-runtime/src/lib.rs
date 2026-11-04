@@ -39,6 +39,7 @@ pub mod object;
 pub mod reflect;
 pub mod stack;
 pub mod subtype;
+pub mod thread;
 
 use std::sync::Arc;
 
@@ -584,8 +585,9 @@ mod m4_wave1 {
         seams.sort();
         assert_eq!(
             seams,
-            vec!["frame.rs".to_string()],
-            "Wave 1 leaves exactly one seam: the per-thread frame registry"
+            vec!["frame.rs".to_string(), "thread.rs".to_string()],
+            "Wave 2 seams: frame.rs depth/limit scalars + thread.rs CURRENT \
+             handle (both owner-only; all shared state lives in the registry)"
         );
     }
 
@@ -610,12 +612,46 @@ mod m4_wave1 {
 /// this lock. NOT compiled outside tests; generated programs never see it.
 #[cfg(test)]
 pub(crate) mod test_support {
-    use std::sync::{Mutex, OnceLock};
+    use std::ops::{Deref, DerefMut};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     static RUNTIME_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    pub fn runtime() -> std::sync::MutexGuard<'static, ()> {
-        RUNTIME_LOCK
+
+    /// Guard wrapping the test-serialization lock. On drop it marks the
+    /// thread's registry record `Parked` — the thread has stopped
+    /// mutating Java state. This is what keeps libtest's per-test threads
+    /// from leaving zombie `Running` records that would stall every later
+    /// STW collection (M4 Wave 2, found by the first thread-test run).
+    pub struct RuntimeGuard {
+        inner: MutexGuard<'static, ()>,
+    }
+    impl Deref for RuntimeGuard {
+        type Target = ();
+        fn deref(&self) -> &() {
+            &self.inner
+        }
+    }
+    impl DerefMut for RuntimeGuard {
+        fn deref_mut(&mut self) -> &mut () {
+            &mut self.inner
+        }
+    }
+    impl Drop for RuntimeGuard {
+        fn drop(&mut self) {
+            crate::thread::mark_test_lock_released();
+        }
+    }
+
+    pub fn runtime() -> RuntimeGuard {
+        // M4 Wave 2: a thread waiting for this lock cannot mutate Java
+        // state — mark its record Parked so the STW collector (running
+        // inside the lock holder) never waits on the lock chain
+        // (collector → holder → waiter → collector).
+        crate::thread::mark_test_lock_wait();
+        let inner = RUNTIME_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(|e| e.into_inner());
+        crate::thread::mark_test_lock_acquired();
+        RuntimeGuard { inner }
     }
 }

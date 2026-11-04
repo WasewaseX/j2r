@@ -391,6 +391,9 @@ fn main() {{
 }}
 
 fn main_run() -> i32 {{
+    // M4 Wave 2: register this worker as the main Java thread BEFORE any
+    // Java allocation — the thread registry is the rooting story (T07).
+    ::j2r_runtime::thread::begin_main_java_thread();
     {lib_crate}::statics::init_pool({statics}usize, {classes}usize);
     {lib_crate}::statics::apply_defaults({defaults});
     {lib_crate}::statics::set_constants({constants});
@@ -398,7 +401,7 @@ fn main_run() -> i32 {{
     ::j2r_runtime::heap::set_statics_scanner({lib_crate}::statics::gc_scan_roots);
     let args: ::std::vec::Vec<::std::string::String> = ::std::env::args().skip(1).collect();
     let args_array = ::j2r_runtime::object::new_string_array(&args);
-    match {lib_crate}::classes::{module}::{main_fn}(
+    let code = match {lib_crate}::classes::{module}::{main_fn}(
         ::core::option::Option::None,
         &[::j2r_runtime::Value::Ref(::core::option::Option::Some(args_array))],
     ) {{
@@ -419,7 +422,11 @@ fn main_run() -> i32 {{
             }}
             1
         }}
-    }}
+    }};
+    // JVM shutdown rule (M4 Wave 2): the process waits for non-daemon
+    // threads before the exit code is produced (T15 owns edge cases).
+    ::j2r_runtime::thread::await_non_daemons();
+    code
 }}
 "#,
             statics = prog.total_statics,

@@ -140,3 +140,112 @@ object, 3 reflect, 2 natives, 1 test-support, 10 in the generated template).
   (`Heap::new` reads `J2R_GC_EVERY_N`; `HashMap::new` is not const).
 * The per-thread allocation-staging design (§3.1 alternative) remains
   documented-but-not-built, as the plan pre-approved.
+
+---
+
+## Wave 2 — real threads (T06, T07, T08, T09)
+
+**Goal (M4_PLAN §3 Wave 2):** `Thread` exists; N Java threads run on N
+native threads; GC stays correct under the stop-the-world protocol.
+
+### What landed
+
+* **T06 — `j2r-runtime/src/thread.rs` (new).** `java/lang/Thread` as a
+  builtin class (5 slots: runnable, name, daemon, started, tid), the full
+  native row set (start/run/join×3/sleep×2/yield/currentThread/setDaemon/
+  isDaemon/getName/setName/isAlive/activeCount, four `<init>` shapes), and
+  JDK-exact failure semantics (Temurin messages: IAE "timeout value is
+  negative" / "nanosecond timeout value out of range", NPE "name cannot be
+  null" from setName, no-message ITSE from double-start and setDaemon-
+  after-start). Child threads run `Runnable` bodies — lambda closures
+  (the M3 SAM machinery; `java/lang/Runnable` joined the codegen supported
+  set with its 0-arity `()V` shape) or compiled classes (virtual
+  `run()V` walk). Uncaught child exceptions print the JDK line and kill
+  the thread only; Rust panics inside a thread kill the process loudly.
+* **T07 — the thread registry.** Every thread that touches Java state
+  auto-registers a `ThreadRecord` (per-thread frame slot storage moved out
+  of frame.rs's thread_locals into the record — the Wave-1 seam note is
+  retired; depth/limit scalars stay thread-local by final design, and
+  thread.rs's `CURRENT` handle joins the gate-12 census). `start` pre-
+  registers the child and stamps the record id into the Java object's tid
+  slot, so `join`/`isAlive` resolve records that outlive death (records
+  are never removed). `main` registers itself as the Java thread "main"
+  first thing in the generated `main_run`; after the Java main returns,
+  `await_non_daemons` joins non-daemon threads (the basic JVM shutdown
+  rule; T15 owns the edge cases).
+* **T08 — cooperative stop-the-world.** `gc_point` is now a full
+  safepoint: poll (park if a collection is in flight — before any runtime
+  lock, law L6) → threshold check → `StwGuard::begin` (publish
+  `GC_REQUESTED`, wait until every other record is `Parked`/`Exited`) →
+  mark/sweep → drop (clear flag, release everyone). The collector's root
+  set gained the thread registry (each record's Java Thread object) and
+  now scans EVERY thread's frame slots through the registry. The
+  allocate/GC race is closed by **born-survivor marking**: an allocation
+  that observes `GC_REQUESTED` under the heap lock is inserted pre-marked,
+  so a handle can never name a swept object; the conservative extra keeps
+  are reclaimed by the next sweep (output-invisible). Lock law extended:
+  L4 (slot mutexes are leaves), L5 (registry→slots order only), L6 (never
+  park holding a runtime lock).
+* **T09 — the cooperative scheduler.** `J2R_SCHED=coop` (seed:
+  `J2R_SCHED_SEED`) rotates a round-robin turn over *ring-participating*
+  records at the yield points (`gc_point`, start/join/sleep/yield). The
+  yield shape is pass-if-held / acquire-otherwise — a thread that does
+  not hold the turn cannot act at a yield point, so coop output is a pure
+  function of (program, seed), not of who reached the yield first. Turn
+  recovery handles a holder that died or left the ring; death grants the
+  turn onward. Free mode (default) is the deployment shape: every coop
+  call is a fast-path no-op for the 84 pre-existing fixtures and all unit
+  tests.
+
+### The four deadlock classes found and closed during the build
+
+(All reproduced by the first test runs, all covered by unit tests now.)
+
+1. **Token-blocked collectors are invisible.** `StwGuard::begin` under a
+   blocking token lock would wait for a thread that waits for the token —
+   a cycle. Fixed: the token is taken with `try_lock`; losers park at a
+   poll where the owner's release reaches them.
+2. **Join-waiters looked Running.** A thread waiting in `join` mutates no
+   Java state; marked `Parked` for the wait (same for `await_non_daemons`)
+   so the collector never waits on a joiner→target chain.
+3. **Test threads died as Running zombies.** libtest runs each test on
+   its own thread; a raw exit left the record `Running`, stalling every
+   later STW begin. Fixed by the `RuntimeGuard` drop hook (the test lock
+   guard marks the record `Parked` on release) plus `TestDeath` in the
+   thread tests.
+4. **Coop turn starvation on exit.** A dying thread that owns the turn
+   must grant it onward (run_body and TestDeath both do), and a
+   turn-holder gone from the ring is recovered by the next yielder
+   (claim-on-see). Ring participation is a property of *started Java
+   threads* — bystanders can never own or starve the turn.
+
+### Honest deviations from the plan text
+
+* The plan's fixture evidence named coop mode for ThreadHello/
+  ThreadSafepoint. Strengthened instead: both fixtures are **scheduler-
+  deterministic by construction** (children never print; all output rides
+  main after joins), so the differential harness compares them in FREE
+  mode — the deployment shape — and the JDK join happens-before edge is
+  exercised against real scheduling. The coop machinery itself is
+  unit-proven (rotation order, ring visibility, recovery).
+* `activeCount()` is the exact live registry count (no ThreadGroups in
+  Wave 2 — documented in the native).
+* `join(self)` unbounded parks (JVM-faithful); `interrupt` is Wave 4, so
+  `sleep`/`join` are not yet interruptible (documented gap).
+
+### Evidence (local, wave-2 tree)
+
+* gate-1 fmt clean; gate-2 clippy `-D warnings` clean; gate-4 release
+  build clean; gate-10 zero-unsafe grep clean; gate-12 seams PASS
+  (census: frame.rs depth/limit + thread.rs CURRENT — all owner-only).
+* Runtime unit tests: **123 green (was 113)** — including the STW
+  handshake (allocator × collector, 20 rounds), cross-thread frame
+  rooting (an object rooted ONLY by another thread's registry survives
+  this thread's collection), currentThread identity across threads,
+  join happens-before, coop round-robin determinism and ring-visibility,
+  registry stability, JDK-exact sleep/setDaemon failures.
+* **Differential: ThreadHello + ThreadSafepoint byte-identical to
+  Temurin 21.0.13 on all three channels** (stdout/stderr/exit) — the
+  first real-threads evidence in the project. Suite on disk: 86.
+* gate-9 (a collection at every allocation) exercises the full STW
+  protocol across the whole suite; authoritative run = CI on this push.

@@ -316,6 +316,10 @@ fn builtin_is_instantiable(class: &str) -> bool {
             // skips builtins
             | "java/io/StringWriter"
             | "java/io/StringReader"
+            // M4 Wave 2 (T06): java.lang.Thread — slots owned by
+            // j2r-runtime/src/thread.rs (runnable/name/daemon/started/tid);
+            // the layout pass skips builtins.
+            | "java/lang/Thread"
     ) {
         return true;
     }

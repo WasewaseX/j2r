@@ -13,6 +13,8 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/Math" => "java/lang/Object",
         "java/io/PrintStream" => "java/lang/Object",
         "java/lang/Number" => "java/lang/Object",
+        // M4 Wave 2 (T06): java.lang.Thread joins the builtin hierarchy.
+        "java/lang/Thread" => "java/lang/Object",
         "java/lang/Integer" => "java/lang/Number",
         "java/lang/Long" => "java/lang/Number",
         "java/lang/Float" => "java/lang/Number",
@@ -125,6 +127,8 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         "java/lang/String" | "java/lang/StringBuilder" | "java/lang/StringBuffer" => {
             &["java/lang/CharSequence"]
         }
+        // M4 Wave 2 (T06): Thread implements Runnable.
+        "java/lang/Thread" => &["java/lang/Runnable"],
         // M3 Wave 2: collection hierarchy (subtype walks traverse interfaces,
         // so List/Set/Collection/Iterable chain entries let
         // `ArrayList <: List <: Collection <: Iterable` resolve)
@@ -198,6 +202,8 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
     let n = match class {
         "java/lang/Object" | "java/lang/System" | "java/lang/Math" | "java/lang/Number" => 0,
         "java/lang/Throwable" => 3,
+        // M4 Wave 2 (T06): runnable, name, daemon, started, tid.
+        "java/lang/Thread" => 5,
         "java/lang/String"
         | "java/lang/StringBuilder"
         | "java/lang/StringBuffer"

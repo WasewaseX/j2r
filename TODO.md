@@ -100,41 +100,46 @@ local full-gate sweep at the same tree).**
       8 classes — local evidence: compiled to an isolated crate, built
       `--offline`, all three channels byte-identical vs Temurin,
       exit 0 == 0). M4_PLAN Wave-4 gate renumbered gate-11 → **gate-13**
-      (11 and 12 taken), plan rev 1.1.
+      (11 and 12 taken), plan rev 1.1. **gate-14-codeql added** (owner
+      directive: GitHub Code Quality / CodeQL security analysis — Rust,
+      build-mode none, SARIF to the Security tab, SHA-pinned actions,
+      weekly schedule; codeql.yml).
 - [~] **M4 threads & concurrency — ACCEPTED (owner directive
       2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
-      **Wave 1 shared substrate LANDED** (T02–T04 done, T05 local evidence
-      green, docs/M4_EVIDENCE.md): heap + statics + identity caches on
-      process-global locks, Rc→Arc object graph, lock law L1–L3, seam
-      checker; differential 84×3 channels byte-identical vs Temurin.
-      Waves 2–4 below; no wave starts before the previous wave's CI
-      evidence exists.
+      **Wave 1 shared substrate LANDED** (T02–T05, commit 4ddfe1b; CI
+      aggregate green on that push). **Wave 2 real threads LANDED**
+      (T06–T09: Thread natives + registry + STW safepoints + coop
+      scheduler; two new real-thread fixtures byte-identical vs Temurin;
+      docs/M4_EVIDENCE.md §Wave 2). Next: Wave 3 monitor contention +
+      wait/notify (T10–T13). Later: interrupt/daemon/JMM-lite/stress
+      (T14–T18, gate-13).
 
-### M4 Wave 2 — real threads (T06–T09)
+### M4 Wave 2 — real threads (T06–T09) — LANDED, CI pending
 
-- [ ] **T06** — `j2r-runtime/src/thread.rs` (new): Thread natives —
+- [x] **T06** — `j2r-runtime/src/thread.rs` (new): Thread natives —
       `currentThread`, `start`, `join`, `sleep`, `yield`, `setDaemon`/
-      `isDaemon`, `getName`/`setName`, `activeCount`;
-      `Thread.currentThread()` returns a per-thread interned heap object
-      (`java/lang/Thread` builtin class carrying native thread id, name,
-      daemon flag).
-- [ ] **T07** — per-thread frame registries (frame.rs `M4-SEAM` note
-      updated from "stays for Wave 1" to the real shape) + global thread
-      registry (`Mutex<Vec<ThreadRecord>>`, death unregisters) + main
-      becomes a Java thread like any other + worker-stack sizing
-      (`J2R_THREAD_STACK`, default from the M2 calibration, boundary
-      matrix re-tested).
-- [ ] **T08** — STW safepoint protocol: global `GC_REQUESTED` state;
-      `gc_point()` polls → park-at-safepoint → collector scans ALL
-      registered threads' frame registries + shared roots → sweep under
-      heap ownership → release all; lock-order law extended (never park
-      while holding any runtime lock — risk R2).
-- [ ] **T09** — coop scheduler (`J2R_SCHED=coop`, `J2R_SCHED_SEED`,
-      round-robin at yield points; free mode stays the deployment shape)
-      + fixtures `ThreadHello` (start/join ordering, coop) and
-      `ThreadSafepoint` (allocator × collector handshake) + park/resume
-      handshake unit tests (R2). **Wave 2 lands as one reviewed commit
-      with full CI evidence before Wave 3 starts.**
+      `isDaemon`, `getName`/`setName`, `isAlive`, `activeCount`, `run` +
+      four `<init>` shapes; per-thread interned Thread object; JDK-exact
+      failure strings; `java/lang/Runnable` joined the codegen SAM set
+      (0-arity `()V` shape).
+- [x] **T07** — per-thread frame registries moved into the global
+      `ThreadRecord` registry (frame.rs keeps owner-only depth/limit
+      scalars); main registered first thing in the generated `main_run`;
+      `await_non_daemons` JVM shutdown rule; worker-stack sizing
+      (`J2R_THREAD_STACK`, M2-calibration default 32 MiB).
+- [x] **T08** — STW safepoint protocol: `GC_REQUESTED` + `StwGuard`
+      (publish → wait all Parked/Exited → mark/sweep → release);
+      collector scans ALL threads' registries + Thread objects;
+      **born-survivor marking** closes the allocate/GC race; lock law
+      L4–L6; four deadlock classes found by the first test runs and
+      closed (docs/M4_EVIDENCE.md §Wave 2).
+- [x] **T09** — coop scheduler (pass-if-held/acquire-otherwise yield
+      shape, ring participation, turn recovery, seed pinning) + fixtures
+      **ThreadHello / ThreadSafepoint byte-identical vs Temurin**
+      (scheduler-deterministic by construction; free-mode differential)
+      + runtime tests 113 → **123 green** (handshake, cross-thread
+      rooting, identity, join HB, coop determinism, registry stability).
+      Suite 86 on disk; doc counts 86/266 in sync (gate-11).
 
 ### M4 Wave 3 — monitor contention + wait/notify (T10–T13)
 
