@@ -103,7 +103,14 @@ local full-gate sweep at the same tree).**
       (11 and 12 taken), plan rev 1.1. **gate-14-codeql added** (owner
       directive: GitHub Code Quality / CodeQL security analysis — Rust,
       build-mode none, SARIF to the Security tab, SHA-pinned actions,
-      weekly schedule; codeql.yml).
+      weekly schedule; codeql.yml). **gate-14 upgraded to full potential**
+      (owner directive 2026-11-05, "use CodeQL full potential", CodeQL
+      zero-to-hero series): security-extended + security-and-quality
+      suites, J2R invariant queries (analysis/codeql/ — unsafe vectors +
+      stdout pollution tripwires, validated locally with CLI 2.27.4:
+      clean compile, positive controls on a known-bad fixture DB, zero
+      findings on the repo DB), pack dependency caching, workflow_dispatch,
+      action v4 SHA-pinned; .github/codeql/codeql-config.yml.
 - [~] **M4 threads & concurrency — ACCEPTED (owner directive
       2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
       **Wave 1 shared substrate LANDED** (T02–T05, commit 4ddfe1b; CI

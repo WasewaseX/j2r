@@ -1,0 +1,6 @@
+---
+name: j2r/codeql-invariants
+version: 1.0.0
+library: false
+dependencies:
+  codeql/rust-all: "*"
