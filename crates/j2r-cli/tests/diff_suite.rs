@@ -68,8 +68,8 @@ fn differential_suite_matches_jvm() {
     // M4 Wave 2 added the real-thread fixtures (ThreadHello, ThreadSafepoint)
     // — 86 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 85,
-        "differential suite shrank: {} fixtures (expected >= 85)",
+        fixtures.len() >= 88,
+        "differential suite shrank: {} fixtures (expected >= 88)",
         fixtures.len()
     );
 
