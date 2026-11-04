@@ -67,7 +67,7 @@
 //!   is only ever taken alone (L4). Nothing takes the registry lock while
 //!   holding a slot mutex.
 //! * **L6 — never park holding a runtime lock** (M4_PLAN R2): both park
-//!   sites ([`safepoint_poll`] and coop turn waits) run before any runtime
+//!   sites (`safepoint_poll` and coop turn waits) run before any runtime
 //!   lock acquisition in their call paths, and thread death notifies the
 //!   registry without holding any other lock.
 
@@ -89,7 +89,7 @@ pub const STATE_EXITED: u8 = 2;
 
 /// Stop-the-world request flag (T08). Published by the collecting thread
 /// inside [`StwGuard::begin`]; observed by every thread at its next
-/// `gc_point` poll ([`safepoint_poll`]) and, for allocations that race the
+/// `gc_point` poll (`safepoint_poll`) and, for allocations that race the
 /// request window, by `heap::alloc` under the heap lock (born-survivor
 /// marking — see the heap module docs).
 pub static GC_REQUESTED: AtomicBool = AtomicBool::new(false);
