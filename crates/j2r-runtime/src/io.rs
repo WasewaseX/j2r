@@ -38,7 +38,7 @@ pub fn n_sw_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result
     };
     with_obj_mut(r, |o| {
         o.slots[0] = Value::Ref(Some(r));
-        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::rc::Rc::new(String::new()));
+        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::sync::Arc::new(String::new()));
     });
     Ok(Value::Void)
 }
@@ -223,7 +223,7 @@ pub fn n_sr_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<
     };
     with_obj_mut(r, |o| {
         o.slots[0] = Value::Ref(Some(r));
-        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::rc::Rc::new(s));
+        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::sync::Arc::new(s));
     });
     Ok(Value::Void)
 }
@@ -245,7 +245,7 @@ pub fn n_sr_read(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result
     };
     let rest: String = it.collect();
     with_obj_mut(r, |o| {
-        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::rc::Rc::new(rest))
+        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::sync::Arc::new(rest))
     });
     Ok(Value::Int(head as i32))
 }
@@ -287,7 +287,7 @@ pub fn n_sr_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
     }
     let rest: String = it.collect();
     with_obj_mut(r, |o| {
-        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::rc::Rc::new(rest))
+        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::sync::Arc::new(rest))
     });
     for (i, v) in out.into_iter().enumerate() {
         crate::array::array_store(&cbuf, off + i as i32, v, ctx)?;

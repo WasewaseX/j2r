@@ -419,11 +419,11 @@ mod tests {
     use super::*;
     use crate::object::{new_obj, new_string, obj_get, obj_set, string_value, JObj};
     use crate::Value;
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     fn obj(class: &str, slots: Vec<Value>) -> JRef {
         alloc(JObj {
-            jclass: Rc::from(class),
+            jclass: Arc::from(class),
             slots,
         })
     }
@@ -596,7 +596,7 @@ mod tests {
         obj_set(
             &victim,
             0,
-            Value::Str(Rc::new("victim-payload".to_string())),
+            Value::Str(Arc::new("victim-payload".to_string())),
         );
         gc_point(); // victim dies
         let replacement = new_string("replacement");

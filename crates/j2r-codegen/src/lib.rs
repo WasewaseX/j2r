@@ -850,7 +850,7 @@ fn resolve_concat(c: &ClassPlan, indy_index: u16) -> std::result::Result<ConcatP
             j2r_classfile::BootstrapArgument::Float(v) => j2r_runtime::Value::Float(*v),
             j2r_classfile::BootstrapArgument::Double(v) => j2r_runtime::Value::Double(*v),
             j2r_classfile::BootstrapArgument::String(s) => {
-                j2r_runtime::Value::Str(std::rc::Rc::new(s.clone()))
+                j2r_runtime::Value::Str(std::sync::Arc::new(s.clone()))
             }
             // MethodType/MethodHandle/Class constants never appear as concat
             // recipe constants in javac output; they belong to the

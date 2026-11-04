@@ -452,7 +452,7 @@ mod tests {
     fn slots_are_lifo_and_reused() {
         let before = FrameGuard::current_depth();
         let h = crate::heap::alloc(crate::object::JObj {
-            jclass: std::rc::Rc::from("test/S"),
+            jclass: std::sync::Arc::from("test/S"),
             slots: vec![],
         });
         {

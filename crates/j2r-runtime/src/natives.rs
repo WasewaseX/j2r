@@ -7,7 +7,7 @@
 //! Conventions:
 //! * instance natives get `recv = Some(&JRef)`, statics get `None`,
 //! * `java/lang/String` and `StringBuilder` store their characters as
-//!   `Value::Str` in slot 0 (copy-on-write via `Rc::make_mut`),
+//!   `Value::Str` in slot 0 (copy-on-write via `Arc::make_mut`),
 //! * `Throwable.detailMessage` is slot 0 (`Value::Ref` to a String or null),
 //! * boxed classes store their payload in slot 0,
 //! * `java/io/PrintStream` stores its sink id (1 = stdout, 2 = stderr) in
@@ -28,7 +28,7 @@ use crate::Value;
 use crate::{internal_error, javafmt, throw_new, Dispatch, NativeFn, Throw};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 fn this<'a>(recv: Option<&'a JRef>, who: &str) -> &'a JRef {
     recv.unwrap_or_else(|| panic!("j2r internal: {who} called without receiver"))
@@ -377,7 +377,7 @@ fn utf16_units(s: &str) -> Vec<u16> {
 
 fn n_string_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "String.<init>");
-    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(String::new())));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Arc::new(String::new())));
     Ok(Value::Void)
 }
 
@@ -428,7 +428,7 @@ fn n_string_init_chars(
         &[Value::Ref(Some(cbuf)), Value::Int(0), Value::Int(len)],
         "String.<init>([C)",
     )?;
-    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Arc::new(text)));
     Ok(Value::Void)
 }
 
@@ -439,7 +439,7 @@ fn n_string_init_chars_range(
 ) -> Result<Value, Throw> {
     let r = this(recv, "String.<init>");
     let text = string_from_char_range(args, "String.<init>([CII)")?;
-    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Arc::new(text)));
     Ok(Value::Void)
 }
 
@@ -450,7 +450,7 @@ fn n_string_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resul
         _ => return Err(internal_error("String.<init>(String) needs a String")),
     };
     let text = object::string_value(o).to_string();
-    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Arc::new(text)));
     Ok(Value::Void)
 }
 
@@ -600,7 +600,7 @@ fn n_string_value_of_l(_r: Option<&JRef>, args: &[Value], c: Dispatch) -> Result
 
 // ---------------------------------------------------------------- StringBuilder
 
-fn sb_text(r: &JRef) -> Rc<String> {
+fn sb_text(r: &JRef) -> Arc<String> {
     crate::heap::with_obj(*r, |b| match &b.slots[0] {
         Value::Str(s) => s.clone(),
         other => panic!("j2r internal: StringBuilder slot0 is {other:?}"),
@@ -609,14 +609,14 @@ fn sb_text(r: &JRef) -> Rc<String> {
 
 fn sb_push_str(r: &JRef, text: &str) {
     crate::heap::with_obj_mut(*r, |b| match &mut b.slots[0] {
-        Value::Str(s) => Rc::make_mut(s).push_str(text),
+        Value::Str(s) => Arc::make_mut(s).push_str(text),
         other => panic!("j2r internal: StringBuilder slot0 is {other:?}"),
     })
 }
 
 fn n_sb_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "StringBuilder.<init>");
-    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(String::new())));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Arc::new(String::new())));
     Ok(Value::Void)
 }
 
@@ -631,7 +631,7 @@ fn n_sb_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Va
         }
     };
     let text = object::string_value(o).to_string();
-    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Arc::new(text)));
     Ok(Value::Void)
 }
 

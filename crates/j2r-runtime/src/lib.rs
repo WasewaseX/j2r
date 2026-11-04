@@ -13,7 +13,7 @@
 //! * the [`j2r_try!`] macro used by every generated method body.
 //!
 //! Design notes (milestone 1):
-//! * The heap is `Rc<RefCell<..>>`: single-threaded, reference-counted.
+//! * The heap is `Arc<RefCell<..>>`: single-threaded, reference-counted.
 //!   Cycle-collecting GC and true Java threads are planned milestones; a
 //!   cycle leak is *memory*, never *behaviour*, so program output stays
 //!   correct.
@@ -40,7 +40,7 @@ pub mod reflect;
 pub mod stack;
 pub mod subtype;
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub use desc::{parse_field_desc, parse_method_desc, unmarshal_args, TypeDesc};
 pub use heap::JRef;
@@ -64,7 +64,7 @@ pub enum Value {
     Long(i64),
     Float(f32),
     Double(f64),
-    Str(Rc<String>),
+    Str(Arc<String>),
     Ref(Option<JRef>),
 }
 
@@ -250,7 +250,7 @@ pub fn throw_new(class: &str, msg: Option<&str>) -> Throw {
         None => Value::Ref(None),
     };
     let obj = crate::heap::alloc(JObj {
-        jclass: Rc::from(class),
+        jclass: Arc::from(class),
         slots: vec![msg_val, Value::Ref(None), Value::Ref(None)],
     });
     Throw { obj }
@@ -368,7 +368,7 @@ pub fn invoke_virtual(
     // The receiver's class chain is walked by name; the receiver itself is
     // rooted by the caller's refreshed frame snapshot (generated code
     // refreshes before every call), so no NativeRoots scope is needed here.
-    let mut cur: Rc<str> = crate::heap::with_obj(*recv, |o| o.jclass.clone());
+    let mut cur: Arc<str> = crate::heap::with_obj(*recv, |o| o.jclass.clone());
     for _ in 0..64 {
         if let Some(f) = ctx.find_method(&cur, name, desc) {
             return f(Some(recv), args);
@@ -377,7 +377,7 @@ pub fn invoke_virtual(
             return n(Some(recv), args, ctx);
         }
         match ctx.parent_of(&cur) {
-            Some(p) => cur = Rc::from(p),
+            Some(p) => cur = Arc::from(p),
             None => break,
         }
     }

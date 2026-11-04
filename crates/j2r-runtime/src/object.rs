@@ -17,13 +17,13 @@ use crate::Value;
 use crate::{throw_new, Throw};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
 pub struct JObj {
     /// Runtime class in internal form (`a/b/C`); arrays use descriptors
     /// like `[I` or `[Ljava/lang/String;`.
-    pub jclass: Rc<str>,
+    pub jclass: Arc<str>,
     /// Flattened field slots. Slot semantics are owned by the code
     /// generator's layout; natives use fixed slots documented per class.
     pub slots: Vec<Value>,
@@ -32,7 +32,7 @@ pub struct JObj {
 /// Allocates a new object with `slots` default (Void) slots.
 pub fn new_obj(class: &str, slots: usize) -> Result<JRef, Throw> {
     Ok(alloc(JObj {
-        jclass: Rc::from(class),
+        jclass: Arc::from(class),
         slots: vec![Value::Void; slots],
     }))
 }
@@ -91,23 +91,23 @@ pub fn set_defaults(r: &JRef, spec: &str) {
 /// Creates a `java/lang/String` object.
 pub fn new_string(s: &str) -> JRef {
     alloc(JObj {
-        jclass: Rc::from("java/lang/String"),
-        slots: vec![Value::Str(Rc::new(s.to_string()))],
+        jclass: Arc::from("java/lang/String"),
+        slots: vec![Value::Str(Arc::new(s.to_string()))],
     })
 }
 
 /// Creates a `java/lang/String` object sharing an existing character buffer
 /// (used by `StringBuilder.toString`, which is safe because `StringBuilder`
-/// mutations copy-on-write through `Rc::make_mut`).
-pub fn string_from_rc(s: Rc<String>) -> JRef {
+/// mutations copy-on-write through `Arc::make_mut`).
+pub fn string_from_rc(s: Arc<String>) -> JRef {
     alloc(JObj {
-        jclass: Rc::from("java/lang/String"),
+        jclass: Arc::from("java/lang/String"),
         slots: vec![Value::Str(s)],
     })
 }
 
 thread_local! {
-    static INTERNED: RefCell<HashMap<Rc<str>, JRef>> = RefCell::new(HashMap::new());
+    static INTERNED: RefCell<HashMap<Arc<str>, JRef>> = RefCell::new(HashMap::new());
 }
 
 /// Interns a string exactly like the JVM constant pool does: two `ldc`s of
@@ -119,7 +119,7 @@ pub fn intern_string(s: &str) -> JRef {
             return *existing;
         }
         let r = new_string(s);
-        cache.insert(Rc::from(s), r);
+        cache.insert(Arc::from(s), r);
         r
     })
 }
@@ -130,7 +130,7 @@ pub fn is_string(r: &JRef) -> bool {
 }
 
 /// Extracts the character data of a String object (panics otherwise).
-pub fn string_value(r: &JRef) -> Rc<String> {
+pub fn string_value(r: &JRef) -> Arc<String> {
     with_obj(*r, |b| match &b.slots[0] {
         Value::Str(s) => s.clone(),
         other => panic!(
@@ -148,7 +148,7 @@ pub fn new_string_array(items: &[String]) -> JRef {
         slots.push(Value::Ref(Some(new_string(item))));
     }
     alloc(JObj {
-        jclass: Rc::from("[Ljava/lang/String;"),
+        jclass: Arc::from("[Ljava/lang/String;"),
         slots,
     })
 }
@@ -169,7 +169,7 @@ thread_local! {
 
 fn native_stream(sink: i32) -> JRef {
     alloc(JObj {
-        jclass: Rc::from("java/io/PrintStream"),
+        jclass: Arc::from("java/io/PrintStream"),
         slots: vec![Value::Int(sink)],
     })
 }

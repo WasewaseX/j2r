@@ -556,7 +556,7 @@ fn static_constants_literal(prog: &Program) -> String {
             ConstantValue::Float(v) => format!("{RT}::Value::Float({})", f32_lit(*v)),
             ConstantValue::Double(v) => format!("{RT}::Value::Double({})", f64_lit(*v)),
             ConstantValue::String(s) => {
-                format!("{RT}::Value::Str(::std::rc::Rc::new({s:?}.to_string()))")
+                format!("{RT}::Value::Str(::std::sync::Arc::new({s:?}.to_string()))")
             }
         };
         out.push_str(&format!("({slot}u32, {v}), "));
@@ -1443,7 +1443,7 @@ fn constant_literal(v: &j2r_runtime::Value) -> String {
         j2r_runtime::Value::Float(f) => format!("{RT}::Value::Float({})", f32_lit(*f)),
         j2r_runtime::Value::Double(d) => format!("{RT}::Value::Double({})", f64_lit(*d)),
         j2r_runtime::Value::Str(s) => {
-            format!("{RT}::Value::Str(::std::rc::Rc::new({s:?}.to_string()))")
+            format!("{RT}::Value::Str(::std::sync::Arc::new({s:?}.to_string()))")
         }
         other => unreachable!("concat constant {other:?}"),
     }

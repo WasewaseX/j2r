@@ -21,9 +21,9 @@
 use crate::heap::{with_obj, JRef};
 use crate::Value;
 use crate::{throw_new, Dispatch, Throw};
-use std::rc::Rc;
+use std::sync::Arc;
 
-fn str_of(v: &Value, who: &str) -> Rc<String> {
+fn str_of(v: &Value, who: &str) -> Arc<String> {
     match v {
         Value::Ref(Some(r)) => crate::object::string_value(r),
         _ => panic!("j2r internal: {who} without string"),
@@ -375,7 +375,7 @@ pub fn n_str_ends_with(
 
 /// The string payload of any `CharSequence` in the supported set (String,
 /// StringBuilder, StringBuffer).
-pub fn char_seq_value(v: &Value, who: &str) -> Rc<String> {
+pub fn char_seq_value(v: &Value, who: &str) -> Arc<String> {
     match v {
         Value::Ref(Some(r)) => with_obj(*r, |o| match &o.slots[0] {
             Value::Str(s) => s.clone(),
@@ -477,7 +477,7 @@ pub fn n_str_to_char_array(
         slots.push(Value::Int(u as i32));
     }
     Ok(Value::Ref(Some(crate::heap::alloc(crate::object::JObj {
-        jclass: Rc::from("[C"),
+        jclass: Arc::from("[C"),
         slots,
     }))))
 }
@@ -506,9 +506,9 @@ pub fn n_str_repeat(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resu
 // ---------------------------------------------------------------- StringBuilder
 //
 // StringBuilder keeps its characters as Value::Str in slot 0
-// (copy-on-write through Rc::make_mut — same convention as M1).
+// (copy-on-write through Arc::make_mut — same convention as M1).
 
-fn sb_str(recv: Option<&JRef>, who: &str) -> Rc<String> {
+fn sb_str(recv: Option<&JRef>, who: &str) -> Arc<String> {
     let r = this(recv, who);
     with_obj(r, |o| match &o.slots[0] {
         Value::Str(s) => s.clone(),
@@ -521,7 +521,7 @@ fn sb_set(recv: &JRef, s: String) {
     // stays untouched (the value-level equivalent of Java's immutable
     // String snapshots).
     crate::heap::with_obj_mut(*recv, |o| {
-        o.slots[0] = Value::Str(Rc::new(s));
+        o.slots[0] = Value::Str(Arc::new(s));
     });
 }
 
@@ -736,7 +736,7 @@ pub fn n_sb_init_capacity(
             Some(&format!("{cap}")),
         ));
     }
-    crate::heap::with_obj_mut(r, |o| o.slots[0] = Value::Str(Rc::new(String::new())));
+    crate::heap::with_obj_mut(r, |o| o.slots[0] = Value::Str(Arc::new(String::new())));
     Ok(Value::Void)
 }
 

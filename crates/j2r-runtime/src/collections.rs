@@ -5,7 +5,7 @@
 //! whose state slots hold scalars and references to further heap objects
 //! (backing arrays, `HashMap$Node` bins, iterators). The mark/sweep
 //! collector therefore scans collections with **zero new root machinery** —
-//! the strongest possible GC story (M3_PLAN §5.4). No `Rc<RefCell<..>>` side
+//! the strongest possible GC story (M3_PLAN §5.4). No `Arc<RefCell<..>>` side
 //! tables exist anywhere.
 //!
 //! Slot layouts (documented here because the natives own them):
@@ -55,7 +55,7 @@ use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
 use crate::object::{new_obj, string_value};
 use crate::Value;
 use crate::{internal_error, invoke_virtual, throw_new, Dispatch, Throw};
-use std::rc::Rc;
+use std::sync::Arc;
 
 // ---------------------------------------------------------------- helpers
 
@@ -186,7 +186,7 @@ fn alloc_array(cap: i32) -> JRef {
         slots.push(Value::Ref(None));
     }
     alloc(crate::object::JObj {
-        jclass: Rc::from("[Ljava/lang/Object;"),
+        jclass: Arc::from("[Ljava/lang/Object;"),
         slots,
     })
 }
@@ -900,7 +900,7 @@ fn alloc_node_table(len: i32) -> JRef {
         slots.push(Value::Ref(None));
     }
     alloc(crate::object::JObj {
-        jclass: Rc::from("[Ljava/util/HashMap$Node;"),
+        jclass: Arc::from("[Ljava/util/HashMap$Node;"),
         slots,
     })
 }

@@ -21,7 +21,7 @@ use crate::heap::{self, JRef};
 use crate::natives;
 use crate::object::{new_obj, JObj};
 use crate::{throw_new, Dispatch, Throw, Value};
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub const SHAPE_STATIC: u8 = 0; // caps ++ sam_args, no receiver
 pub const SHAPE_BOUND: u8 = 1; // receiver = capture 0
@@ -43,13 +43,13 @@ pub fn make_closure(
 ) -> Result<Value, Throw> {
     let mut slots = Vec::with_capacity(SLOTS_BEFORE_CAPTURES + captures.len());
     slots.push(Value::Int(shape as i32));
-    slots.push(Value::Str(Rc::new(target_class.to_string())));
-    slots.push(Value::Str(Rc::new(target_name.to_string())));
-    slots.push(Value::Str(Rc::new(target_desc.to_string())));
+    slots.push(Value::Str(Arc::new(target_class.to_string())));
+    slots.push(Value::Str(Arc::new(target_name.to_string())));
+    slots.push(Value::Str(Arc::new(target_desc.to_string())));
     slots.push(Value::Int(ctor_slots as i32));
     slots.extend_from_slice(captures);
     Ok(Value::Ref(Some(heap::alloc(JObj {
-        jclass: Rc::from(interface),
+        jclass: Arc::from(interface),
         slots,
     }))))
 }

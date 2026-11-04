@@ -26,7 +26,7 @@ use crate::heap::{with_obj, with_obj_mut, JRef};
 use crate::natives;
 use crate::object;
 use crate::{collections, invoke_virtual, throw_new, Dispatch, Throw, Value};
-use std::rc::Rc;
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -46,7 +46,7 @@ fn arr_store(r: &JRef, i: i32, v: Value, ctx: Dispatch) -> Result<(), Throw> {
 
 /// Strings in this runtime come back two ways: inline `Value::Str` payloads
 /// and heap `java/lang/String` objects. Accept both, reject the rest loudly.
-fn string_of_value(v: &Value, meth: &str) -> Result<Rc<String>, Throw> {
+fn string_of_value(v: &Value, meth: &str) -> Result<Arc<String>, Throw> {
     match v {
         Value::Str(s) => Ok(s.clone()),
         Value::Ref(Some(r)) => {
@@ -937,7 +937,7 @@ pub fn n_al_sub_list(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Res
     let (size, mod_count, _elems) = collections::al_state(list);
     check_sub_range(from, to, size)?;
     let view = crate::heap::alloc(crate::object::JObj {
-        jclass: Rc::from("java/util/ArrayList$SubList"),
+        jclass: Arc::from("java/util/ArrayList$SubList"),
         slots: vec![
             Value::Ref(Some(*list)),
             Value::Int(from),
@@ -1200,7 +1200,7 @@ pub fn n_unmod_list(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Res
         _ => return Err(null_arg("Collections.unmodifiableList")),
     };
     let view = crate::heap::alloc(crate::object::JObj {
-        jclass: Rc::from("java/util/Collections$UnmodifiableList"),
+        jclass: Arc::from("java/util/Collections$UnmodifiableList"),
         slots: vec![Value::Ref(Some(list))],
     });
     Ok(Value::Ref(Some(view)))

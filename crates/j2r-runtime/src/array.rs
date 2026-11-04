@@ -16,7 +16,7 @@ use crate::object::JObj;
 use crate::subtype::is_subtype;
 use crate::Value;
 use crate::{internal_error, throw_new, Dispatch, Throw};
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub const BOOLEAN: &str = "[Z";
 pub const CHAR: &str = "[C";
@@ -37,7 +37,7 @@ fn default_element(desc: &str) -> Value {
     }
 }
 
-fn check_array(r: &JRef) -> Result<(i32, Rc<str>), Throw> {
+fn check_array(r: &JRef) -> Result<(i32, Arc<str>), Throw> {
     with_obj(*r, |b| {
         let cls = b.jclass.clone();
         if !cls.starts_with('[') {
@@ -75,7 +75,7 @@ pub fn array_new_prim(desc: &str, len: i32) -> Result<JRef, Throw> {
         slots.push(dflt.clone());
     }
     Ok(alloc(JObj {
-        jclass: Rc::from(desc),
+        jclass: Arc::from(desc),
         slots,
     }))
 }
@@ -104,7 +104,7 @@ pub fn array_new_ref(elem_class: &str, len: i32) -> Result<JRef, Throw> {
         slots.push(Value::Ref(None));
     }
     Ok(alloc(JObj {
-        jclass: Rc::from(desc.as_str()),
+        jclass: Arc::from(desc.as_str()),
         slots,
     }))
 }
@@ -170,7 +170,7 @@ fn build_level(desc: &str, dims: &[i32]) -> Result<JRef, Throw> {
             slots.push(Value::Ref(Some(sub)));
         }
         Ok(alloc(JObj {
-            jclass: Rc::from(desc),
+            jclass: Arc::from(desc),
             slots,
         }))
     }

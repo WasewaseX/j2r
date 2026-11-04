@@ -25,7 +25,7 @@ use crate::heap::{with_obj, JRef};
 use crate::{natives, Dispatch, Throw, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Temurin's exact NPE message when a reflective accessor is handed a null
 /// receiver for an instance member: the generated accessor's null check on
@@ -37,7 +37,7 @@ pub(crate) const NULL_RECV_NPE: &str =
 thread_local! {
     /// Per-name interned `java/lang/Class` objects — pinned forever via
     /// [`scan_roots`] so `X.class` identity is stable across GC cycles.
-    static CLASS_OBJECTS: RefCell<HashMap<Rc<str>, JRef>> = RefCell::new(HashMap::new());
+    static CLASS_OBJECTS: RefCell<HashMap<Arc<str>, JRef>> = RefCell::new(HashMap::new());
 }
 
 /// Root scanner: the interned class objects are permanent roots (plan §8.1
@@ -53,7 +53,7 @@ pub fn scan_roots(out: &mut Vec<u32>) {
 
 /// The internal class name carried by a `java/lang/Class` object (panics on
 /// non-Class objects: a native dispatch bug, never a Java program error).
-pub(crate) fn class_name_of(r: &JRef) -> Rc<String> {
+pub(crate) fn class_name_of(r: &JRef) -> Arc<String> {
     with_obj(*r, |o| match &o.slots[0] {
         Value::Str(s) => s.clone(),
         other => panic!(
@@ -69,15 +69,15 @@ pub fn class_ref(internal: &str) -> JRef {
         return r;
     }
     let r = crate::heap::alloc(crate::object::JObj {
-        jclass: Rc::from("java/lang/Class"),
-        slots: vec![Value::Str(Rc::new(internal.to_string()))],
+        jclass: Arc::from("java/lang/Class"),
+        slots: vec![Value::Str(Arc::new(internal.to_string()))],
     });
     CLASS_OBJECTS.with(|c| {
         let mut b = c.borrow_mut();
         if let Some(existing) = b.get(internal) {
             return *existing;
         }
-        b.insert(Rc::from(internal), r);
+        b.insert(Arc::from(internal), r);
         r
     })
 }
@@ -222,11 +222,11 @@ pub(crate) fn field_obj(
     static_slot: u32,
 ) -> JRef {
     crate::heap::alloc(crate::object::JObj {
-        jclass: Rc::from("java/lang/reflect/Field"),
+        jclass: Arc::from("java/lang/reflect/Field"),
         slots: vec![
-            Value::Str(Rc::new(owner.to_string())),
-            Value::Str(Rc::new(name.to_string())),
-            Value::Str(Rc::new(desc.to_string())),
+            Value::Str(Arc::new(owner.to_string())),
+            Value::Str(Arc::new(name.to_string())),
+            Value::Str(Arc::new(desc.to_string())),
             Value::Int(is_static as i32),
             Value::Int(instance_slot as i32),
             Value::Int(static_slot as i32),
@@ -240,17 +240,17 @@ pub(crate) fn field_obj(
 /// is structural, implemented as a native over these slots.
 pub(crate) fn method_obj(owner: &str, name: &str, desc: &str, is_static: bool) -> JRef {
     crate::heap::alloc(crate::object::JObj {
-        jclass: Rc::from("java/lang/reflect/Method"),
+        jclass: Arc::from("java/lang/reflect/Method"),
         slots: vec![
-            Value::Str(Rc::new(owner.to_string())),
-            Value::Str(Rc::new(name.to_string())),
-            Value::Str(Rc::new(desc.to_string())),
+            Value::Str(Arc::new(owner.to_string())),
+            Value::Str(Arc::new(name.to_string())),
+            Value::Str(Arc::new(desc.to_string())),
             Value::Int(is_static as i32),
         ],
     })
 }
 
-pub(crate) fn field_slots(r: &JRef) -> (Rc<String>, Rc<String>, Rc<String>, bool, usize, u32) {
+pub(crate) fn field_slots(r: &JRef) -> (Arc<String>, Arc<String>, Arc<String>, bool, usize, u32) {
     with_obj(*r, |o| {
         let s = |i: usize| match &o.slots[i] {
             Value::Str(v) => v.clone(),
@@ -267,7 +267,7 @@ pub(crate) fn field_slots(r: &JRef) -> (Rc<String>, Rc<String>, Rc<String>, bool
     })
 }
 
-pub(crate) fn method_slots(r: &JRef) -> (Rc<String>, Rc<String>, Rc<String>, bool) {
+pub(crate) fn method_slots(r: &JRef) -> (Arc<String>, Arc<String>, Arc<String>, bool) {
     with_obj(*r, |o| {
         let s = |i: usize| match &o.slots[i] {
             Value::Str(v) => v.clone(),
@@ -277,7 +277,7 @@ pub(crate) fn method_slots(r: &JRef) -> (Rc<String>, Rc<String>, Rc<String>, boo
     })
 }
 
-fn str_arg(args: &[Value], who: &str) -> Result<Rc<String>, Throw> {
+fn str_arg(args: &[Value], who: &str) -> Result<Arc<String>, Throw> {
     match args.first() {
         Some(Value::Ref(Some(r))) => Ok(crate::object::string_value(r)),
         Some(Value::Ref(None)) => Err(crate::throw_new("java/lang/NullPointerException", None)),
@@ -328,7 +328,7 @@ fn param_desc(class_internal: &str) -> String {
 pub fn get_declared_method(ctx: Dispatch, owner: &str, args: &[Value]) -> Result<Value, Throw> {
     let name = str_arg(args, "getDeclaredMethod")?;
     // Arrays keep their length in slot 0; elements start at slot 1.
-    let params: Vec<Rc<String>> = match args.get(1) {
+    let params: Vec<Arc<String>> = match args.get(1) {
         Some(Value::Ref(Some(arr))) => with_obj(*arr, |o| {
             o.slots
                 .iter()
@@ -676,7 +676,7 @@ pub fn method_invoke(
 /// `getCause()` returns it exactly like the JVM.
 fn wrap_in_ite(t: Throw) -> Throw {
     let obj = crate::heap::alloc(crate::object::JObj {
-        jclass: Rc::from("java/lang/reflect/InvocationTargetException"),
+        jclass: Arc::from("java/lang/reflect/InvocationTargetException"),
         slots: vec![Value::Ref(None), Value::Ref(Some(t.obj)), Value::Ref(None)],
     });
     Throw { obj }
