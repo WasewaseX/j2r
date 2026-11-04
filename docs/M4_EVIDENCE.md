@@ -322,3 +322,50 @@ cannot be swept while a thread parks on it).
 * **T13 fixtures (WaitNotify / MonitorContention / WaitTimeout
   differential vs Temurin) are the remaining half of T13** — next
   increment; the board tracks them unchecked.
+
+### Wave 3 addendum — T13 completion (Temurin probes falsified two pins)
+
+The three differential fixtures landed, and running them against **real
+Temurin 21.0.13+9** immediately falsified two assumptions the unit tests
+had pinned from documentation/memory:
+
+* **Validation order was backwards.** A non-owner calling `wait(-1)` on
+  Temurin gets the **IAE** (`timeout value is negative`), not the IMSE:
+  the JDK range-checks in the Java-level `Object.wait` wrapper, before
+  the native ever runs; only valid args reach the ownership check.
+  `object_wait` reordered (ranges first, then owner); the unit test
+  `wait_notify_without_ownership_is_imse` now pins the probe-verified
+  order — the old pin came from `ObjectMonitor::wait`'s CHECK_OWNER, but
+  the Java-level wrapper runs first in every modern JDK.
+* **Two JDK-8-era message strings.** `Object.wait/notify` IMSE on 21 is
+  `"current thread is not owner"` (with *is*); and `monitorexit`'s IMSE
+  carries **no message at all** — pinned with a hand-built classfile
+  (`monitorexit` on an unowned ref) instead of guessing from javadoc.
+  `monitor_exit` now throws message-less, matching Temurin's stderr
+  byte-for-byte (the diff harness treats messages as semantics).
+* `Thread.sleep` messages re-probed on 21: unchanged and correct
+  (`timeout value is negative`, `nanosecond timeout value out of range`).
+
+**The contention fixture caught a real generator bug (the wave's prize).**
+`MonitorContention` failed 5/10 locally: one worker's entire contribution
+vanished (7500 = 3×2500) and it died with an NPE. Root cause: the
+generated `statics.rs` `ensure()` set the per-class "initialized" flag
+BEFORE running `<clinit>` and never blocked anyone, so four threads
+racing to first-touch `MonitorContention` let a loser skip the clinit and
+read raw default statics — null `tally` into `monitorenter` → NPE. Every
+prior fixture touched statics from main before spawning, so this latent
+M4-Wave-1 bug needed four-way contention to surface. Fix:
+`j2r-runtime::clinit` implements the JLS 12.4.2 state machine
+(Uninit → Init{owner} → Done, condvar wait for concurrent first-touchers,
+same-thread re-entry free); the generator's `ensure` now delegates and
+the `FLAGS` vec is gone. `MonitorContention`: 0 fails / 30 runs; all 89
+fixtures byte-identical vs Temurin on all 3 channels (316.7s local).
+
+### Evidence (final, wave-3 tree)
+
+* runtime unit tests **134 green** (was 123: nine monitor + two clinit
+  gate); workspace `cargo test` **277 total** (README census synced);
+  fmt / clippy `-D warnings` / doc `-D warnings` clean locally.
+* New builtin hierarchy entries so catch-type verification and handler
+  matching resolve: `IllegalMonitorStateException`,
+  `InterruptedException` (first fixtures to catch them).

@@ -277,10 +277,10 @@ is proven, document exactly what is not.
 | T07 | 2 | **DONE** — per-thread frame registries in the global thread registry (`ThreadRecord`), main thread registered first thing, `await_non_daemons` shutdown rule, worker-stack sizing (`J2R_THREAD_STACK`, M2-calibration default) |
 | T08 | 2 | **DONE** — STW safepoint protocol (`GC_REQUESTED`, `StwGuard`, park/resume, collector scans all registries) + born-survivor allocation marking; lock law L4–L6 |
 | T09 | 2 | **local evidence green** — runtime 123 tests (handshake, cross-thread rooting, identity, join HB, coop determinism/ring/recovery, registry stability); ThreadHello + ThreadSafepoint byte-identical vs Temurin (all 3 channels); gate-9 authoritative run = CI on this push |
-| T10 | 3 | Contention monitor state machine (owner + count + waiter queue) |
-| T11 | 3 | `wait/notify/notifyAll` with JDK-exact failure semantics |
-| T12 | 3 | `wait(timeout)` timing + rounding + exception messages |
-| T13 | 3 | Wait/notify + contention fixtures (coop-deterministic) |
+| T10 | 3 | **DONE** — `monitor.rs` per-entry state machine (owner + count + FIFO wait set), lazy `Arc<Monitor>` in the heap entry, contended enter with park protocol; 9 monitor unit tests |
+| T11 | 3 | **DONE** — Mesa wait/notify/notifyAll with full-count release/restore; IMSE wording pinned to Temurin 21 ("current thread is not owner") |
+| T12 | 3 | **DONE** — JDK-exact wait(long[,int]): ranges BEFORE ownership (Temurin OrderProbe falsified the old pin), rounding, fixed deadline; monitorexit IMSE message-less (classfile probe) |
+| T13 | 3 | **DONE** — WaitNotify/MonitorContention/WaitTimeout differential vs Temurin 21.0.13+9; caught the clinit first-touch race → JLS 12.4.2 gate (`clinit.rs`); MonitorContention 0/30 flaky; tests 277; docs/M4_EVIDENCE.md §Wave 3 addendum |
 | T14 | 4 | Interrupt semantics (status flag, wake-with-exception paths) |
 | T15 | 4 | Daemon shutdown rules + registry edge cases |
 | T16 | 4 | JMM-lite statement in RUNTIME_SAFETY.md §6 |
