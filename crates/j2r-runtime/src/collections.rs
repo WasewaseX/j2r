@@ -278,7 +278,7 @@ pub fn n_al_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<
     Ok(Value::Void)
 }
 
-/// <init>(Collection) — the copy constructor (corpus wave 1: minimal-json's
+/// `<init>`(Collection) — the copy constructor (corpus wave 1: minimal-json's
 /// `new ArrayList<String>(object.names)`). Iterates the source through its
 /// OWN iterator dispatch (invokevirtual on the receiver's chain), so the
 /// source may be any collection implementation — including the
@@ -326,14 +326,7 @@ pub fn n_al_init_from_collection(
         }
     };
     loop {
-        let has = invoke_virtual(
-            &it,
-            "java/util/Iterator",
-            "hasNext",
-            "()Z",
-            &[],
-            ctx,
-        )?;
+        let has = invoke_virtual(&it, "java/util/Iterator", "hasNext", "()Z", &[], ctx)?;
         if has.expect_int() == 0 {
             break;
         }
@@ -416,8 +409,7 @@ pub fn n_al_equals(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result
         return Ok(Value::Int(0));
     }
     let (size, _mc, elems) = al_state(r);
-    let osize =
-        invoke_virtual(&other, "java/util/List", "size", "()I", &[], ctx)?.expect_int();
+    let osize = invoke_virtual(&other, "java/util/List", "size", "()I", &[], ctx)?.expect_int();
     if osize != size {
         return Ok(Value::Int(0));
     }
@@ -1893,10 +1885,7 @@ mod tests {
         list_add(&src, Value::Ref(Some(new_string("b"))));
         let cp = new_obj("java/util/ArrayList", 3).unwrap();
         n_al_init_from_collection(Some(&cp), &[Value::Ref(Some(src))], ctx()).unwrap();
-        assert_eq!(
-            n_al_size(Some(&cp), &[], ctx()).unwrap().expect_int(),
-            2
-        );
+        assert_eq!(n_al_size(Some(&cp), &[], ctx()).unwrap().expect_int(), 2);
         assert_eq!(
             s(&n_al_get(Some(&cp), &[Value::Int(0)], ctx()).unwrap()),
             "a"
@@ -1912,10 +1901,7 @@ mod tests {
             2,
             "copy must not see later source appends"
         );
-        assert_eq!(
-            n_al_size(Some(&src), &[], ctx()).unwrap().expect_int(),
-            3
-        );
+        assert_eq!(n_al_size(Some(&src), &[], ctx()).unwrap().expect_int(), 3);
         // null source -> NPE, like the JDK
         let cp2 = new_obj("java/util/ArrayList", 3).unwrap();
         let err = n_al_init_from_collection(Some(&cp2), &[Value::Ref(None)], ctx()).unwrap_err();
@@ -1930,18 +1916,14 @@ mod tests {
         let src = list_new();
         list_add(&src, Value::Ref(Some(new_string("x"))));
         list_add(&src, Value::Ref(Some(new_string("y"))));
-        let view = match crate::jdkutil::n_unmod_list(None, &[Value::Ref(Some(src))], ctx())
-            .unwrap()
-        {
-            Value::Ref(Some(v)) => v,
-            other => panic!("view: {other:?}"),
-        };
+        let view =
+            match crate::jdkutil::n_unmod_list(None, &[Value::Ref(Some(src))], ctx()).unwrap() {
+                Value::Ref(Some(v)) => v,
+                other => panic!("view: {other:?}"),
+            };
         let cp = new_obj("java/util/ArrayList", 3).unwrap();
         n_al_init_from_collection(Some(&cp), &[Value::Ref(Some(view))], ctx()).unwrap();
-        assert_eq!(
-            n_al_size(Some(&cp), &[], ctx()).unwrap().expect_int(),
-            2
-        );
+        assert_eq!(n_al_size(Some(&cp), &[], ctx()).unwrap().expect_int(), 2);
         assert_eq!(
             s(&n_al_get(Some(&cp), &[Value::Int(1)], ctx()).unwrap()),
             "y"
@@ -1950,15 +1932,9 @@ mod tests {
         let err =
             crate::jdkutil::n_unmod_add(Some(&view), &[Value::Ref(Some(new_string("z")))], ctx())
                 .unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/lang/UnsupportedOperationException"
-        );
+        assert_eq!(err.java_class(), "java/lang/UnsupportedOperationException");
         // the backing list is untouched by the rejected write
-        assert_eq!(
-            n_al_size(Some(&src), &[], ctx()).unwrap().expect_int(),
-            2
-        );
+        assert_eq!(n_al_size(Some(&src), &[], ctx()).unwrap().expect_int(), 2);
     }
 
     #[test]

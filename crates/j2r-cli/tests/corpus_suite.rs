@@ -48,8 +48,7 @@ fn corpus_entries_match_jvm() {
         eprintln!("skipping corpus suite: javac not found");
         return;
     }
-    let corpus_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../corpus");
+    let corpus_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
     let entries: Vec<String> = vec!["MinimalJsonCorpus.java".to_string()];
     let mut failures = Vec::new();
     for entry in &entries {

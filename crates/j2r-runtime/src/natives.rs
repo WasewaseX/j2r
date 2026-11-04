@@ -229,16 +229,16 @@ fn n_object_input_stream_default_read_object(
     ))
 }
 
-fn n_system_arraycopy(
-    _recv: Option<&JRef>,
-    args: &[Value],
-    ctx: Dispatch,
-) -> Result<Value, Throw> {
+fn n_system_arraycopy(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     crate::array::system_arraycopy(args, ctx)
 }
 
 // float/double predicates (corpus wave 1) — exact IEEE semantics
-fn n_float_is_infinite(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+fn n_float_is_infinite(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     let f = arg(args, "Float.isInfinite").expect_float();
     Ok(Value::Int(f.is_infinite() as i32))
 }
@@ -248,7 +248,11 @@ fn n_float_is_nan(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resul
     Ok(Value::Int(f.is_nan() as i32))
 }
 
-fn n_double_is_infinite(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+fn n_double_is_infinite(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     let d = arg(args, "Double.isInfinite").expect_double();
     Ok(Value::Int(d.is_infinite() as i32))
 }
@@ -388,13 +392,10 @@ fn string_from_char_range(args: &[Value], op: &str) -> Result<String, Throw> {
         _ => return Err(internal_error(&format!("j2r internal: {op} args"))),
     };
     let clen = crate::array::array_length(&cbuf)?;
-    if off < 0 || len < 0 || off.checked_add(len).map_or(true, |e| e > clen) {
+    if off < 0 || len < 0 || off.checked_add(len).is_none_or(|e| e > clen) {
         return Err(throw_new(
             "java/lang/StringIndexOutOfBoundsException",
-            Some(&format!(
-                "offset {}, count {}, length {}",
-                off, len, clen
-            )),
+            Some(&format!("offset {}, count {}, length {}", off, len, clen)),
         ));
     }
     let mut units: Vec<u16> = Vec::with_capacity(len as usize);
@@ -411,17 +412,22 @@ fn string_from_char_range(args: &[Value], op: &str) -> Result<String, Throw> {
     Ok(String::from_utf16_lossy(&units))
 }
 
-fn n_string_init_chars(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+fn n_string_init_chars(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     let r = this(recv, "String.<init>");
     let cbuf = match args.first() {
         Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
         _ => return Err(internal_error("String.<init>([C) needs a char array")),
     };
     let len = crate::array::array_length(&cbuf)?;
-    let text = string_from_char_range(&[Value::Ref(Some(cbuf)), Value::Int(0), Value::Int(len)], "String.<init>([C)")?;
+    let text = string_from_char_range(
+        &[Value::Ref(Some(cbuf)), Value::Int(0), Value::Int(len)],
+        "String.<init>([C)",
+    )?;
     crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Rc::new(text)));
     Ok(Value::Void)
 }
@@ -498,18 +504,16 @@ fn n_string_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resul
 /// UTF-16 code units of the range into the destination char[]. Indices are
 /// UTF-16 units (the string model's documented convention); the JDK's
 /// StringIndexOutOfBoundsException message is reproduced.
-fn n_string_get_chars(
-    recv: Option<&JRef>,
-    args: &[Value],
-    ctx: Dispatch,
-) -> Result<Value, Throw> {
+fn n_string_get_chars(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "String.getChars");
     let (begin, end, dst, dst_begin) = match (args.first(), args.get(1), args.get(2), args.get(3)) {
-        (Some(Value::Int(b)), Some(Value::Int(e)), Some(Value::Ref(Some(d))), Some(Value::Int(db))) => {
-            (*b, *e, *d, *db)
-        }
-        (Some(Value::Ref(None)), _, _, _)
-        | (_, _, Some(Value::Ref(None)), _) => {
+        (
+            Some(Value::Int(b)),
+            Some(Value::Int(e)),
+            Some(Value::Ref(Some(d))),
+            Some(Value::Int(db)),
+        ) => (*b, *e, *d, *db),
+        (Some(Value::Ref(None)), _, _, _) | (_, _, Some(Value::Ref(None)), _) => {
             return Err(throw_new("java/lang/NullPointerException", None))
         }
         _ => return Err(internal_error("j2r internal: String.getChars args")),
@@ -518,11 +522,21 @@ fn n_string_get_chars(
     if begin < 0 || end > units.len() as i32 || begin > end {
         return Err(throw_new(
             "java/lang/StringIndexOutOfBoundsException",
-            Some(&format!("begin {}, end {}, length {}", begin, end, units.len())),
+            Some(&format!(
+                "begin {}, end {}, length {}",
+                begin,
+                end,
+                units.len()
+            )),
         ));
     }
     for i in begin..end {
-        crate::array::array_store(&dst, dst_begin + (i - begin), Value::Int(units[i as usize] as i32), ctx)?;
+        crate::array::array_store(
+            &dst,
+            dst_begin + (i - begin),
+            Value::Int(units[i as usize] as i32),
+            ctx,
+        )?;
     }
     Ok(Value::Void)
 }
@@ -657,7 +671,7 @@ fn sb_append_char_range(
         _ => return Err(internal_error("j2r internal: StringBuilder.append args")),
     };
     let clen = crate::array::array_length(&cbuf)?;
-    if off < 0 || len < 0 || off.checked_add(len).map_or(true, |e| e > clen) {
+    if off < 0 || len < 0 || off.checked_add(len).is_none_or(|e| e > clen) {
         return Err(throw_new(
             "java/lang/StringIndexOutOfBoundsException",
             Some(&format!("offset {}, count {}, length {}", off, len, clen)),
@@ -675,23 +689,21 @@ fn sb_append_char_range(
         }
     }
     sb_push_str(r, &String::from_utf16_lossy(&units));
-    Ok(Value::Ref(Some(r.clone())))
+    Ok(Value::Ref(Some(*r)))
 }
 
-fn sb_append_char_all(
-    recv: Option<&JRef>,
-    args: &[Value],
-    _ctx: Dispatch,
-) -> Result<Value, Throw> {
+fn sb_append_char_all(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let cbuf = match args.first() {
         Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
         _ => return Err(internal_error("j2r internal: StringBuilder.append args")),
     };
     let len = crate::array::array_length(&cbuf)?;
-    sb_append_char_range(recv, &[Value::Ref(Some(cbuf)), Value::Int(0), Value::Int(len)], Dispatch::default())
+    sb_append_char_range(
+        recv,
+        &[Value::Ref(Some(cbuf)), Value::Int(0), Value::Int(len)],
+        Dispatch::default(),
+    )
 }
 
 fn n_sb_to_string(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
@@ -1232,10 +1244,16 @@ fn n_integer_to_string_radix(
     let i = arg(args, "Integer.toString").expect_int();
     let radix = match args.get(1) {
         Some(v) => v.expect_int(),
-        None => return Err(crate::internal_error("j2r internal: Integer.toString radix")),
+        None => {
+            return Err(crate::internal_error(
+                "j2r internal: Integer.toString radix",
+            ))
+        }
     };
     let radix = if (2..=36).contains(&radix) { radix } else { 10 };
-    Ok(Value::Ref(Some(object::new_string(&int_to_radix(i, radix)))))
+    Ok(Value::Ref(Some(object::new_string(&int_to_radix(
+        i, radix,
+    )))))
 }
 
 fn int_to_radix(i: i32, radix: i32) -> String {
@@ -1899,12 +1917,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_string_init_s,
     ),
     // char[] ctors (corpus wave 1)
-    (
-        "java/lang/String",
-        "<init>",
-        "([C)V",
-        n_string_init_chars,
-    ),
+    ("java/lang/String", "<init>", "([C)V", n_string_init_chars),
     (
         "java/lang/String",
         "<init>",
@@ -2246,12 +2259,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ("java/io/StringReader", "close", "()V", io::n_sr_close),
     // Reader abstract-declaration markers (compile-time surface walk):
     // every concrete Reader overrides read([CII)I and read()I
-    (
-        "java/io/Reader",
-        "read",
-        "()I",
-        io::n_sr_read_marker,
-    ),
+    ("java/io/Reader", "read", "()I", io::n_sr_read_marker),
     (
         "java/io/Reader",
         "read",
@@ -2305,12 +2313,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_float_to_string_static,
     ),
     // float predicates (corpus wave 1: minimal-json number formatting)
-    (
-        "java/lang/Float",
-        "isInfinite",
-        "(F)Z",
-        n_float_is_infinite,
-    ),
+    ("java/lang/Float", "isInfinite", "(F)Z", n_float_is_infinite),
     ("java/lang/Float", "isNaN", "(F)Z", n_float_is_nan),
     (
         "java/lang/Double",
@@ -2464,8 +2467,18 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     // surface walk and must never dispatch.
     ("java/io/StringWriter", "<init>", "()V", io::n_sw_init),
     ("java/io/StringWriter", "write", "(I)V", io::n_sw_write_int),
-    ("java/io/StringWriter", "write", "([CII)V", io::n_sw_write_chars),
-    ("java/io/StringWriter", "write", "([C)V", io::n_sw_write_chars_all),
+    (
+        "java/io/StringWriter",
+        "write",
+        "([CII)V",
+        io::n_sw_write_chars,
+    ),
+    (
+        "java/io/StringWriter",
+        "write",
+        "([C)V",
+        io::n_sw_write_chars_all,
+    ),
     (
         "java/io/StringWriter",
         "write",

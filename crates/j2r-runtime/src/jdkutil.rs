@@ -1216,17 +1216,29 @@ pub fn n_unmod_size(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resul
     collections::n_al_size(Some(&backing), args, ctx)
 }
 
-pub fn n_unmod_is_empty(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_is_empty(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let backing = unmod_backing(recv, "UnmodifiableList.isEmpty")?;
     collections::n_al_is_empty(Some(&backing), args, ctx)
 }
 
-pub fn n_unmod_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_contains(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let backing = unmod_backing(recv, "UnmodifiableList.contains")?;
     collections::n_al_contains(Some(&backing), args, ctx)
 }
 
-pub fn n_unmod_index_of(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_index_of(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let backing = unmod_backing(recv, "UnmodifiableList.indexOf")?;
     collections::n_al_index_of(Some(&backing), args, ctx)
 }
@@ -1234,12 +1246,20 @@ pub fn n_unmod_index_of(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> R
 /// Live iteration over the backing list — the JDK wrapper's iterator
 /// delegates the same way, so backing mutations made after `iterator()`
 /// are visible, exactly like Temurin.
-pub fn n_unmod_iterator(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_iterator(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let backing = unmod_backing(recv, "UnmodifiableList.iterator")?;
     collections::n_al_iterator(Some(&backing), args, ctx)
 }
 
-pub fn n_unmod_to_string(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_to_string(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let backing = unmod_backing(recv, "UnmodifiableList.toString")?;
     collections::n_al_to_string(Some(&backing), args, ctx)
 }
@@ -1247,7 +1267,9 @@ pub fn n_unmod_to_string(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> 
 fn unmod_readonly(op: &str) -> Result<Value, Throw> {
     Err(throw_new(
         "java/lang/UnsupportedOperationException",
-        Some(&format!("J2R: unmodifiable list rejects {op} (JDK view semantics)")),
+        Some(&format!(
+            "J2R: unmodifiable list rejects {op} (JDK view semantics)"
+        )),
     ))
 }
 
@@ -1259,23 +1281,43 @@ pub fn n_unmod_add(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Res
     unmod_readonly("add")
 }
 
-pub fn n_unmod_add_at(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_add_at(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     unmod_readonly("add(index, element)")
 }
 
-pub fn n_unmod_remove_at(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_remove_at(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     unmod_readonly("remove(index)")
 }
 
-pub fn n_unmod_remove_obj(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_remove_obj(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     unmod_readonly("remove(object)")
 }
 
-pub fn n_unmod_clear(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_clear(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     unmod_readonly("clear")
 }
 
-pub fn n_unmod_hash_code(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_unmod_hash_code(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let backing = unmod_backing(recv, "UnmodifiableList.hashCode")?;
     collections::n_al_hash_code(Some(&backing), args, ctx)
 }

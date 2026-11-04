@@ -237,7 +237,7 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
             )),
         ));
     }
-    if src_pos.checked_add(len).map_or(true, |last| last > src_len) {
+    if src_pos.checked_add(len).is_none_or(|last| last > src_len) {
         return Err(throw_new(
             "java/lang/ArrayIndexOutOfBoundsException",
             Some(&format!(
@@ -256,7 +256,7 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
             )),
         ));
     }
-    if dst_pos.checked_add(len).map_or(true, |last| last > dst_len) {
+    if dst_pos.checked_add(len).is_none_or(|last| last > dst_len) {
         return Err(throw_new(
             "java/lang/ArrayIndexOutOfBoundsException",
             Some(&format!(

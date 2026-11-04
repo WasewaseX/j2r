@@ -145,7 +145,11 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         "java/util/function/UnaryOperator" => &["java/util/function/Function"],
         "java/util/function/BinaryOperator" => &["java/util/function/BiFunction"],
         // Real-world corpus wave 1: java.io interfaces.
-        "java/io/Writer" => &["java/io/Appendable", "java/io/Closeable", "java/io/Flushable"],
+        "java/io/Writer" => &[
+            "java/io/Appendable",
+            "java/io/Closeable",
+            "java/io/Flushable",
+        ],
         "java/io/Reader" => &["java/io/Readable", "java/io/Closeable"],
         "java/io/Serializable" => &[],
         _ => &[],
@@ -289,7 +293,10 @@ mod tests {
     fn corpus_wave1_io_hierarchy() {
         // Real-world corpus wave 1 (minimal-json): java.io family must be
         // known to the loader (hierarchy, interfaces, slot layout).
-        assert_eq!(builtin_parent_of("java/io/Writer"), Some("java/lang/Object"));
+        assert_eq!(
+            builtin_parent_of("java/io/Writer"),
+            Some("java/lang/Object")
+        );
         assert_eq!(
             builtin_parent_of("java/io/StringWriter"),
             Some("java/io/Writer")

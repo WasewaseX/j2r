@@ -97,15 +97,11 @@ pub fn n_sw_write_str_range(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let (s_arg, off, len) = match (args.first(), args.get(1), args.get(2)) {
-        (Some(Value::Ref(Some(o))), Some(i), Some(l))
-            if crate::object::is_string(o) =>
-        {
-            (
-                crate::object::string_value(o).to_string(),
-                i.expect_int(),
-                l.expect_int(),
-            )
-        }
+        (Some(Value::Ref(Some(o))), Some(i), Some(l)) if crate::object::is_string(o) => (
+            crate::object::string_value(o).to_string(),
+            i.expect_int(),
+            l.expect_int(),
+        ),
         (Some(Value::Ref(None)), _, _) => {
             return Err(throw_new("java/lang/NullPointerException", None))
         }
@@ -166,9 +162,7 @@ pub fn n_sw_write_chars_all(
 ) -> Result<Value, Throw> {
     let cbuf = match args.first() {
         Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
         _ => return Err(missing("StringWriter.write")),
     };
     let len = crate::array::array_length(&cbuf)?;
@@ -188,7 +182,11 @@ pub fn n_sw_write_chars_all(
     sw_append(recv, "StringWriter.write", &buf)
 }
 
-pub fn n_sw_to_string(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_sw_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     let (_, s) = sw_payload(recv, "StringWriter.toString")?;
     Ok(Value::Ref(Some(crate::object::new_string(&s))))
 }
@@ -220,9 +218,7 @@ pub fn n_sr_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<
         Some(Value::Ref(Some(o))) if crate::object::is_string(o) => {
             crate::object::string_value(o).to_string()
         }
-        Some(Value::Ref(None)) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
         _ => return Err(missing("StringReader.<init>")),
     };
     with_obj_mut(r, |o| {
@@ -255,11 +251,7 @@ pub fn n_sr_read(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result
 }
 
 /// `Reader.read(char[], off, len)` — bulk read, returns the count or -1.
-pub fn n_sr_read_bulk(
-    recv: Option<&JRef>,
-    args: &[Value],
-    ctx: Dispatch,
-) -> Result<Value, Throw> {
+pub fn n_sr_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = match recv {
         Some(r) => *r,
         None => return Err(missing("StringReader.read")),
@@ -362,9 +354,7 @@ pub fn n_writer_write_chars_all(
     };
     let cbuf = match args.first() {
         Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
         _ => return Err(missing("Writer.write")),
     };
     let len = crate::array::array_length(&cbuf)?;
