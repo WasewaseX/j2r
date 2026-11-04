@@ -85,10 +85,97 @@ local full-gate sweep at the same tree).**
 
 ## 3. IN PROGRESS / NEXT (ordered)
 
-- [x] **Full local gate re-run this wave** — gates 1,2,3,4,6,10,11 green
-      locally (evidence above); gates 5 (standalone) and 7 (cargo-audit)
-      are unaffected by style/doc-only changes and are verified by CI on
-      push; gate-9 sharded locally 83/84 (ReflectGC note above).
+- [x] **Gate upgrade package (2026-11-04, "improve the gates")** —
+      least-privilege workflow permissions; PR-only cancel-in-progress
+      (main keeps every run as the evidence chain); per-job
+      `timeout-minutes` everywhere (a hang fails loudly); toolchains
+      pinned to the exact local-evidence versions (rust 1.99.1, Temurin
+      21.0.13) so CI reproduces local with zero drift; third-party
+      actions pinned by commit SHA; `--locked` on every workspace cargo
+      invocation; **new gate-12-runtime-seams** (M4_PLAN §2-R3's promised
+      CI grep for unannotated `thread_local!`, all four crates, printed
+      census — `scripts/check_seams.py`; local run PASS, census = 1
+      annotated seam in frame.rs); gate-5 standalone proof upgraded from
+      a 34-line probe to **BigRpg** (real 302-line multi-class program,
+      8 classes — local evidence: compiled to an isolated crate, built
+      `--offline`, all three channels byte-identical vs Temurin,
+      exit 0 == 0). M4_PLAN Wave-4 gate renumbered gate-11 → **gate-13**
+      (11 and 12 taken), plan rev 1.1.
+- [~] **M4 threads & concurrency — ACCEPTED (owner directive
+      2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
+      **Wave 1 shared substrate LANDED** (T02–T04 done, T05 local evidence
+      green, docs/M4_EVIDENCE.md): heap + statics + identity caches on
+      process-global locks, Rc→Arc object graph, lock law L1–L3, seam
+      checker; differential 84×3 channels byte-identical vs Temurin.
+      Waves 2–4 below; no wave starts before the previous wave's CI
+      evidence exists.
+
+### M4 Wave 2 — real threads (T06–T09)
+
+- [ ] **T06** — `j2r-runtime/src/thread.rs` (new): Thread natives —
+      `currentThread`, `start`, `join`, `sleep`, `yield`, `setDaemon`/
+      `isDaemon`, `getName`/`setName`, `activeCount`;
+      `Thread.currentThread()` returns a per-thread interned heap object
+      (`java/lang/Thread` builtin class carrying native thread id, name,
+      daemon flag).
+- [ ] **T07** — per-thread frame registries (frame.rs `M4-SEAM` note
+      updated from "stays for Wave 1" to the real shape) + global thread
+      registry (`Mutex<Vec<ThreadRecord>>`, death unregisters) + main
+      becomes a Java thread like any other + worker-stack sizing
+      (`J2R_THREAD_STACK`, default from the M2 calibration, boundary
+      matrix re-tested).
+- [ ] **T08** — STW safepoint protocol: global `GC_REQUESTED` state;
+      `gc_point()` polls → park-at-safepoint → collector scans ALL
+      registered threads' frame registries + shared roots → sweep under
+      heap ownership → release all; lock-order law extended (never park
+      while holding any runtime lock — risk R2).
+- [ ] **T09** — coop scheduler (`J2R_SCHED=coop`, `J2R_SCHED_SEED`,
+      round-robin at yield points; free mode stays the deployment shape)
+      + fixtures `ThreadHello` (start/join ordering, coop) and
+      `ThreadSafepoint` (allocator × collector handshake) + park/resume
+      handshake unit tests (R2). **Wave 2 lands as one reviewed commit
+      with full CI evidence before Wave 3 starts.**
+
+### M4 Wave 3 — monitor contention + wait/notify (T10–T13)
+
+- [ ] **T10** — contention monitor state machine per heap entry:
+      `unowned | owned{owner, count}` with owner thread id; contended
+      enter parks on a per-monitor `Condvar`.
+- [ ] **T11** — `wait`/`notify`/`notifyAll` with JDK-exact semantics:
+      ownership required (else `IllegalMonitorStateException`, existing
+      message pinned); atomic full-count release + park; wake restores
+      the full count; spurious Condvar wakeups absorbed internally,
+      invisible to Java code.
+- [ ] **T12** — `wait(timeout)`/`wait(timeout, nanos)`: millisecond-
+      effective timing, JDK-faithful rounding (nanos ≥ 500000 rounds up),
+      `IllegalArgumentException` on negatives with exact messages.
+- [ ] **T13** — fixtures `WaitNotify` (producer/consumer handoff,
+      coop-deterministic), `MonitorContention` (two threads, 10k
+      uncontended + contended cycles), `WaitTimeout` (loose timing
+      windows for CI runners); unit tests incl. re-entrancy across wait.
+
+### M4 Wave 4 — interrupt, daemon shutdown, JMM-lite, stress (T14–T18)
+
+- [ ] **T14** — interrupt semantics: per-thread status flag;
+      `sleep`/`join`/`wait` wake with `InterruptedException` (exact
+      messages); monitor-enter NOT interruptible (JDK behaviour).
+- [ ] **T15** — daemon shutdown rules: `main` exits when only daemons
+      remain; daemon death during GC cooperation handled by the registry
+      (unregister-before-park discipline, unit-tested).
+- [ ] **T16** — JMM-lite statement in RUNTIME_SAFETY.md §6: guaranteed
+      (monitor release→acquire happens-before, `Thread.start`/`join`
+      edges, `Thread.sleep` guarantees nothing) vs NOT guaranteed
+      (volatile, final-field freeze, data-race freedom for racy
+      programs); stale handles stay impossible (gen check → loud panic).
+- [ ] **T17** — concurrency stress suites (coop: N producer/consumer
+      pairs × randomized seeds, fixed iterations; free-running:
+      invariant assertions only, no output compare) + **new
+      gate-13-concurrency** (coop differential fixtures + stress,
+      per-seed timeout that fails loudly).
+- [ ] **T18** — M4 completion package + review submission.
+
+### Corpus & quality (interleave when an M4 wave closes)
+
 - [ ] **F2 verifier gap (blocks corpus expansion)** — verifier rejects
       clinit-initialized reference statics (the singleton-factory
       pattern minimal-json and real libraries use). High priority.
@@ -97,28 +184,26 @@ local full-gate sweep at the same tree).**
 - [ ] **F4, F5** — open corpus gaps, loud (docs/CORPUS_WAVE.md).
 - [ ] **Corpus entry 2** — next real-world library/program; each corpus
       wave must add differential evidence, not micro-probes.
-- [~] **M4 threads & concurrency — ACCEPTED (owner directive
-      2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
-      **Wave 1 shared substrate LANDED** (T02–T04 done, T05 local evidence
-      green, docs/M4_EVIDENCE.md): heap + statics + identity caches on
-      process-global locks, Rc→Arc object graph, lock law L1–L3, seam
-      checker test; differential 84×3 channels byte-identical vs Temurin.
-      Next: Wave 2 real threads (T06–T09). Later waves: monitor
-      contention + wait/notify (T10–T13), interrupt/daemon/JMM-lite/stress
-      (T14–T18, R4 acceptance).
-- [ ] **R2 metadata generator (M4 scope)** — reflection metadata
+- [ ] **R2 metadata generator (post-M4 scope)** — reflection metadata
       retention so runtime string lookups resolve (closed-world design
       in docs/STRATEGIC_GAPS.md).
-- [ ] **M5 Minecraft readiness** — incremental compilation for 70k+
-      classes; JNI bridge for LWJGL/GLFW/OpenAL (R3); mixin application
-      at the bytecode level before j2r (R1); Mojang/intermediary
-      mappings; inline caches for megamorphic sites. No compatibility
-      claim until milestone evidence exists.
 - [ ] **R5 benchmark harness** — policy locked (benchmarks observe,
       never gate); harness lands after the corpus wave; no performance
       sentence without a number, a date, and a reproduction command.
-- [ ] **M6 mod ecosystem** — Fabric/Forge/NeoForge surface as natives +
-      compiled mods; `j2r build mod.jar`; `j2r test mod` dev loop.
+
+### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
+
+- [ ] incremental compilation for 70k+ classes
+- [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design)
+- [ ] mixin application at the bytecode level before j2r (R1)
+- [ ] Mojang/intermediary mappings pipeline
+- [ ] inline caches for megamorphic call sites
+
+### M6 mod ecosystem
+
+- [ ] Fabric/Forge/NeoForge surface as natives + compiled mods
+- [ ] `j2r build mod.jar`
+- [ ] `j2r test mod` dev loop
 
 ## 4. Standing law (always, no exceptions)
 

@@ -1,9 +1,38 @@
 name: CI
 
+# Gate upgrade package (2026-11-04, "improve the gates"):
+#   * least-privilege: workflow-level `permissions: contents: read`
+#   * PR runs cancel superseded runs; main keeps EVERY run (evidence chain)
+#   * per-job `timeout-minutes` — a hang fails loudly instead of burning
+#     runner hours and showing as "in progress" forever
+#   * toolchains pinned to the exact versions used for local evidence
+#     (rust 1.99.1, Temurin 21.0.13): CI reproduces local, no drift — a
+#     push that passed locally cannot fail because GitHub's "stable" moved
+#   * third-party actions pinned by commit SHA (supply-chain hardening)
+#   * `--locked` on every workspace cargo invocation (reproducible
+#     resolution; Cargo.lock is committed)
+#   * NEW gate-12-runtime-seams — M4_PLAN §2 R3's promised CI grep for
+#     unannotated `thread_local!`, now a visible named gate covering all
+#     four crates (incl. codegen emission templates) with a printed census
+#   * gate-5 upgraded: proves a real 302-line multi-class program (BigRpg,
+#     8 classes) through the standalone offline path, not a 34-line probe
+#
+# Gate numbering: 1 fmt, 2 clippy, 3 jvm-differential, 4 build-release,
+# 5 standalone, 6 doc-lint, 7 security-audit, 8 aggregate, 9 gc-stress,
+# 10 no-unsafe, 11 doc-counts, 12 runtime-seams. Gate 13 is reserved for
+# the M4 Wave-4 concurrency gate (docs/M4_PLAN.md §3 Wave 4).
+
 on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,10 +42,12 @@ jobs:
   fmt:
     name: gate-1-fmt
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: 1.99.1
           components: rustfmt
       - name: Formatting (rustfmt, zero tolerance)
         run: cargo fmt --all -- --check
@@ -24,59 +55,70 @@ jobs:
   clippy:
     name: gate-2-clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: 1.99.1
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Clippy (all targets, all features, warnings are errors)
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
   test:
     name: gate-3-test-jvm-differential
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '21.0.13'
       - name: Tests (unit + e2e + differential suite vs real JVM)
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features --locked
 
   build-release:
     name: gate-4-build-release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Clean release build
-        run: cargo build --release
+        run: cargo build --release --locked
 
   standalone:
     name: gate-5-standalone-generated-crate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       # generated code may warn; the compiler itself is still gated by jobs 1-4
       RUSTFLAGS: ""
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '21.0.13'
       - name: Build j2r
-        run: cargo build --release
-      - name: Compile a fixture to a Rust crate
+        run: cargo build --release --locked
+      - name: Compile a real multi-class fixture (BigRpg, 8 classes) to a Rust crate
         run: |
-          javac -d /tmp/st crates/j2r-cli/tests/suite/Strings.java
-          ./target/release/j2r compile /tmp/st/Strings.class -o /tmp/st/out
+          javac -d /tmp/st crates/j2r-cli/tests/suite/BigRpg.java
+          ./target/release/j2r compile /tmp/st/BigRpg*.class --main-class BigRpg --crate-name j2r_app -o /tmp/st/out
       - name: Build the generated crate away from this workspace (offline)
         run: |
           cp -r /tmp/st/out "$RUNNER_TEMP/isolated-app"
@@ -87,21 +129,25 @@ jobs:
   doc:
     name: gate-6-doc-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       RUSTDOCFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Docs build without warnings
-        run: cargo doc --no-deps
+        run: cargo doc --no-deps --locked
 
   security:
     name: gate-7-security-audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2
         with:
           tool: cargo-audit
       - name: RustSec audit (any advisory fails the gate)
@@ -110,6 +156,7 @@ jobs:
   gc-stress:
     name: gate-9-gc-stress-forced-collection
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       # Forced-GC mode: a collection runs at EVERY collection point (before
       # every allocating opcode). The whole differential suite must produce
@@ -118,26 +165,31 @@ jobs:
       # ignore the variable.
       J2R_GC_EVERY_N: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '21.0.13'
       - name: Differential suite with a collection at every allocation
-        run: cargo test --release -p j2r-cli --test diff_suite
+        run: cargo test --release -p j2r-cli --test diff_suite --locked
 
   no-unsafe:
     name: gate-10-no-unsafe
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: No unsafe code anywhere (compiler-enforced forbid + grep evidence)
         run: |
-          cargo build --workspace
+          cargo build --workspace --locked
           # The forbid(unsafe_code) attribute in every crate root makes any
           # unsafe item a compile error; the grep documents the evidence.
           if rg -n 'unsafe\s*(fn|impl|trait|\{)' crates/; then
@@ -148,19 +200,32 @@ jobs:
   doc-counts:
     name: gate-11-doc-counts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: README/doc counts match the repository (audit A8)
         run: |
-          cargo test --workspace -- --list > /dev/null
+          cargo test --workspace --locked -- --list > /dev/null
           python3 scripts/check_doc_counts.py
+
+  seams:
+    name: gate-12-runtime-seams
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Every thread_local! seam is annotated (M4_PLAN §2 R3, all crates)
+        run: python3 scripts/check_seams.py
 
   all-gates:
     name: gate-8-all-gates-green
-    needs: [fmt, clippy, test, build-release, standalone, doc, security, gc-stress, no-unsafe, doc-counts]
+    needs: [fmt, clippy, test, build-release, standalone, doc, security, gc-stress, no-unsafe, doc-counts, seams]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Summary
-        run: echo "All 10 upstream gates are green."
+        run: echo "All 11 upstream gates are green."

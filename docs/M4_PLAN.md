@@ -211,8 +211,11 @@ exist with javadoc-exact semantics.
 * Concurrency stress: the deadlock-free assertion suite (N producer/consumer
   pairs, randomized coop seeds × fixed iterations), plus free-running
   (non-coop) stress with only invariant assertions (no output comparison).
-* New CI gate **gate-11-concurrency**: coop-mode differential fixtures +
-  stress, with a per-seed timeout that fails loudly.
+* New CI gate **gate-13-concurrency**: coop-mode differential fixtures +
+  stress, with a per-seed timeout that fails loudly. (The plan draft said
+  "gate-11"; gate-11 is doc-counts and gate-12 was taken 2026-11-04 by
+  the runtime-seam guard — the R3 CI grep, landed early as a named gate
+  with a printed census, `scripts/check_seams.py`.)
 
 ---
 
@@ -292,6 +295,9 @@ before the previous wave's CI evidence exists.
 
 ## Revision history
 
+- Rev 1.1 (2026-11-04): gate numbering fixed — the Wave-4 concurrency gate
+  is **gate-13** (11 = doc-counts, 12 = runtime-seam guard, landed early
+  with the gate-upgrade package); no plan semantics changed.
 - Rev 1 (2026-11-04): accepted. Owner directive "continue the roadmap"
   recorded as plan acceptance; renumbering re-verified in ROADMAP.md
   (M4 threads / M5 Minecraft readiness / M6 mod ecosystem); §1 audit line
