@@ -184,9 +184,10 @@ local full-gate sweep at the same tree).**
       machine in j2r-runtime::clinit. 0 fails / 30 runs; all 89 fixtures
       byte-identical vs Temurin on all 3 channels; runtime 123 → 134
       green, workspace 277 — docs/M4_EVIDENCE.md §Wave 3 + addendum).
-      Next: Wave 4 interrupt/daemon/JMM-lite/stress (T14–T18, gate-13);
-      in parallel, gate-9 duration-aware balancing (rebalance history
-      above).
+      **Wave 4 interrupt/daemon/JMM-lite/stress LANDED — COMPLETE
+      through T17** (T14 commit 3c08842 + fixtures 3f80b0e; T15
+      e331475; T16 ece590f; T17 6b6b7e3 — details in the Wave 4
+      section). Next: **T18** completion package + review submission.
 
 ### M4 Wave 2 — real threads (T06–T09) — LANDED, CI pending
 
@@ -260,22 +261,50 @@ local full-gate sweep at the same tree).**
       the monitor lock; SCHED guard dropped before heap access — the
       audit found real cycles). Runtime 134 → 143 green; three new
       fixtures byte-identical vs Temurin locally (suite 92, tests 287).
-- [ ] **T15** — daemon shutdown rules: `main` exits when only daemons
-      remain; daemon death during GC cooperation handled by the registry
-      (unregister-before-park discipline, unit-tested). NEXT (T14 done).
-- [ ] **T16** — JMM-lite statement in RUNTIME_SAFETY.md §6: guaranteed
-      (monitor release→acquire happens-before, `Thread.start`/`join`
-      edges, `Thread.sleep` guarantees nothing) vs NOT guaranteed
-      (volatile, final-field freeze, data-race freedom for racy
-      programs); stale handles stay impossible (gen check → loud panic).
-- [ ] **T17** — concurrency stress suites (coop: N producer/consumer
-      pairs × randomized seeds, fixed iterations; free-running:
-      invariant assertions only, no output compare) + **new
-      gate-13-concurrency** (coop differential fixtures + stress,
-      per-seed timeout that fails loudly). FIRST CASE ALREADY EVIDENCED:
-      the MonitorContention/WaitNotify CI-timing protocol race (gc-probe
-      rounds #1/#2) — a Wave-3 coop/monitor/STW lost-wakeup-class bug
-      that only CI's slow 2-vCPU timing exposes at GC-every-allocation.
+- [x] **T15** — daemon shutdown rules COMPLETE (commit e331475). Found
+      and fixed the wave's registry bug: setDaemon wrote only the object
+      slot, the RECORD's daemon flag was never wired, so
+      await_non_daemons treated every daemon as a non-daemon and the
+      process hung for the daemon's full lifetime (DaemonExit: 60s
+      sleep -> 60s hang; now exits in ~2ms with Temurin-exact output).
+      Fix: start migrates slot 2 into the record (the T14 interrupt-
+      migration pattern) and setDaemon syncs an existing record;
+      await_non_daemons joins only STARTED Java threads (ring membership
+      = the start grant) — bystanders must never hold the JVM exit open.
+      Fixtures DaemonExit + DaemonInterrupt byte-identical vs Temurin
+      (DaemonInterrupt coop-safe via the flag-spin pattern). Runtime
+      143 -> 146 green; suite 92 -> 94; workspace 290; THREAD_SLOTS
+      5 -> 6 (stale const). Evidence: docs/M4_EVIDENCE.md §T15.
+- [x] **T16** — JMM-lite statement COMPLETE (commit ece590f).
+      RUNTIME_SAFETY.md §6: guaranteed (monitor handover, start/join
+      edges, no stale handles, no long/double tearing — stronger than
+      JVM, clinit race closed, interrupt visibility) vs NOT guaranteed
+      (no volatile, no final freeze, no data-race freedom, sleep yields
+      nothing, free-mode non-determinism) + the honest coarser-lock-
+      simpler-model note and the re-issue trigger for any future
+      lock-free fast path.
+- [x] **T17** — concurrency stress suites + gate-13 COMPLETE (commit
+      6b6b7e3). Chaos knob (J2R_CHAOS_US, test-only randomized
+      micro-sleeps at the protocol seams) = the local stand-in for CI's
+      slow scheduling; the stress rounds found and fixed TWO real races:
+      (1) the monitor-wait lost wakeup (the CI-timing race — bounded 5ms
+      re-check slice in object_wait); (2) the coop ring deadlock on
+      monitor-parked holders (in_monitor_wait flag + turn-grant skip
+      scanning from the HOLDER — the skip's first draft was itself a
+      total-freeze bug found by the stress round: scan origin 'me'
+      re-selected the same parked candidate forever while holding
+      SCHED). Stress suites: coop 5 seeds x 3 pairs x 40 iters;
+      free-running 0/300/800/1500µs chaos x 4 pairs x 30 iters; exact-
+      tally invariant, loud deadlines; runtime 146 -> 148 green.
+      **gate-13-concurrency LANDED** (inside the gate-8 aggregate): coop
+      differential x seeds {0,1,7,11} on the ten thread fixtures vs
+      Temurin under four different deterministic schedules + the stress
+      step, 25-min cap = the plan's per-seed loud timeout. Gate-13's
+      local validation caught two schedule-sensitive probes before CI
+      did (coop sleep is a yield): InterruptJoin/InterruptWait rewritten
+      with the DaemonInterrupt spin pattern, validated free-mode AND
+      coop seeds 0/1/7/11; full 94-fixture free-mode differential green
+      locally (344s). Evidence: docs/M4_EVIDENCE.md §T17.
 - [ ] **T18** — M4 completion package + review submission.
 
 ### Corpus & quality (interleave when an M4 wave closes)

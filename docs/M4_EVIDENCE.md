@@ -450,3 +450,98 @@ with the on-disk suite. The race itself is registered as the Wave-4
 stress task's first case (TODO §3 T17) — the local N=1 evidence for the
 monitor fixtures stands (all 92 fixtures byte-identical at N=1 locally,
 scripts/gc_weights.csv).
+
+## Wave 4 continued — T15 daemon shutdown, T16 JMM-lite, T17 stress + gate-13 (2026-11-05)
+
+### T15 — daemon shutdown rules (commit e331475)
+
+The wave's registry bug was found by its own fixture: `setDaemon` wrote
+only the object slot, the RECORD's daemon flag was never wired, so
+`await_non_daemons` treated every daemon as a non-daemon and the process
+hung for the daemon's full lifetime (DaemonExit: 60s sleep -> 60s hang;
+after the fix the process exits in ~2ms with Temurin-exact output).
+
+* Fix: `start` migrates slot 2 into the record (the T14 interrupt-
+  migration pattern) and `setDaemon` syncs an already-started record.
+* JVM exit rule tightened: `await_non_daemons` joins only STARTED Java
+  threads (ring membership = the start grant) — bystanders (embedder
+  helpers, test harness threads) must never hold the JVM exit open.
+* Unit tests: main-exits-with-live-daemons; main-waits-for-non-daemon
+  (with the registration handshake); daemon-death-releases-the-STW-
+  handshake (run_body's death sequence pinned under a bounded deadline).
+* Fixtures DaemonExit + DaemonInterrupt byte-identical vs Temurin
+  (DaemonInterrupt is coop-safe via the flag-spin pattern — the dual-
+  path design that later became the template for the T17 fixture
+  hardening). Runtime 143 -> 146 green; suite 92 -> 94; THREAD_SLOTS
+  5 -> 6 (stale const found by the census).
+
+### T16 — JMM-lite statement (commit ece590f)
+
+RUNTIME_SAFETY.md §6 now states what IS guaranteed (monitor handover,
+start/join edges, no stale handles — gen check -> loud panic, no
+long/double tearing — stronger than the JVM on some widths, clinit race
+closed by JLS 12.4.2, interrupt visibility) and what is NOT (no
+volatile, no final-field freeze, no data-race freedom, sleep yields
+nothing, free-mode non-determinism), plus the honest
+coarser-lock-simpler-model note and the re-issue trigger for any future
+lock-free fast path.
+
+### T17 — concurrency stress + the two protocol races (commit 6b6b7e3)
+
+Instrument: the chaos knob (`J2R_CHAOS_US`, 0-2000µs, test-only) injects
+randomized micro-sleeps at the concurrency protocol seams
+(deliver_wakeup, yield_point, monitor park/wake prep, safepoint poll,
+StwGuard::drop) — the local stand-in for CI's slow 2-vCPU scheduling,
+the condition the gc-probe localized (MonitorContention 2/2, WaitNotify
+1/2 hangs at a collection per allocation).
+
+Two races found and fixed by the stress rounds themselves:
+
+1. **Monitor-wait lost wakeup** (the CI-timing race): the release notify
+   a waiter waits for may fire BETWEEN its ticket wake and its park;
+   with one pair left, no further monitor-cv event ever fires and the
+   pair hangs. JDK closes the window by relocating the notified waiter
+   onto the entry list at notify time; our fix is a bounded 5ms re-check
+   slice in `object_wait` (`cv.wait_timeout`), which converts any such
+   loss into a bounded delay while keeping the park atomic with the
+   ownership check (L7 shape).
+2. **Ring deadlock on monitor-parked holders** (found by the coop
+   stress round): the coop turn must never stop on a monitor-parked
+   thread — its pair-mate, who would notify it, may itself be waiting
+   for the turn. Fix: `in_monitor_wait` flag + the turn-grant loop
+   skips such holders. The skip's FIRST draft was itself a total-freeze
+   bug (scan origin `me` re-selected the same parked candidate forever
+   while holding the SCHED lock — even the stall-dump bystander
+   blocked); final fix scans from the HOLDER, so every skip strictly
+   progresses around the ring and terminates on a holder that can act.
+
+Stress suites (j2r-runtime tests, 146 -> 148 green): coop rounds — 5
+starting-turn seeds x 3 producer/consumer pairs x 40 iterations under
+the deterministic scheduler; free-running — 4 chaos levels (0/300/800/
+1500µs) x 4 pairs x 30 iterations, invariant assertions only. The
+invariant is the exact handoff tally; every round runs under a loud
+deadline (a lost wakeup is a failure in seconds, never a CI hang).
+`STRESS_LOCK` serializes the two suites (both mutate process-global
+scheduler state).
+
+**gate-13-concurrency LANDED** (ci.yml, inside the gate-8 aggregate):
+coop differential x seeds {0, 1, 7, 11} — each leg re-runs the ten
+thread fixtures (ThreadHello, ThreadSafepoint, WaitNotify,
+MonitorContention, WaitTimeout, InterruptSleep, InterruptJoin,
+InterruptWait, DaemonExit, DaemonInterrupt) differentially vs Temurin
+under a DIFFERENT deterministic schedule (J2R_SCHED=coop +
+J2R_SCHED_SEED), byte-identical output required; plus the stress step.
+25-minute job cap = the plan's per-seed loud timeout.
+
+Fixture hardening forced by gate-13's local validation (the gate caught
+it BEFORE CI did): InterruptJoin and InterruptWait relied on real-time
+sleep windows to pin the logical order — but coop sleep is a yield, so
+under a non-zero seed the target died early (joiner printed no-throw
+instead of the message-less IE) and the holder released its lock before
+the contender blocked (flag=false instead of sticky true). Both
+rewritten with the DaemonInterrupt spin pattern (target spins on its
+interrupt flag; holder holds the lock until main releases it via a
+volatile flag; contender attempts the enter only after the holder
+provably owns it). Validated: free-mode differential vs Temurin 21.0.13
+AND coop seeds 0/1/7/11 — all ten thread fixtures green on every seed
+locally.
