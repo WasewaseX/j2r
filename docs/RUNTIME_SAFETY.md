@@ -178,3 +178,83 @@ lambdas and Wave 4 monitors are the next scheduled re-issues).
 * **`Caused by:` chains** are not yet supported end-to-end
   (`Throwable(String, Throwable)` constructors are compile errors today),
   so the differential harness deliberately does *not* normalize them away.
+
+## 6. JMM-lite — what the concurrency surface guarantees (T16, M4 Wave 4)
+
+This is the documented memory-model statement for the M4 concurrency
+surface (real threads, monitors, wait/notify, interrupt). It mirrors the
+JVM *as observed on Temurin 21.0.13* and pins where j2r is intentionally
+weaker or stronger. Racy programs are not the differential suite's
+contract — three-channel comparison covers deterministic programs — so
+this section is the review artifact for everything the suite cannot see.
+
+### Guaranteed
+
+* **Monitor handover is the happens-before edge, exactly as in Java**
+  (JLS §17.4.4): every write a thread performs before releasing a
+  monitor is visible to whichever thread next acquires it; the same edge
+  carries `wait` → `notify` handoffs (the waiter's writes before
+  `wait` are visible to the notifier after it acquires; the notifier's
+  writes before `notify` are visible to the waiter after re-acquisition).
+  Implementation: all Java-visible object state mutates under the heap
+  lock; the monitor state machine (T10) serializes owner changes on the
+  same lock discipline, so release→acquire orders all prior heap writes.
+* **`Thread.start` happens-before the child's every action; the target's
+  death happens-before `join` returns** (the JDK start/join edges).
+  Implementation: registration publishes the record before `start`
+  returns; the death sequence (T15) stores `Exited` under the SCHED lock
+  and notifies the same condvar the joiner waits on.
+* **Stale *handles* are impossible, not merely discouraged**: a `JRef`
+  naming a swept object fails the `(idx, gen)` check and turns into a
+  loud panic (documented `.unwrap()` policy, §3) — torn access can never
+  become silent corruption.
+* **The runtime's own state (entry table, monitor table, coop ring,
+  registries) is protected internally**; no Java-level action can
+  observe a torn runtime invariant (§5 of M4_PLAN).
+* **No long/double tearing** — *stronger than the JVM guarantees*: the
+  JVM permits tearing for non-volatile `long`/`double` (JLS §17.7);
+  every j2r field write is a single heap-lock-guarded slot store, so
+  64-bit values are never observed half-written.
+* **Default initialization races are closed**: the class-initialization
+  state machine (JLS §12.4.2, landed in Wave 3 after the
+  MonitorContention find) blocks concurrent first-touchers until
+  `<clinit>` completes; a loser cannot read raw default statics.
+* **Interrupt visibility** (T14): `interrupt()` publishes the status flag
+  with release ordering and the blocking paths read it with acquire
+  ordering at every wake; delivery clears it before the exception
+  escapes.
+
+### NOT guaranteed (use monitors; the JDK's weaker edges are not faked)
+
+* **`volatile` does not exist**: compiled `volatile` fields are plain
+  fields — no memory barriers, no ordering. A program relying on
+  volatile for visibility or atomicity is out of contract.
+* **`final`-field freeze semantics do not exist**: a `final` field is a
+  plain field; a data race may observe its default value across threads
+  (the JDK guarantees the initialized value for properly constructed
+  objects — j2r does not, because there is no freeze barrier).
+* **Data-race freedom for racy programs is not claimed**: two threads
+  doing plain-field writes/reads race as in Java — stale reads are
+  allowed. j2r's heap-lock-per-access gives each *individual* access
+  atomicity (no tearing), which is slightly stronger than the JVM
+  minimum, but ordering and coherence across a racy sequence follow the
+  same "whatever the lock discipline did last" model; programs that need
+  more must synchronize.
+* **`Thread.sleep`/`Thread.yield` guarantee nothing about memory** (JDK
+  behaviour, pinned in Wave 2 and unchanged): neither publishes nor
+  acquires anything; coop-mode turns are scheduling, not memory edges.
+* **Free-running mode is non-deterministic by design**: output
+  equivalence under the differential harness is claimed only for
+  fixtures whose ordering is enforced by join/monitor edges; the M4
+  stress fixtures (T17) assert invariants, not output.
+
+### The honest gap above the JVM
+
+The JVM's JIT inserts acquire/release fences on monitorexit/monitorenter
+and publishes `final` fields; j2r's correctness rests on the single heap
+lock, which is *coarser* (every access serializes) but also *simpler* —
+there is no instruction-level reordering window for Java-visible state.
+What j2r does NOT have is any lock-free fast path that could subdivide
+that guarantee; if one is ever added (inline caches on monitorenter,
+per-object lock strips), this section must be re-issued before the wave
+lands.
