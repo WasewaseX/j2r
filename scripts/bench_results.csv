@@ -1,0 +1,7 @@
+date,cpu,cores,reps,fixture,javac_s,java_ms,j2r_gen_s,native_ms,native_over_java
+2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,Arith,0.590,26.5,7.18,1.0,0.036
+2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,Strings,0.631,46.9,6.97,0.9,0.019
+2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,BigRpg,0.826,62.7,8.69,1.2,0.019
+2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,WaitNotify,0.596,196.6,7.64,152.5,0.776
+2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,ThreadHello,0.519,38.8,6.75,1.1,0.028
+2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,ThreadSafepoint,0.592,43.3,6.78,3.3,0.077

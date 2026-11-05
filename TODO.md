@@ -320,9 +320,22 @@ local full-gate sweep at the same tree).**
 - [ ] **R2 metadata generator (post-M4 scope)** — reflection metadata
       retention so runtime string lookups resolve (closed-world design
       in docs/STRATEGIC_GAPS.md).
-- [ ] **R5 benchmark harness** — policy locked (benchmarks observe,
-      never gate); harness lands after the corpus wave; no performance
-      sentence without a number, a date, and a reproduction command.
+- [~] **R5 benchmark harness** — policy locked (benchmarks observe,
+      never gate; no performance sentence without a number, a date, and
+      a reproduction command). **Harness LANDED 2026-11-05** (owner
+      request, pulled forward from "after the corpus wave"):
+      scripts/bench_suite.py — per fixture, javac / java (C1-only,
+      startup-scale honest) / j2r-gen (translate + offline cargo build
+      of the generated crate, the gate-5 proven pipeline) / native run,
+      median of 5 with 1 warmup, machine metadata, CSV append to
+      scripts/bench_results.csv. First table recorded
+      (docs/BENCHMARKS.md, 2026-11-05): native run 20-50x cheaper on
+      startup-dominated micros, WaitNotify parity 0.78x (real sleep
+      windows dominate — sanity check passed), compile-side ~10x slower
+      than javac (vendored-runtime build dominates; translation is
+      sub-second). Gap vs fully done: one bench row per future corpus
+      entry; steady-state/throughput numbers only after corpus
+      expansion (F2/F4/F5).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 
