@@ -71,10 +71,13 @@ fn differential_suite_matches_jvm() {
     // fixtures (DaemonExit, DaemonInterrupt) — 94 on disk. The F2 probe
     // wave added LambdaClinit (lambda + final/volatile reference statics
     // in <clinit>, invoked through the interface types — the Runnable SAM
-    // row) — 95 on disk, guard one below that.
+    // row) — 95 on disk. The F4/F5 closure wave added HexFloat (hex-float
+    // literal parsing, bit-exact via floatToIntBits/doubleToLongBits) and
+    // ArraycopyMismatch (the arraycopy element-mismatch message +
+    // destination-order partial copy) — 97 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 94,
-        "differential suite shrank: {} fixtures (expected >= 94)",
+        fixtures.len() >= 96,
+        "differential suite shrank: {} fixtures (expected >= 96)",
         fixtures.len()
     );
 

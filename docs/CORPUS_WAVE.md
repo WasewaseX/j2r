@@ -82,7 +82,12 @@ semantics (probes checked in as evidence: `corpus/AcpyProbe.java`,
   `ArrayList` (runtime dispatch) and `List` (compile-time declared walk).
 * `System.arraycopy` — JDK messages verified verbatim (negative length, source/
   destination bounds, type mismatch), temp-buffer overlap semantics, per-element
-  store checks for reference arrays.
+  store checks for reference arrays. (Correction from the F4/F5 closure wave:
+  in the `can not copy` message, reference-component arrays print the JVM kind
+  name `object array` REGARDLESS of their element class — wave 1 only ever
+  observed `Object[]` and wrongly generalized to dotted names; pinned with the
+  ArraycopyMismatch fixture: `String[] → int[]` prints `object array[] into
+  int[]`.)
 * `Arrays.fill([CC)V`; `Integer/Long.toString(x, radix)` and `Long.parseLong(s, radix)`
   with the exact MIN_RADIX/MAX_RADIX and "under radix N" messages; negative
   accumulation so MIN parses exactly.
@@ -111,13 +116,32 @@ differential harnesses).
 
 ## Open gaps (discovered this wave, loud, unfixed)
 
-* **F4 — hex-float literals**: `Float.parseFloat("0x1.8p1")` is valid Java (JDK
-  prints 3.0) and currently raises `NumberFormatException`. Loud divergence,
-  registered until a dedicated hex-float parser lands.
-* **F5 — arraycopy partial-copy message**: a mid-copy `ArrayStoreException` in a
-  ref→ref copy uses the aastore-style message instead of arraycopy's own wording;
-  behavior (partial copy, destination order) matches the JDK, the string does not
-  — needs a JDK vector to pin.
+* ~~**F4 — hex-float literals**~~ — **FIXED (2026-11-05)**. Temurin probe
+  (corpus/HexFloatProbe.java, 97 cases with exact IEEE bits) pinned the
+  grammar (`[+-]? 0[xX] HexDigits [. HexDigits?] p[+-]? DecDigits` — the
+  binary exponent is REQUIRED, `0x` is REQUIRED: `.8p1` is an NFE, the
+  Javadoc's `. HexDigits` significand branch is NOT accepted; the exponent
+  sign IS accepted both ways) and the exact rounding: round-half-to-even on
+  the exact binary value, overflow at the max-finite + half-ulp boundary →
+  Infinity, subnormal grid with tie-to-zero at half MIN_VALUE, signed zero
+  (`-0x0p0` keeps the sign). Implementation: crates/j2r-runtime/src/
+  hexfloat.rs (exact guard/sticky discipline, no double rounding — f32
+  never rounds through f64); 8 unit tests + the HexFloat differential
+  fixture (bit-exact via the new floatToIntBits/doubleToLongBits natives)
+  byte-identical vs Temurin.
+* ~~**F5 — arraycopy partial-copy message**~~ — **FIXED (2026-11-05)**.
+  The JDK vector (corpus/ElementMismatchProbe.java + the NestedElemProbe
+  follow-up) pinned it: `arraycopy: element type mismatch: can not cast
+  one of the elements of {src component}[] to the type of the destination
+  array, {dst element}` with JVM external names (dotted for classes,
+  descriptor-shaped for arrays: `[Ljava.lang.String;`), the src name being
+  the SOURCE ARRAY's component class, not the failing element's runtime
+  class. Confirmed alongside: NO upfront component rejection for ref→ref
+  (all-String Object[] → String[] succeeds per-element), partial copy in
+  destination order, nulls always copy. Pinned by the ArraycopyMismatch
+  fixture, byte-identical vs Temurin.
+* InputStream.skip(J) default (JZlib wave), UTF-16 charset family,
+  `[[[<prim>` verifier depth, Enum.valueOf — unchanged, loud.
 
 ## Wave order
 
@@ -126,7 +150,8 @@ differential harnesses).
 3. ~~Add a corpus runner to CI~~ — done (`tests/corpus_suite.rs`).
 4. Corpus entry 2: JZlib (pure-Java deflate/inflate) — pairs directly with the M3
    inflate work and stress-tests `java.io` streams further.
-5. Close F4 (hex-float parser) and F5 (arraycopy message vector).
+5. ~~Close F4 (hex-float parser) and F5 (arraycopy message vector)~~ —
+   done (2026-11-05, see the corrected gap catalog above).
 
 ## Wave 2 — JZlib (entry 2, landed 2026-11-05)
 

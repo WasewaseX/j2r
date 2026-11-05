@@ -30,6 +30,7 @@ pub mod concat;
 pub mod desc;
 pub mod frame;
 pub mod heap;
+pub mod hexfloat;
 pub mod io;
 pub mod javafmt;
 pub mod jdkutil;

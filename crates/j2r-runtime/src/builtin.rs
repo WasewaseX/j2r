@@ -7,6 +7,14 @@
 pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
     let p = match class {
         "java/lang/String" => "java/lang/Object",
+        // Corpus gap F4/F5 support (2026-11-05): java.lang.Comparable is a
+        // known interface — `new Comparable[n]` must validate (ANewArray
+        // walks builtin_parent_of) and the boxed numbers / String implement
+        // it, so aastore into Comparable[] and arraycopy element checks
+        // resolve. Registered with parent Object like the other pure
+        // interfaces; compareTo itself stays loud-unsupported until a
+        // corpus path calls it through the interface.
+        "java/lang/Comparable" => "java/lang/Object",
         "java/lang/StringBuilder" => "java/lang/Object",
         "java/lang/StringBuffer" => "java/lang/Object",
         "java/lang/System" => "java/lang/Object",
@@ -158,8 +166,20 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
 pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
     match class {
         "java/lang/String" | "java/lang/StringBuilder" | "java/lang/StringBuffer" => {
-            &["java/lang/CharSequence"]
+            &["java/lang/CharSequence", "java/lang/Comparable"]
         }
+        // JDK: every boxed numeric + Boolean/Character implements Comparable;
+        // Enum implements Comparable<E> (javac's hand-rolled WrapperType
+        // relies on it in JZlib).
+        "java/lang/Integer"
+        | "java/lang/Long"
+        | "java/lang/Float"
+        | "java/lang/Double"
+        | "java/lang/Byte"
+        | "java/lang/Short"
+        | "java/lang/Character"
+        | "java/lang/Boolean"
+        | "java/lang/Enum" => &["java/lang/Comparable"],
         // M4 Wave 2 (T06): Thread implements Runnable.
         "java/lang/Thread" => &["java/lang/Runnable"],
         // M3 Wave 2: collection hierarchy (subtype walks traverse interfaces,

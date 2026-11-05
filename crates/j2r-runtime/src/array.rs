@@ -220,9 +220,15 @@ pub fn array_length(r: &JRef) -> Result<i32, Throw> {
 ///    behavior and exactly what the overlap probe observed;
 /// 8. ref→ref copies run the per-element `array_store` subtype check in
 ///    destination order, so a failing element throws after its
-///    predecessors were already stored (the JDK's partial-copy behavior;
-///    the *message* in that path is the aastore-style one, which is a
-///    known, documented drift until a JDK vector pins arraycopy's own).
+///    predecessors were already stored (the JDK's partial-copy behavior,
+///    confirmed on Temurin 21.0.13), with arraycopy's OWN message (pinned,
+///    corpus/ElementMismatchProbe.java):
+///    `arraycopy: element type mismatch: can not cast one of the elements
+///    of {src component}[] to the type of the destination array, {dst
+///    element}` — the names are JVM external names (dotted for classes,
+///    descriptor-shaped for arrays: `[Ljava.lang.String;`), and the src
+///    name is the SOURCE ARRAY's component class, not the failing
+///    element's runtime class.
 pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let (src, src_pos, dst, dst_pos, len) = match (
         args.first(),
@@ -292,7 +298,7 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     // source into a reference destination is an upfront ArrayStoreException.
     let src_ref_component = ref_elem(&src_cls);
     let dst_ref_component = ref_elem(&dst_cls);
-    match (src_ref_component, dst_ref_component) {
+    match (src_ref_component, dst_ref_component.clone()) {
         (None, None) => {
             if src_cls != dst_cls {
                 return Err(type_mismatch(&src_cls, &dst_cls));
@@ -308,10 +314,51 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     for i in 0..len {
         temp.push(array_load(src, src_pos + i)?);
     }
+    // The element/-component descriptors for the mismatch message: strip one
+    // array level off each array class (`[Ljava/lang/String;` →
+    // `Ljava/lang/String;`, `[[I` → `[I`).
+    let dst_elem_desc = &dst_cls[1..];
+    let src_comp_desc = &src_cls[1..];
     for (i, v) in temp.into_iter().enumerate() {
+        // Same assignability check array_store performs for reference
+        // arrays, but with arraycopy's OWN message on failure (F5, pinned
+        // vs Temurin 21.0.13). Null elements always copy. Predecessors of a
+        // failing element stay stored (destination-order partial copy).
+        if let Value::Ref(Some(obj)) = &v {
+            let obj_cls = with_obj(*obj, |o| o.jclass.to_string());
+            if !is_subtype(
+                &obj_cls,
+                dst_ref_component.as_deref().unwrap_or(""),
+                ctx.parents,
+            ) {
+                return Err(throw_new(
+                    "java/lang/ArrayStoreException",
+                    Some(&format!(
+                        "arraycopy: element type mismatch: can not cast one of the elements of {}[] to the type of the destination array, {}",
+                        external_name(src_comp_desc),
+                        external_name(dst_elem_desc)
+                    )),
+                ));
+            }
+        }
         array_store(dst, dst_pos + i as i32, v, ctx)?;
     }
     Ok(Value::Void)
+}
+
+/// Temurin's JVM-external class name as printed in the arraycopy
+/// element-mismatch message: ordinary classes print dotted
+/// (`java.lang.String`), array classes keep the descriptor shape with
+/// dotted refs (`[Ljava.lang.String;`).
+fn external_name(desc: &str) -> String {
+    if desc.starts_with('[') {
+        desc.replace('/', ".")
+    } else {
+        desc.strip_prefix('L')
+            .and_then(|s| s.strip_suffix(';'))
+            .unwrap_or(desc)
+            .replace('/', ".")
+    }
 }
 
 /// The element descriptor of a reference-component array (`None` for
@@ -364,6 +411,14 @@ fn java_array_name(cls: &str) -> String {
     }
 }
 
+/// The Java-visible array name Temurin prints in arraycopy's
+/// `can not copy` message (corpus wave 1 + the ArraycopyMismatch fixture):
+/// primitive kinds print the primitive name (`int`, `double`); ANY
+/// reference-component array prints the JVM kind name `object array`,
+/// regardless of its element class (`String[] → int[]` prints
+/// `object array[] into int[]` — pinned vs Temurin 21.0.13; the earlier
+/// dotted-for-non-Object generalization was wrong, wave 1 only ever
+/// observed `Object[]`).
 fn java_elem_name(cls: &str) -> String {
     match cls {
         INT => "int".to_string(),
@@ -374,7 +429,7 @@ fn java_elem_name(cls: &str) -> String {
         SHORT => "short".to_string(),
         FLOAT => "float".to_string(),
         DOUBLE => "double".to_string(),
-        "[Ljava/lang/Object;" => "object array".to_string(),
+        other if other.starts_with('[') => "object array".to_string(),
         other => other
             .strip_prefix("[L")
             .and_then(|s| s.strip_suffix(';'))

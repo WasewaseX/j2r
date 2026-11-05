@@ -1305,6 +1305,42 @@ fn double_to_long_bits(v: f64) -> i64 {
     v.to_bits() as i64
 }
 
+// Exact IEEE bit exposure (corpus gap F4 support): the HexFloat fixture
+// pins hex-float rounding through floatToIntBits/doubleToLongBits — the
+// only JVM-exact, formatting-independent way to compare bit patterns.
+fn n_float_to_int_bits(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(float_to_int_bits(
+        arg(args, "Float.floatToIntBits").expect_float(),
+    )))
+}
+fn n_float_to_raw_int_bits(
+    _r: Option<&JRef>,
+    args: &[Value],
+    _c: Dispatch,
+) -> Result<Value, Throw> {
+    Ok(Value::Int(
+        arg(args, "Float.floatToRawIntBits")
+            .expect_float()
+            .to_bits() as i32,
+    ))
+}
+fn n_double_to_long_bits(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Long(double_to_long_bits(
+        arg(args, "Double.doubleToLongBits").expect_double(),
+    )))
+}
+fn n_double_to_raw_long_bits(
+    _r: Option<&JRef>,
+    args: &[Value],
+    _c: Dispatch,
+) -> Result<Value, Throw> {
+    Ok(Value::Long(
+        arg(args, "Double.doubleToRawLongBits")
+            .expect_double()
+            .to_bits() as i64,
+    ))
+}
+
 macro_rules! boxed_class {
     (
         $class:expr, $prim:expr,
@@ -1804,9 +1840,9 @@ fn n_integer_parse_int(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Resul
 // +/-Infinity / NaN (case-sensitive - "inf" is a NumberFormatException); one
 // trailing f/F/d/D suffix accepted; correctly-rounded f32/f64 parsing
 // (Rust's parse is correctly rounded, matching HotSpot's strict parsing).
-// KNOWN LIMIT (loud, documented): hexadecimal float literals (0x1.8p1) are
-// valid Java but parse as NumberFormatException here - registered as a
-// corpus gap until a dedicated hex-float parser lands.
+// Hexadecimal forms (0x1.8p1) route to the dedicated hexfloat module
+// (corpus gap F4, closed 2026-11-05; grammar + rounding pinned with
+// corpus/HexFloatProbe.java).
 fn n_float_parse_float(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
     let s = match arg(args, "Float.parseFloat") {
         Value::Ref(Some(o)) if is_string(o) => Some(object::string_value(o).to_string()),
@@ -1829,6 +1865,10 @@ fn n_float_parse_float(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Resul
         Some(rest) if !rest.is_empty() => rest,
         _ => t,
     };
+    // hex forms first (F4): exact bit patterns, correctly rounded
+    if let Some(bits) = crate::hexfloat::parse_bits(body, true) {
+        return Ok(Value::Float(f32::from_bits(bits as u32)));
+    }
     let f = match body {
         "Infinity" | "+Infinity" => f32::INFINITY,
         "-Infinity" => f32::NEG_INFINITY,
@@ -1867,6 +1907,10 @@ fn n_double_parse_double(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Res
         Some(rest) if !rest.is_empty() => rest,
         _ => t,
     };
+    // hex forms first (F4): exact bit patterns, correctly rounded
+    if let Some(bits) = crate::hexfloat::parse_bits(body, false) {
+        return Ok(Value::Double(f64::from_bits(bits)));
+    }
     let d = match body {
         "Infinity" | "+Infinity" => f64::INFINITY,
         "-Infinity" => f64::NEG_INFINITY,
@@ -2877,6 +2921,31 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "parseDouble",
         "(Ljava/lang/String;)D",
         n_double_parse_double,
+    ),
+    // exact IEEE bit exposure (corpus gap F4 support)
+    (
+        "java/lang/Float",
+        "floatToIntBits",
+        "(F)I",
+        n_float_to_int_bits,
+    ),
+    (
+        "java/lang/Float",
+        "floatToRawIntBits",
+        "(F)I",
+        n_float_to_raw_int_bits,
+    ),
+    (
+        "java/lang/Double",
+        "doubleToLongBits",
+        "(D)J",
+        n_double_to_long_bits,
+    ),
+    (
+        "java/lang/Double",
+        "doubleToRawLongBits",
+        "(D)J",
+        n_double_to_raw_long_bits,
     ),
     (
         "java/lang/Float",

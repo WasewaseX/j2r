@@ -348,9 +348,39 @@ local full-gate sweep at the same tree).**
       full suite byte-identical vs Temurin (346s); guard 93 → 94;
       README/gate-11 counts synced. F3 (java.io behavior parity) no
       longer blocked by F2.
-- [ ] **F3 java.io behavior natives** — StringWriter/StringReader
-      behavior parity follows F2 by design.
-- [ ] **F4, F5** — open corpus gaps, loud (docs/CORPUS_WAVE.md).
+- [x] **F3 java.io + collections behavior surface — was FIXED in corpus
+      wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
+      evidence)** — io.rs StringWriter/StringReader, Writer template
+      forwarders, unmodifiable views, ArrayList(Collection), List
+      hashCode/equals, arraycopy messages, radix parsing, parseFloat/
+      parseDouble, String.getChars, serialization hierarchy markers —
+      pinned by corpus/MinimalJsonCorpus + corpus_wave1_io_hierarchy.
+- [x] **F4 hex-float literals — FIXED (2026-11-05)** — Temurin probe
+      (corpus/HexFloatProbe.java, 97 cases, exact IEEE bits) pinned the
+      grammar (0x REQUIRED, binary exponent REQUIRED, exponent sign
+      accepted) and exact rounding (half-even on the exact binary value,
+      overflow → Infinity at the max-finite + half-ulp boundary, subnormal
+      grid, signed zero). Implementation: crates/j2r-runtime/src/hexfloat.rs
+      — exact guard/sticky, f32 NEVER rounds through f64 (no double
+      rounding). floatToIntBits/doubleToRawIntBits (+Double long variants)
+      natives joined for bit-exact comparison. HexFloat differential
+      fixture byte-identical vs Temurin; 8 unit tests; suite 95 → 97,
+      tests 292 → 300.
+- [x] **F5 arraycopy element-mismatch message — FIXED (2026-11-05)** —
+      the JDK vector (corpus/ElementMismatchProbe.java + NestedElemProbe)
+      pinned: `arraycopy: element type mismatch: can not cast one of the
+      elements of {src component}[] to the type of the destination array,
+      {dst element}` (JVM external names; src names the SOURCE ARRAY's
+      component class). Confirmed: NO upfront component rejection for
+      ref→ref; partial copy in destination order; nulls always copy; and
+      in the `can not copy` message reference arrays print the kind name
+      `object array` regardless of element class (the wave-1 dotted
+      generalization was wrong — corrected). java/lang/Comparable joined
+      the builtin hierarchy (boxed numbers + String + Enum implement it).
+      ArraycopyMismatch fixture byte-identical vs Temurin.
+- [ ] **F4/F5 residuals** — none registered; InputStream.skip(J) default,
+      UTF-16 charset family, `[[[<prim>` verifier depth, Enum.valueOf stay
+      loud (docs/CORPUS_WAVE.md §gaps).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script
