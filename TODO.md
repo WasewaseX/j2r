@@ -132,6 +132,22 @@ local full-gate sweep at the same tree).**
       flight: local per-fixture measurement at J2R_GC_EVERY_N=1 →
       J2R_DIFF_FIXTURES explicit selection in the harness (census guard
       untouched) → duration-balanced explicit buckets in ci.yml.
+      **gate-9 RE-ARCHITECTED (2026-11-05, same day): the gc-probe
+      one-shot diagnostic workflow (workflow_dispatch, ops tooling, not
+      a gate) ran each suspect SOLO on real CI and localized the bombs:
+      ReflectGC ~14m at N=1 (matches the local 540s × ~1.5 factor);
+      MonitorContention 2/2 and WaitNotify 1/2 hit the 15-minute inner
+      timeout at N=1 — a timing-sensitive Wave-3 protocol race on slow
+      2-vCPU runners — while finishing in <1m at N=8. BigJson/BigCache/
+      Cycles/LambdaGC are all <1m on CI. gate-9 now runs six
+      duration-balanced legs (solo / monitors-N8 / heavy / light-0..2,
+      40-min cap) with the policy in the harness (diff_suite.rs
+      bucket_for_gate9) and a partition unit test pinning union ==
+      census, so a new fixture can never fall between legs; fixed
+      special lists are intersected with the on-disk census so renames
+      and deletes cannot leave phantom entries. The monitor race is the
+      Wave-4 stress task's first case (probe evidence logged in the
+      workflow history).
 - [x] **Security-settings review package (2026-11-05, owner directive
       "add more workflows")** — **gate-15 OSSF Scorecard** (scorecard.yml,
       actions SHA-pinned, weekly cron + workflow_dispatch) and **gate-16
@@ -226,12 +242,27 @@ local full-gate sweep at the same tree).**
 
 ### M4 Wave 4 — interrupt, daemon shutdown, JMM-lite, stress (T14–T18)
 
-- [ ] **T14** — interrupt semantics: per-thread status flag;
-      `sleep`/`join`/`wait` wake with `InterruptedException` (exact
-      messages); monitor-enter NOT interruptible (JDK behaviour).
+- [x] **T14** — interrupt semantics LANDED (commit 3c08842 + fixtures
+      3f80b0e). Temurin 21.0.13 probes pinned the contract first
+      (InterruptProbe / JoinInterruptProbe / EdgeProbe): sleep IE carries
+      "sleep interrupted", join/wait IE are message-less, pre-set flags
+      throw immediately, delivery CLEARS the flag, monitor-enter is
+      immune and keeps the flag sticky, interrupt on a dead thread still
+      sets the flag, never-started interrupt is observable on the
+      object. Mechanics: per-record AtomicBool + per-thread ticket
+      condvar (notify and interrupt share the wake channel; wait-set
+      membership + flag decide the meaning), slot 5 = pendingInterrupt
+      as the never-started carrier (moves into the record at start),
+      monitor wait parks on the ticket with the JDK wake order
+      (interrupt beats notified beats deadline), interruptible
+      free-running sleep/join/self-join, coop checks per tick.
+      Lock-law L7 audited twice mid-flight (entry check moved outside
+      the monitor lock; SCHED guard dropped before heap access — the
+      audit found real cycles). Runtime 134 → 143 green; three new
+      fixtures byte-identical vs Temurin locally (suite 92, tests 287).
 - [ ] **T15** — daemon shutdown rules: `main` exits when only daemons
       remain; daemon death during GC cooperation handled by the registry
-      (unregister-before-park discipline, unit-tested).
+      (unregister-before-park discipline, unit-tested). NEXT (T14 done).
 - [ ] **T16** — JMM-lite statement in RUNTIME_SAFETY.md §6: guaranteed
       (monitor release→acquire happens-before, `Thread.start`/`join`
       edges, `Thread.sleep` guarantees nothing) vs NOT guaranteed
@@ -241,7 +272,10 @@ local full-gate sweep at the same tree).**
       pairs × randomized seeds, fixed iterations; free-running:
       invariant assertions only, no output compare) + **new
       gate-13-concurrency** (coop differential fixtures + stress,
-      per-seed timeout that fails loudly).
+      per-seed timeout that fails loudly). FIRST CASE ALREADY EVIDENCED:
+      the MonitorContention/WaitNotify CI-timing protocol race (gc-probe
+      rounds #1/#2) — a Wave-3 coop/monitor/STW lost-wakeup-class bug
+      that only CI's slow 2-vCPU timing exposes at GC-every-allocation.
 - [ ] **T18** — M4 completion package + review submission.
 
 ### Corpus & quality (interleave when an M4 wave closes)
