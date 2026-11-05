@@ -198,20 +198,25 @@ mode, R4 → M4 concurrency wave (JMM→Rust mapping table + litmus suite
 lands only after the real-world corpus wave. Benchmarks observe, they
 never gate.
 
-## M3.7 — real-world corpus wave (started)
+## M3.7 — real-world corpus wave (entries 1–2 landed, expansion open)
 
 Standing directive: differential-test against real-world Java programs,
-not synthetic fixtures. Entry 1 registered: minimal-json
+not synthetic fixtures. **Entry 1 landed**: minimal-json
 (ralfstx/minimal-json, Apache-2.0, 15 source files) — sources under
 `corpus/minimal-json/`, mechanical assembly via
 `scripts/build_corpus_minimaljson.sh`, deterministic driver, Temurin
-21.0.13 golden output. Gap catalog and wave order:
-[docs/CORPUS_WAVE.md](docs/CORPUS_WAVE.md). Status: F1 (builtin java.io
-hierarchy + slots + interfaces) **fixed** with the
-`corpus_wave1_io_hierarchy` unit test; F2 (verifier rejects
-clinit-initialized reference statics — the singleton-factory pattern)
-**open, high priority**, blocks the corpus; F3 (java.io behavior
-natives) follows F2 by design.
+21.0.13 golden output. **Entry 2 landed (2026-11-05)**: JZlib
+(ymnk/jzlib, BSD-style, 23 files / ~7.2k lines — a real deflate/inflate
+implementation) — vendored under `corpus/jzlib/`, assembly via
+`scripts/build_corpus_jzlib.sh`, driver exercises the public ZStream API
+(levels 0–9 sampled, Z_FINISH/Z_NO_FLUSH round-trips) plus Adler32/CRC32
+checksums; output-identical vs Temurin on all three channels. Corpus
+wave 2's real cost center: the byte-stream JDK surface (Filter{In,Out}
+putStream hierarchy with named protected fields, ByteArrayOutputStream
+with the JDK field model, java/lang/Enum for javac's hand-rolled
+WrapperType, array `clone()` on all array types, Object.clone defaults,
+String byte/charset natives) — each piece pinned by probes or
+unit-tested, gaps catalogued in [docs/CORPUS_WAVE.md](docs/CORPUS_WAVE.md).
 
 ## M4 — threads & concurrency (waves implemented, completion review pending)
 

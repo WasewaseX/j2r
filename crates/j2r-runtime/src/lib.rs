@@ -372,6 +372,26 @@ pub fn invoke_virtual(
     // rooted by the caller's refreshed frame snapshot (generated code
     // refreshes before every call), so no NativeRoots scope is needed here.
     let mut cur: Arc<str> = crate::heap::with_obj(*recv, |o| o.jclass.clone());
+    // Array receivers (corpus wave 2, JZlib): every array type is a
+    // subtype of Object with a public `clone()` (JVMS 2.15/6.5 invokevirtual)
+    // plus the Object methods. `clone` shallow-copies element-wise here;
+    // the Object methods dispatch through the Object natives rows.
+    if cur.starts_with('[') {
+        if name == "clone" && desc == "()Ljava/lang/Object;" {
+            return Ok(Value::Ref(Some(crate::array::array_shallow_copy(
+                recv, ctx,
+            )?)));
+        }
+        if matches!(
+            (name, desc),
+            ("getClass", "()Ljava/lang/Class;")
+                | ("hashCode", "()I")
+                | ("equals", "(Ljava/lang/Object;)Z")
+                | ("toString", "()Ljava/lang/String;")
+        ) {
+            return natives::invoke_exact("java/lang/Object", name, desc, Some(recv), args, ctx);
+        }
+    }
     for _ in 0..64 {
         if let Some(f) = ctx.find_method(&cur, name, desc) {
             return f(Some(recv), args);

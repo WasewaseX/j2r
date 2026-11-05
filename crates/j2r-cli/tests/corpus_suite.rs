@@ -48,8 +48,15 @@ fn corpus_entries_match_jvm() {
         eprintln!("skipping corpus suite: javac not found");
         return;
     }
+    // The JZlib entry's generated crate (~7.2k lines with giant switch
+    // tables) SIGSEGVs rustc's default thread stack while expanding — a
+    // 32 MiB rust worker stack fixes it (found locally, first corpus run).
+    std::env::set_var("RUST_MIN_STACK", "33554432");
     let corpus_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus");
-    let entries: Vec<String> = vec!["MinimalJsonCorpus.java".to_string()];
+    let entries: Vec<String> = vec![
+        "MinimalJsonCorpus.java".to_string(),
+        "JZlibCorpus.java".to_string(),
+    ];
     let mut failures = Vec::new();
     for entry in &entries {
         let file = corpus_dir.join(entry);

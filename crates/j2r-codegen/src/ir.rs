@@ -241,6 +241,16 @@ pub enum ElemKind {
     Double,
     /// `aaload` / `aastore`
     Ref,
+    /// The elements of a `[[<prim>` array are primitive ARRAYS: `aaload` on
+    /// `[[I` yields `[I` (a typed array value), exactly like the JVM
+    /// verifier (corpus wave 2, JZlib InfBlocks/InfCodes: `[[I` fields feed
+    /// `[I`-shaped call sites). One extra level only, flattened into four
+    /// variants so the lattice stays Copy; `[[[<prim>` still models as `Ref`
+    /// elements — a registered limit.
+    RefPrimArrayInt,
+    RefPrimArrayLong,
+    RefPrimArrayFloat,
+    RefPrimArrayDouble,
 }
 
 impl PrimType {

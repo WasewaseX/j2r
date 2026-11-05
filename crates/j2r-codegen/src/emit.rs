@@ -1149,9 +1149,8 @@ fn emit_instr(
             out.push(format!("crate::statics::set({slot}u32, __v);"));
         }
         Instr::GetField { class, field, .. } => {
-            let f = crate::resolve_field_pub(prog, class, field, false)
-                .expect("validated instance field");
-            let slot = f.instance_slot.expect("instance field");
+            let slot =
+                crate::resolve_field_slot_pub(prog, class, field, false).expect("validated field");
             out.push(format!(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
@@ -1160,9 +1159,8 @@ fn emit_instr(
             ));
         }
         Instr::PutField { class, field, .. } => {
-            let f = crate::resolve_field_pub(prog, class, field, false)
-                .expect("validated instance field");
-            let slot = f.instance_slot.expect("instance field");
+            let slot =
+                crate::resolve_field_slot_pub(prog, class, field, false).expect("validated field");
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push(format!(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"

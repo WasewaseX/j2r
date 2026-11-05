@@ -127,3 +127,87 @@ differential harnesses).
 4. Corpus entry 2: JZlib (pure-Java deflate/inflate) — pairs directly with the M3
    inflate work and stress-tests `java.io` streams further.
 5. Close F4 (hex-float parser) and F5 (arraycopy message vector).
+
+## Wave 2 — JZlib (entry 2, landed 2026-11-05)
+
+**Entry**: ymnk/jzlib (BSD-style, `corpus/jzlib/LICENSE.txt`) — 23 files,
+~7.2k lines: a real DEFLATE/INFLATE implementation with its own
+huffman/block/codes machinery, Adler32/CRC32 checksums, gzip wrappers,
+and the stream classes. Vendored + merged into one default-package file
+by `scripts/build_corpus_jzlib.sh` (the same shape as wave 1), driver
+`JZlibCorpus` exercising the public ZStream API (levels 0/3/6/9 sampled,
+Z_FINISH deflate, Z_NO_FLUSH inflate loop, exact round-trip booleans)
+plus Adler32/CRC32 over a fixed vector and the library version string.
+**Output-identical to Temurin 21.0.13 on all three channels** — locally
+and pinned permanently in `corpus_suite.rs` (both entries).
+
+### What wave 2 actually cost (the JDK surface a real library drags in)
+
+Each item below was found by a loud compile error and closed with either
+a probe-pinned native (Temurin 21.0.13) or a structural fix:
+
+1. **Byte-stream hierarchy** — `OutputStream`/`FilterOutputStream`/
+   `InputStream`/`FilterInputStream` as builtins (parents, interfaces,
+   slot layouts), with the protected `out`/`in` fields the user
+   subclasses touch BY NAME: new `builtin_field_slot` + the codegen's
+   `resolve_field_slot` (inherited-builtin-field resolution; absolute
+   slot = owner's ancestor-base + own index). JDK 21 Filter* behavior
+   pinned in io.rs (per-byte `out.write(I)` loop, write([B) self-dispatch
+   to write([BII), close = flush-then-close).
+2. **ByteArrayOutputStream** — JDK field model in slots (buf byte[]
+   ref, count Int), write/write/size/reset/toByteArray/toString/writeTo,
+   JDK growth contract, `IllegalArgumentException` on negative initial
+   size (Inflate.readString/readBytes).
+3. **java/lang/Enum** — javac compiles every `enum` to `extends Enum`
+   (JZlib's hand-rolled WrapperType): slots (name, ordinal), <init>
+   super(name, ordinal), name/ordinal/toString/equals(identity)/
+   compareTo(ordinal). `Enum.valueOf(Class,String)` is a loud marker
+   (enum reflection is R2 scope) — validation fact only.
+4. **Array `clone()`** — every array type is a subtype of Object with a
+   public clone (JVMS 2.15): validate_virtual accepts array receivers
+   for clone + the Object methods; invoke_virtual shallow-copies
+   (`array::array_shallow_copy`) and dispatches the Object methods
+   through the Object natives. Found by javac's enum `$values()`.
+5. **Object.clone default** — fresh object of the same runtime class,
+   shallow slot copy, no constructor (JZlib Deflate.clone /
+   GZIPHeader.clone call `super.clone()`).
+6. **Verifier: nested primitive arrays** — `[[I` elements are `int[]`
+   values, not generic refs: the lattice gained
+   `ElemKind::RefPrimArray{Int,Long,Float,Double}` (one level;
+   `[[[<prim>` still models Ref elements — registered limit), `aaload`
+   yields the receiver's static element shape, `anewarray "[I"` (javac's
+   `new int[n][]`) maps through the operand, checkcast/multianewarray
+   refine by descriptor. Found at JZlib InfBlocks/InfCodes — the JVM
+   verifier's exact behavior.
+7. **String byte/charset natives** — `getBytes(String)`, `getBytes()`,
+   `new String(byte[],String)`, `new String(byte[],int,int,String)` with
+   probe-pinned JDK contracts (CharsetProbe/RangeProbe): UTF-8,
+   ISO-8859-1, US-ASCII (case-insensitive names); unknown name →
+   UnsupportedEncodingException naming the input; null name → NPE("null");
+   non-representable chars encode `?`; malformed UTF-8 → one U+FFFD per
+   maximal bad subpart; range overflow → the JDK's exact
+   StringIndexOutOfBoundsException message. Registered divergence: the
+   UTF-16 family is JDK-accepted but unsupported (loud) until a corpus
+   path needs it.
+8. **Exceptions** — CloneNotSupportedException (JZlib's clone() methods
+   declare it) and InternalError (javac's unreachable-default arms)
+   joined the builtin hierarchy.
+
+### Build-side note (honest)
+
+The JZlib generated crate (~7.2k lines of emitted Rust with giant switch
+tables) SIGSEGVs rustc's default thread stack during expansion; the
+corpus runner sets `RUST_MIN_STACK=32 MiB` for its child builds. Recorded
+because it is part of the reproduction command.
+
+### Registered gaps from wave 2 (loud, not silent)
+
+- `Enum.valueOf(Class,String)` — R2 scope (enum reflection).
+- `InputStream.skip(J)` default — the JDK loop-read skip buffer is not
+  modelled; calling it fails loud (JZlib overrides skip).
+- UTF-16 charset family — UnsupportedEncodingException until needed.
+- `[[[<prim>` verifier depth — models as Ref elements beyond one level.
+- Stream classes compile and validate; the GZIP wrappers and
+  ZInputStream/ZOutputStream BEHAVIOR are not yet exercised by the
+  driver (phase 2 candidate — needs ByteArrayInputStream/Buffered*
+  builtins if the driver goes through them).

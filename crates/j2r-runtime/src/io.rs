@@ -398,3 +398,616 @@ pub fn n_writer_write_str(
     )?;
     Ok(Value::Void)
 }
+
+// -------------------------------------------------- byte streams (JZlib)
+//
+// Corpus wave 2: the byte-stream surface JZlib's stream classes extend.
+// The Filter* pair holds its JDK field (`out` / `in`) in own slot 0 (see
+// builtin::builtin_field_slot); user subclasses touch it by name through
+// the codegen's builtin-field resolution. The abstract bases carry the
+// JDK default behaviors that reach user code (write([B) forwards to
+// write([BII) on SELF so overrides win; write([BII) loops single-byte
+// write(I) on SELF; available() defaults to 0; mark/reset follow the JDK
+// defaults). Anything abstract dispatches loud — the object model was
+// violated exactly like the Writer markers above.
+
+fn stream_field(recv: Option<&JRef>, op: &str) -> Result<(JRef, JRef), Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing(op)),
+    };
+    let inner = match with_obj(r, |o| o.slots[0].clone()) {
+        Value::Ref(Some(o)) => o,
+        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(internal_error(&format!("j2r internal: {op} field slot"))),
+    };
+    Ok((r, inner))
+}
+
+/// JDK 21's shared bounds shape for `write(b, off, len)` on the stream
+/// classes: `Objects.requireNonNull(b)` then the packed
+/// `(off | len | (b.length - (len + off)) | (off + len)) < 0` check.
+fn check_write_range(b: &JRef, off: i32, len: i32, op: &str) -> Result<i32, Throw> {
+    let blen = crate::array::array_length(b)?;
+    if (off | len | (blen - (len + off)) | (off + len)) < 0 {
+        return Err(throw_new(
+            "java/lang/IndexOutOfBoundsException",
+            Some(&format!(
+                "j2r: {op} write range [{off}, {off}+{len}) of {blen}"
+            )),
+        ));
+    }
+    Ok(blen)
+}
+
+pub fn n_fos_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let (r, out) = stream_field_pair(recv, args, "FilterOutputStream.<init>")?;
+    with_obj_mut(r, |o| o.slots[0] = Value::Ref(Some(out)));
+    Ok(Value::Void)
+}
+
+fn stream_field_pair(recv: Option<&JRef>, args: &[Value], op: &str) -> Result<(JRef, JRef), Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing(op)),
+    };
+    let inner = match args.first() {
+        Some(Value::Ref(Some(o))) => *o,
+        Some(Value::Ref(None)) | None => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(missing(op)),
+    };
+    Ok((r, inner))
+}
+
+pub fn n_fos_write_int(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, out) = stream_field(recv, "FilterOutputStream.write")?;
+    crate::invoke_virtual(&out, "java/io/OutputStream", "write", "(I)V", args, ctx)?;
+    Ok(Value::Void)
+}
+
+/// JDK: `write(b, 0, b.length)` ON SELF — a virtual self-call so a user
+/// override of `write([BII)` wins.
+pub fn n_fos_write_bulk(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let (r, _) = stream_field(recv, "FilterOutputStream.write")?;
+    let b = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(missing("FilterOutputStream.write")),
+    };
+    let len = crate::array::array_length(&b)?;
+    crate::invoke_virtual(
+        &r,
+        "java/io/FilterOutputStream",
+        "write",
+        "([BII)V",
+        &[Value::Ref(Some(b)), Value::Int(0), Value::Int(len)],
+        ctx,
+    )?;
+    Ok(Value::Void)
+}
+
+/// JDK 21 FilterOutputStream.write([BII): requireNonNull, the packed
+/// range check, then the per-byte loop THROUGH `out` — every byte is one
+/// virtual `out.write(I)` (the documented behavior programs depend on).
+pub fn n_fos_write_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let (_, out) = stream_field(recv, "FilterOutputStream.write")?;
+    let b = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(missing("FilterOutputStream.write")),
+    };
+    let off = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(missing("FilterOutputStream.write")),
+    };
+    let len = match args.get(2) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(missing("FilterOutputStream.write")),
+    };
+    check_write_range(&b, off, len, "FilterOutputStream")?;
+    for i in off..off + len {
+        let v = crate::array::array_load(&b, i)?;
+        crate::invoke_virtual(&out, "java/io/OutputStream", "write", "(I)V", &[v], ctx)?;
+    }
+    Ok(Value::Void)
+}
+
+pub fn n_fos_flush(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, out) = stream_field(recv, "FilterOutputStream.flush")?;
+    crate::invoke_virtual(&out, "java/io/OutputStream", "flush", "()V", &[], ctx)?;
+    Ok(Value::Void)
+}
+
+/// JDK: `try { flush(); } finally { out.close(); }`.
+pub fn n_fos_close(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, out) = stream_field(recv, "FilterOutputStream.close")?;
+    let flush = crate::invoke_virtual(&out, "java/io/OutputStream", "flush", "()V", &[], ctx);
+    let close = crate::invoke_virtual(&out, "java/io/OutputStream", "close", "()V", &[], ctx);
+    flush?;
+    close?;
+    Ok(Value::Void)
+}
+
+// Abstract OutputStream: markers for the abstract writes (dispatching to
+// them means a concrete subclass failed to override), JDK defaults for the
+// rest.
+
+pub fn n_os_write_int(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Err(internal_error(
+        "j2r: OutputStream.write(I) is abstract — a concrete subclass must override it",
+    ))
+}
+
+/// JDK OutputStream.write([B): `write(b, 0, b.length)` on SELF.
+pub fn n_os_write_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("OutputStream.write")),
+    };
+    let b = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(missing("OutputStream.write")),
+    };
+    let len = crate::array::array_length(&b)?;
+    crate::invoke_virtual(
+        &r,
+        "java/io/OutputStream",
+        "write",
+        "([BII)V",
+        &[Value::Ref(Some(b)), Value::Int(0), Value::Int(len)],
+        ctx,
+    )?;
+    Ok(Value::Void)
+}
+
+/// JDK OutputStream.write([BII) default: the packed range check, then the
+/// per-byte loop on SELF's `write(I)` (override wins).
+pub fn n_os_write_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("OutputStream.write")),
+    };
+    let b = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(missing("OutputStream.write")),
+    };
+    let off = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(missing("OutputStream.write")),
+    };
+    let len = match args.get(2) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(missing("OutputStream.write")),
+    };
+    check_write_range(&b, off, len, "OutputStream")?;
+    for i in off..off + len {
+        let v = crate::array::array_load(&b, i)?;
+        crate::invoke_virtual(&r, "java/io/OutputStream", "write", "(I)V", &[v], ctx)?;
+    }
+    Ok(Value::Void)
+}
+
+pub fn n_os_flush(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Void) // JDK default: no-op
+}
+
+pub fn n_os_close(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Void) // JDK default: no-op
+}
+
+// FilterInputStream: slot 0 = `in`; every read delegates through it.
+
+pub fn n_fis_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let (r, inner) = stream_field_pair(recv, args, "FilterInputStream.<init>")?;
+    with_obj_mut(r, |o| o.slots[0] = Value::Ref(Some(inner)));
+    Ok(Value::Void)
+}
+
+pub fn n_fis_read(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, inner) = stream_field(recv, "FilterInputStream.read")?;
+    crate::invoke_virtual(&inner, "java/io/InputStream", "read", "()I", &[], ctx)
+}
+
+/// JDK: `read(b, 0, b.length)` on SELF.
+pub fn n_fis_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (r, _) = stream_field(recv, "FilterInputStream.read")?;
+    let b = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(missing("FilterInputStream.read")),
+    };
+    let len = crate::array::array_length(&b)?;
+    crate::invoke_virtual(
+        &r,
+        "java/io/FilterInputStream",
+        "read",
+        "([BII)I",
+        &[Value::Ref(Some(b)), Value::Int(0), Value::Int(len)],
+        ctx,
+    )
+}
+
+pub fn n_fis_read_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let (_, inner) = stream_field(recv, "FilterInputStream.read")?;
+    crate::invoke_virtual(&inner, "java/io/InputStream", "read", "([BII)I", args, ctx)
+}
+
+pub fn n_fis_skip(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, inner) = stream_field(recv, "FilterInputStream.skip")?;
+    crate::invoke_virtual(&inner, "java/io/InputStream", "skip", "(J)J", args, ctx)
+}
+
+pub fn n_fis_available(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let (_, inner) = stream_field(recv, "FilterInputStream.available")?;
+    crate::invoke_virtual(&inner, "java/io/InputStream", "available", "()I", &[], ctx)
+}
+
+pub fn n_fis_close(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, inner) = stream_field(recv, "FilterInputStream.close")?;
+    crate::invoke_virtual(&inner, "java/io/InputStream", "close", "()V", &[], ctx)?;
+    Ok(Value::Void)
+}
+
+// Abstract InputStream: JDK defaults.
+
+pub fn n_is_read(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Err(internal_error(
+        "j2r: InputStream.read() is abstract — a concrete subclass must override it",
+    ))
+}
+
+/// JDK InputStream.read([B) default: `read(b, 0, b.length)` on SELF.
+pub fn n_is_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("InputStream.read")),
+    };
+    let b = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(missing("InputStream.read")),
+    };
+    let len = crate::array::array_length(&b)?;
+    crate::invoke_virtual(
+        &r,
+        "java/io/InputStream",
+        "read",
+        "([BII)I",
+        &[Value::Ref(Some(b)), Value::Int(0), Value::Int(len)],
+        ctx,
+    )
+}
+
+pub fn n_is_read_range(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Err(internal_error(
+        "j2r: InputStream.read([BII) is abstract — a concrete subclass must override it",
+    ))
+}
+
+/// Registered divergence (loud, documented): the JDK's `skip(J)` default
+/// loop-reads through a skip buffer; nothing in the corpus drives the
+/// default path, so it is not modelled — calling it fails loud instead of
+/// silently mis-skipping. JZlib's InflaterInputStream overrides skip.
+pub fn n_is_skip(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Err(internal_error(
+        "j2r: InputStream.skip(J) default is not modelled (registered divergence) — override it",
+    ))
+}
+
+pub fn n_is_available(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Ok(Value::Int(0)) // JDK default
+}
+
+pub fn n_is_close(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Void) // JDK default
+}
+
+pub fn n_is_mark(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Void) // JDK default: no-op
+}
+
+pub fn n_is_reset(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Err(throw_new(
+        "java/io/IOException",
+        Some("mark/reset not supported"),
+    ))
+}
+
+pub fn n_is_mark_supported(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Ok(Value::Int(0)) // JDK default: false
+}
+
+// -------------------------------------- ByteArrayOutputStream (JZlib)
+//
+// Corpus wave 2: Inflate.readString/readBytes collect bytes into a BAOS.
+// JDK field model in the slots (slot 0 = buf byte[] ref, slot 1 = count);
+// growth policy is internal (capacity is NOT observable from Java — only
+// buf contents [0..count), count, and the copies are), so a plain doubling
+// growth with the JDK's minimum-capacity rule stands in for the exact
+// MAX_ARRAY_SIZE overflow choreography.
+
+fn baos_parts(r: &JRef, op: &str) -> Result<(JRef, i32), Throw> {
+    let (buf, count) = with_obj(*r, |o| (o.slots[0].clone(), o.slots[1].clone()));
+    let b = match buf {
+        Value::Ref(Some(a)) => a,
+        _ => return Err(internal_error(&format!("j2r internal: {op} buf slot"))),
+    };
+    let Value::Int(c) = count else {
+        return Err(internal_error(&format!("j2r internal: {op} count slot")));
+    };
+    Ok((b, c))
+}
+
+/// Doubles the buffer until it fits `need` more bytes (JDK grow rule:
+/// newCapacity = old << 1 while < minCapacity).
+fn baos_ensure(r: &JRef, buf: &JRef, count: i32, need: i32) -> Result<JRef, Throw> {
+    let cap = crate::array::array_length(buf)?;
+    if count + need <= cap {
+        return Ok(*buf);
+    }
+    let mut newcap = cap.max(1);
+    while newcap < count + need {
+        newcap = newcap.saturating_mul(2);
+    }
+    let bigger = crate::array::array_new_prim("[B", newcap)?;
+    for i in 0..count {
+        let v = crate::array::array_load(buf, i)?;
+        crate::array::array_store(&bigger, i, v, crate::Dispatch::default())?;
+    }
+    with_obj_mut(*r, |o| o.slots[0] = Value::Ref(Some(bigger)));
+    Ok(bigger)
+}
+
+pub fn n_baos_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.<init>")),
+    };
+    // JDK: buf = new byte[32], count = 0.
+    let buf = crate::array::array_new_prim("[B", 32)?;
+    with_obj_mut(r, |o| {
+        o.slots[0] = Value::Ref(Some(buf));
+        o.slots[1] = Value::Int(0);
+    });
+    Ok(Value::Void)
+}
+
+pub fn n_baos_init_size(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.<init>")),
+    };
+    let size = match args.first() {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(missing("ByteArrayOutputStream.<init>")),
+    };
+    if size < 0 {
+        // JDK: IllegalArgumentException("Negative initial size: " + size)
+        return Err(throw_new(
+            "java/lang/IllegalArgumentException",
+            Some(&format!("Negative initial size: {size}")),
+        ));
+    }
+    let buf = crate::array::array_new_prim("[B", size)?;
+    with_obj_mut(r, |o| {
+        o.slots[0] = Value::Ref(Some(buf));
+        o.slots[1] = Value::Int(0);
+    });
+    Ok(Value::Void)
+}
+
+pub fn n_baos_write_int(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.write")),
+    };
+    let b = match args.first() {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(missing("ByteArrayOutputStream.write")),
+    };
+    let (buf, count) = baos_parts(&r, "ByteArrayOutputStream.write")?;
+    let buf = baos_ensure(&r, &buf, count, 1)?;
+    crate::array::array_store(
+        &buf,
+        count,
+        Value::Int(b as i8 as i32),
+        crate::Dispatch::default(),
+    )?;
+    with_obj_mut(r, |o| o.slots[1] = Value::Int(count + 1));
+    Ok(Value::Void)
+}
+
+pub fn n_baos_write_bulk(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    // JDK: write(b) == write(b, 0, b.length) on SELF.
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.write")),
+    };
+    let b = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) | None => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(missing("ByteArrayOutputStream.write")),
+    };
+    let len = crate::array::array_length(&b)?;
+    crate::invoke_virtual(
+        &r,
+        "java/io/ByteArrayOutputStream",
+        "write",
+        "([BII)V",
+        &[Value::Ref(Some(b)), Value::Int(0), Value::Int(len)],
+        ctx,
+    )?;
+    Ok(Value::Void)
+}
+
+pub fn n_baos_write_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.write")),
+    };
+    let b = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) | None => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(missing("ByteArrayOutputStream.write")),
+    };
+    let off = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(missing("ByteArrayOutputStream.write")),
+    };
+    let len = match args.get(2) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(missing("ByteArrayOutputStream.write")),
+    };
+    check_write_range(&b, off, len, "ByteArrayOutputStream")?;
+    let (buf, count) = baos_parts(&r, "ByteArrayOutputStream.write")?;
+    let buf = baos_ensure(&r, &buf, count, len)?;
+    for i in 0..len {
+        let v = crate::array::array_load(&b, off + i)?;
+        crate::array::array_store(&buf, count + i, v, crate::Dispatch::default())?;
+    }
+    with_obj_mut(r, |o| o.slots[1] = Value::Int(count + len));
+    Ok(Value::Void)
+}
+
+pub fn n_baos_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.size")),
+    };
+    let (_, count) = baos_parts(&r, "ByteArrayOutputStream.size")?;
+    Ok(Value::Int(count))
+}
+
+pub fn n_baos_reset(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.reset")),
+    };
+    with_obj_mut(r, |o| o.slots[1] = Value::Int(0));
+    Ok(Value::Void)
+}
+
+/// `toByteArray()` — Arrays.copyOf(buf, count).
+pub fn n_baos_to_byte_array(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.toByteArray")),
+    };
+    let (buf, count) = baos_parts(&r, "ByteArrayOutputStream.toByteArray")?;
+    let out = crate::array::array_new_prim("[B", count)?;
+    for i in 0..count {
+        let v = crate::array::array_load(&buf, i)?;
+        crate::array::array_store(&out, i, v, ctx)?;
+    }
+    Ok(Value::Ref(Some(out)))
+}
+
+/// `toString()` — UTF-8 (platform default) decode of buf[0..count).
+pub fn n_baos_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.toString")),
+    };
+    let (buf, count) = baos_parts(&r, "ByteArrayOutputStream.toString")?;
+    let mut bytes = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        match crate::array::array_load(&buf, i)? {
+            Value::Int(v) => bytes.push(v as u8),
+            _ => return Err(internal_error("j2r internal: BAOS toString element")),
+        }
+    }
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    Ok(Value::Ref(Some(crate::object::new_string(&text))))
+}
+
+pub fn n_baos_write_to(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayOutputStream.writeTo")),
+    };
+    let out = match args.first() {
+        Some(Value::Ref(Some(o))) => *o,
+        Some(Value::Ref(None)) | None => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(missing("ByteArrayOutputStream.writeTo")),
+    };
+    let (buf, count) = baos_parts(&r, "ByteArrayOutputStream.writeTo")?;
+    crate::invoke_virtual(
+        &out,
+        "java/io/OutputStream",
+        "write",
+        "([BII)V",
+        &[Value::Ref(Some(buf)), Value::Int(0), Value::Int(count)],
+        ctx,
+    )?;
+    Ok(Value::Void)
+}

@@ -49,6 +49,11 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/StackOverflowError" => "java/lang/VirtualMachineError",
         "java/lang/OutOfMemoryError" => "java/lang/VirtualMachineError",
         "java/lang/VirtualMachineError" => "java/lang/Error",
+        // Corpus wave 2 (JZlib): javac emits `throw new InternalError()`
+        // as the unreachable-default arm of exhaustive string/enum
+        // switches (GZIPHeader.getName) — instantiable like any builtin
+        // Throwable.
+        "java/lang/InternalError" => "java/lang/VirtualMachineError",
         "java/lang/AssertionError" => "java/lang/Error",
         // M3 Wave 5: reflection subset (M3_PLAN §8). The reflective failure
         // classes hang off `ReflectiveOperationException` exactly like the
@@ -117,7 +122,28 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/io/InputStream" => "java/lang/Object",
         "java/io/ObjectInputStream" => "java/io/InputStream",
         "java/io/Serializable" => "java/lang/Object",
+        // Real-world corpus wave 2 (JZlib): the byte-stream hierarchy.
+        // JZlib's stream classes (ZOutputStream, ZInputStream,
+        // DeflaterOutputStream, GZIP*, InflaterInputStream) extend the
+        // Filter* pair directly, so the whole chain must be known to the
+        // loader. The Filter* pair owns the protected field the user code
+        // touches by name (see builtin_field_slot).
+        "java/io/OutputStream" => "java/lang/Object",
+        "java/io/FilterOutputStream" => "java/io/OutputStream",
+        "java/io/FilterInputStream" => "java/io/InputStream",
+        // Corpus wave 2 (JZlib Inflate.readString/readBytes): the byte
+        // buffer with JDK field layout — slot 0 = buf (byte[] ref), slot 1
+        // = count (Int). Instantiable through the <init> natives.
+        "java/io/ByteArrayOutputStream" => "java/io/OutputStream",
+        // Real-world corpus wave 2 (JZlib): javac compiles every `enum`
+        // to `extends java/lang/Enum` (WrapperType). Two own slots: name
+        // (Str) then ordinal (Int) — see the Enum natives rows.
+        "java/lang/Enum" => "java/lang/Object",
         "java/lang/ClassNotFoundException" => "java/lang/ReflectiveOperationException",
+        // Corpus wave 2 (JZlib): Deflate.clone/GZIPHeader.clone declare
+        // `throws CloneNotSupportedException` — catch handlers must resolve
+        // the builtin chain exactly like IOException.
+        "java/lang/CloneNotSupportedException" => "java/lang/Exception",
         "java/io/IOException" => "java/lang/Exception",
         "java/io/UnsupportedEncodingException" => "java/io/IOException",
         "java/io/EOFException" => "java/io/IOException",
@@ -162,6 +188,13 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
             "java/io/Flushable",
         ],
         "java/io/Reader" => &["java/io/Readable", "java/io/Closeable"],
+        // Corpus wave 2 (JZlib): byte-stream interfaces. OutputStream is
+        // Closeable + Flushable, InputStream is Closeable; the Filter*
+        // pair inherits the same through the abstract bases.
+        "java/io/OutputStream" | "java/io/FilterOutputStream" => {
+            &["java/io/Closeable", "java/io/Flushable"]
+        }
+        "java/io/InputStream" | "java/io/FilterInputStream" => &["java/io/Closeable"],
         "java/io/Serializable" => &[],
         _ => &[],
     }
@@ -257,6 +290,17 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // StringWriter: own slot = the accumulated buffer ref; StringReader:
         // own slot = payload (string + cursor) held by the runtime.
         "java/io/StringWriter" | "java/io/StringReader" => 1,
+        // Real-world corpus wave 2 (JZlib): byte-stream layouts. The abstract
+        // bases own nothing; the Filter* pair owns exactly one slot each —
+        // the protected field user subclasses touch by name (see
+        // builtin_field_slot).
+        "java/io/OutputStream" | "java/io/InputStream" => 0,
+        "java/io/FilterOutputStream" | "java/io/FilterInputStream" => 1,
+        // ByteArrayOutputStream: slot 0 = buf (byte[] ref), slot 1 = count.
+        "java/io/ByteArrayOutputStream" => 2,
+        // Enum: slot 0 = name (Str), slot 1 = ordinal (Int). The generated
+        // subclass (javac's WrapperType) starts at base 2.
+        "java/lang/Enum" => 2,
         _ => {
             // exception families own no extra fields
             if builtin_parent_of(class).is_some() {
@@ -282,6 +326,20 @@ pub fn builtin_total_slots(class: &str) -> Option<usize> {
         }
     }
     None
+}
+
+/// Named instance fields a builtin class owns — corpus wave 2 (JZlib):
+/// user stream subclasses touch the protected Filter* fields (`out` /
+/// `in`) directly by name, so the codegen must lay them out like user
+/// fields. The returned index is WITHIN the class's own-slot range; the
+/// codegen adds the class's inherited base (total slots of everything
+/// strictly below it in the receiver's chain).
+pub fn builtin_field_slot(class: &str, field: &str) -> Option<usize> {
+    match (class, field) {
+        ("java/io/FilterOutputStream", "out") => Some(0),
+        ("java/io/FilterInputStream", "in") => Some(0),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

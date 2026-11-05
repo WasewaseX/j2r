@@ -155,6 +155,108 @@ fn n_object_hash_code(
     Ok(Value::Int(r.index() as i32))
 }
 
+fn n_object_clone(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Object.clone");
+    Ok(Value::Ref(Some(object::object_shallow_clone(r)?)))
+}
+
+// ------------------------- java/lang/Enum (corpus wave 2, JZlib)
+
+fn enum_slot(recv: Option<&JRef>, who: &str, idx: usize) -> Value {
+    let r = this(recv, who);
+    crate::heap::with_obj(*r, |o| o.slots[idx].clone())
+}
+
+fn n_enum_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Enum.<init>");
+    let name = match args.first() {
+        Some(Value::Str(s)) => s.to_string(),
+        Some(Value::Ref(Some(o))) if is_string(o) => object::string_value(o).to_string(),
+        _ => return Err(internal_error("j2r internal: Enum.<init> name argument")),
+    };
+    let ord = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(internal_error("j2r internal: Enum.<init> ordinal argument")),
+    };
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = Value::Str(std::sync::Arc::new(name));
+        o.slots[1] = Value::Int(ord);
+    });
+    Ok(Value::Void)
+}
+
+fn n_enum_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    match enum_slot(recv, "Enum.name", 0) {
+        Value::Str(s) => Ok(Value::Ref(Some(object::new_string(&s)))),
+        _ => Err(internal_error("j2r internal: Enum.name slot")),
+    }
+}
+
+fn n_enum_ordinal(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    match enum_slot(recv, "Enum.ordinal", 1) {
+        Value::Int(v) => Ok(Value::Int(v)),
+        _ => Err(internal_error("j2r internal: Enum.ordinal slot")),
+    }
+}
+
+/// JDK `Enum.toString()` returns the name.
+fn n_enum_to_string(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    match enum_slot(recv, "Enum.toString", 0) {
+        Value::Str(s) => Ok(Value::Ref(Some(object::new_string(&s)))),
+        _ => Err(internal_error("j2r internal: Enum.toString slot")),
+    }
+}
+
+/// JDK `Enum.equals` is final identity (`this == other`).
+fn n_enum_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Enum.equals");
+    let same = match args.first() {
+        Some(Value::Ref(Some(other))) => JRef::ptr_eq(r, other),
+        _ => false,
+    };
+    Ok(Value::Int(same as i32))
+}
+
+/// JDK `Enum.compareTo` — the ordinal compare with the exact three-way
+/// branch shape (same ordinals of DIFFERENT subclasses subtract too).
+fn n_enum_compare_to(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Enum.compareTo");
+    let other = match args.first() {
+        Some(Value::Ref(Some(o))) => *o,
+        _ => return Err(internal_error("j2r internal: Enum.compareTo argument")),
+    };
+    let mine = match enum_slot(Some(r), "Enum.compareTo", 1) {
+        Value::Int(v) => v,
+        _ => return Err(internal_error("j2r internal: Enum.compareTo ordinal slot")),
+    };
+    let theirs = match enum_slot(Some(&other), "Enum.compareTo", 1) {
+        Value::Int(v) => v,
+        _ => return Err(internal_error("j2r internal: Enum.compareTo ordinal slot")),
+    };
+    // ClassCastException parity is the call site's job (javac inserts the
+    // checkcast; the bridge method carries the typed descriptor).
+    if mine < theirs {
+        Ok(Value::Int(-1))
+    } else if mine > theirs {
+        Ok(Value::Int(1))
+    } else {
+        Ok(Value::Int(mine.wrapping_sub(theirs)))
+    }
+}
+
+/// Reflection machinery NOT modelled (R2 scope): `Enum.valueOf(Class, String)`
+/// needs the enum's constant table. Validation fact only — a real call
+/// fails loud with a named reason, mirroring the serialization marker.
+fn n_enum_value_of_marker(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Err(internal_error(
+        "j2r: Enum.valueOf(Class,String) is not modelled (enum reflection is R2 scope)",
+    ))
+}
+
 fn n_object_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "Object.equals");
     let same = match args.first() {
@@ -539,6 +641,203 @@ fn n_string_get_chars(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
             ctx,
         )?;
     }
+    Ok(Value::Void)
+}
+
+// ---------------------------------------- String <-> byte[] (JZlib corpus)
+//
+// The byte-side String natives (corpus wave 2): the everyday encoders with
+// JDK-exact contracts, pinned by probes on Temurin 21.0.13 (CharsetProbe /
+// RangeProbe): unknown charset name -> UnsupportedEncodingException whose
+// message is the name AS GIVEN; null name -> NullPointerException with
+// message "null"; non-representable chars encode as '?' for Latin-1 and
+// ASCII; malformed UTF-8 decodes to one U+FFFD per maximal bad subpart;
+// ASCII decode of a high byte yields U+FFFD; range overflows throw
+// StringIndexOutOfBoundsException "Range [off, off+len) out of bounds for
+// length N"; names are case-insensitive ("utf-8" works).
+//
+// Registered divergence (loud, documented): the UTF-16 family ("UTF-16",
+// "UTF-16BE", ...) is JDK-accepted but UnsupportedEncodingException here —
+// no corpus or fixture path uses it; add with a probe battery when one
+// does.
+
+#[derive(Clone, Copy)]
+enum BytesCs {
+    Utf8,
+    Latin1,
+    Ascii,
+}
+
+fn resolve_charset(v: &Value, who: &str) -> Result<BytesCs, Throw> {
+    let name = match v {
+        Value::Str(s) => s.to_string(),
+        Value::Ref(Some(o)) if is_string(o) => object::string_value(o).to_string(),
+        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", Some("null"))),
+        _ => return Err(internal_error(&format!("j2r internal: {who} charset name"))),
+    };
+    let norm: String = name.chars().map(|c| c.to_ascii_lowercase()).collect();
+    match norm.as_str() {
+        "utf-8" | "utf8" => Ok(BytesCs::Utf8),
+        "iso-8859-1" | "iso8859-1" | "iso_8859_1" | "8859_1" | "latin1" | "l1" => {
+            Ok(BytesCs::Latin1)
+        }
+        "us-ascii" | "ascii" | "ansi_x3.4-1968" | "iso646-us" | "646" => Ok(BytesCs::Ascii),
+        _ => Err(throw_new(
+            "java/io/UnsupportedEncodingException",
+            Some(&name),
+        )),
+    }
+}
+
+fn encode_cs(text: &str, cs: BytesCs) -> Vec<u8> {
+    match cs {
+        BytesCs::Utf8 => text.as_bytes().to_vec(),
+        BytesCs::Latin1 => text
+            .chars()
+            .map(|c| if (c as u32) <= 0xFF { c as u8 } else { b'?' })
+            .collect(),
+        BytesCs::Ascii => text
+            .chars()
+            .map(|c| if (c as u32) <= 0x7F { c as u8 } else { b'?' })
+            .collect(),
+    }
+}
+
+fn decode_cs(bytes: &[u8], cs: BytesCs) -> String {
+    match cs {
+        BytesCs::Utf8 => String::from_utf8_lossy(bytes).into_owned(),
+        BytesCs::Latin1 => bytes.iter().map(|&b| b as char).collect(),
+        BytesCs::Ascii => bytes
+            .iter()
+            .map(|&b| {
+                if b <= 0x7F {
+                    b as char
+                } else {
+                    char::REPLACEMENT_CHARACTER
+                }
+            })
+            .collect(),
+    }
+}
+
+fn bytes_out(bytes: &[u8], ctx: Dispatch) -> Result<Value, Throw> {
+    let out = crate::array::array_new_prim("[B", bytes.len() as i32)?;
+    for (i, b) in bytes.iter().enumerate() {
+        crate::array::array_store(&out, i as i32, Value::Int(*b as i8 as i32), ctx)?;
+    }
+    Ok(Value::Ref(Some(out)))
+}
+
+fn bytes_in(r: &JRef, who: &str) -> Result<Vec<u8>, Throw> {
+    let len = crate::array::array_length(r)?;
+    let mut bytes = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        match crate::array::array_load(r, i)? {
+            Value::Int(v) => bytes.push(v as u8),
+            _ => return Err(internal_error(&format!("j2r internal: {who} byte array"))),
+        }
+    }
+    Ok(bytes)
+}
+
+fn n_string_get_bytes_named(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "String.getBytes");
+    let name = arg(args, "String.getBytes");
+    let cs = resolve_charset(name, "String.getBytes")?;
+    let bytes = encode_cs(&object::string_value(r), cs);
+    bytes_out(&bytes, ctx)
+}
+
+fn n_string_get_bytes_default(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "String.getBytes");
+    // The platform default charset is UTF-8 (the JVM's file.encoding on
+    // every platform j2r targets; Temurin 21 on Linux pins it too).
+    let bytes = encode_cs(&object::string_value(r), BytesCs::Utf8);
+    bytes_out(&bytes, ctx)
+}
+
+fn n_string_init_bytes_named(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "String.<init>");
+    let buf = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => {
+            return Err(internal_error(
+                "String.<init>([B,String) needs a byte array",
+            ))
+        }
+    };
+    let name = args
+        .get(1)
+        .ok_or_else(|| internal_error("j2r internal: String.<init> missing charset name"))?;
+    let cs = resolve_charset(name, "String.<init>")?;
+    let bytes = bytes_in(&buf, "String.<init>")?;
+    let text = decode_cs(&bytes, cs);
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Arc::new(text)));
+    Ok(Value::Void)
+}
+
+fn n_string_init_bytes_named_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "String.<init>");
+    let buf = match args.first() {
+        Some(Value::Ref(Some(a))) => *a,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => {
+            return Err(internal_error(
+                "String.<init>([BII,String) needs a byte array",
+            ))
+        }
+    };
+    let (off, len) = match (args.get(1), args.get(2)) {
+        (Some(Value::Int(o)), Some(Value::Int(l))) => (*o, *l),
+        _ => {
+            return Err(internal_error(
+                "j2r internal: String.<init>([BII,String) args",
+            ))
+        }
+    };
+    let total = crate::array::array_length(&buf)?;
+    if off < 0 || len < 0 || off > total || len > total - off {
+        return Err(throw_new(
+            "java/lang/StringIndexOutOfBoundsException",
+            Some(&format!(
+                "Range [{off}, {off} + {len}) out of bounds for length {total}"
+            )),
+        ));
+    }
+    let name = args
+        .get(3)
+        .ok_or_else(|| internal_error("j2r internal: String.<init> missing charset name"))?;
+    let cs = resolve_charset(name, "String.<init>")?;
+    let mut bytes = Vec::with_capacity(len as usize);
+    for i in off..off + len {
+        match crate::array::array_load(&buf, i)? {
+            Value::Int(v) => bytes.push(v as u8),
+            _ => {
+                return Err(internal_error(
+                    "j2r internal: String.<init> byte array element",
+                ))
+            }
+        }
+    }
+    let text = decode_cs(&bytes, cs);
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Str(Arc::new(text)));
     Ok(Value::Void)
 }
 
@@ -2072,6 +2371,17 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ),
     // java/lang/Object
     ("java/lang/Object", "<init>", "()V", n_object_init),
+    // Object.clone (corpus wave 2, JZlib): the JVM default — a fresh
+    // object of the same runtime class with shallow-copied field slots;
+    // no constructor runs. CloneNotSupportedException must have been
+    // declared by the caller (javac's Cloneable contract); the runtime
+    // does not re-check it (the JDK checks at compile time).
+    (
+        "java/lang/Object",
+        "clone",
+        "()Ljava/lang/Object;",
+        n_object_clone,
+    ),
     ("java/lang/Object", "wait", "()V", n_object_wait),
     ("java/lang/Object", "wait", "(J)V", n_object_wait),
     ("java/lang/Object", "wait", "(JI)V", n_object_wait),
@@ -2089,6 +2399,49 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "toString",
         "()Ljava/lang/String;",
         n_object_to_string,
+    ),
+    // java/lang/Enum (corpus wave 2, JZlib WrapperType): javac compiles
+    // every `enum` to `extends java/lang/Enum` with super(name, ordinal)
+    // <init> calls. Slots: 0 = name (Str), 1 = ordinal (Int). equals is
+    // final identity in the JDK; compareTo is the ordinal compare; valueOf
+    // is reflection machinery that does NOT exist here — a loud marker
+    // (validation fact only), mirroring the serialization marker rule.
+    (
+        "java/lang/Enum",
+        "<init>",
+        "(Ljava/lang/String;I)V",
+        n_enum_init,
+    ),
+    (
+        "java/lang/Enum",
+        "name",
+        "()Ljava/lang/String;",
+        n_enum_name,
+    ),
+    ("java/lang/Enum", "ordinal", "()I", n_enum_ordinal),
+    (
+        "java/lang/Enum",
+        "toString",
+        "()Ljava/lang/String;",
+        n_enum_to_string,
+    ),
+    (
+        "java/lang/Enum",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        n_enum_equals,
+    ),
+    (
+        "java/lang/Enum",
+        "compareTo",
+        "(Ljava/lang/Enum;)I",
+        n_enum_compare_to,
+    ),
+    (
+        "java/lang/Enum",
+        "valueOf",
+        "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;",
+        n_enum_value_of_marker,
     ),
     // java/lang/System
     ("java/lang/System", "exit", "(I)V", n_system_exit),
@@ -2170,6 +2523,33 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "valueOf",
         "(J)Ljava/lang/String;",
         n_string_value_of_j,
+    ),
+    // Byte-side String natives (JZlib corpus wave 2): named-charset and
+    // default-charset encode/decode with the probe-pinned JDK contracts
+    // (see the implementation comment above).
+    (
+        "java/lang/String",
+        "getBytes",
+        "(Ljava/lang/String;)[B",
+        n_string_get_bytes_named,
+    ),
+    (
+        "java/lang/String",
+        "getBytes",
+        "()[B",
+        n_string_get_bytes_default,
+    ),
+    (
+        "java/lang/String",
+        "<init>",
+        "([BLjava/lang/String;)V",
+        n_string_init_bytes_named,
+    ),
+    (
+        "java/lang/String",
+        "<init>",
+        "([BIILjava/lang/String;)V",
+        n_string_init_bytes_named_range,
     ),
     (
         "java/lang/String",
@@ -2711,6 +3091,176 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ),
     ("java/io/StringWriter", "close", "()V", io::n_sw_close),
     ("java/io/StringWriter", "flush", "()V", io::n_sw_flush),
+    // ------------------------------------------------ byte streams (JZlib)
+    // Corpus wave 2: the Filter*/base stream surface JZlib's stream
+    // classes extend (see io.rs "byte streams" section). The Filter* rows
+    // delegate through the JDK field; the base rows carry the JDK default
+    // behaviors and loud markers for the abstract writes.
+    (
+        "java/io/FilterOutputStream",
+        "<init>",
+        "(Ljava/io/OutputStream;)V",
+        io::n_fos_init,
+    ),
+    (
+        "java/io/FilterOutputStream",
+        "write",
+        "(I)V",
+        io::n_fos_write_int,
+    ),
+    (
+        "java/io/FilterOutputStream",
+        "write",
+        "([B)V",
+        io::n_fos_write_bulk,
+    ),
+    (
+        "java/io/FilterOutputStream",
+        "write",
+        "([BII)V",
+        io::n_fos_write_range,
+    ),
+    (
+        "java/io/FilterOutputStream",
+        "flush",
+        "()V",
+        io::n_fos_flush,
+    ),
+    (
+        "java/io/FilterOutputStream",
+        "close",
+        "()V",
+        io::n_fos_close,
+    ),
+    // ByteArrayOutputStream (corpus wave 2, JZlib Inflate): JDK field
+    // model in slots (buf byte[] ref, count Int); behavior in io.rs with
+    // the JDK growth and bounds contracts.
+    (
+        "java/io/ByteArrayOutputStream",
+        "<init>",
+        "()V",
+        io::n_baos_init,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "<init>",
+        "(I)V",
+        io::n_baos_init_size,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "write",
+        "(I)V",
+        io::n_baos_write_int,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "write",
+        "([B)V",
+        io::n_baos_write_bulk,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "write",
+        "([BII)V",
+        io::n_baos_write_range,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "size",
+        "()I",
+        io::n_baos_size,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "reset",
+        "()V",
+        io::n_baos_reset,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "toByteArray",
+        "()[B",
+        io::n_baos_to_byte_array,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "toString",
+        "()Ljava/lang/String;",
+        io::n_baos_to_string,
+    ),
+    (
+        "java/io/ByteArrayOutputStream",
+        "writeTo",
+        "(Ljava/io/OutputStream;)V",
+        io::n_baos_write_to,
+    ),
+    ("java/io/OutputStream", "write", "(I)V", io::n_os_write_int),
+    (
+        "java/io/OutputStream",
+        "write",
+        "([B)V",
+        io::n_os_write_bulk,
+    ),
+    (
+        "java/io/OutputStream",
+        "write",
+        "([BII)V",
+        io::n_os_write_range,
+    ),
+    ("java/io/OutputStream", "flush", "()V", io::n_os_flush),
+    ("java/io/OutputStream", "close", "()V", io::n_os_close),
+    (
+        "java/io/FilterInputStream",
+        "<init>",
+        "(Ljava/io/InputStream;)V",
+        io::n_fis_init,
+    ),
+    ("java/io/FilterInputStream", "read", "()I", io::n_fis_read),
+    (
+        "java/io/FilterInputStream",
+        "read",
+        "([B)I",
+        io::n_fis_read_bulk,
+    ),
+    (
+        "java/io/FilterInputStream",
+        "read",
+        "([BII)I",
+        io::n_fis_read_range,
+    ),
+    ("java/io/FilterInputStream", "skip", "(J)J", io::n_fis_skip),
+    (
+        "java/io/FilterInputStream",
+        "available",
+        "()I",
+        io::n_fis_available,
+    ),
+    ("java/io/FilterInputStream", "close", "()V", io::n_fis_close),
+    ("java/io/InputStream", "read", "()I", io::n_is_read),
+    ("java/io/InputStream", "read", "([B)I", io::n_is_read_bulk),
+    (
+        "java/io/InputStream",
+        "read",
+        "([BII)I",
+        io::n_is_read_range,
+    ),
+    ("java/io/InputStream", "skip", "(J)J", io::n_is_skip),
+    (
+        "java/io/InputStream",
+        "available",
+        "()I",
+        io::n_is_available,
+    ),
+    ("java/io/InputStream", "close", "()V", io::n_is_close),
+    ("java/io/InputStream", "mark", "(I)V", io::n_is_mark),
+    ("java/io/InputStream", "reset", "()V", io::n_is_reset),
+    (
+        "java/io/InputStream",
+        "markSupported",
+        "()Z",
+        io::n_is_mark_supported,
+    ),
     (
         "java/io/Writer",
         "write",

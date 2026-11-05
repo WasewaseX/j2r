@@ -61,6 +61,27 @@ fn bounds_ok(len: i32, idx: i32) -> Result<(), Throw> {
     Ok(())
 }
 
+/// Shallow copy of any array — the JVM's array `clone()` (corpus wave 2,
+/// JZlib: javac's enum `values()` compiles to `$VALUES.clone()`). Same
+/// descriptor, same length, element-wise copy through load/store; for
+/// reference arrays the ELEMENT REFERENCES are copied (identity is kept),
+/// exactly like the JVM.
+pub fn array_shallow_copy(src: &JRef, ctx: Dispatch) -> Result<JRef, Throw> {
+    let (len, cls) = check_array(src)?;
+    let out = if let Some(stripped) = cls.strip_prefix("[L").and_then(|s| s.strip_suffix(';')) {
+        array_new_ref(stripped, len)?
+    } else if cls.starts_with("[[") {
+        array_new_ref(&cls[1..], len)?
+    } else {
+        array_new_prim(&cls, len)?
+    };
+    for i in 0..len {
+        let v = array_load(src, i)?;
+        array_store(&out, i, v, ctx)?;
+    }
+    Ok(out)
+}
+
 /// `newarray` (primitive arrays). `desc` is one of the `[*` constants above.
 pub fn array_new_prim(desc: &str, len: i32) -> Result<JRef, Throw> {
     if len < 0 {

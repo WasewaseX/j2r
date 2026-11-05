@@ -351,8 +351,31 @@ local full-gate sweep at the same tree).**
 - [ ] **F3 java.io behavior natives** — StringWriter/StringReader
       behavior parity follows F2 by design.
 - [ ] **F4, F5** — open corpus gaps, loud (docs/CORPUS_WAVE.md).
-- [ ] **Corpus entry 2** — next real-world library/program; each corpus
-      wave must add differential evidence, not micro-probes.
+- [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
+      (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
+      implementation; vendored under corpus/jzlib/ + assembly script
+      (scripts/build_corpus_jzlib.sh) + driver (public ZStream API
+      levels 0-9 sampled, Z_FINISH/Z_NO_FLUSH round-trips, Adler32/CRC32
+      checksums) — **output-identical vs Temurin 21.0.13 on all three
+      channels** (locally; pinned permanently in corpus_suite.rs next to
+      entry 1). The wave's real cost: the byte-stream JDK surface a real
+      library drags in — Filter{In,Out}putStream hierarchy with named
+      protected fields (new builtin-field resolution in codegen),
+      ByteArrayOutputStream (JDK field model + growth contract),
+      java/lang/Enum (javac's hand-rolled WrapperType; valueOf loud
+      marker, R2 scope), array clone() on all array types (validate +
+      dispatch), Object.clone default, verifier nested-primitive-array
+      lattice ([[I elements are int[] values — aaload yields the
+      receiver's shape, anewarray "[I" maps through the operand),
+      String byte/charset natives (probe-pinned UTF-8/Latin-1/ASCII with
+      JDK-exact error contracts), CloneNotSupportedException + InternalError
+      hierarchy entries. Full catalog with the registered gaps:
+      docs/CORPUS_WAVE.md §Wave 2. Local gates at this tree: 95/95
+      differential (353s), cfg_equiv 95/95 sharded (48+47), corpus 2/2
+      (31s), runtime 148 / codegen 81 green, fmt/clippy clean,
+      gate-11 fixtures=95 tests=292 in sync. Note: the generated crate
+      needs RUST_MIN_STACK=32MiB (rustc SIGSEGV otherwise — recorded in
+      the runner and the wave doc).
 - [ ] **R2 metadata generator (post-M4 scope)** — reflection metadata
       retention so runtime string lookups resolve (closed-world design
       in docs/STRATEGIC_GAPS.md).

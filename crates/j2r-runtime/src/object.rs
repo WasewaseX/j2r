@@ -46,6 +46,18 @@ pub fn new_builtin(class: &str) -> Result<JRef, Throw> {
     }
 }
 
+/// The JVM `Object.clone` default (corpus wave 2, JZlib: Deflate.clone /
+/// GZIPHeader.clone call `super.clone()`): a fresh object of the SAME
+/// runtime class with a shallow copy of the field slots. No constructor
+/// runs; reference slots copy the REFERENCE; the identity differs.
+/// Array receivers never reach here — array `clone()` is handled by
+/// `array::array_shallow_copy` in the dispatch path.
+pub fn object_shallow_clone(src: &JRef) -> Result<JRef, Throw> {
+    let cls = crate::heap::with_obj(*src, |o| o.jclass.clone());
+    let slots = crate::heap::with_obj(*src, |o| o.slots.clone());
+    Ok(alloc(JObj { jclass: cls, slots }))
+}
+
 /// Reads a field slot (panics on out-of-range: a codegen bug, never a Java
 /// program error).
 pub fn obj_get(r: &JRef, idx: usize) -> Value {

@@ -320,6 +320,9 @@ fn builtin_is_instantiable(class: &str) -> bool {
             // j2r-runtime/src/thread.rs (runnable/name/daemon/started/tid);
             // the layout pass skips builtins.
             | "java/lang/Thread"
+            // Corpus wave 2 (JZlib): ByteArrayOutputStream — JDK field model
+            // in slots (buf byte[] ref, count Int), behavior in io.rs.
+            | "java/io/ByteArrayOutputStream"
     ) {
         return true;
     }
@@ -944,6 +947,22 @@ fn resolve_call(prog: &Program, start: &str, name: &str, desc: &str) -> Result<C
 /// even when the method is declared in an interface the class implements
 /// (caught by the JarSuper differential fixture, M3 Wave 1).
 fn validate_virtual(prog: &Program, declared: &str, name: &str, desc: &str) -> Result<()> {
+    // Array receivers (corpus wave 2, JZlib `$values()`): every array type
+    // is a subtype of Object with a public `clone()` (JVMS 2.15) plus the
+    // Object methods — javac emits ordinary invokevirtual sites against the
+    // array class.
+    if declared.starts_with('[') {
+        const ARRAY_OK: &[(&str, &str)] = &[
+            ("clone", "()Ljava/lang/Object;"),
+            ("getClass", "()Ljava/lang/Class;"),
+            ("hashCode", "()I"),
+            ("equals", "(Ljava/lang/Object;)Z"),
+            ("toString", "()Ljava/lang/String;"),
+        ];
+        if ARRAY_OK.iter().any(|(n, d)| *n == name && *d == desc) {
+            return Ok(());
+        }
+    }
     let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut builtin_frontier: Vec<String> = Vec::new();
@@ -1033,6 +1052,80 @@ fn resolve_field<'a>(
     })
 }
 
+/// Resolves an INSTANCE field access to its absolute object-slot index,
+/// walking user classes and then builtin ancestors. The builtin case
+/// (corpus wave 2, JZlib): user stream subclasses touch the protected
+/// `FilterOutputStream.out` / `FilterInputStream.in` fields by name —
+/// `builtin_field_slot` names them, and the absolute slot is the owner's
+/// inherited base (its parent chain's total, exactly how the layout pass
+/// computes `base_slots`) plus the field's own index.
+pub fn resolve_field_slot(
+    prog: &Program,
+    start: &str,
+    field: &str,
+    want_static: bool,
+) -> Result<usize> {
+    let mut cur = start.to_string();
+    for _ in 0..64 {
+        if prog.is_user(&cur) {
+            let c = prog.class(&cur).unwrap();
+            if let Some(f) = c.fields.iter().find(|f| f.name == field) {
+                if f.is_static != want_static {
+                    return Err(CodegenError::Semantic {
+                        class: start.to_string(),
+                        message: format!(
+                            "field {field} of {cur} is {} but accessed as {}",
+                            if f.is_static { "static" } else { "instance" },
+                            if want_static { "static" } else { "instance" }
+                        ),
+                    });
+                }
+                return Ok(if want_static {
+                    f.static_slot.expect("static slot assigned") as usize
+                } else {
+                    f.instance_slot.expect("instance slot assigned")
+                });
+            }
+            match &c.super_name {
+                Some(s) => cur = s.clone(),
+                None => break,
+            }
+        } else {
+            if !want_static {
+                if let Some(own) = builtin::builtin_field_slot(&cur, field) {
+                    let base = match builtin::builtin_parent_of(&cur) {
+                        Some(p) => builtin::builtin_total_slots(p).ok_or_else(|| {
+                            CodegenError::Semantic {
+                                class: start.to_string(),
+                                message: format!("unknown builtin ancestor {p} of {cur}"),
+                            }
+                        })?,
+                        None => 0,
+                    };
+                    return Ok(base + own);
+                }
+            }
+            break;
+        }
+    }
+    Err(CodegenError::Semantic {
+        class: start.to_string(),
+        message: format!(
+            "cannot resolve {} field {field} starting at {start} (unsupported JDK fields must be modelled as natives)",
+            if want_static { "static" } else { "instance" }
+        ),
+    })
+}
+
+pub fn resolve_field_slot_pub(
+    prog: &Program,
+    start: &str,
+    field: &str,
+    want_static: bool,
+) -> Result<usize> {
+    resolve_field_slot(prog, start, field, want_static)
+}
+
 /// Validates every instruction of every method of `c` against `prog`.
 fn validate_class(prog: &Program, c: &ClassPlan) -> Result<()> {
     for m in &c.methods {
@@ -1090,10 +1183,10 @@ fn validate_instr(
             resolve_field(prog, class, field, true).map(|_| ())
         }
         ir::Instr::GetField { class, field, .. } => {
-            resolve_field(prog, class, field, false).map(|_| ())
+            resolve_field_slot(prog, class, field, false).map(|_| ())
         }
         ir::Instr::PutField { class, field, .. } => {
-            resolve_field(prog, class, field, false).map(|_| ())
+            resolve_field_slot(prog, class, field, false).map(|_| ())
         }
         ir::Instr::InvokeStatic { class, name, desc } => {
             resolve_call(prog, class, name, desc).map(|_| ())

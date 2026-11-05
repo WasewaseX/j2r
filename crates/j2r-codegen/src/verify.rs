@@ -226,13 +226,26 @@ fn td_vty(t: &TypeDesc) -> VTy {
 }
 
 /// Element kind of an array descriptor (`[I` → IntGroup, `[J` → Long,
-/// `[[I` / `[L...;` → Ref: the elements are themselves references).
+/// `[[I` → the elements are `int[]` values (RefPrimArray(IntGroup)),
+/// `[L...;` → Ref: the elements are object references).
 fn array_elem_kind(desc: &str) -> ElemKind {
-    match desc.strip_prefix('[').and_then(|s| s.chars().next()) {
+    let rest = match desc.strip_prefix('[') {
+        Some(r) => r,
+        None => return ElemKind::Ref,
+    };
+    match rest.chars().next() {
         Some('J') => ElemKind::Long,
         Some('F') => ElemKind::Float,
         Some('D') => ElemKind::Double,
         Some('Z') | Some('B') | Some('C') | Some('S') | Some('I') => ElemKind::IntGroup,
+        // One nested level: the element itself is a primitive array.
+        Some('[') => match rest[1..].chars().next() {
+            Some('J') => ElemKind::RefPrimArrayLong,
+            Some('F') => ElemKind::RefPrimArrayFloat,
+            Some('D') => ElemKind::RefPrimArrayDouble,
+            Some('Z') | Some('B') | Some('C') | Some('S') | Some('I') => ElemKind::RefPrimArrayInt,
+            _ => ElemKind::Ref,
+        },
         _ => ElemKind::Ref,
     }
 }
@@ -256,6 +269,10 @@ fn elem_vty(k: ElemKind) -> VTy {
         ElemKind::Float => VTy::Float,
         ElemKind::Double => VTy::Double,
         ElemKind::Ref => VTy::Ref,
+        ElemKind::RefPrimArrayInt => VTy::Array(ElemKind::IntGroup),
+        ElemKind::RefPrimArrayLong => VTy::Array(ElemKind::Long),
+        ElemKind::RefPrimArrayFloat => VTy::Array(ElemKind::Float),
+        ElemKind::RefPrimArrayDouble => VTy::Array(ElemKind::Double),
     }
 }
 
@@ -495,7 +512,11 @@ impl<'a> Sim<'a> {
     fn pop_array(&mut self, k: ElemKind) -> std::result::Result<(), VerifyError> {
         let v = self.pop()?;
         match v {
-            VTy::Array(j) if j != k => Err(self.e(format!(
+            // A primitive load/store demands its exact element kind (a long
+            // load off an int[] is malformed). A reference load (aaload) is
+            // fine on ANY ref-element array — including nested primitive
+            // arrays (`[[I` elements are `int[]` references).
+            VTy::Array(j) if j != k && !matches!(k, ElemKind::Ref) => Err(self.e(format!(
                 "array element kind mismatch: operation expects {k:?}, array is {j:?}"
             ))),
             VTy::Ref | VTy::Null | VTy::Top | VTy::Array(_) => Ok(()),
@@ -762,9 +783,31 @@ impl<'a> Sim<'a> {
                 }
             }
             ALoad(k) => {
+                let k = *k;
                 self.pop_exact(VTy::Int)?;
-                self.pop_array(*k)?;
-                self.push(elem_vty(*k))?;
+                let v = self.pop()?;
+                match &v {
+                    VTy::Array(j) => {
+                        // A primitive opcode demands its exact kind (a long
+                        // load off an int[] is malformed). `aaload` takes
+                        // the RECEIVER's static element shape when the
+                        // array is typed — `[[I` yields `[I`, exactly like
+                        // the JVM verifier (corpus wave 2, JZlib
+                        // InfBlocks.proc feeding InfCodes.init's `[I`).
+                        if !matches!(k, ElemKind::Ref) && *j != k {
+                            return Err(self.e(format!(
+                                "array element kind mismatch: operation expects {k:?}, array is {j:?}"
+                            )));
+                        }
+                        self.push(elem_vty(*j))?;
+                    }
+                    VTy::Ref | VTy::Null | VTy::Top => self.push(elem_vty(k))?,
+                    other => {
+                        return Err(self.e(format!(
+                            "expected an array reference on the stack, found {other:?}"
+                        )))
+                    }
+                }
             }
             AStore(k) => {
                 self.pop_exact(elem_vty(*k))?;
@@ -1017,9 +1060,19 @@ impl<'a> Sim<'a> {
                 // loaded from a long[] stays category-2-correct
                 self.push(VTy::Array(prim_elem_kind(*p)))?;
             }
-            ANewArray { .. } => {
+            ANewArray { elem } => {
                 self.pop_exact(VTy::Int)?;
-                self.push(VTy::Array(ElemKind::Ref))?;
+                // The operand is the ELEMENT class, which may itself be an
+                // array type: javac emits `anewarray "[I"` for
+                // `new int[n][]`, producing a `[[I` whose aaload yields
+                // `[I` — so the result's element kind follows the operand
+                // (`[<elem>` descriptor), not a generic Ref (corpus wave 2,
+                // JZlib InfBlocks).
+                if elem.starts_with('[') {
+                    self.push(VTy::Array(array_elem_kind(&format!("[{elem}"))))?;
+                } else {
+                    self.push(VTy::Array(ElemKind::Ref))?;
+                }
             }
             MultiNewArray { desc, dims } => {
                 if *dims == 0 {
@@ -1040,19 +1093,15 @@ impl<'a> Sim<'a> {
                     self.pop_exact(VTy::Int)?;
                 }
                 if *dims as usize == depth {
-                    // Fully allocated: the element kind is the descriptor's
-                    // component tag — a primitive keeps its precise kind;
-                    // `L`/`[` components (classes and sub-arrays) are refs.
-                    match &desc[1..2] {
-                        "J" => self.push(VTy::Array(ElemKind::Long))?,
-                        "F" => self.push(VTy::Array(ElemKind::Float))?,
-                        "D" => self.push(VTy::Array(ElemKind::Double))?,
-                        "I" | "Z" | "C" | "B" | "S" => self.push(VTy::Array(ElemKind::IntGroup))?,
-                        _ => self.push(VTy::Array(ElemKind::Ref))?,
-                    }
+                    // Fully allocated: the element kind comes from the
+                    // descriptor — a primitive keeps its precise kind, a
+                    // nested primitive array keeps its typed shape, class
+                    // and sub-array components are refs.
+                    self.push(VTy::Array(array_elem_kind(desc)))?;
                 } else {
-                    // Partially allocated: elements are null or sub-arrays.
-                    self.push(VTy::Array(ElemKind::Ref))?;
+                    // Partially allocated: elements are null or sub-arrays,
+                    // same element kind by the descriptor.
+                    self.push(VTy::Array(array_elem_kind(desc)))?;
                 }
             }
             AThrow => {
@@ -1070,13 +1119,7 @@ impl<'a> Sim<'a> {
                 // `(String[]) list.toArray()` shapes), and the refined
                 // value feeds array-shaped natives right after.
                 match class.strip_prefix('[') {
-                    Some("J") => self.push(VTy::Array(ElemKind::Long))?,
-                    Some("F") => self.push(VTy::Array(ElemKind::Float))?,
-                    Some("D") => self.push(VTy::Array(ElemKind::Double))?,
-                    Some("I" | "Z" | "C" | "B" | "S") => {
-                        self.push(VTy::Array(ElemKind::IntGroup))?
-                    }
-                    Some(_) => self.push(VTy::Array(ElemKind::Ref))?,
+                    Some(_) => self.push(VTy::Array(array_elem_kind(class)))?,
                     None => self.push(VTy::Ref)?,
                 }
             }
