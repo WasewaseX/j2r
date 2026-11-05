@@ -545,3 +545,109 @@ volatile flag; contender attempts the enter only after the holder
 provably owns it). Validated: free-mode differential vs Temurin 21.0.13
 AND coop seeds 0/1/7/11 — all ten thread fixtures green on every seed
 locally.
+
+### T17.1 — the TRUE root cause of the gate-9 CI-timing hangs (commit 640154a)
+
+The stress harness earned its keep one day after landing. Re-running the
+suspects at N=1 locally with the new instruments (J2R_STW_TRACE +
+per-thread `mon_ops` counters) caught the real shape of the
+"CI-timing protocol race": **a tight allocation-free loop can never reach
+an allocation-site collection point, so a concurrent stop-the-world
+collection waited for it forever.** The trace showed one thread with a
+frozen `mon_ops` counter while the collector sat in its quiescence loop —
+a `synchronized` spin simply has no allocating opcode to poll at. The
+gc-probe rounds' "MonitorContention/WaitNotify hang at N=1, clean at N=8"
+was this (at N=8 the loop's allocations still hit collection points often
+enough to break the wait), not a monitor lost-wakeup.
+
+Three halves, all fixed in 640154a:
+
+1. **Backedge polls (codegen)**: every backward branch (IfZero, IfICmp,
+   IfRefCmp, IfNull, IfNonNull, Goto, TableSwitch, LookupSwitch targeting
+   a lower pc) emits `if heap::gc_pending() { __frame.refresh(...);
+   heap::gc_point(); }` — one Acquire load in the common case, frame
+   refresh + park only while a collection is in flight. `heap::gc_pending()`
+   is the new public probe. This is the JVM safepoint-poll discipline.
+2. **clinit-gate waiters participate in STW**: a thread blocked on another
+   class's `<clinit>` (JLS 12.4.2 "initializing" wait) parked via
+   monitor_park_prep/wake_prep — under N=1 the clinit-runner itself
+   collects, and a CV-blocked waiter that looks RUNNING can never reach a
+   safepoint.
+3. **Every state flip notifies**: monitor_park_prep and join notify the
+   SCHED condvar in free mode too — the collector's quiescence loop sleeps
+   on that condvar and was missing parked-flips entirely (this half alone
+   still froze ~3/4 of debug runs after fix 2; found by the fix's own
+   validation, recorded honestly).
+
+Observability added: J2R_STW_TRACE (safepoint enter/exit, quiescence
+waits with the full per-record state+mon_ops dump, STATES_OWNER naming
+the clinit-gate holder). All debug instruments; one Acquire load when
+unset. gate-9's monitors bucket returned to the uniform J2R_GC_EVERY_N=1
+(the honest end state; the N=8 workaround retired with evidence).
+
+Local evidence at 640154a: fmt/clippy clean; runtime 148, codegen 81,
+jar 3, lambda_neg 2, soe 1 green; the full 94-fixture differential suite
+byte-identical vs Temurin 21.0.13 on all three channels (348s); the
+monitor bucket's 15 fixtures at N=1 green (55.7s); corpus runner green;
+cfg_equiv 94/94 via the new harness sharding (338s + 352s).
+
+## Completion package (T18) — M4 review submission
+
+**Claim**: all 18 tasks of docs/M4_PLAN.md §6 are implemented and
+CI-verified; the four waves landed in plan order; the register's
+evidence-before-check law held for every box. Owner review pending —
+the board keeps M4 open until the owner accepts this package.
+
+### Per-task evidence pointers
+
+| Task | Wave | Evidence (primary) |
+|---|---|---|
+| T01 | - | plan acceptance, rev 1 (docs/M4_PLAN.md §1) |
+| T02–T05 | 1 | 4ddfe1b; docs/M4_EVIDENCE.md §Wave 1 |
+| T06–T09 | 2 | runtime thread.rs + STW + coop; fixtures ThreadHello/ThreadSafepoint; docs/M4_EVIDENCE.md §Wave 2 |
+| T10–T12 | 3 | monitor.rs state machine + Mesa wait/notify + JDK timing; docs/M4_EVIDENCE.md §Wave 3 |
+| T13 | 3 | d302c2b + addendum e5b152c; JLS 12.4.2 clinit-race fix; WaitNotify/MonitorContention/WaitTimeout fixtures |
+| T14 | 4 | 3c08842 + fixtures 3f80b0e; Temurin probes pinned the contract first; InterruptSleep/Join/Wait |
+| T15 | 4 | e331475; registry daemon-flag fix found by DaemonExit (60s hang -> 2ms); await_non_daemons joins only STARTED threads |
+| T16 | 4 | ece590f; RUNTIME_SAFETY.md §6 JMM-lite (guaranteed vs NOT) |
+| T17 | 4 | 6b6b7e3; stress suites + gate-13 + two races; T17.1 root cause 640154a |
+| T18 | 4 | this package |
+
+### Gate inventory at package time (16 gates)
+
+1 fmt; 2 clippy; 3 jvm-differential (94 fixtures x 3 channels vs
+Temurin 21.0.13); 4 release build (-D warnings); 5 standalone offline
+(BigRpg, 302 lines, 8 classes); 6 doc-lint; 7 security-audit; 8
+all-gates aggregate; 9 gc-stress (six duration-balanced legs, uniform
+J2R_GC_EVERY_N=1, census-partition unit test); 10 no-unsafe (forbid +
+grep); 11 doc-counts (fixtures=94, machine-checked); 12 runtime-seams
+(thread_local census); **13 concurrency (coop differential x 4 seeds +
+chaos stress, per-seed loud timeout)**; 14 CodeQL (security-extended +
+quality + 2 invariant query packs); 15 OSSF Scorecard; 16 OSV Scanner.
+Gates 13–16 sit inside/outside the aggregate per their charters (13
+inside; 14–16 own workflows, SARIF to the Security tab).
+
+### Honest limitations register (what M4 does NOT claim)
+
+- **No volatile, no final-field freeze, no data-race freedom** — a racy
+  program may observe stale values (RUNTIME_SAFETY.md §6 is the normative
+  list). Programs compiled with the coop scheduler are deterministic BY
+  CONSTRUCTION; free-mode runs are real concurrent semantics and only
+  assert-safe programs get differential treatment there.
+- **ReflectGC at N=1 costs ~14 minutes on CI** (200k-node O(n^2) torture
+  design); it is the solo bucket, isolated by design.
+- **Benchmark policy**: observe-only (scripts/bench_suite.py,
+  docs/BENCHMARKS.md); startup-scale honest (java C1-only); NO
+  throughput/steady-state claims until the corpus expands.
+- **Threads are 1:1 real OS threads**; 10k-thread programs are out of
+  scope until an M5-scale need exists.
+- The JMM-lite statement carries a re-issue trigger: any future lock-free
+  fast path must re-issue §6 (currently the runtime is
+  coarser-lock-simpler-model by design).
+
+### Re-entry triggers (what reopens M4)
+
+- any gate-13 or gate-9 red leg (protocol races are the class to hunt);
+- a corpus program with racy concurrency (needs the §6 not-guarantees
+  restated against a real case);
+- any future native/runtime work that touches lock law L1–L7.

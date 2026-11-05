@@ -185,9 +185,11 @@ local full-gate sweep at the same tree).**
       byte-identical vs Temurin on all 3 channels; runtime 123 → 134
       green, workspace 277 — docs/M4_EVIDENCE.md §Wave 3 + addendum).
       **Wave 4 interrupt/daemon/JMM-lite/stress LANDED — COMPLETE
-      through T17** (T14 commit 3c08842 + fixtures 3f80b0e; T15
-      e331475; T16 ece590f; T17 6b6b7e3 — details in the Wave 4
-      section). Next: **T18** completion package + review submission.
+      through T18** (T14 commit 3c08842 + fixtures 3f80b0e; T15
+      e331475; T16 ece590f; T17 6b6b7e3 + root-cause T17.1 640154a;
+      T18 completion package — details in the Wave 4 section).
+      M4 status: all four waves implemented and CI-verified; owner
+      review pending (docs/M4_EVIDENCE.md §completion package).
 
 ### M4 Wave 2 — real threads (T06–T09) — LANDED, CI pending
 
@@ -305,7 +307,25 @@ local full-gate sweep at the same tree).**
       with the DaemonInterrupt spin pattern, validated free-mode AND
       coop seeds 0/1/7/11; full 94-fixture free-mode differential green
       locally (344s). Evidence: docs/M4_EVIDENCE.md §T17.
-- [ ] **T18** — M4 completion package + review submission.
+      **T17.1 (640154a) — the stress harness caught the TRUE root cause
+      of the gate-9 CI-timing hangs one day after landing**: a tight
+      allocation-free loop (synchronized spin) can never reach an
+      allocation-site collection point, so STW quiescence waited for it
+      forever — not a monitor lost-wakeup. Fixed on three halves:
+      backedge safepoint polls in codegen (if heap::gc_pending() {
+      refresh; gc_point(); } — JVM safepoint-poll discipline), clinit-gate
+      waiters now park (STW participation), every state flip notifies in
+      free mode (the collector slept through parks). gate-9 monitors
+      bucket back to uniform N=1 (N=8 workaround retired with evidence);
+      J2R_STW_TRACE + per-thread mon_ops observability. Local evidence:
+      94-fixture differential byte-identical (348s), monitors bucket 15
+      at N=1 green (55.7s), cfg_equiv 94/94 sharded, corpus green.
+- [x] **T18** — M4 completion package LANDED (docs/M4_EVIDENCE.md
+      §completion package): per-task evidence table T01–T18, gate
+      inventory 1–16, honest limitations register (no volatile/final
+      freeze, ReflectGC N=1 cost, bench policy, 1:1 threads), re-entry
+      triggers. Owner review pending — M4 stays open on the board until
+      the owner accepts the package.
 
 ### Corpus & quality (interleave when an M4 wave closes)
 
