@@ -22,12 +22,12 @@ name: CI
 #     98be983 (e5b152c, d302c2b, 50e0ed6) died at exactly 60m15s into
 #     gate-9. The J2R_DIFF_SHARD=i/N stride sharding harness (71483a0,
 #     built for exactly this) is now actually wired in: gate-9 runs as a
-#     4-way matrix under a 90-minute cap, each leg with structural
-#     headroom (stride shards skew: observed 1m42s / 27m / 60m+ at 3-way).
+#     sharded matrix under a 120-minute cap; 6-way since e9f81ac's 4-way
+#     legs blew the 90-minute cap (see the job comment for the math).
 #
 # Gate numbering: 1 fmt, 2 clippy, 3 jvm-differential, 4 build-release,
 # 5 standalone, 6 doc-lint, 7 security-audit, 8 aggregate, 9 gc-stress
-# (4-way sharded matrix, J2R_DIFF_SHARD, 90-min cap), 10 no-unsafe,
+# (6-way sharded matrix, J2R_DIFF_SHARD, 120-min cap), 10 no-unsafe,
 # 11 doc-counts, 12 runtime-seams. Gate 13 is reserved for
 # the M4 Wave-4 concurrency gate (docs/M4_PLAN.md §3 Wave 4); gate 14
 # = CodeQL security & quality (codeql.yml, own workflow + Security tab);
@@ -36,7 +36,8 @@ name: CI
 # workflow, Security tab). 15/16 added 2026-11-05 from the owner's
 # Security-settings review — first-party, zero-credential scanners that
 # publish SARIF alerts; like gate-14 they sit outside the gate-8
-# aggregate, and a red run is a stop-the-wave event.
+# aggregate, and a red run is a stop-the-wave event. Gate 9 shard
+# math: (6-way sharded matrix, J2R_DIFF_SHARD, 120-min cap).
 
 on:
   push:
@@ -172,22 +173,25 @@ jobs:
   gc-stress:
     name: gate-9-gc-stress-forced-collection
     runs-on: ubuntu-latest
-    # 90 > 4x the observed worst leg (60m15s at 3 shards): runtime under
-    # GC-every-allocation is dominated by the real-thread fixtures at the
-    # tail of the alphabetical suite, so stride shards skew hard (observed
-    # 1m42s / 27m / 60m+ for 3-way). 4-way stride + 90-minute cap gives
-    # every leg structural headroom; skew-aware duration balancing is
-    # future work if the census doubles again.
-    timeout-minutes: 90
+    # 120 > 2x the projected worst leg at 6-way. The 4-way bet (90-min cap
+    # as "structural headroom") FAILED on its own commit e9f81ac: observed
+    # legs 24m / >=90m CANCELLED / >=90m CANCELLED / 1m — the real-thread
+    # fixtures at the tail of the alphabetical suite land on exactly two
+    # stride legs and both blew the cap. 6-way spreads that same tail
+    # across three legs (projected worst ~= 2/3 of the 4-way worst, i.e.
+    # ~60m), and the cap doubles it. Stride skew is a property of the
+    # alphabetical fixture order; duration-aware balancing remains future
+    # work if the census doubles again.
+    timeout-minutes: 120
     strategy:
-      # A collection at every allocation over the full 88-fixture suite no
+      # A collection at every allocation over the full 89-fixture suite no
       # longer fits in one runner's 60-minute cap (see header). Stride
-      # shard the fixture list 4 ways; every shard still asserts the full
+      # shard the fixture list 6 ways; every shard still asserts the full
       # on-disk suite (diff_suite guard), so a shard can never silently
-      # skip work. All four legs must pass for the gate to be green.
+      # skip work. All six legs must pass for the gate to be green.
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5]
     env:
       # Forced-GC mode: a collection runs at EVERY collection point (before
       # every allocating opcode). The whole differential suite must produce
@@ -195,7 +199,7 @@ jobs:
       # gate 9). Only meaningful for the generated binaries; javac/java
       # ignore the variable.
       J2R_GC_EVERY_N: '1'
-      J2R_DIFF_SHARD: ${{ matrix.shard }}/4
+      J2R_DIFF_SHARD: ${{ matrix.shard }}/6
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
