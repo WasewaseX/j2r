@@ -761,7 +761,15 @@ fn decode_modified_utf8(bytes: &[u8]) -> Option<String> {
         };
         units.push(unit);
     }
-    String::from_utf16(&units).ok()
+    // Lossy, not `String::from_utf16` (which REJECTED the whole constant):
+    // modified UTF-8 legally encodes unpaired surrogates (JVMS 4.4.7 — a
+    // javac string literal like "\uD834" is a 3-byte CESU-8 sequence), and
+    // rejecting them failed the entire classfile load (found by
+    // corpus/Utf16Probe.java). The j2r string model is Rust String, which
+    // cannot hold a lone surrogate, so each unpaired surrogate normalizes
+    // to U+FFFD — the same substitution the JDK's encoders emit for one,
+    // so every observable path (getBytes/print) still matches Temurin.
+    Some(String::from_utf16_lossy(&units))
 }
 
 fn parse_fields(r: &mut Reader<'_>, cp: &ConstantPool) -> Result<Vec<FieldInfo>> {

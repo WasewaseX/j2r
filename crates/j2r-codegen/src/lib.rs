@@ -323,6 +323,11 @@ fn builtin_is_instantiable(class: &str) -> bool {
             // Corpus wave 2 (JZlib): ByteArrayOutputStream — JDK field model
             // in slots (buf byte[] ref, count Int), behavior in io.rs.
             | "java/io/ByteArrayOutputStream"
+            // Skip/charset wave: ByteArrayInputStream — slots
+            // (buf ref, pos, mark, count), behavior in io.rs; semantics
+            // pinned by corpus/SkipProbe.java (close() no-op, negative skip
+            // = 0, skip past EOF = actual count).
+            | "java/io/ByteArrayInputStream"
     ) {
         return true;
     }

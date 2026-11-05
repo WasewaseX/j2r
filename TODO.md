@@ -393,11 +393,38 @@ local full-gate sweep at the same tree).**
       reflection metadata: meta names the field, static_get reads the slot);
       reflect::canonical_name joined (unit-tested). EnumFixture differential
       fixture byte-identical vs Temurin; suite 97 → 98, tests 300 → 301.
-- [ ] **F6 residuals** — none registered; InputStream.skip(J) default,
-      UTF-16 charset family, `[[[<prim>` verifier depth,
-      PrintStream.printf/String.format (the Formatter engine: HALF_UP
-      decimal rounding, %s/%d/%.Nf/%n — its own wave) stay loud
-      (docs/CORPUS_WAVE.md §gaps).
+- [x] **Skip/charset wave — LANDED (2026-11-05)** — two loud JZlib-wave
+      gaps closed + one phase-2 candidate landed, all probe-first on
+      Temurin 21.0.13:
+      (1) InputStream.skip(J) DEFAULT (was a loud registered divergence):
+      the JDK loop-read through a 2048-byte skip buffer via read([BII)I ON
+      SELF; n<=0 returns 0; EOF-first read yields 0; partial drain yields
+      the actual count. Alongside a REAL fix: InputStream.read([BII)I's
+      JDK default was wrongly a loud "abstract" marker — it is CONCRETE in
+      the JDK and a read()-only subclass (corpus/SkipProbe.java Tiny)
+      inherits it; now the real bounds-checked loop.
+      (2) ByteArrayInputStream LANDED (the JZlib wave-2 phase-2 candidate):
+      slots (buf/pos/mark/count), read/read-range/skip/available/mark/
+      reset/markSupported, close() is a NO-OP (pinned — use after close
+      works), negative skip returns 0, skip past EOF returns the actual
+      count. Codegen instantiation allowlist joined.
+      (3) UTF-16 charset family (was UEE): UTF-16 (BOM+BE encode; decode
+      FE FF→BE / FF FE→LE, none→BE default), UTF-16BE/LE raw, canonical
+      names + JDK aliases, astral surrogate pairs, unpaired surrogate →
+      U+FFFD (bytes match Temurin), dangling trailing byte → U+FFFD, exact
+      UEE name for unknown charsets. AND a REAL loader bug found+fixed:
+      modified UTF-8 legally encodes unpaired surrogates (JVMS 4.4.7) and
+      j2r's Utf8 constant parser REJECTED the whole classfile — any javac
+      file with a "\uD834"-style literal failed to load; now lossy-
+      normalized to U+FFFD (the same substitution the JDK encoders emit,
+      so every observable path still matches Temurin).
+      Fixtures SkipDefault + Utf16 byte-identical vs Temurin; suite 98 →
+      100. Standard charsets beyond the family (UTF-32, KOI8_R — Temurin
+      SUCCEEDS silently) stay a registered loud gap.
+- [ ] **Wave residuals** — BufferedInputStream (buffering state + "Stream
+      closed"), PrintStream.printf/String.format (the Formatter engine:
+      HALF_UP decimal rounding — its own wave), `[[[<prim>` verifier depth
+      stay loud (docs/CORPUS_WAVE.md §gaps).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script

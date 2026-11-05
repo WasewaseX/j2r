@@ -143,6 +143,7 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         // buffer with JDK field layout — slot 0 = buf (byte[] ref), slot 1
         // = count (Int). Instantiable through the <init> natives.
         "java/io/ByteArrayOutputStream" => "java/io/OutputStream",
+        "java/io/ByteArrayInputStream" => "java/io/InputStream",
         // Real-world corpus wave 2 (JZlib): javac compiles every `enum`
         // to `extends java/lang/Enum` (WrapperType). Two own slots: name
         // (Str) then ordinal (Int) — see the Enum natives rows.
@@ -318,6 +319,9 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         "java/io/FilterOutputStream" | "java/io/FilterInputStream" => 1,
         // ByteArrayOutputStream: slot 0 = buf (byte[] ref), slot 1 = count.
         "java/io/ByteArrayOutputStream" => 2,
+        // ByteArrayInputStream: slot 0 = buf (byte[] ref), slot 1 = pos,
+        // slot 2 = mark, slot 3 = count (skip/charset wave).
+        "java/io/ByteArrayInputStream" => 4,
         // Enum: slot 0 = name (Str), slot 1 = ordinal (Int). The generated
         // subclass (javac's WrapperType) starts at base 2.
         "java/lang/Enum" => 2,

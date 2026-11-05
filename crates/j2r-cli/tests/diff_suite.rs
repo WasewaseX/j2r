@@ -78,10 +78,15 @@ fn differential_suite_matches_jvm() {
     // EnumFixture (enum classes end-to-end: $VALUES / values() clone
     // semantics, valueOf with the canonical-name miss message,
     // getDeclaringClass, compareTo/equals, the $SwitchMap synthetic, enum
-    // fields+ctors) — 98 on disk, guard one below that.
+    // fields+ctors) — 98 on disk. The skip/charset wave added SkipDefault
+    // (the InputStream.skip(J) DEFAULT loop-read on a read()-only stream,
+    // ByteArrayInputStream semantics incl. close-no-op and mark/reset,
+    // FilterInputStream delegation) and Utf16 (the UTF-16 charset family:
+    // BOM encode/decode, BE/LE, surrogate pairs, U+FFFD substitution,
+    // exact UEE names) — 100 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 97,
-        "differential suite shrank: {} fixtures (expected >= 97)",
+        fixtures.len() >= 99,
+        "differential suite shrank: {} fixtures (expected >= 99)",
         fixtures.len()
     );
 

@@ -706,24 +706,66 @@ pub fn n_is_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
     )
 }
 
-pub fn n_is_read_range(
-    _recv: Option<&JRef>,
-    _args: &[Value],
-    _ctx: Dispatch,
-) -> Result<Value, Throw> {
-    Err(internal_error(
-        "j2r: InputStream.read([BII) is abstract — a concrete subclass must override it",
-    ))
-}
-
-/// Registered divergence (loud, documented): the JDK's `skip(J)` default
-/// loop-reads through a skip buffer; nothing in the corpus drives the
-/// default path, so it is not modelled — calling it fails loud instead of
-/// silently mis-skipping. JZlib's InflaterInputStream overrides skip.
-pub fn n_is_skip(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
-    Err(internal_error(
-        "j2r: InputStream.skip(J) default is not modelled (registered divergence) — override it",
-    ))
+pub fn n_is_read_range(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    // JDK `InputStream.read([BII)I` default — CONCRETE in the JDK (the old
+    // loud marker was wrong: a read()-only subclass inherits it, and the
+    // skip default's loop-read depends on it). Bounds check, then the
+    // JDK loop: first read() EOF -> -1, else fill until len or EOF.
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("InputStream.read")),
+    };
+    let (b, off, len) = match (args.first(), args.get(1), args.get(2)) {
+        (Some(Value::Ref(Some(b))), Some(Value::Int(off)), Some(Value::Int(len))) => {
+            (*b, *off, *len)
+        }
+        (Some(Value::Ref(None)), ..)
+        | (_, Some(Value::Ref(None)), _)
+        | (_, _, Some(Value::Ref(None))) => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(missing("InputStream.read")),
+    };
+    let blen = crate::array::array_length(&b)?;
+    // JDK: Objects.checkFromIndexRange(off, len, b.length). The exact
+    // message is not pinned by the fixture (out of scope) — the throw is.
+    if off < 0 || len < 0 || off > blen - len {
+        return Err(throw_new("java/lang/IndexOutOfBoundsException", None));
+    }
+    if len == 0 {
+        return Ok(Value::Int(0));
+    }
+    let first = match crate::invoke_virtual(&r, "java/io/InputStream", "read", "()I", &[], ctx)? {
+        Value::Int(c) => c,
+        _ => return Err(missing("InputStream.read")),
+    };
+    if first == -1 {
+        return Ok(Value::Int(-1));
+    }
+    crate::array::array_store(
+        &b,
+        off,
+        Value::Int(first as i8 as i32),
+        crate::Dispatch::default(),
+    )?;
+    let mut i = 1;
+    while i < len {
+        let c = match crate::invoke_virtual(&r, "java/io/InputStream", "read", "()I", &[], ctx)? {
+            Value::Int(c) => c,
+            _ => return Err(missing("InputStream.read")),
+        };
+        if c == -1 {
+            break;
+        }
+        crate::array::array_store(
+            &b,
+            off + i,
+            Value::Int(c as i8 as i32),
+            crate::Dispatch::default(),
+        )?;
+        i += 1;
+    }
+    Ok(Value::Int(i))
 }
 
 pub fn n_is_available(
@@ -1010,4 +1052,267 @@ pub fn n_baos_write_to(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Re
         ctx,
     )?;
     Ok(Value::Void)
+}
+
+// ---------------------------------------------------------------------------
+// ByteArrayInputStream (skip/charset wave — the JZlib wave-2 phase-2
+// candidate). JDK fields: buf, pos, mark, count. Slots: 0 = buf (byte[]
+// ref), 1 = pos, 2 = mark, 3 = count. Semantics pinned by
+// corpus/SkipProbe.java on Temurin 21.0.13: close() is a NO-OP (use after
+// close works — no "Stream closed" state on this stream), negative skip
+// returns 0 without touching the stream, skip past EOF returns the actual
+// count, markSupported() is true.
+// ---------------------------------------------------------------------------
+
+fn bis_parts(r: &JRef, who: &str) -> Result<(JRef, i32, i32), Throw> {
+    let (buf, pos, count) = with_obj(*r, |o| {
+        (
+            match &o.slots[0] {
+                Value::Ref(Some(b)) => *b,
+                _ => panic!("j2r internal: {who} buf slot"),
+            },
+            match o.slots[1] {
+                Value::Int(v) => v,
+                _ => panic!("j2r internal: {who} pos slot"),
+            },
+            match o.slots[3] {
+                Value::Int(v) => v,
+                _ => panic!("j2r internal: {who} count slot"),
+            },
+        )
+    });
+    Ok((buf, pos, count))
+}
+
+pub fn n_bis_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayInputStream.<init>")),
+    };
+    let buf = match args.first() {
+        Some(Value::Ref(Some(b))) => *b,
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(missing("ByteArrayInputStream.<init>")),
+    };
+    let len = crate::array::array_length(&buf)?;
+    with_obj_mut(r, |o| {
+        o.slots[0] = Value::Ref(Some(buf));
+        o.slots[1] = Value::Int(0);
+        o.slots[2] = Value::Int(0);
+        o.slots[3] = Value::Int(len);
+    });
+    Ok(Value::Void)
+}
+
+pub fn n_bis_init_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayInputStream.<init>")),
+    };
+    let (buf, offset, length) = match (args.first(), args.get(1), args.get(2)) {
+        (Some(Value::Ref(Some(b))), Some(Value::Int(off)), Some(Value::Int(len))) => {
+            (*b, *off, *len)
+        }
+        (Some(Value::Ref(None)), ..)
+        | (_, Some(Value::Ref(None)), _)
+        | (_, _, Some(Value::Ref(None))) => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(missing("ByteArrayInputStream.<init>")),
+    };
+    let total = crate::array::array_length(&buf)?;
+    if offset < 0 || length < 0 || offset > total {
+        // JDK: Objects.checkFromIndexRange(offset, length, buf.length)
+        return Err(throw_new("java/lang/IndexOutOfBoundsException", None));
+    }
+    let count = std::cmp::min(offset + length, total);
+    with_obj_mut(r, |o| {
+        o.slots[0] = Value::Ref(Some(buf));
+        o.slots[1] = Value::Int(offset);
+        o.slots[2] = Value::Int(offset);
+        o.slots[3] = Value::Int(count);
+    });
+    Ok(Value::Void)
+}
+
+pub fn n_bis_read(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayInputStream.read")),
+    };
+    let (buf, pos, count) = bis_parts(&r, "ByteArrayInputStream.read")?;
+    if pos >= count {
+        return Ok(Value::Int(-1));
+    }
+    let v = match crate::array::array_load(&buf, pos)? {
+        Value::Int(v) => v,
+        _ => return Err(missing("ByteArrayInputStream.read buf element")),
+    };
+    with_obj_mut(r, |o| o.slots[1] = Value::Int(pos + 1));
+    Ok(Value::Int(v & 0xff))
+}
+
+pub fn n_bis_read_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayInputStream.read")),
+    };
+    let (b, off, len) = match (args.first(), args.get(1), args.get(2)) {
+        (Some(Value::Ref(Some(b))), Some(Value::Int(off)), Some(Value::Int(len))) => {
+            (*b, *off, *len)
+        }
+        (Some(Value::Ref(None)), ..)
+        | (_, Some(Value::Ref(None)), _)
+        | (_, _, Some(Value::Ref(None))) => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(missing("ByteArrayInputStream.read")),
+    };
+    let blen = crate::array::array_length(&b)?;
+    // JDK: Objects.checkFromIndexRange(off, len, b.length) — the generic
+    // message is not pinned by the fixture (out of scope), the throw is.
+    if off < 0 || len < 0 || off > blen - len {
+        return Err(throw_new("java/lang/IndexOutOfBoundsException", None));
+    }
+    let (buf, pos, count) = bis_parts(&r, "ByteArrayInputStream.read")?;
+    if pos >= count {
+        return Ok(Value::Int(-1));
+    }
+    let avail = count - pos;
+    let take = std::cmp::min(len, avail);
+    if take <= 0 {
+        return Ok(Value::Int(0));
+    }
+    for i in 0..take {
+        let v = match crate::array::array_load(&buf, pos + i)? {
+            Value::Int(v) => v,
+            _ => return Err(missing("ByteArrayInputStream.read buf element")),
+        };
+        crate::array::array_store(
+            &b,
+            off + i,
+            Value::Int(v as i8 as i32),
+            crate::Dispatch::default(),
+        )?;
+    }
+    with_obj_mut(r, |o| o.slots[1] = Value::Int(pos + take));
+    Ok(Value::Int(take))
+}
+
+pub fn n_bis_skip(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayInputStream.skip")),
+    };
+    let n = match args.first() {
+        Some(Value::Long(v)) => *v,
+        _ => return Err(missing("ByteArrayInputStream.skip")),
+    };
+    let (_, pos, count) = bis_parts(&r, "ByteArrayInputStream.skip")?;
+    // JDK: long k = count - pos; if (n < k) k = (n < 0 ? 0 : n); pos += k.
+    let mut k = (count - pos) as i64;
+    if n < k {
+        k = if n < 0 { 0 } else { n };
+    }
+    let new_pos = pos + k as i32;
+    with_obj_mut(r, |o| o.slots[1] = Value::Int(new_pos));
+    Ok(Value::Long(k))
+}
+
+pub fn n_bis_available(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayInputStream.available")),
+    };
+    let (_, pos, count) = bis_parts(&r, "ByteArrayInputStream.available")?;
+    Ok(Value::Int(count - pos))
+}
+
+pub fn n_bis_mark(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayInputStream.mark")),
+    };
+    let pos = with_obj(r, |o| match o.slots[1] {
+        Value::Int(v) => v,
+        _ => panic!("j2r internal: ByteArrayInputStream.mark pos slot"),
+    });
+    with_obj_mut(r, |o| o.slots[2] = Value::Int(pos));
+    Ok(Value::Void)
+}
+
+pub fn n_bis_reset(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("ByteArrayInputStream.reset")),
+    };
+    let mark = with_obj(r, |o| match o.slots[2] {
+        Value::Int(v) => v,
+        _ => panic!("j2r internal: ByteArrayInputStream.reset mark slot"),
+    });
+    with_obj_mut(r, |o| o.slots[1] = Value::Int(mark));
+    Ok(Value::Void)
+}
+
+pub fn n_bis_mark_supported(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Ok(Value::Int(1)) // JDK ByteArrayInputStream: true
+}
+
+/// JDK `InputStream.skip(J)` default (was a loud registered divergence): the
+/// JDK loop-reads through a skip buffer via `read([BII)I` ON SELF, so a
+/// subclass's bulk read drives it; EOF on the first read yields 0, a
+/// partial drain yields the actual count (Temurin-pinned by
+/// corpus/SkipProbe.java with a read()-only stream). MAX_SKIP_BUFFER_SIZE is
+/// 2048 in the JDK. `n <= 0` returns 0 without touching the stream.
+pub fn n_is_skip_default(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("InputStream.skip")),
+    };
+    let n = match args.first() {
+        Some(Value::Long(v)) => *v,
+        _ => return Err(missing("InputStream.skip")),
+    };
+    if n <= 0 {
+        return Ok(Value::Long(0));
+    }
+    let buf = crate::array::array_new_prim("[B", 2048)?;
+    let mut remaining = n;
+    while remaining > 0 {
+        let want = std::cmp::min(2048i64, remaining) as i32;
+        let nr = crate::invoke_virtual(
+            &r,
+            "java/io/InputStream",
+            "read",
+            "([BII)I",
+            &[Value::Ref(Some(buf)), Value::Int(0), Value::Int(want)],
+            ctx,
+        )?;
+        match nr {
+            Value::Int(v) if v < 0 => break,
+            Value::Int(v) => remaining -= v as i64,
+            _ => return Err(missing("InputStream.skip read result")),
+        }
+    }
+    Ok(Value::Long(n - remaining))
 }

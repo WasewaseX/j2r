@@ -230,16 +230,31 @@ because it is part of the reproduction command.
 
 ### Registered gaps from wave 2 (loud, not silent)
 
-- `InputStream.skip(J)` default — the JDK loop-read skip buffer is not
-  modelled; calling it fails loud (JZlib overrides skip).
+- `InputStream.skip(J)` default — LANDED (skip/charset wave): the JDK
+  loop-read through a 2048-byte skip buffer via `read([BII)I` on SELF;
+  corpus/SkipProbe.java pins a read()-only subclass draining to EOF. The
+  JDK `read([BII)I` default was ALSO wrongly a loud "abstract" marker —
+  it is concrete and inherited by read()-only subclasses; both are real
+  now. ByteArrayInputStream landed with it (the wave-2 phase-2
+  candidate; close() is a no-op, negative skip = 0).
 - `PrintStream.printf` / `String.format` — the Formatter engine (HALF_UP
   decimal rounding, %s/%d/%.Nf/%n) is unmodelled; calling it fails loud
   (F6 wave registered it when corpus/EnumProbe.java pinned enum surface
   — the probe pins doubles via println instead). Its own wave, probe
   first.
-- UTF-16 charset family — UnsupportedEncodingException until needed.
+- UTF-16 charset family — LANDED (skip/charset wave,
+  corpus/Utf16Probe.java): UTF-16/BE/LE encode+decode with the exact BOM
+  rules (FE FF→BE, FF FE→LE, none→BE default), surrogate pairs, U+FFFD
+  substitution for unpaired surrogates and dangling trailing bytes, exact
+  UEE names. FOUND+FIXED while probing: the classfile Utf8 constant
+  parser rejected unpaired surrogates (legal modified UTF-8, JVMS 4.4.7)
+  and failed the whole load — now lossy-normalized (the same substitution
+  the JDK encoders emit). Standard charsets BEYOND the family (UTF-32,
+  KOI8_R — Temurin accepts them silently) stay loud.
+- BufferedInputStream — buffering state + the "Stream closed" use-after-
+  close family; not modelled (loud) — the natural next stream wave.
 - `[[[<prim>` verifier depth — models as Ref elements beyond one level.
 - Stream classes compile and validate; the GZIP wrappers and
   ZInputStream/ZOutputStream BEHAVIOR are not yet exercised by the
-  driver (phase 2 candidate — needs ByteArrayInputStream/Buffered*
-  builtins if the driver goes through them).
+  driver (phase 2 candidate — ByteArrayInputStream landed in the
+  skip/charset wave; Buffered* stays the prerequisite).

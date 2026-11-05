@@ -734,16 +734,20 @@ fn n_string_get_chars(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
 // StringIndexOutOfBoundsException "Range [off, off+len) out of bounds for
 // length N"; names are case-insensitive ("utf-8" works).
 //
-// Registered divergence (loud, documented): the UTF-16 family ("UTF-16",
-// "UTF-16BE", ...) is JDK-accepted but UnsupportedEncodingException here —
-// no corpus or fixture path uses it; add with a probe battery when one
-// does.
+// Registered divergence (loud, documented): the standard charset provider
+// registry BEYOND the UTF-16 family / UTF-8 / Latin-1 / ASCII (UTF-32,
+// KOI8_R, ... — JDK-supported names that SUCCEED on Temurin) still throws
+// UnsupportedEncodingException here. The UTF-16 family landed with the
+// skip/charset wave, pinned by corpus/Utf16Probe.java on Temurin 21.0.13.
 
 #[derive(Clone, Copy)]
 enum BytesCs {
     Utf8,
     Latin1,
     Ascii,
+    Utf16,
+    Utf16Be,
+    Utf16Le,
 }
 
 fn resolve_charset(v: &Value, who: &str) -> Result<BytesCs, Throw> {
@@ -760,6 +764,11 @@ fn resolve_charset(v: &Value, who: &str) -> Result<BytesCs, Throw> {
             Ok(BytesCs::Latin1)
         }
         "us-ascii" | "ascii" | "ansi_x3.4-1968" | "iso646-us" | "646" => Ok(BytesCs::Ascii),
+        // UTF-16 family (skip/charset wave, corpus/Utf16Probe.java): the
+        // JDK canonical names plus the common Charset aliases.
+        "utf-16" | "utf16" | "unicode" | "unicodebig" | "utf_16" => Ok(BytesCs::Utf16),
+        "utf-16be" | "unicodebigunmarked" | "utf_16be" => Ok(BytesCs::Utf16Be),
+        "utf-16le" | "unicodelittleunmarked" | "utf_16le" => Ok(BytesCs::Utf16Le),
         _ => Err(throw_new(
             "java/io/UnsupportedEncodingException",
             Some(&name),
@@ -778,7 +787,88 @@ fn encode_cs(text: &str, cs: BytesCs) -> Vec<u8> {
             .chars()
             .map(|c| if (c as u32) <= 0x7F { c as u8 } else { b'?' })
             .collect(),
+        BytesCs::Utf16 => {
+            // BOM (FE FF) + big-endian units (Temurin: "A" -> feff0041).
+            let mut out = vec![0xFE, 0xFF];
+            out.extend(utf16_bytes(text, true));
+            out
+        }
+        BytesCs::Utf16Be => utf16_bytes(text, true),
+        BytesCs::Utf16Le => utf16_bytes(text, false),
     }
+}
+
+/// UTF-16 code units, byte-expanded. Astral chars split into the standard
+/// surrogate pair; the j2r string model carries U+FFFD where the JDK has an
+/// unpaired surrogate (the classfile loader normalizes), and Temurin's
+/// encoder also emits U+FFFD for one — the bytes agree (Utf16Probe pins
+/// `\uD834` -> `fffd`).
+fn utf16_bytes(text: &str, big_endian: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() * 2);
+    let push_unit = |u: u16, out: &mut Vec<u8>| {
+        let [hi, lo] = u.to_be_bytes();
+        if big_endian {
+            out.push(hi);
+            out.push(lo);
+        } else {
+            out.push(lo);
+            out.push(hi);
+        }
+    };
+    for c in text.chars() {
+        let u = c as u32;
+        if u > 0xFFFF {
+            let v = u - 0x10000;
+            push_unit(0xD800 + (v >> 10) as u16, &mut out);
+            push_unit(0xDC00 + (v & 0x3FF) as u16, &mut out);
+        } else {
+            push_unit(u as u16, &mut out);
+        }
+    }
+    out
+}
+
+/// Decode UTF-16 units from bytes; a dangling trailing byte decodes as one
+/// U+FFFD (Temurin-pinned: {00 41 00} -> charAt(1) == 65533), an unpaired
+/// surrogate unit also yields U+FFFD (JDK substitution).
+fn utf16_decode(bytes: &[u8], big_endian: bool) -> String {
+    let mut units: Vec<u16> = Vec::with_capacity(bytes.len() / 2);
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        let u = if big_endian {
+            ((bytes[i] as u16) << 8) | bytes[i + 1] as u16
+        } else {
+            ((bytes[i + 1] as u16) << 8) | bytes[i] as u16
+        };
+        units.push(u);
+        i += 2;
+    }
+    if i < bytes.len() {
+        // dangling byte
+        units.push(0xFFFD);
+    }
+    let mut chars: Vec<char> = Vec::with_capacity(units.len());
+    let mut k = 0;
+    while k < units.len() {
+        let u = units[k];
+        if (0xD800..0xDC00).contains(&u) {
+            if k + 1 < units.len() && (0xDC00..0xE000).contains(&units[k + 1]) {
+                let c = 0x10000 + (((u - 0xD800) as u32) << 10) + (units[k + 1] - 0xDC00) as u32;
+                chars.push(char::from_u32(c).unwrap_or(char::REPLACEMENT_CHARACTER));
+                k += 2;
+            } else {
+                chars.push(char::REPLACEMENT_CHARACTER);
+                k += 1;
+            }
+        } else if (0xDC00..0xE000).contains(&u) {
+            chars.push(char::REPLACEMENT_CHARACTER);
+            k += 1;
+        } else {
+            chars.push(char::from_u32(u as u32).unwrap_or(char::REPLACEMENT_CHARACTER));
+            k += 1;
+        }
+    }
+    chars.into_iter().collect()
 }
 
 fn decode_cs(bytes: &[u8], cs: BytesCs) -> String {
@@ -795,6 +885,20 @@ fn decode_cs(bytes: &[u8], cs: BytesCs) -> String {
                 }
             })
             .collect(),
+        BytesCs::Utf16 => {
+            // BOM detection (Temurin-pinned): FE FF -> BE, FF FE -> LE,
+            // both consumed; NO BOM defaults to big-endian (bytes {41 00}
+            // decode as U+4100, NOT "A").
+            if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+                utf16_decode(&bytes[2..], true)
+            } else if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+                utf16_decode(&bytes[2..], false)
+            } else {
+                utf16_decode(bytes, true)
+            }
+        }
+        BytesCs::Utf16Be => utf16_decode(bytes, true),
+        BytesCs::Utf16Le => utf16_decode(bytes, false),
     }
 }
 
@@ -3390,6 +3494,64 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         io::n_fis_available,
     ),
     ("java/io/FilterInputStream", "close", "()V", io::n_fis_close),
+    // ByteArrayInputStream (skip/charset wave — the JZlib wave-2 phase-2
+    // candidate; semantics pinned by corpus/SkipProbe.java: close() is a
+    // no-op, negative skip returns 0, skip past EOF returns the actual
+    // count, markSupported true). Slots: 0 buf / 1 pos / 2 mark / 3 count.
+    (
+        "java/io/ByteArrayInputStream",
+        "<init>",
+        "([B)V",
+        io::n_bis_init,
+    ),
+    (
+        "java/io/ByteArrayInputStream",
+        "<init>",
+        "([BII)V",
+        io::n_bis_init_range,
+    ),
+    (
+        "java/io/ByteArrayInputStream",
+        "read",
+        "()I",
+        io::n_bis_read,
+    ),
+    (
+        "java/io/ByteArrayInputStream",
+        "read",
+        "([BII)I",
+        io::n_bis_read_range,
+    ),
+    (
+        "java/io/ByteArrayInputStream",
+        "skip",
+        "(J)J",
+        io::n_bis_skip,
+    ),
+    (
+        "java/io/ByteArrayInputStream",
+        "available",
+        "()I",
+        io::n_bis_available,
+    ),
+    (
+        "java/io/ByteArrayInputStream",
+        "mark",
+        "(I)V",
+        io::n_bis_mark,
+    ),
+    (
+        "java/io/ByteArrayInputStream",
+        "reset",
+        "()V",
+        io::n_bis_reset,
+    ),
+    (
+        "java/io/ByteArrayInputStream",
+        "markSupported",
+        "()Z",
+        io::n_bis_mark_supported,
+    ),
     ("java/io/InputStream", "read", "()I", io::n_is_read),
     ("java/io/InputStream", "read", "([B)I", io::n_is_read_bulk),
     (
@@ -3398,7 +3560,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "([BII)I",
         io::n_is_read_range,
     ),
-    ("java/io/InputStream", "skip", "(J)J", io::n_is_skip),
+    ("java/io/InputStream", "skip", "(J)J", io::n_is_skip_default),
     (
         "java/io/InputStream",
         "available",
