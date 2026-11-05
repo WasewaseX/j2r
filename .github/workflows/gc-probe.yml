@@ -5,18 +5,23 @@
 # J2R_GC_EVERY_N=1 locally in ~15 minutes (measured per fixture:
 # scripts/gc_weights.csv — ReflectGC >=540s, everything else <=9.4s).
 # Local reproduction of leg 2's exact shard (stride 2/6, release, N=1)
-# finishes in 86s, so the >=120m CI legs are NOT a CPU-speed effect —
-# something CI-specific (scheduler timing on 2-vCPU runners?) makes
-# specific fixtures burn the cap. libtest swallows the per-fixture PASS
-# stream on success, so the 120m legs' logs show nothing about which
-# fixture was in flight.
+# finishes in 86s, so the >=120m CI legs are NOT a CPU-speed effect.
 #
-# This workflow runs each suspect SOLO on the real CI environment with
-# --nocapture and a 15-minute inner timeout. A leg that dies red = that
-# fixture is the bomb; the log's PASS stream and the job wall time give
-# the CI weight directly. Dispatch manually, read the job list, delete
-# or keep the file (keep: it is the standing CI-side probe for the next
-# weight recalibration).
+# ROUND 1 (run #1, bf8a14a) answer: the bombs are MonitorContention and
+# WaitNotify — both hit the 15-minute inner timeout SOLO on CI (livelock
+# or pathological slowdown), while ReflectGC completes in 13.6m
+# (consistent with the local 540s x ~1.5 CI factor) and BigJson /
+# BigCache / Cycles / LambdaGC finish in under a minute. That also
+# explains every CI #59 leg: leg 0 = ReflectGC (14m), legs 2/5 = the two
+# monitor-handoff fixtures, legs 1/3/4 = light fixtures only.
+#
+# ROUND 2 (this file): bisect the monitor fixtures' livelock across GC
+# stress densities — J2R_GC_EVERY_N = 1 / 8 / 64 — plus a ThreadHello
+# control. If N=8 passes, the failure is a timing window (lost wakeup
+# under the STW/coop/monitor handshake storm) and the gate can carry
+# these fixtures at a documented milder N while the protocol bug is
+# hunted. If every N hangs, it is a structural deadlock and gate-9 must
+# exclude them until T17's stress work lands the fix.
 #
 # Not a gate: never required, never in the gate-8 aggregate, no branch
 # protection reference. permissions are read-only; no secrets.
@@ -36,16 +41,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture:
-          - ReflectGC
-          - BigJson
-          - BigCache
-          - Cycles
-          - LambdaGC
-          - MonitorContention
-          - WaitNotify
+        include:
+          - { fixture: MonitorContention, gcn: 1 }
+          - { fixture: MonitorContention, gcn: 8 }
+          - { fixture: MonitorContention, gcn: 64 }
+          - { fixture: WaitNotify, gcn: 1 }
+          - { fixture: WaitNotify, gcn: 8 }
+          - { fixture: WaitNotify, gcn: 64 }
+          - { fixture: ThreadHello, gcn: 1 }
     env:
-      J2R_GC_EVERY_N: '1'
+      J2R_GC_EVERY_N: ${{ matrix.gcn }}
       J2R_DIFF_FIXTURES: ${{ matrix.fixture }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -57,10 +62,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21.0.13'
-      - name: Solo probe — ${{ matrix.fixture }} at a collection every allocation
+      - name: Solo probe — ${{ matrix.fixture }} at J2R_GC_EVERY_N=${{ matrix.gcn }}
         # Inner timeout keeps a livelocked fixture from eating the whole
         # 20-minute job cap: exit 124 marks the fixture as the bomb while
         # the --nocapture PASS stream stays in the log.
         run: |
-          echo "probing ${{ matrix.fixture }} solo (inner timeout 900s)"
+          echo "probing ${{ matrix.fixture }} solo (GC every ${{ matrix.gcn }}, inner timeout 900s)"
           timeout 900 cargo test --release -p j2r-cli --test diff_suite --locked -- --nocapture
