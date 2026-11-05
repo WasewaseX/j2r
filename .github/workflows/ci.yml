@@ -272,7 +272,7 @@ jobs:
         # micro-delays at the protocol seams) is the local stand-in for
         # CI's slow scheduler — the exact instrument that found and
         # pinned the T17 turn-grant + monitor-wait races.
-        run: cargo test --release -p j2r-runtime -- stress_ --locked -- --nocapture
+        run: cargo test --release -p j2r-runtime --locked -- stress_ --nocapture
 
   no-unsafe:
     name: gate-10-no-unsafe
