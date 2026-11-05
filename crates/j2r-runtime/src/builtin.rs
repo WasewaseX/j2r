@@ -209,8 +209,9 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
     let n = match class {
         "java/lang/Object" | "java/lang/System" | "java/lang/Math" | "java/lang/Number" => 0,
         "java/lang/Throwable" => 3,
-        // M4 Wave 2 (T06): runnable, name, daemon, started, tid.
-        "java/lang/Thread" => 5,
+        // M4 Wave 2 (T06): runnable, name, daemon, started, tid;
+        // T14 (Wave 4) added slot 5: pendingInterrupt.
+        "java/lang/Thread" => 6,
         "java/lang/String"
         | "java/lang/StringBuilder"
         | "java/lang/StringBuffer"

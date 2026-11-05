@@ -286,6 +286,19 @@ pub fn object_wait(
         Some(Instant::now() + Duration::from_millis(budget_ms))
     };
 
+    // T14 entry interrupt check (EdgeProbe A): a pre-set flag makes wait
+    // throw IMMEDIATELY, before the monitor is released — the catch
+    // handler sees the monitor still held (JDK). Placed BETWEEN the two
+    // ownership checks and OUTSIDE any runtime lock: clear_interrupt
+    // touches the heap (slot 5), and the monitor lock must never overlap
+    // the heap lock (L7 — the same reason throw_new allocates unlocked).
+    // Ranges and ownership run first (the Java-wrapper order is pinned by
+    // the T13 OrderProbe).
+    if crate::thread::interrupted_now(&rec) {
+        crate::thread::clear_interrupt(&rec);
+        return Err(throw_interrupted_ie());
+    }
+
     let mut st = m.lock();
     if st.owner != Some(me) {
         // Unreachable via the natives (the check above already returned),
@@ -306,35 +319,38 @@ pub fn object_wait(
     m.cv.notify_all(); // enter-contenders may take the freed monitor
 
     let mut parked = false;
+    // Park loop (T14-refactored): the wake channel is now the thread's
+    // OWN ticket condvar — `notify` delivers through it for each removed
+    // waiter, `interrupt()` delivers through it always, and timed waits
+    // wake at the deadline. The monitor lock is never held while parked
+    // (the notifier must be able to lock it). Wake-order pinned from the
+    // JDK epilog: interrupt beats notified beats deadline.
+    let mut interrupted = false;
     loop {
         st = m.lock();
+        if crate::thread::interrupted_now(&rec) {
+            st.waiters.retain(|&t| t != me);
+            drop(st);
+            interrupted = true;
+            break; // JDK: interrupt wins even over a concurrent notify
+        }
         let in_set = st.waiters.iter().any(|&t| t == me);
         if !in_set {
+            drop(st);
             break; // notified (T11): leave the wait set, recompete below
         }
         if let Some(dl) = deadline {
             if Instant::now() >= dl {
                 st.waiters.retain(|&t| t != me);
+                drop(st);
                 break; // timed out — wait(timeout) returns normally (T12)
             }
         }
         crate::thread::monitor_park_prep(&rec);
         parked = true;
-        st = if let Some(dl) = deadline {
-            let now = Instant::now();
-            if dl > now {
-                m.cv.wait_timeout(st, dl - now)
-                    .unwrap_or_else(|e| e.into_inner())
-                    .0
-            } else {
-                st // deadline passed while between parks
-            }
-        } else {
-            m.cv.wait(st).unwrap_or_else(|e| e.into_inner())
-        };
         drop(st);
+        rec.ticket_wait(deadline);
     }
-    drop(st);
 
     // Leaving the park state: absorb an in-flight STW, rejoin the coop
     // ring, mark Running. No runtime lock is held here (L7).
@@ -343,9 +359,11 @@ pub fn object_wait(
     }
 
     // Recompete: reacquire with the FULL saved count. The notified (or
-    // timed-out) thread contends like any enter-contender — the monitor
-    // may have been taken in between (Mesa semantics); if so we park on
-    // the same condvar until it is free again.
+    // timed-out, or interrupted) thread contends like any enter-contender
+    // — the monitor may have been taken in between (Mesa semantics); if
+    // so we park on the same condvar until it is free again. JDK: the
+    // interrupted waiter must RE-ACQUIRE before the exception is
+    // delivered, so the catch handler sees the monitor held.
     let mut st = m.lock();
     let mut parked2 = false;
     loop {
@@ -356,6 +374,14 @@ pub fn object_wait(
                 drop(st);
                 if parked2 {
                     crate::thread::monitor_wake_prep(&rec);
+                }
+                // JDK epilog (pinned): an interrupt pending at wake beats
+                // a normal (notified or timed-out) return — the exception
+                // is thrown WITH the monitor re-acquired and the flag
+                // cleared (EdgeProbe C: flag cleared after delivery).
+                if interrupted || crate::thread::interrupted_now(&rec) {
+                    crate::thread::clear_interrupt(&rec);
+                    return Err(throw_interrupted_ie());
                 }
                 // A timed-out wait returns normally — no exception, the
                 // monitor held with the full saved count (JDK behaviour).
@@ -371,6 +397,12 @@ pub fn object_wait(
     }
 }
 
+/// The message-less InterruptedException the T14 probes pinned for wait
+/// (and join). Built without holding any runtime lock (L7).
+fn throw_interrupted_ie() -> crate::Throw {
+    crate::throw_new("java/lang/InterruptedException", None)
+}
+
 /// `Object.notify` (`all = false`) / `Object.notifyAll` (T11). Ownership
 /// required — the JDK-21 IMSE wording pinned by the OrderProbe. `notify` moves the
 /// FIFO head out of the wait set; `notifyAll` clears it. Removed waiters
@@ -381,13 +413,15 @@ pub fn object_notify(r: &JRef, all: bool) -> Result<(), crate::Throw> {
     let m = crate::heap::entry_monitor(*r);
     let me = crate::thread::current_record().reg_index;
     let mut unowned = false;
+    let mut woken: Vec<usize> = Vec::new();
     {
         let mut st = m.lock();
         if st.owner == Some(me) {
             if all {
+                woken = st.waiters.iter().copied().collect();
                 st.waiters.clear();
-            } else {
-                st.waiters.pop_front();
+            } else if let Some(tid) = st.waiters.pop_front() {
+                woken.push(tid);
             }
         } else {
             unowned = true;
@@ -398,6 +432,16 @@ pub fn object_notify(r: &JRef, all: bool) -> Result<(), crate::Throw> {
             "java/lang/IllegalMonitorStateException",
             Some("current thread is not owner"),
         ));
+    }
+    // T14: each REMOVED waiter gets its own wake event on its ticket
+    // channel (the waiter's park loop re-locks the monitor and observes
+    // the empty wait set). The monitor condvar still fires for the
+    // enter-contenders. Ticket locks are taken with the monitor lock
+    // already dropped (leaf-lock discipline).
+    for tid in woken {
+        if let Some(t) = crate::thread::record_by_index(tid) {
+            t.deliver_wakeup();
+        }
     }
     m.cv.notify_all();
     Ok(())

@@ -1969,6 +1969,30 @@ fn n_thread_active_count_w(
     crate::thread::n_thread_active_count()
 }
 
+fn n_thread_interrupt_w(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_interrupt(recv)
+}
+
+fn n_thread_is_interrupted_w(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_is_interrupted(recv)
+}
+
+fn n_thread_interrupted_w(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    crate::thread::n_thread_interrupted()
+}
+
 /// The natives table: `(class, method, descriptor, implementation)`.
 /// Classes use internal form (`a/b/C`). Keep sorted-ish by class for review.
 pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
@@ -2031,6 +2055,20 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "activeCount",
         "()I",
         n_thread_active_count_w,
+    ),
+    // T14 (Wave 4): interrupt status.
+    ("java/lang/Thread", "interrupt", "()V", n_thread_interrupt_w),
+    (
+        "java/lang/Thread",
+        "isInterrupted",
+        "()Z",
+        n_thread_is_interrupted_w,
+    ),
+    (
+        "java/lang/Thread",
+        "interrupted",
+        "()Z",
+        n_thread_interrupted_w,
     ),
     // java/lang/Object
     ("java/lang/Object", "<init>", "()V", n_object_init),

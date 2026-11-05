@@ -75,6 +75,7 @@ use crate::heap::JRef;
 use crate::{throw_new, Throw, Value};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::Instant;
 
 // ----------------------------------------------------------------- states
 
@@ -124,6 +125,28 @@ pub struct ThreadRecord {
     /// Lazily created Java `java/lang/Thread` object for
     /// `Thread.currentThread()`; a registry root while present.
     pub java_object: Mutex<Option<JRef>>,
+    /// Interrupt status (T14, Wave 4). The JDK-exact story (pinned on
+    /// Temurin 21.0.13 with InterruptProbe/EdgeProbe):
+    /// * `interrupt()` sets the flag (records AND the object's slot 5, so
+    ///   a never-started or already-dead thread's flag is observable);
+    /// * `sleep`/`join`/`wait` deliver `InterruptedException` and CLEAR
+    ///   the flag ("sleep interrupted" / message-less for join and wait);
+    /// * a pre-set flag makes the next blocking call throw immediately;
+    /// * monitor-enter ignores it (the flag stays set after entering);
+    /// * `isInterrupted` reads without clearing, `interrupted` (static)
+    ///   reads AND clears.
+    pub interrupted: AtomicBool,
+    /// The per-thread wake channel (T14). `interrupt()` delivers through
+    /// it so a thread parked on a monitor wait set (or on `sleep`/`join`,
+    /// which also poll their record flag at each wake) wakes instantly.
+    /// `notify`/`notifyAll` deliver through the SAME channel for monitor
+    /// waiters: the flag is only a wake event — the meaning is decided by
+    /// re-checking the wait set (`in_set`) and `interrupted` after waking.
+    /// Leaf lock: nothing takes `wakeup_mu` while holding another runtime
+    /// lock except under the monitor lock, and nothing waits on any other
+    /// lock while holding `wakeup_mu`.
+    pub wakeup_mu: Mutex<bool>,
+    pub wakeup_cv: Condvar,
 }
 
 impl ThreadRecord {
@@ -137,6 +160,43 @@ impl ThreadRecord {
             in_ring: AtomicBool::new(in_ring),
             slots: Mutex::new(frame_slots::SlotState::new()),
             java_object: Mutex::new(None),
+            interrupted: AtomicBool::new(false),
+            wakeup_mu: Mutex::new(false),
+            wakeup_cv: Condvar::new(),
+        }
+    }
+
+    /// Delivers a wake event through the ticket channel (T14). Used by
+    /// `interrupt()` and by `notify`/`notifyAll` for each removed waiter.
+    pub(crate) fn deliver_wakeup(&self) {
+        let mut flag = self.wakeup_mu.lock().unwrap_or_else(|e| e.into_inner());
+        *flag = true;
+        self.wakeup_cv.notify_all();
+    }
+
+    /// Parks on the ticket channel until a wake event (or the deadline).
+    /// The caller re-derives the MEANING afterwards (wait-set membership,
+    /// interrupt flag, deadline) — this is a wake primitive, not policy.
+    pub(crate) fn ticket_wait(&self, deadline: Option<Instant>) {
+        let mut flag = self.wakeup_mu.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if *flag {
+                *flag = false; // consume exactly one wake event
+                return;
+            }
+            flag = match deadline {
+                Some(d) => {
+                    let now = Instant::now();
+                    if now >= d {
+                        return; // deadline reached: caller re-checks it
+                    }
+                    self.wakeup_cv
+                        .wait_timeout(flag, d - now)
+                        .unwrap_or_else(|e| e.into_inner())
+                        .0
+                }
+                None => self.wakeup_cv.wait(flag).unwrap_or_else(|e| e.into_inner()),
+            };
         }
     }
 }
@@ -581,6 +641,7 @@ fn init_common(recv: &JRef, runnable: Option<JRef>, name: Option<String>) {
         o.slots[2] = Value::Int(0);
         o.slots[3] = Value::Int(0);
         o.slots[4] = Value::Int(-1);
+        o.slots[5] = Value::Int(0); // pendingInterrupt (T14, Wave 4)
     });
 }
 
@@ -631,6 +692,16 @@ pub fn n_thread_start(recv: Option<&JRef>, ctx: crate::Dispatch) -> Result<Value
         4,
         Value::Int(i32::try_from(rec.reg_index).unwrap_or(i32::MAX)),
     );
+    // Migrate a pre-start interrupt into the record (T14): the object-side
+    // flag (slot 5) was the only observable carrier before start; the
+    // blocking paths (sleep/join/wait) poll the record flag, so a thread
+    // interrupted between construction and start must still deliver. The
+    // flag MOVES: after start the record is the single carrier, so two
+    // views of one thread can never report different values.
+    if slot_int(&r, 5) != 0 {
+        rec.interrupted.store(true, Ordering::Release);
+        set_slot(&r, 5, Value::Int(0));
+    }
 
     // The child runs the runnable's `run()` (lambda SAM or compiled class
     // walk). With no runnable, `run()` does nothing — JDK-exact.
@@ -763,23 +834,67 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
     if target.reg_index == current_record().reg_index {
         // JDK behaviour: joining the current thread without a timeout
         // never returns; with a timeout it returns after the budget.
+        // Interruptible in every form (T14): the JDK delivers the
+        // message-less InterruptedException (JoinInterruptProbe).
+        let me = current_record();
         if budget_ms > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(budget_ms as u64));
+            let deadline = Instant::now() + std::time::Duration::from_millis(budget_ms as u64);
+            me.state.store(STATE_PARKED, Ordering::Release);
+            let mut g = lock_sched();
+            notify_all(&g);
+            loop {
+                if interrupted_now(&me) {
+                    me.state.store(STATE_RUNNING, Ordering::Release);
+                    // L7: no SCHED guard across the heap lock (slot 5).
+                    drop(g);
+                    clear_interrupt(&me);
+                    return Err(throw_new("java/lang/InterruptedException", None));
+                }
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                g = SCHED_CV
+                    .wait_timeout(g, deadline - now)
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
+            }
+            me.state.store(STATE_RUNNING, Ordering::Release);
             return Ok(Value::Void);
         }
         if coop_mode() {
             loop {
+                if interrupted_now(&me) {
+                    clear_interrupt(&me);
+                    return Err(throw_new("java/lang/InterruptedException", None));
+                }
                 yield_point(); // deterministic hang, like the JVM's
             }
         }
+        me.state.store(STATE_PARKED, Ordering::Release);
         loop {
-            std::thread::park();
+            if interrupted_now(&me) {
+                me.state.store(STATE_RUNNING, Ordering::Release);
+                clear_interrupt(&me);
+                return Err(throw_new("java/lang/InterruptedException", None));
+            }
+            // thread::park() alone is not woken by interrupt()'s condvar
+            // notify, so poll on a short timeout (50 ms granularity).
+            std::thread::park_timeout(std::time::Duration::from_millis(50));
         }
     }
     if coop_mode() {
         let deadline = budget_ms;
         let mut waited: i64 = 0;
+        let me = current_record();
         while target.state.load(Ordering::Acquire) != STATE_EXITED {
+            // Interrupt check every tick (T14): the flag can only have
+            // been set by another thread's turn, which is exactly one
+            // yield ago — deterministic delivery.
+            if interrupted_now(&me) {
+                clear_interrupt(&me);
+                return Err(throw_new("java/lang/InterruptedException", None));
+            }
             if deadline > 0 && waited >= deadline {
                 return Ok(Value::Void);
             }
@@ -801,8 +916,19 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
     let mut g = lock_sched();
     notify_all(&g);
     while target.state.load(Ordering::Acquire) != STATE_EXITED {
+        // Interruptible join (T14): the flag is checked before the first
+        // park (pre-interrupt) and at every wake (interrupt() notifies
+        // this condvar). Delivery clears the flag and throws the
+        // message-less InterruptedException the probes pinned.
+        if interrupted_now(&me) {
+            me.state.store(STATE_RUNNING, Ordering::Release);
+            // L7: drop the SCHED guard before the heap lock (slot 5).
+            drop(g);
+            clear_interrupt(&me);
+            return Err(throw_new("java/lang/InterruptedException", None));
+        }
         if let Some(d) = deadline {
-            let now = std::time::Instant::now();
+            let now = Instant::now();
             if now >= d {
                 break;
             }
@@ -850,15 +976,68 @@ pub fn n_thread_sleep(args: &[Value]) -> Result<Value, Throw> {
     let budget_ms = if nanos >= 500_000 { millis + 1 } else { millis };
     if coop_mode() {
         // Coop sleep: a yield point; wall-clock timing is not a coop-mode
-        // contract (documented in the module header).
+        // contract (documented in the module header). Interrupt delivery
+        // stays deterministic (T14): the flag is checked BEFORE the yield
+        // (pre-interrupt) and after it (the interrupter can only have run
+        // during the yielded turn), so exactly one of the two checks sees
+        // the flag.
+        let me = current_record();
+        if interrupted_now(&me) {
+            clear_interrupt(&me);
+            return Err(throw_new(
+                "java/lang/InterruptedException",
+                Some("sleep interrupted"),
+            ));
+        }
         yield_point();
+        if interrupted_now(&me) {
+            clear_interrupt(&me);
+            return Err(throw_new(
+                "java/lang/InterruptedException",
+                Some("sleep interrupted"),
+            ));
+        }
         return Ok(Value::Void);
     }
     if budget_ms > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(budget_ms as u64));
-    } else {
-        std::thread::yield_now();
+        // Interruptible free-running sleep (T14): park on the scheduler
+        // condvar with a deadline instead of an unwakeable
+        // std::thread::sleep — `interrupt()` notifies that condvar, so the
+        // wake is immediate and the delivered exception is the JDK's
+        // pinned "sleep interrupted". Marked Parked first: the STW
+        // collector must not wait for a sleeping thread (join's
+        // discipline; a sleeper mutates no Java state while parked).
+        let me = current_record();
+        let deadline = Instant::now() + std::time::Duration::from_millis(budget_ms as u64);
+        me.state.store(STATE_PARKED, Ordering::Release);
+        let mut g = lock_sched();
+        notify_all(&g);
+        loop {
+            if interrupted_now(&me) {
+                me.state.store(STATE_RUNNING, Ordering::Release);
+                // L7: the SCHED guard must be gone before clear_interrupt
+                // touches the heap (slot 5) — heap paths take the SCHED
+                // lock, so SCHED-then-heap would close a cycle.
+                drop(g);
+                clear_interrupt(&me);
+                return Err(throw_new(
+                    "java/lang/InterruptedException",
+                    Some("sleep interrupted"),
+                ));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            g = SCHED_CV
+                .wait_timeout(g, deadline - now)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+        me.state.store(STATE_RUNNING, Ordering::Release);
+        return Ok(Value::Void);
     }
+    std::thread::yield_now();
     Ok(Value::Void)
 }
 
@@ -892,6 +1071,7 @@ pub fn current_thread_object() -> JRef {
             Value::Int(daemon),
             Value::Int(alive),
             Value::Int(i32::try_from(rec.reg_index).unwrap_or(i32::MAX)),
+            Value::Int(0), // pendingInterrupt (T14)
         ],
     });
     *j = Some(obj);
@@ -951,6 +1131,101 @@ pub fn n_thread_set_name(recv: Option<&JRef>, args: &[Value]) -> Result<Value, T
 pub fn n_thread_is_alive(recv: Option<&JRef>) -> Result<Value, Throw> {
     let r = *recv.expect("j2r internal: Thread.isAlive without receiver");
     Ok(Value::Int(target_alive(&r) as i32))
+}
+
+// ---------------------------------------------- interrupt (T14, Wave 4)
+// JDK-exact semantics pinned on Temurin 21.0.13 (InterruptProbe /
+// JoinInterruptProbe / EdgeProbe, 2026-11-05):
+// * `sleep` interruption throws InterruptedException("sleep interrupted");
+// * `join` and `Object.wait` interruptions throw a MESSAGE-LESS
+//   InterruptedException (probes: msg=null in every blocked case);
+// * a pre-set flag makes the next blocking call throw immediately, and
+//   the flag is CLEARED by the delivery (C-probe: flagAfterSleepIE=false);
+// * a thread interrupted while blocked on monitor-enter does not throw;
+//   the flag stays set after the enter completes;
+// * `isInterrupted` reads without clearing; the static `interrupted`
+//   reads and clears;
+// * `interrupt()` on a dead thread sets the flag (post-death
+//   `isInterrupted` reads true — dead-probe); `interrupt()` on a
+//   never-started thread is observable via the object flag (D-probe).
+
+/// The record for a registry id (used by `object_notify` to reach the
+/// removed waiters' ticket channels).
+pub(crate) fn record_by_index(i: usize) -> Option<Arc<ThreadRecord>> {
+    lock_sched().records.get(i).cloned()
+}
+
+/// Sets the interrupt flag on a thread. The flag's carrier depends on the
+/// thread's state:
+/// * started (record exists): the RECORD flag — shared by every view of
+///   the thread, like the JDK's per-thread status. The object slot is NOT
+///   touched, so two Thread-object views of one thread can never diverge.
+/// * never started (no record): object slot 5 — the only observable
+///   carrier (D-probe); `start` migrates it into the record.
+///
+/// A wake event is delivered either way, plus a scheduler notify for the
+/// sleep/join parkers (they wait on the scheduler condvar, not the
+/// ticket).
+pub(crate) fn set_interrupt(rec: Option<&Arc<ThreadRecord>>, obj: &JRef) {
+    match rec {
+        Some(rec) => {
+            rec.interrupted.store(true, Ordering::Release);
+            rec.deliver_wakeup();
+        }
+        None => set_slot(obj, 5, Value::Int(1)),
+    }
+    notify_all(&lock_sched());
+}
+
+/// Clears the flag after a delivered InterruptedException (or a static
+/// `interrupted()` poll): record flag and object slot 5 together.
+pub(crate) fn clear_interrupt(rec: &Arc<ThreadRecord>) {
+    rec.interrupted.store(false, Ordering::Release);
+    let j = rec.java_object.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(obj) = *j {
+        set_slot(&obj, 5, Value::Int(0));
+    }
+}
+
+/// `Thread.interrupt()`. JDK: no exception, no-op observable only through
+/// the flag; on a dead thread it still sets the flag (dead-probe).
+pub fn n_thread_interrupt(recv: Option<&JRef>) -> Result<Value, Throw> {
+    let r = *recv.expect("j2r internal: Thread.interrupt without receiver");
+    let rec = target_record(&r);
+    set_interrupt(rec.as_ref(), &r);
+    Ok(Value::Void)
+}
+
+/// `Thread.isInterrupted()` — reads the flag without clearing (probe:
+/// is1==is2==true). Threads without a record (never started) report the
+/// object flag.
+pub fn n_thread_is_interrupted(recv: Option<&JRef>) -> Result<Value, Throw> {
+    let r = *recv.expect("j2r internal: Thread.isInterrupted without receiver");
+    let rec = target_record(&r);
+    let set = rec
+        .map(|t| t.interrupted.load(Ordering::Acquire))
+        .unwrap_or(false)
+        || slot_int(&r, 5) != 0;
+    Ok(Value::Int(set as i32))
+}
+
+/// static `Thread.interrupted()` — reads AND clears the current thread's
+/// flag (probe: st1=true, st2=false).
+pub fn n_thread_interrupted() -> Result<Value, Throw> {
+    let me = current_record();
+    let old = me.interrupted.swap(false, Ordering::AcqRel);
+    let j = me.java_object.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(obj) = *j {
+        set_slot(&obj, 5, Value::Int(0));
+    }
+    Ok(Value::Int(old as i32))
+}
+
+/// The current thread's interrupt flag, for the blocking paths. The
+/// object flag counts too: a pre-start interrupt that migrated (or a
+/// flag set through a second Thread object alias) must deliver.
+pub(crate) fn interrupted_now(rec: &Arc<ThreadRecord>) -> bool {
+    rec.interrupted.load(Ordering::Acquire)
 }
 
 /// `Thread.activeCount()` — JDK: an estimate of live threads in the
@@ -1428,6 +1703,7 @@ mod tests {
                 Value::Int(0),
                 Value::Int(1), // started
                 Value::Int(-1),
+                Value::Int(0), // pendingInterrupt (T14)
             ],
         });
         let err = n_thread_set_daemon(Some(&r), &[Value::Int(1)]).unwrap_err();
@@ -1451,5 +1727,223 @@ mod tests {
             registry_records().iter().any(|r| Arc::ptr_eq(r, &rec)),
             "records are never removed, even after death"
         );
+    }
+
+    // ------------------------------------------- T14 interrupt (Wave 4)
+    // Semantics pinned on Temurin 21.0.13 (InterruptProbe / EdgeProbe,
+    // /home/z/probe): messages, ordering, clearing, monitor-enter
+    // immunity, never-started and dead-thread observability.
+
+    /// A Thread-shaped object linked to a registry id (or tid -1 for
+    /// never-started). Six slots since T14 — slot 5 is pendingInterrupt.
+    fn thread_obj_for(tid: i64) -> JRef {
+        crate::heap::alloc(crate::object::JObj {
+            jclass: Arc::from("java/lang/Thread"),
+            slots: vec![
+                Value::Ref(None),
+                Value::Str(Arc::new("t".to_string())),
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(tid as i32),
+                Value::Int(0),
+            ],
+        })
+    }
+
+    fn throw_msg(t: &Throw) -> Option<String> {
+        // Extract the message ref UNDER the heap lock, convert OUTSIDE it —
+        // the heap Mutex is not reentrant (same shape as monitor.rs's
+        // message_of helper).
+        let m = crate::heap::with_obj(t.obj, |o| match &o.slots[0] {
+            Value::Ref(Some(m)) => Some(*m),
+            Value::Ref(None) => None,
+            other => panic!("unexpected message slot {other:?}"),
+        });
+        m.map(|r| crate::object::string_value(&r).to_string())
+    }
+
+    /// isInterrupted reads without clearing; the static interrupted()
+    /// reads AND clears (probe: true/true/true/false).
+    #[test]
+    fn interrupt_flag_semantics_are_jdk_exact() {
+        let _rt = crate::test_support::runtime();
+        let me = current_record();
+        let obj = thread_obj_for(me.reg_index as i64);
+        n_thread_interrupt(Some(&obj)).unwrap();
+        assert_eq!(n_thread_is_interrupted(Some(&obj)).unwrap(), Value::Int(1));
+        assert_eq!(n_thread_is_interrupted(Some(&obj)).unwrap(), Value::Int(1));
+        assert_eq!(n_thread_interrupted().unwrap(), Value::Int(1));
+        assert_eq!(n_thread_interrupted().unwrap(), Value::Int(0));
+        assert_eq!(n_thread_is_interrupted(Some(&obj)).unwrap(), Value::Int(0));
+    }
+
+    /// A pre-set flag makes sleep throw IMMEDIATELY with the pinned
+    /// "sleep interrupted" message, and the delivery clears the flag
+    /// (EdgeProbe before-sleep + C).
+    #[test]
+    fn pre_interrupted_sleep_throws_and_clears() {
+        let _rt = crate::test_support::runtime();
+        let me = current_record();
+        let obj = thread_obj_for(me.reg_index as i64);
+        n_thread_interrupt(Some(&obj)).unwrap();
+        let t0 = Instant::now();
+        let err = n_thread_sleep(&[Value::Long(60_000)]).unwrap_err();
+        assert!(t0.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(err.java_class(), "java/lang/InterruptedException");
+        assert_eq!(throw_msg(&err).as_deref(), Some("sleep interrupted"));
+        assert_eq!(n_thread_is_interrupted(Some(&obj)).unwrap(), Value::Int(0));
+    }
+
+    /// interrupt() wakes a thread parked in sleep well before its budget
+    /// (the scheduler-condvar wake channel; no 60-second hang).
+    #[test]
+    fn interrupt_wakes_a_sleeping_thread() {
+        let _rt = crate::test_support::runtime();
+        let (tx, rx) = std::sync::mpsc::channel::<JRef>();
+        let child = std::thread::spawn(move || {
+            let rec = current_record();
+            let _d = TestDeath(rec);
+            tx.send(current_thread_object()).unwrap();
+            let start = Instant::now();
+            let res = n_thread_sleep(&[Value::Long(60_000)]);
+            (start.elapsed(), res)
+        });
+        let obj = rx.recv().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        n_thread_interrupt(Some(&obj)).unwrap();
+        let (elapsed, res) = child.join().unwrap();
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "interrupt must wake the sleeper early, took {elapsed:?}"
+        );
+        let err = res.unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/InterruptedException");
+        assert_eq!(throw_msg(&err).as_deref(), Some("sleep interrupted"));
+    }
+
+    /// Self-join with a pre-set flag: the JDK join blocks forever until
+    /// interrupted — the interrupt delivers the message-less IE
+    /// (JoinInterruptProbe: msg=null).
+    #[test]
+    fn pre_interrupted_self_join_throws_message_less() {
+        let _rt = crate::test_support::runtime();
+        let me = current_record();
+        let obj = thread_obj_for(me.reg_index as i64);
+        n_thread_interrupt(Some(&obj)).unwrap();
+        let err = n_thread_join(Some(&obj), &[]).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/InterruptedException");
+        assert_eq!(throw_msg(&err), None, "join IE carries no message");
+    }
+
+    /// Pre-interrupted wait: throws immediately WITHOUT releasing the
+    /// monitor — the catch handler sees it still held (EdgeProbe A),
+    /// proven here by a clean exit afterwards and an IMSE on the second.
+    #[test]
+    fn pre_interrupted_wait_keeps_the_monitor() {
+        let _rt = crate::test_support::runtime();
+        let obj = crate::object::new_obj("test/WaitPreInt", 0).unwrap();
+        let me = current_record();
+        let tobj = thread_obj_for(me.reg_index as i64);
+        crate::monitor::monitor_enter(&obj).unwrap();
+        n_thread_interrupt(Some(&tobj)).unwrap();
+        let err = crate::monitor::object_wait(&obj, 0, 0).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/InterruptedException");
+        assert_eq!(throw_msg(&err), None);
+        // Monitor never left this thread's hands: one clean exit, then IMSE.
+        crate::monitor::monitor_exit(&obj).unwrap();
+        assert!(crate::monitor::monitor_exit(&obj).is_err());
+    }
+
+    /// interrupt() wakes a monitor waiter; delivery happens AFTER the
+    /// monitor is re-acquired with the full count (JDK epilog), so the
+    /// catch handler owns the monitor.
+    #[test]
+    fn interrupt_wakes_a_monitor_waiter() {
+        let _rt = crate::test_support::runtime();
+        let obj = crate::object::new_obj("test/WaitInt", 0).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<usize>();
+        let o2 = obj;
+        let child = std::thread::spawn(move || {
+            let rec = current_record();
+            let _d = TestDeath(rec);
+            crate::monitor::monitor_enter(&o2).unwrap();
+            tx.send(current_record().reg_index).unwrap();
+            let res = crate::monitor::object_wait(&o2, 0, 0);
+            // The re-acquired monitor is in our hands: one clean exit.
+            crate::monitor::monitor_exit(&o2).unwrap();
+            (res, crate::monitor::monitor_exit(&o2).is_err())
+        });
+        let child_tid = rx.recv().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let tobj = thread_obj_for(child_tid as i64);
+        n_thread_interrupt(Some(&tobj)).unwrap();
+        let (res, second_exit_was_imse) = child.join().unwrap();
+        let err = res.unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/InterruptedException");
+        assert_eq!(throw_msg(&err), None);
+        assert!(
+            second_exit_was_imse,
+            "monitor must be re-acquired before the IE is delivered"
+        );
+    }
+
+    /// Monitor-enter is NOT interruptible (probe: no throw, flag stays
+    /// set through the enter).
+    #[test]
+    fn monitor_enter_ignores_the_interrupt_flag() {
+        let _rt = crate::test_support::runtime();
+        let obj = crate::object::new_obj("test/EnterInt", 0).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<JRef>();
+        let holder = std::thread::spawn(move || {
+            let _d = TestDeath(current_record());
+            crate::monitor::monitor_enter(&obj).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            crate::monitor::monitor_exit(&obj).unwrap();
+        });
+        let o2 = obj;
+        let contender = std::thread::spawn(move || {
+            let rec = current_record();
+            let _d = TestDeath(rec);
+            let own = current_thread_object();
+            tx.send(own).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            crate::monitor::monitor_enter(&o2).unwrap(); // blocks ~350ms
+            let set = crate::thread::n_thread_is_interrupted(Some(&own)).unwrap();
+            set
+        });
+        let contender_obj = rx.recv().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        n_thread_interrupt(Some(&contender_obj)).unwrap();
+        holder.join().unwrap();
+        let flag_after_enter = contender.join().unwrap();
+        assert_eq!(
+            flag_after_enter,
+            Value::Int(1),
+            "the flag survives a monitor-enter that raced it"
+        );
+    }
+
+    /// interrupt() on a dead thread is a silent no-op that still sets the
+    /// flag (dead-probe: isInterrupted reads true afterwards).
+    #[test]
+    fn interrupt_after_death_sets_the_flag() {
+        let _rt = crate::test_support::runtime();
+        let tid = std::thread::spawn(|| current_record().reg_index)
+            .join()
+            .unwrap();
+        let obj = thread_obj_for(tid as i64);
+        n_thread_interrupt(Some(&obj)).unwrap();
+        assert_eq!(n_thread_is_interrupted(Some(&obj)).unwrap(), Value::Int(1));
+    }
+
+    /// interrupt() on a never-started thread: no record exists, the flag
+    /// lives on the object (slot 5) and isInterrupted reports it
+    /// (D-probe).
+    #[test]
+    fn interrupt_before_start_is_observable() {
+        let _rt = crate::test_support::runtime();
+        let obj = thread_obj_for(-1);
+        n_thread_interrupt(Some(&obj)).unwrap();
+        assert_eq!(n_thread_is_interrupted(Some(&obj)).unwrap(), Value::Int(1));
     }
 }
