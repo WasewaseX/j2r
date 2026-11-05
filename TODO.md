@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-04.
+fix the board. Last updated: 2026-11-05.
 
 Project: J2R — Java → Rust compiler, 100% safe Rust (zero `unsafe`).
 North star: compile Minecraft Java Edition + mods (Fabric/Forge/NeoForge,
@@ -121,6 +121,34 @@ local full-gate sweep at the same tree).**
       the real-thread fixtures at the alphabetical tail dominate runtime);
       plumbing proven locally (shard 2/3 → 29 of 89 fixtures, bad spec
       parse verified by inspection).
+      **gate-9 rebalance HISTORY (honest): 4-way (e9f81ac, 90-min cap)
+      failed its own bet — legs 24m / >=90m CANCELLED / >=90m CANCELLED /
+      1m; 6-way (85dce58, 120-min cap) failed too on the same tree — legs
+      14m / 1m / >=120m CANCELLED / 1m / 1m / >=120m (CI #59 on 7bb7a8d).
+      Stride balances fixture COUNTS, not durations: ~10 allocation-storm
+      fixtures (BigJson, BigCache, Cycles, LambdaGC, MonitorContention,
+      WaitNotify, ReflectGC, InternAcrossGc, the corpus-scale Big* ones)
+      dominate total gate time and stride drops them two-per-leg. Fix in
+      flight: local per-fixture measurement at J2R_GC_EVERY_N=1 →
+      J2R_DIFF_FIXTURES explicit selection in the harness (census guard
+      untouched) → duration-balanced explicit buckets in ci.yml.
+- [x] **Security-settings review package (2026-11-05, owner directive
+      "add more workflows")** — **gate-15 OSSF Scorecard** (scorecard.yml,
+      actions SHA-pinned, weekly cron + workflow_dispatch) and **gate-16
+      OSV Scanner** (osv.yml, google/osv-scanner reusable workflow) —
+      both first-party, zero-credential, publish SARIF to the Security
+      tab, sit outside the gate-8 aggregate like gate-14; market
+      candidates needing accounts (Snyk/Semgrep/SonarCloud), other
+      languages (SpotBugs), DAST with no target (ZAP), or duplicating
+      existing gates were evaluated and rejected with reasons.
+      **.github/dependabot.yml**: cargo + github-actions weekly updates,
+      grouped minor/patch. **First-run evidence at 7bb7a8d: Scorecard #3
+      SUCCESS, OSV #5 SUCCESS, CodeQL #15 SUCCESS** — gate-16 needed an
+      actions:read grant on the caller (bare startup_failure on 85dce58;
+      reusable workflows declare their own permissions, un-granted
+      callers fail validation, codeql-action#2117; fixed 7bb7a8d).
+      Dependabot PRs #1/#2 (actions/checkout 4.4.0→7.0.1, setup-java
+      4.9.1→6.1.0) open — owner decides merge.
 - [~] **M4 threads & concurrency — ACCEPTED (owner directive
       2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
       **Wave 1 shared substrate LANDED** (T02–T05, commit 4ddfe1b; CI
@@ -128,13 +156,21 @@ local full-gate sweep at the same tree).**
       (T06–T09: Thread natives + registry + STW safepoints + coop
       scheduler; two new real-thread fixtures byte-identical vs Temurin;
       docs/M4_EVIDENCE.md §Wave 2). **Wave 3 monitor contention +
-      wait/notify LANDED** (T10–T12: real per-entry monitor state
-      machine, Mesa wait/notify/notifyAll, JDK-exact wait(long,int),
-      STW/coop park protocol, lock law L7; 9 monitor unit tests,
-      runtime 123 → 132 green — docs/M4_EVIDENCE.md §Wave 3). Next:
-      T13 differential fixtures (WaitNotify / MonitorContention /
-      WaitTimeout), then Wave 4 interrupt/daemon/JMM-lite/stress
-      (T14–T18, gate-13).
+      wait/notify LANDED — COMPLETE incl. T13** (T10–T13: real per-entry
+      monitor state machine, Mesa wait/notify/notifyAll, JDK-exact
+      wait(long,int), STW/coop park protocol, lock law L7; the T13
+      Temurin probes falsified two doc-derived pins — IAE-before-IMSE
+      ordering on wait(-1), "current thread is not owner" with is,
+      message-less monitorexit — and MonitorContention exposed a real
+      generator bug: ensure() flagged the class initialized BEFORE
+      <clinit>, so four-way first-touch contention let a loser skip
+      clinit and read null statics; fixed with the JLS 12.4.2 state
+      machine in j2r-runtime::clinit. 0 fails / 30 runs; all 89 fixtures
+      byte-identical vs Temurin on all 3 channels; runtime 123 → 134
+      green, workspace 277 — docs/M4_EVIDENCE.md §Wave 3 + addendum).
+      Next: Wave 4 interrupt/daemon/JMM-lite/stress (T14–T18, gate-13);
+      in parallel, gate-9 duration-aware balancing (rebalance history
+      above).
 
 ### M4 Wave 2 — real threads (T06–T09) — LANDED, CI pending
 
@@ -178,12 +214,15 @@ local full-gate sweep at the same tree).**
 - [x] **T12** — `wait(timeout)`/`wait(timeout, nanos)`: millisecond-
       effective timing, JDK-faithful rounding (nanos ≥ 500000 rounds up),
       `IllegalArgumentException` on negatives with exact messages.
-- [~] **T13** — unit half LANDED (9 monitor tests incl. re-entrancy
-      across wait, contended-enter handover, timed-wait deadline);
-      fixture half OPEN: `WaitNotify` (producer/consumer handoff,
-      coop-deterministic), `MonitorContention` (two threads, 10k
-      uncontended + contended cycles), `WaitTimeout` (loose timing
-      windows for CI runners) — differential vs Temurin.
+- [x] **T13** — COMPLETE (d302c2b fixtures + evidence addendum e5b152c).
+      Unit half: 9 monitor tests incl. re-entrancy across wait,
+      contended-enter handover, timed-wait deadline. Fixture half:
+      `WaitNotify` (producer/consumer handoff, coop-deterministic),
+      `MonitorContention` (four threads, 10k uncontended + contended
+      cycles), `WaitTimeout` (loose timing windows for CI runners) —
+      differential vs Temurin 21.0.13, all three byte-identical;
+      MonitorContention caught the clinit race (§3 M4 bullet above).
+      Suite 86 → 89 on disk; diff-suite guard 85 → 88 (gate-11 sync).
 
 ### M4 Wave 4 — interrupt, daemon shutdown, JMM-lite, stress (T14–T18)
 
