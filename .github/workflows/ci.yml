@@ -30,7 +30,13 @@ name: CI
 # (4-way sharded matrix, J2R_DIFF_SHARD, 90-min cap), 10 no-unsafe,
 # 11 doc-counts, 12 runtime-seams. Gate 13 is reserved for
 # the M4 Wave-4 concurrency gate (docs/M4_PLAN.md §3 Wave 4); gate 14
-# = CodeQL security & quality (codeql.yml, own workflow + Security tab).
+# = CodeQL security & quality (codeql.yml, own workflow + Security tab);
+# gate 15 = OSSF Scorecard supply-chain posture (scorecard.yml, own
+# workflow, Security tab); gate 16 = OSV dependency scan (osv.yml, own
+# workflow, Security tab). 15/16 added 2026-11-05 from the owner's
+# Security-settings review — first-party, zero-credential scanners that
+# publish SARIF alerts; like gate-14 they sit outside the gate-8
+# aggregate, and a red run is a stop-the-wave event.
 
 on:
   push:

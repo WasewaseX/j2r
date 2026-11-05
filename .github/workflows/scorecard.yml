@@ -1,0 +1,61 @@
+# gate-15-scorecard — OSSF Scorecard supply-chain posture.
+#
+# Owner directive 2026-11-05: "i can also add more workflows" (Security
+# settings marketplace list). Selected from that list under the repo's
+# supply-chain rules — first-party (OpenSSF), zero credentials, zero
+# noise for a pure-Rust workspace. Everything else on that list was
+# evaluated and rejected (see docs/M4_EVIDENCE.md § security tooling).
+#
+# What Scorecard does: scores the repo's supply-chain posture —
+# Pinned-Dependencies (our SHA-pinned actions should score well),
+# Token-Permissions, Fuzzing, Maintained, SAST, Branch-Protection,
+# Signed-Releases, etc. — and publishes the results as a badge
+# (api.scorecard.dev) plus SARIF alerts in the Security tab.
+#
+# Honest framing: Scorecard alerts are POSTURE advisories, not
+# vulnerabilities. Some are fixed in settings (Branch-Protection,
+# Dependabot toggles), not in code — expect a handful of alerts here
+# that CodeQL will never raise. A red Scorecard run is treated like any
+# other red gate: fix before the next wave.
+#
+# `publish_results: true` requires `id-token: write` (GitHub OIDC) and
+# replaces OpenSSF's own weekly scan with ours; the badge then points at
+# the freshest result. `persist-credentials: false` — the checkout must
+# not leak a token into Scorecard's own Token-Permissions probe.
+
+name: Scorecard supply-chain analysis
+
+on:
+  push:
+    branches: [main]
+  branch_protection_rule:
+  schedule:
+    # Weekly, Tuesday 04:41 UTC — offset from the CodeQL Monday run so
+    # the two Security-tab scans never queue against each other.
+    - cron: '41 4 * * 2'
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: gate-15-scorecard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: results.sarif
+          category: scorecard

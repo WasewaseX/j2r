@@ -1,0 +1,43 @@
+# gate-16-osv — OSV Scanner dependency vulnerability scan.
+#
+# Owner directive 2026-11-05: "i can also add more workflows" (Security
+# settings marketplace list). Second dependency engine under the same
+# law as gate-7: gate-7 (cargo-deny/RustSec advisories) stays the
+# numbered, build-blocking authority for crates; this gate adds
+# Google's osv.dev scanner as an INDEPENDENT engine over the same
+# Cargo.lock (different DB feed, different resolver, different
+# transitive closure) and lands its findings as code-scanning alerts
+# in the Security tab, where they can be triaged per-alert.
+#
+# Selection rationale (marketplace list): first-party (Google), zero
+# credentials, lockfile-based (no source noise), and the reusable
+# workflow uploads SARIF even on findings (upload runs
+# `if: !cancelled()`), so a vulnerable lockfile produces BOTH a red
+# gate AND a triageable alert — never one without the other.
+#
+# The reusable workflow pins its own internals by SHA
+# (osv-scanner-action v2.7.0, codeql-action/upload-sarif v4.38.0), so
+# this file only pins the reusable-workflow ref itself.
+
+name: OSV dependency scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, Wednesday 05:17 UTC — new advisories get caught even when
+    # the lockfile is quiet.
+    - cron: '17 5 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv:
+    name: gate-16-osv-scanner
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    permissions:
+      contents: read
+      security-events: write

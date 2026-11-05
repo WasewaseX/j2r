@@ -1,0 +1,41 @@
+# Dependabot version updates — the file-based half of the dependency
+# program (2026-11-05, owner's Security-settings review).
+#
+# Repo-settings toggles the OWNER flips (I cannot change repo settings):
+#   * Dependency graph            -> On
+#   * Dependabot alerts           -> On
+#   * Dependabot security updates -> On  (+ grouped security updates)
+# This file drives VERSION updates on its own — once committed they
+# start with no further toggle.
+#
+# Both ecosystems the repo actually pins: the cargo workspace
+# (Cargo.lock) and the GitHub Actions we SHA-pin. Weekly cadence matches
+# the CodeQL/OSV Monday-Wednesday scan rhythm; grouped minor+patch keeps
+# the PR count low (major bumps arrive alone, deliberately — a major
+# bump deserves its own review). Dependabot rewrites SHA-pinned action
+# refs to the new SHA and comments the tag it maps to, so the pin
+# discipline survives automation.
+
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
