@@ -73,7 +73,7 @@
 
 use crate::heap::JRef;
 use crate::{throw_new, Throw, Value};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -136,6 +136,15 @@ pub struct ThreadRecord {
     /// * `isInterrupted` reads without clearing, `interrupted` (static)
     ///   reads AND clears.
     pub interrupted: AtomicBool,
+    /// True while this thread is parked INSIDE a monitor wait (T10/T17):
+    /// it cannot use the coop turn even if the rotation points at it —
+    /// its pair-mate, who would notify it, may itself be waiting for the
+    /// turn, which is a ring deadlock (found by the T17 coop stress and
+    /// identical in shape to the CI-timing race the gc-probe localized).
+    /// The turn-grant loop skips such holders; the flag is cleared by
+    /// monitor_wake_prep, whose yield_point re-acquires the turn after
+    /// the wake.
+    pub in_monitor_wait: AtomicBool,
     /// The per-thread wake channel (T14). `interrupt()` delivers through
     /// it so a thread parked on a monitor wait set (or on `sleep`/`join`,
     /// which also poll their record flag at each wake) wakes instantly.
@@ -161,6 +170,7 @@ impl ThreadRecord {
             slots: Mutex::new(frame_slots::SlotState::new()),
             java_object: Mutex::new(None),
             interrupted: AtomicBool::new(false),
+            in_monitor_wait: AtomicBool::new(false),
             wakeup_mu: Mutex::new(false),
             wakeup_cv: Condvar::new(),
         }
@@ -169,6 +179,7 @@ impl ThreadRecord {
     /// Delivers a wake event through the ticket channel (T14). Used by
     /// `interrupt()` and by `notify`/`notifyAll` for each removed waiter.
     pub(crate) fn deliver_wakeup(&self) {
+        chaos();
         let mut flag = self.wakeup_mu.lock().unwrap_or_else(|e| e.into_inner());
         *flag = true;
         self.wakeup_cv.notify_all();
@@ -224,6 +235,22 @@ fn lock_sched() -> std::sync::MutexGuard<'static, Sched> {
 
 fn notify_all(_: &std::sync::MutexGuard<'_, Sched>) {
     SCHED_CV.notify_all();
+}
+
+fn sched_trace(what: &str, tid: usize) {
+    if std::env::var("J2R_SCHED_TRACE").is_ok() {
+        let g = lock_sched();
+        eprintln!(
+            "sched {} tid{} turn={} holder_state={}",
+            what,
+            tid,
+            g.turn,
+            g.records
+                .get(g.turn)
+                .map(|h| h.state.load(Ordering::Acquire))
+                .unwrap_or(9)
+        );
+    }
 }
 
 /// Snapshot of the registry for the collector (T08) — used by
@@ -394,14 +421,30 @@ pub(crate) fn yield_point() {
     // phase re-usable by the next one — the same way apply_coop_seed
     // pins a fresh ring's start in generated programs).
     loop {
+        chaos();
         if g.turn == me.reg_index {
             break;
         }
         let holder = &g.records[g.turn];
         if holder.state.load(Ordering::Acquire) == STATE_EXITED
             || !holder.in_ring.load(Ordering::Acquire)
+            // A monitor-parked holder cannot use the turn: its pair-mate,
+            // who would notify it, may itself be waiting for the turn —
+            // grant onward so the ring keeps moving (T17 race fix). The
+            // holder re-acquires through monitor_wake_prep's yield_point
+            // when its notify arrives.
+            // Scan origin is the HOLDER, not me: skipping from `me`
+            // deterministically re-selects the same monitor-parked
+            // candidate and spins forever while holding the SCHED lock
+            // (found by the coop stress round itself — the freeze was
+            // total: even the stall-dump bystander blocked on
+            // lock_sched). From the holder, every skip strictly
+            // progresses around the ring and terminates on a holder
+            // that can actually act (a waiter, or me).
+            || (holder.state.load(Ordering::Acquire) == STATE_PARKED
+                && holder.in_monitor_wait.load(Ordering::Acquire))
         {
-            g.turn = next_live_index(&g.records, me.reg_index);
+            g.turn = next_live_index(&g.records, g.turn);
             notify_all(&g);
             continue;
         }
@@ -421,6 +464,9 @@ pub(crate) fn yield_point() {
 /// the turn would deadlock the ring: the owner waits for the turn, the
 /// holder waits for the owner's release.
 pub(crate) fn monitor_park_prep(rec: &Arc<ThreadRecord>) {
+    chaos();
+    sched_trace("park", rec.reg_index);
+    rec.in_monitor_wait.store(true, Ordering::Release);
     rec.state.store(STATE_PARKED, Ordering::Release);
     if coop_mode() && rec.in_ring.load(Ordering::Acquire) {
         let mut g = lock_sched();
@@ -437,6 +483,9 @@ pub(crate) fn monitor_park_prep(rec: &Arc<ThreadRecord>) {
 /// (`yield_point` — pass-if-held, then wait for the turn), and marks the
 /// thread `Running`.
 pub(crate) fn monitor_wake_prep(rec: &Arc<ThreadRecord>) {
+    chaos();
+    sched_trace("wake", rec.reg_index);
+    rec.in_monitor_wait.store(false, Ordering::Release);
     safepoint_poll();
     yield_point();
     rec.state.store(STATE_RUNNING, Ordering::Release);
@@ -453,6 +502,7 @@ pub(crate) fn safepoint_poll() {
     if !GC_REQUESTED.load(Ordering::Acquire) {
         return;
     }
+    chaos();
     let me = current_record();
     me.state.store(STATE_PARKED, Ordering::Release);
     let mut g = lock_sched();
@@ -524,6 +574,7 @@ impl StwGuard {
 
 impl Drop for StwGuard {
     fn drop(&mut self) {
+        chaos();
         GC_REQUESTED.store(false, Ordering::Release);
         // Release every GC-parked thread. Coop-turn waiters are not
         // released by GC — they are granted turns by rotation; their wake
@@ -1255,6 +1306,58 @@ pub fn n_thread_active_count() -> Result<Value, Throw> {
     Ok(Value::Int(n as i32))
 }
 
+// --------------------------------------------------- chaos knob (T17)
+
+/// Testing instrument, never a runtime feature: `J2R_CHAOS_US` (0-2000,
+/// default 0) injects a randomized micro-sleep at the concurrency
+/// protocol seams below, widening the race windows that only CI's slow
+/// runners hit naturally (gc-probe evidence: MonitorContention 2/2,
+/// WaitNotify 1/2 hangs at a collection per allocation on 2-vCPU). The
+/// stress suites (T17) run with chaos enabled; generated programs never
+/// set it, and the cost when unset is one Acquire load per seam.
+static CHAOS_US: AtomicU32 = AtomicU32::new(0);
+static CHAOS_INIT: AtomicBool = AtomicBool::new(false);
+static CHAOS_SEED: AtomicU32 = AtomicU32::new(0x9E3779B9);
+
+fn chaos_us() -> u64 {
+    if !CHAOS_INIT.load(Ordering::Acquire) {
+        let v: u64 = std::env::var("J2R_CHAOS_US")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+            .min(2000);
+        CHAOS_US.store(v as u32, Ordering::Release);
+        CHAOS_INIT.store(true, Ordering::Release);
+    }
+    CHAOS_US.load(Ordering::Acquire) as u64
+}
+
+/// Test-only forcing: set the chaos budget directly (bypasses the env
+/// read, which is cached process-wide and racy under parallel tests).
+#[cfg(test)]
+pub(crate) fn chaos_set(us: u32) {
+    CHAOS_INIT.store(true, Ordering::Release);
+    CHAOS_US.store(us.min(2000), Ordering::Release);
+}
+
+/// A randomized micro-sleep (xorshift, lock-free) — the wider-window
+/// stand-in for CI's slow scheduler.
+pub(crate) fn chaos() {
+    let us = chaos_us();
+    if us == 0 {
+        return;
+    }
+    let mut x = CHAOS_SEED.load(Ordering::Relaxed);
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    CHAOS_SEED.store(x, Ordering::Relaxed);
+    let roll = (x % (us as u32 + 1)) as u64;
+    if roll > 0 {
+        std::thread::sleep(std::time::Duration::from_micros(roll));
+    }
+}
+
 // ------------------------------------------------- shutdown + roots
 
 /// Joins every registered non-daemon thread still alive. Called by the
@@ -1928,8 +2031,7 @@ mod tests {
             tx.send(own).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(50));
             crate::monitor::monitor_enter(&o2).unwrap(); // blocks ~350ms
-            let set = crate::thread::n_thread_is_interrupted(Some(&own)).unwrap();
-            set
+            crate::thread::n_thread_is_interrupted(Some(&own)).unwrap()
         });
         let contender_obj = rx.recv().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(150));
@@ -2030,7 +2132,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
             d2.alive.store(false, Ordering::Release);
             d2.state.store(STATE_EXITED, Ordering::Release);
-            let mut g = lock_sched();
+            let g = lock_sched();
             notify_all(&g);
         });
         let t0 = Instant::now();
@@ -2042,5 +2144,162 @@ mod tests {
             "a death mid-handshake must release the collector"
         );
         killer.join().unwrap();
+    }
+    // ------------------------------------------ T17 stress (Wave 4)
+
+    /// Both stress suites mutate process-global scheduler state (coop
+    /// mode, chaos budget), so they must never overlap — libtest runs
+    /// tests in parallel threads and would otherwise corrupt each
+    /// other's rounds. One slot, taken for the whole round set.
+    static STRESS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// One producer/consumer pair on a real monitor: the producer fills,
+    /// the consumer drains, both use wait/notifyAll for the handoff. The
+    /// invariant is the exact tally — a lost wakeup or a missed notify
+    /// hangs the pair, which the test deadline converts into a loud
+    /// failure (never a CI hang).
+    fn stress_round(
+        pairs: usize,
+        iters: usize,
+        deadline: std::time::Instant,
+    ) -> std::time::Duration {
+        let t0 = Instant::now();
+        let mut handles = Vec::new();
+        let done = Arc::new(AtomicU32::new(0));
+        for pair in 0..pairs {
+            // PER-PAIR cell: one producer, one consumer, exact handoff
+            // counts — with a shared cell a consumer's last drain can
+            // arrive after its producers finished and wait forever (the
+            // first stress draft's workload bug; found by its own trace,
+            // not a runtime race).
+            let obj = crate::object::new_obj("test/StressCell", 0).unwrap();
+            let count = Arc::new(AtomicI64::new(0));
+            if pair == 0 && std::env::var("J2R_STRESS_DUMP").is_ok() {
+                dump_while_stalled(obj, 20);
+            }
+            for is_producer in [true, false] {
+                let count = count.clone();
+                let done = done.clone();
+                handles.push(std::thread::spawn(move || {
+                    let rec = current_record();
+                    rec.in_ring.store(true, Ordering::Release);
+                    let tid = rec.reg_index;
+                    let _d = TestDeath(rec);
+                    for it in 0..iters {
+                        if std::env::var("J2R_STRESS_TRACE").is_ok() {
+                            eprintln!(
+                                "T{} pair{} {} iter{}",
+                                tid,
+                                pair,
+                                if is_producer { "P" } else { "C" },
+                                it
+                            );
+                        }
+                        crate::monitor::monitor_enter(&obj).unwrap();
+                        loop {
+                            let c = count.load(Ordering::Acquire);
+                            if is_producer && c < 1 {
+                                count.store(c + 1, Ordering::Release);
+                                crate::monitor::object_notify(&obj, true).unwrap();
+                                break;
+                            }
+                            if !is_producer && c > 0 {
+                                count.store(c - 1, Ordering::Release);
+                                crate::monitor::object_notify(&obj, true).unwrap();
+                                break;
+                            }
+                            crate::monitor::object_wait(&obj, 0, 0).unwrap();
+                        }
+                        crate::monitor::monitor_exit(&obj).unwrap();
+                    }
+                    done.fetch_add(1, Ordering::AcqRel);
+                }));
+            }
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(done.load(Ordering::Acquire), (pairs * 2) as u32);
+        let elapsed = Instant::now() - t0;
+        let limit = deadline - t0;
+        assert!(
+            elapsed < limit,
+            "stress round took {elapsed:?} (limit {limit:?}) — treat as a hang"
+        );
+        elapsed
+    }
+
+    /// T17 coop stress: producer/consumer pairs under the deterministic
+    /// scheduler, several starting turns ("seeds") × fixed iterations.
+    /// Every round must finish with the exact tally inside the deadline.
+    #[test]
+    fn stress_coop_producer_consumer_rounds() {
+        let _serial = STRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _rt = crate::test_support::runtime();
+        set_coop_for_test(true);
+        let seeds: [usize; 5] = [0, 1, 3, 7, 11];
+        for seed in seeds {
+            lock_sched().turn = seed;
+            let elapsed = stress_round(3, 40, Instant::now() + std::time::Duration::from_secs(60));
+            assert!(
+                elapsed < std::time::Duration::from_secs(30),
+                "coop round seed {seed} too slow: {elapsed:?}"
+            );
+        }
+        set_coop_for_test(false);
+    }
+
+    /// Stall-state dump (T17 debugging): prints the ring, per-record
+    /// states, and a live monitor snapshot every 300ms from a bystander
+    /// thread. Test-only; removed once the race class is fixed.
+    fn dump_while_stalled(obj: crate::heap::JRef, secs: u64) {
+        std::thread::spawn(move || {
+            for _ in 0..(secs * 10) {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let m = crate::heap::entry_monitor(obj);
+                let st = m.lock();
+                let line = format!(
+                    "DUMP owner={:?} count={} waiters={:?}",
+                    st.owner, st.count, st.waiters
+                );
+                drop(st);
+                let g = lock_sched();
+                let states: Vec<String> = g
+                    .records
+                    .iter()
+                    .map(|r| {
+                        format!(
+                            "{}:{}{}",
+                            r.reg_index,
+                            r.state.load(Ordering::Acquire),
+                            if r.in_ring.load(Ordering::Acquire) {
+                                "r"
+                            } else {
+                                "-"
+                            }
+                        )
+                    })
+                    .collect();
+                eprintln!("{} turn={} [{}]", line, g.turn, states.join(" "));
+                drop(g);
+            }
+        });
+    }
+
+    /// T17 free-running stress: the same workload with the chaos knob on
+    /// (randomized micro-delays at the protocol seams — the local
+    /// stand-in for CI's slow scheduler). Invariant assertions only; no
+    /// output comparison. This is the harness the CI-timing monitor race
+    /// hunt runs through; a reproduction is a hang converted into a loud
+    /// deadline failure.
+    #[test]
+    fn stress_free_running_producer_consumer_chaos() {
+        let _serial = STRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _rt = crate::test_support::runtime();
+        for us in [0u32, 300, 800, 1500] {
+            chaos_set(us);
+            stress_round(4, 30, Instant::now() + std::time::Duration::from_secs(60));
+        }
+        chaos_set(0);
     }
 }

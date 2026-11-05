@@ -59,14 +59,14 @@ pub(crate) struct Monitor {
     cv: Condvar,
 }
 
-struct MonState {
+pub(crate) struct MonState {
     /// Owning thread's registry id; `None` = unowned.
-    owner: Option<usize>,
+    pub(crate) owner: Option<usize>,
     /// Owner's re-entrancy depth (>= 1 while owned).
-    count: u32,
+    pub(crate) count: u32,
     /// FIFO wait set (thread ids). `notify` removes a waiter; the removed
     /// thread then competes for ownership like any enter-contender.
-    waiters: VecDeque<usize>,
+    pub(crate) waiters: VecDeque<usize>,
 }
 
 impl Monitor {
@@ -81,7 +81,7 @@ impl Monitor {
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, MonState> {
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, MonState> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
@@ -391,7 +391,23 @@ pub fn object_wait(
             Some(_) => {
                 crate::thread::monitor_park_prep(&rec);
                 parked2 = true;
-                st = m.cv.wait(st).unwrap_or_else(|e| e.into_inner());
+                // Bounded re-check slice, NOT an indefinite wait: the
+                // release notify this waiter is waiting for may already
+                // have FIRED while it was between its ticket wake and
+                // this park (found by the T17 coop stress round — and it
+                // IS the CI-timing race the gc-probe localized:
+                // MonitorContention/WaitNotify hang when the notified
+                // waiter loses that window on slow runners, because with
+                // one pair left no further m.cv event ever fires). The
+                // JDK closes the window by relocating the notified
+                // waiter onto the entry list at notify time; our slice
+                // re-check converts any such loss into a bounded delay.
+                // m.cv.wait_timeout(st) keeps the park atomic with the
+                // ownership check (L7 shape of the Wave-3 park).
+                st =
+                    m.cv.wait_timeout(st, std::time::Duration::from_millis(5))
+                        .unwrap_or_else(|e| e.into_inner())
+                        .0;
             }
         }
     }

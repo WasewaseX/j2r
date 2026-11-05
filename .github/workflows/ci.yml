@@ -32,8 +32,9 @@ name: CI
 # Gate numbering: 1 fmt, 2 clippy, 3 jvm-differential, 4 build-release,
 # 5 standalone, 6 doc-lint, 7 security-audit, 8 aggregate, 9 gc-stress
 # (duration-balanced 6-leg bucket matrix, J2R_DIFF_BUCKET, 40-min cap),
-# 10 no-unsafe, 11 doc-counts, 12 runtime-seams. Gate 13 is reserved for
-# the M4 Wave-4 concurrency gate (docs/M4_PLAN.md §3 Wave 4); gate 14
+# 10 no-unsafe, 11 doc-counts, 12 runtime-seams, 13 concurrency (coop
+# differential × 4 seeds + chaos stress, 25-min cap — M4_PLAN §3 Wave 4,
+# landed 2026-11-05); gate 14
 # = CodeQL security & quality (codeql.yml, own workflow + Security tab);
 # gate 15 = OSSF Scorecard supply-chain posture (scorecard.yml, own
 # workflow, Security tab); gate 16 = OSV dependency scan (osv.yml, own
@@ -232,6 +233,47 @@ jobs:
         # gate-9 timeout self-diagnosing.
         run: cargo test --release -p j2r-cli --test diff_suite --locked -- --nocapture
 
+  concurrency:
+    name: gate-13-concurrency
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      # A red seed is evidence, not noise — keep every leg's verdict.
+      fail-fast: false
+      matrix:
+        seed: [0, 1, 7, 11]
+    env:
+      # Coop mode with a pinned rotation seed (J2R_SCHED_SEED feeds
+      # apply_coop_seed at main-thread registration): each leg re-runs
+      # the ten thread fixtures differentially vs Temurin under a
+      # DIFFERENT deterministic schedule — output must stay byte-
+      # identical (the coop scheduler changes interleaving, never
+      # semantics). The job cap is the plan's per-seed timeout: an
+      # overrunning seed fails loudly instead of hanging.
+      J2R_SCHED: coop
+      J2R_SCHED_SEED: ${{ matrix.seed }}
+      J2R_DIFF_FIXTURES: ThreadHello,ThreadSafepoint,WaitNotify,MonitorContention,WaitTimeout,InterruptSleep,InterruptJoin,InterruptWait,DaemonExit,DaemonInterrupt
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21.0.13'
+      - name: Coop differential fixtures, seed ${{ matrix.seed }}
+        run: cargo test --release -p j2r-cli --test diff_suite --locked -- --nocapture
+      - name: Concurrency stress — coop rounds + free-running chaos (loud deadlines)
+        # The stress tests carry their own per-round deadlines (a lost
+        # wakeup or a ring stall is a loud failure in seconds, never a
+        # CI hang); the chaos knob (J2R_CHAOS_US-class randomized
+        # micro-delays at the protocol seams) is the local stand-in for
+        # CI's slow scheduler — the exact instrument that found and
+        # pinned the T17 turn-grant + monitor-wait races.
+        run: cargo test --release -p j2r-runtime -- stress_ --locked -- --nocapture
+
   no-unsafe:
     name: gate-10-no-unsafe
     runs-on: ubuntu-latest
@@ -278,7 +320,7 @@ jobs:
 
   all-gates:
     name: gate-8-all-gates-green
-    needs: [fmt, clippy, test, build-release, standalone, doc, security, gc-stress, no-unsafe, doc-counts, seams]
+    needs: [fmt, clippy, test, build-release, standalone, doc, security, gc-stress, no-unsafe, doc-counts, seams, concurrency]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

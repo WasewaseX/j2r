@@ -7,10 +7,23 @@
  * notify() inside the catch succeeds); a pre-set flag makes wait throw
  * immediately without releasing; a thread interrupted while BLOCKED ON
  * MONITOR-ENTER never throws, enters normally, and keeps the flag set.
+ *
+ * Schedule-robust (T17/gate-13, the DaemonInterrupt pattern): in coop
+ * mode sleep is a yield, so the part-(c) holder would release the lock
+ * before the contender ever blocks on the enter. The holder instead
+ * keeps the lock until main releases it (volatile done flag, spin
+ * inside the monitor), and the contender only attempts the enter after
+ * the holder PROVABLY owns it. At interrupt time the contender is
+ * either still outside the enter (pre-set flag -> immune enter, sticky
+ * flag) or parked inside it (immunity, sticky flag) — the same line
+ * either way.
  */
 public class InterruptWait {
     static final Object lock = new Object();
     static volatile String m = "none";
+    static volatile boolean holding = false;
+    static volatile boolean arrived = false;
+    static volatile boolean done = false;
 
     public static void main(String[] args) throws Exception {
         // (a) pre-interrupted wait: immediate throw, monitor never
@@ -36,7 +49,9 @@ public class InterruptWait {
         System.out.println("pre=" + m);
 
         // (b) interrupt during wait: same message-less IE, monitor
-        // re-acquired before delivery.
+        // re-acquired before delivery. Seed-robust without a handshake:
+        // a pre-set flag (interrupt before the wait) and a delivered
+        // one (during the wait) print the same line.
         Thread b = new Thread(() -> {
             synchronized (lock) {
                 try {
@@ -59,25 +74,35 @@ public class InterruptWait {
         System.out.println("during=" + m);
 
         // (c) monitor-enter is NOT interruptible: the contender is
-        // interrupted while blocked on the enter, enters normally, and
-        // the flag survives (sticky).
+        // interrupted while blocked on (or just before) the enter,
+        // enters normally, and the flag survives (sticky).
         Thread holder = new Thread(() -> {
             synchronized (lock) {
-                try {
-                    Thread.sleep(300);
-                } catch (InterruptedException e) { /* irrelevant */ }
+                holding = true;
+                while (!done) {
+                    Thread.yield();
+                }
             }
         });
         Thread contender = new Thread(() -> {
+            while (!holding) {
+                Thread.yield();
+            }
+            arrived = true;
             synchronized (lock) {
                 m = "entered flag=" + Thread.currentThread().isInterrupted();
             }
         });
         holder.start();
-        Thread.sleep(50);
+        while (!holding) {
+            Thread.sleep(5);
+        }
         contender.start();
-        Thread.sleep(100);
+        while (!arrived) {
+            Thread.sleep(5);
+        }
         contender.interrupt();
+        done = true;
         holder.join();
         contender.join();
         System.out.println("enter=" + m);

@@ -276,7 +276,7 @@ fn bucket_for_gate9(bucket: &str, fixtures: &[std::path::PathBuf]) -> Vec<String
         .iter()
         .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
         .collect();
-    let in_list = |name: &str, list: &[&str]| list.iter().any(|s| *s == name);
+    let in_list = |name: &str, list: &[&str]| list.contains(&name);
     // Fixed lists are INTERSECTED with the on-disk census: a fixture that
     // is renamed or deleted must never survive as a phantom bucket entry
     // (the partition unit test pins union == census).
