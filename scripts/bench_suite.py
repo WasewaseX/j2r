@@ -36,6 +36,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SUITE = REPO / "crates" / "j2r-cli" / "tests" / "suite"
+CORPUS = REPO / "corpus"
 
 DEFAULT_FIXTURES = [
     "Arith",         # micro: pure arithmetic, negligible I/O
@@ -105,6 +106,15 @@ def main() -> int:
 
     for name in names:
         src = SUITE / f"{name}.java"
+        is_corpus = False
+        if not src.exists():
+            # Corpus entries (R5 policy: one bench row per corpus entry)
+            # live under corpus/ with the same driver shape; their javac
+            # output is a set of TOP-LEVEL sibling classes (the merge
+            # strips the package), so the compile step feeds every
+            # produced class, not just Name*.
+            src = CORPUS / f"{name}.java"
+            is_corpus = True
         if not src.exists():
             print(f"{name:<16} MISSING — skipped")
             continue
@@ -112,6 +122,10 @@ def main() -> int:
         subprocess.run(["rm", "-rf", str(work)])
         work.mkdir(parents=True)
         env = dict(os.environ)
+        # The corpus-scale generated crates (JZlib ~7.2k lines) SIGSEGV
+        # rustc's default thread stack during expansion — see
+        # docs/CORPUS_WAVE.md §Wave 2 build-side note.
+        env.setdefault("RUST_MIN_STACK", "33554432")
         env.pop("J2R_SCHED", None)          # pure default mode, always
         env.pop("J2R_SCHED_SEED", None)
         env.pop("J2R_GC_EVERY_N", None)
@@ -138,7 +152,10 @@ def main() -> int:
         if not cli_bin.exists():
             subprocess.run(["cargo", "build", "--release", "-p", "j2r-cli", "--locked"],
                            cwd=REPO, capture_output=True, timeout=1200)
-        classes = sorted((work / "classes").glob(f"{name}*.class"))
+        if is_corpus:
+            classes = sorted((work / "classes").glob("*.class"))
+        else:
+            classes = sorted((work / "classes").glob(f"{name}*.class"))
         t0 = time.perf_counter()
         gen = subprocess.run(
             [str(cli_bin), "compile", *[str(c) for c in classes],

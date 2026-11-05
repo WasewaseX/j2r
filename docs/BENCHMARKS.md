@@ -73,3 +73,34 @@ python3 scripts/bench_suite.py --reps 5 \
   classes are the ones that could move WaitNotify/ThreadSafepoint).
 * Add one row per new corpus entry (real-program evidence, not
   micro-probes).
+
+## Corpus entry 2 row (JZlibCorpus) — 2026-11-05, 2-core Xeon / 4 GB, recorded with a build-side limit
+
+Repro: `python3 scripts/bench_suite.py --reps 5 JZlibCorpus` (the harness
+resolves corpus stems under `corpus/` since the JZlib row landed).
+
+| fixture | javac(s) | java(ms) | j2r-gen(s) | native(ms) | native/java |
+|---|---|---|---|---|---|
+| JZlibCorpus | 1.592 | 50.1 | **release build does not fit 4 GB — row incomplete** | 124.4 (DEBUG binary — NOT comparable to the release rows above) | — |
+
+The honest state:
+
+* **Translation is 75ms** for the 7.2k-line library — the compile-side
+  story stays "translation is cheap, the vendored-runtime cargo build
+  dominates" exactly as the first table recorded.
+* **The release build of the JZlib generated crate is SIGKILLed by the
+  sandbox at every opt level (3, 1, even codegen-units=16) on this
+  4 GB machine** — rustc's own MIR passes on the mega-functions the
+  giant switch tables produce (debug builds pass with
+  RUST_MIN_STACK=32 MiB, which the harness now sets for all child
+  builds). This is a REAL codegen-scale finding, not a bench footnote:
+  M5's 70k-class target cannot be one giant emitted function per
+  method-table monster — split-table / smaller-function emission is a
+  registered codegen work item (see docs/CORPUS_WAVE.md §Wave 2 and
+  TODO.md M5).
+* The 124.4 ms figure is the DEBUG binary's run time, recorded only as
+  a scale reference ("a full deflate/inflate round-trip battery runs
+  end-to-end in ~0.12s even unoptimized"); it is NOT the release
+  comparison and must not be quoted as one. The release row lands when
+  the generated crate fits a standard runner's memory (either after the
+  codegen scale-up or on a bigger machine).
