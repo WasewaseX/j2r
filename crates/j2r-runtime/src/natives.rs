@@ -244,17 +244,95 @@ fn n_enum_compare_to(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Res
     }
 }
 
-/// Reflection machinery NOT modelled (R2 scope): `Enum.valueOf(Class, String)`
-/// needs the enum's constant table. Validation fact only — a real call
-/// fails loud with a named reason, mirroring the serialization marker.
-fn n_enum_value_of_marker(
-    _recv: Option<&JRef>,
+/// JDK `Enum.getDeclaringClass` — the `Class` object for the enum class
+/// itself (final, returns the receiver's runtime class).
+fn n_enum_get_declaring_class(
+    recv: Option<&JRef>,
     _args: &[Value],
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
-    Err(internal_error(
-        "j2r: Enum.valueOf(Class,String) is not modelled (enum reflection is R2 scope)",
-    ))
+    let r = this(recv, "Enum.getDeclaringClass");
+    let name = crate::heap::with_obj(*r, |o| o.jclass.to_string());
+    Ok(reflect::class_value(&name))
+}
+
+/// JDK `Enum.valueOf(Class, String)`. javac's synthetic `E.valueOf(String)`
+/// delegates here, so one implementation covers both entry points. The
+/// constant table is the class's `$VALUES` static (javac synthesizes it for
+/// every enum), read through the generated crate's pool: `meta` names the
+/// field, `static_get` reads the slot. The constant's name lives in the
+/// Enum slot 0 (the same slot `<init>` writes).
+///
+/// Temurin order pinned by corpus/EnumProbe.java: the directory lookup runs
+/// FIRST, then a null name throws NPE("Name is null"), then a miss throws
+/// IAE(`No enum constant <binary name>.<name>`) — the binary (dotted) name,
+/// so a nested enum prints `EnumProbe.Color.red`.
+fn n_enum_value_of(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let cls = match args.first() {
+        Some(Value::Ref(Some(r))) => *r,
+        // Temurin dereferences the class argument without a message NPE.
+        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(internal_error("j2r internal: Enum.valueOf class argument")),
+    };
+    let name: Option<String> = match args.get(1) {
+        Some(Value::Str(s)) => Some(s.to_string()),
+        Some(Value::Ref(Some(o))) if object::is_string(o) => {
+            Some(object::string_value(o).to_string())
+        }
+        Some(Value::Ref(None)) => None,
+        _ => return Err(internal_error("j2r internal: Enum.valueOf name argument")),
+    };
+    let cls_name = reflect::class_name_of(&cls);
+    let values = match (ctx.meta, ctx.static_get) {
+        (Some(meta), Some(get)) => match meta(&cls_name) {
+            Some(info) => info
+                .fields
+                .iter()
+                .find(|f| f.is_static && f.name == "$VALUES")
+                .map(|f| get(f.static_slot)),
+            None => None,
+        },
+        _ => None,
+    };
+    match values {
+        Some(Value::Ref(Some(arr))) => {
+            let len = crate::array::array_length(&arr)?;
+            for i in 0..len {
+                let elem = crate::array::array_load(&arr, i)?;
+                if let Value::Ref(Some(obj)) = &elem {
+                    if let Value::Str(s) = enum_slot(Some(obj), "Enum.valueOf", 0) {
+                        if let Some(want) = &name {
+                            if s.as_ref() == want.as_str() {
+                                return Ok(elem);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Not a compiled enum class (builtin pseudo-enum, uncompiled
+        // dependency): no constant table to search — loud internal marker,
+        // mirroring the serialization-marker rule.
+        _ => {
+            return Err(internal_error(&format!(
+                "j2r internal: Enum.valueOf: no $VALUES static pool for {cls_name}"
+            )))
+        }
+    }
+    match name {
+        None => Err(throw_new(
+            "java/lang/NullPointerException",
+            Some("Name is null"),
+        )),
+        Some(n) => Err(throw_new(
+            "java/lang/IllegalArgumentException",
+            Some(&format!(
+                "No enum constant {}.{}",
+                reflect::canonical_name(&cls_name),
+                n
+            )),
+        )),
+    }
 }
 
 fn n_object_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
@@ -2448,8 +2526,14 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     // every `enum` to `extends java/lang/Enum` with super(name, ordinal)
     // <init> calls. Slots: 0 = name (Str), 1 = ordinal (Int). equals is
     // final identity in the JDK; compareTo is the ordinal compare; valueOf
-    // is reflection machinery that does NOT exist here — a loud marker
-    // (validation fact only), mirroring the serialization marker rule.
+    // reads the class's synthesized $VALUES pool through the reflection
+    // metadata (F6, corpus/EnumProbe.java pins the exact messages).
+    (
+        "java/lang/Enum",
+        "getDeclaringClass",
+        "()Ljava/lang/Class;",
+        n_enum_get_declaring_class,
+    ),
     (
         "java/lang/Enum",
         "<init>",
@@ -2485,7 +2569,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "java/lang/Enum",
         "valueOf",
         "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;",
-        n_enum_value_of_marker,
+        n_enum_value_of,
     ),
     // java/lang/System
     ("java/lang/System", "exit", "(I)V", n_system_exit),

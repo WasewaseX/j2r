@@ -186,8 +186,11 @@ a probe-pinned native (Temurin 21.0.13) or a structural fix:
 3. **java/lang/Enum** — javac compiles every `enum` to `extends Enum`
    (JZlib's hand-rolled WrapperType): slots (name, ordinal), <init>
    super(name, ordinal), name/ordinal/toString/equals(identity)/
-   compareTo(ordinal). `Enum.valueOf(Class,String)` is a loud marker
-   (enum reflection is R2 scope) — validation fact only.
+   compareTo(ordinal). `Enum.valueOf(Class,String)` was a loud marker
+   until the F6 wave made it REAL: the class's synthesized `$VALUES`
+   static is read through the reflection metadata (meta names the field,
+   static_get reads the slot), and javac's synthetic `E.valueOf(String)`
+   delegates to it — one implementation covers both entry points.
 4. **Array `clone()`** — every array type is a subtype of Object with a
    public clone (JVMS 2.15): validate_virtual accepts array receivers
    for clone + the Object methods; invoke_virtual shallow-copies
@@ -227,9 +230,13 @@ because it is part of the reproduction command.
 
 ### Registered gaps from wave 2 (loud, not silent)
 
-- `Enum.valueOf(Class,String)` — R2 scope (enum reflection).
 - `InputStream.skip(J)` default — the JDK loop-read skip buffer is not
   modelled; calling it fails loud (JZlib overrides skip).
+- `PrintStream.printf` / `String.format` — the Formatter engine (HALF_UP
+  decimal rounding, %s/%d/%.Nf/%n) is unmodelled; calling it fails loud
+  (F6 wave registered it when corpus/EnumProbe.java pinned enum surface
+  — the probe pins doubles via println instead). Its own wave, probe
+  first.
 - UTF-16 charset family — UnsupportedEncodingException until needed.
 - `[[[<prim>` verifier depth — models as Ref elements beyond one level.
 - Stream classes compile and validate; the GZIP wrappers and

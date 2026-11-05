@@ -130,6 +130,15 @@ pub fn binary_name(internal: &str) -> String {
     internal.replace('/', ".")
 }
 
+/// The canonical name used in the `Enum.valueOf` miss message
+/// (`getCanonicalName()`): nested member classes join with `.` all the way
+/// down, so `EnumProbe$Color` prints as `EnumProbe.Color` — Temurin-pinned
+/// by corpus/EnumProbe.java. Enum types are never anonymous or local (JLS
+/// 8.9), so the canonical name always exists on this path.
+pub fn canonical_name(internal: &str) -> String {
+    binary_name(internal).replace('$', ".")
+}
+
 /// The dotted field-type name used in `Field` failure messages
 /// (`getFieldType().getName()`): primitives as keywords, references and
 /// arrays dotted through [`binary_name`].
@@ -716,6 +725,16 @@ mod tests {
         assert_eq!(binary_name("[Ljava/lang/String;"), "[Ljava.lang.String;");
         assert_eq!(binary_name("[[J"), "[[J");
         assert_eq!(binary_name("V"), "void");
+    }
+
+    #[test]
+    fn canonical_names_dots_nesting() {
+        let _rt = crate::test_support::runtime();
+        // Enum.valueOf's miss message: nested enums print dotted all the way
+        // down (Temurin: `No enum constant EnumProbe.Color.red`).
+        assert_eq!(canonical_name("EnumProbe$Color"), "EnumProbe.Color");
+        assert_eq!(canonical_name("a/b/C$D$E"), "a.b.C.D.E");
+        assert_eq!(canonical_name("Color"), "Color");
     }
 
     #[test]

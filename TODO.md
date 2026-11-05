@@ -378,9 +378,26 @@ local full-gate sweep at the same tree).**
       generalization was wrong — corrected). java/lang/Comparable joined
       the builtin hierarchy (boxed numbers + String + Enum implement it).
       ArraycopyMismatch fixture byte-identical vs Temurin.
-- [ ] **F4/F5 residuals** — none registered; InputStream.skip(J) default,
-      UTF-16 charset family, `[[[<prim>` verifier depth, Enum.valueOf stay
-      loud (docs/CORPUS_WAVE.md §gaps).
+- [x] **F6 enum classes end-to-end — LANDED (2026-11-05)** — Temurin probe
+      (corpus/EnumProbe.java, 9 sections) pinned the full surface: ordinals/
+      names/toString, values() array-clone semantics, valueOf both entry
+      points (NPE `Name is null`; IAE `No enum constant <canonical name>.<name>`
+      — nested enums print dotted: `No enum constant EnumProbe.Color.red`),
+      compareTo/equals identity, getDeclaringClass, switch-over-enum (javac's
+      $SwitchMap synthetic compiles through the GENERIC pipeline — no
+      enum-specific codegen needed: the enum class itself, $VALUES included,
+      flows through the ordinary path), enum fields/constructors/methods
+      (Planet), static-init order (constants exist before other statics run).
+      Runtime: java/lang/Enum natives gained getDeclaringClass + a REAL
+      valueOf (reads the class's synthesized $VALUES pool through the
+      reflection metadata: meta names the field, static_get reads the slot);
+      reflect::canonical_name joined (unit-tested). EnumFixture differential
+      fixture byte-identical vs Temurin; suite 97 → 98, tests 300 → 301.
+- [ ] **F6 residuals** — none registered; InputStream.skip(J) default,
+      UTF-16 charset family, `[[[<prim>` verifier depth,
+      PrintStream.printf/String.format (the Formatter engine: HALF_UP
+      decimal rounding, %s/%d/%.Nf/%n — its own wave) stay loud
+      (docs/CORPUS_WAVE.md §gaps).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script

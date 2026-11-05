@@ -74,10 +74,14 @@ fn differential_suite_matches_jvm() {
     // row) — 95 on disk. The F4/F5 closure wave added HexFloat (hex-float
     // literal parsing, bit-exact via floatToIntBits/doubleToLongBits) and
     // ArraycopyMismatch (the arraycopy element-mismatch message +
-    // destination-order partial copy) — 97 on disk, guard one below that.
+    // destination-order partial copy) — 97 on disk. The F6 wave added
+    // EnumFixture (enum classes end-to-end: $VALUES / values() clone
+    // semantics, valueOf with the canonical-name miss message,
+    // getDeclaringClass, compareTo/equals, the $SwitchMap synthetic, enum
+    // fields+ctors) — 98 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 96,
-        "differential suite shrank: {} fixtures (expected >= 96)",
+        fixtures.len() >= 97,
+        "differential suite shrank: {} fixtures (expected >= 97)",
         fixtures.len()
     );
 
