@@ -4165,6 +4165,16 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         lambda::n_sam,
     ),
+    // F2 probe wave: java.lang.Runnable.run — the LAST supported SAM
+    // interface without a direct-call row. Wave 2 added Runnable for
+    // `new Thread(() -> ...)` only, where the closure is consumed by
+    // Thread.start() and never invoked through its interface type; a
+    // direct `r.run()` on a Runnable-typed value (local, static, or
+    // field) dead-ended codegen validation with "virtual call target
+    // run()V not found on java/lang/Runnable" — the same row shape every
+    // other supported interface has. User classes implementing Runnable
+    // still dispatch through the ordinary registry walk first.
+    ("java/lang/Runnable", "run", "()V", lambda::n_sam),
     // M3 Wave 5: reflection subset (M3_PLAN §8)
     (
         "java/lang/Object",

@@ -329,9 +329,25 @@ local full-gate sweep at the same tree).**
 
 ### Corpus & quality (interleave when an M4 wave closes)
 
-- [ ] **F2 verifier gap (blocks corpus expansion)** — verifier rejects
-      clinit-initialized reference statics (the singleton-factory
-      pattern minimal-json and real libraries use). High priority.
+- [x] **F2 verifier gap — RESOLVED by probe audit (2026-11-05)** — the
+      board claim "verifier rejects clinit-initialized reference
+      statics" was STALE for the pattern it named: five probes
+      (singleton lazy factory; static-init-block singleton; Object-typed
+      upcast static; invokedynamic-concat String statics; cross-class
+      `Holder.h = new X()` in clinit) all compile, build, and run
+      byte-identical vs Temurin — the wave-1 pop_exact fix and the
+      JLS 12.4.2 clinit state machine closed those shapes earlier.
+      The audit DID find one real remaining gap: a direct call through a
+      JDK-interface-typed reference (`r.run()` on `Runnable`,
+      `s.get()` on `Supplier`) — every supported SAM interface had its
+      natives dispatch row EXCEPT java/lang/Runnable (added in Wave 2
+      only as a Thread body, never invoked through its interface). Fix:
+      the ("java/lang/Runnable", "run", "()V", lambda::n_sam) row +
+      LambdaClinit fixture (lambda + final/volatile reference statics in
+      <clinit>, called through the interface types). Suite 94 → 95,
+      full suite byte-identical vs Temurin (346s); guard 93 → 94;
+      README/gate-11 counts synced. F3 (java.io behavior parity) no
+      longer blocked by F2.
 - [ ] **F3 java.io behavior natives** — StringWriter/StringReader
       behavior parity follows F2 by design.
 - [ ] **F4, F5** — open corpus gaps, loud (docs/CORPUS_WAVE.md).

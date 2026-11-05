@@ -68,11 +68,13 @@ fn differential_suite_matches_jvm() {
     // M4 Wave 2 added the real-thread fixtures (ThreadHello, ThreadSafepoint)
     // — 86 on disk. M4 Wave 4 (T14) added the interrupt fixtures
     // (InterruptSleep, InterruptJoin, InterruptWait) and (T15) the daemon
-    // fixtures (DaemonExit, DaemonInterrupt) — 94 on disk, guard one
-    // below that.
+    // fixtures (DaemonExit, DaemonInterrupt) — 94 on disk. The F2 probe
+    // wave added LambdaClinit (lambda + final/volatile reference statics
+    // in <clinit>, invoked through the interface types — the Runnable SAM
+    // row) — 95 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 93,
-        "differential suite shrank: {} fixtures (expected >= 93)",
+        fixtures.len() >= 94,
+        "differential suite shrank: {} fixtures (expected >= 94)",
         fixtures.len()
     );
 
