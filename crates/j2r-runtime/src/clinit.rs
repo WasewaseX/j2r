@@ -34,6 +34,20 @@ struct ClassState {
 
 static STATES: Mutex<Vec<ClassState>> = Mutex::new(Vec::new());
 static CV: Condvar = Condvar::new();
+/// Debug (T17.1): registry index of the thread currently holding the
+/// STATES mutex, or -1. Written by the lock helper below; the STW
+/// quiescence dump prints it so a frozen wait names the holder.
+pub(crate) static STATES_OWNER: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(-1);
+
+fn states_lock(trace: bool) -> std::sync::MutexGuard<'static, Vec<ClassState>> {
+    let g = STATES.lock().unwrap_or_else(|e| e.into_inner());
+    if trace {
+        let me = current_record().reg_index as i64;
+        STATES_OWNER.store(me, std::sync::atomic::Ordering::Relaxed);
+    }
+    g
+}
 
 /// Pre-size the state vector to the program's class count (called from the
 /// generated `init_pool`, which knows the number). Purely an optimization:
@@ -55,7 +69,8 @@ pub fn reserve_classes(classes: usize) {
 /// touching its own statics) proceeds without blocking (JLS 12.4.2).
 pub fn ensure(class_id: u32, clinit: Option<MethodFn>) {
     let me = current_record().reg_index;
-    let mut st = STATES.lock().unwrap_or_else(|e| e.into_inner());
+    let trace = std::env::var("J2R_STW_TRACE").is_ok();
+    let mut st = states_lock(trace);
     if st.len() <= class_id as usize {
         st.resize(
             class_id as usize + 1,
@@ -73,24 +88,58 @@ pub fn ensure(class_id: u32, clinit: Option<MethodFn>) {
             Status::Init { owner } if owner == me => return,
             // Another thread is initializing: block until Done (the
             // JVM's thread blocks in "initializing" state too).
+            //
+            // STW participation (T17.1 — the MonitorContention N=1
+            // freeze): a waiter blocked on this gate must NOT look
+            // RUNNING to the collector. Under J2R_GC_EVERY_N=1 the
+            // clinit-runner itself collects (its clinit allocates), and
+            // quiescence waits for every RUNNING thread — a CV-blocked
+            // waiter can never reach a safepoint, so the whole runtime
+            // deadlocked before any monitor op ever ran (zero mon_ops
+            // in the trace). Park across the wait (park_prep also hands
+            // the coop turn on); wake_prep re-absorbs an in-flight STW
+            // and restores Running. Lock law: park_prep never waits
+            // (safe under the STATES guard); wake_prep is called with
+            // the guard DROPPED (L7 — it takes the SCHED lock).
             Status::Init { .. } => {
+                if trace {
+                    eprintln!("clwait cls={class_id} tid={me}");
+                }
+                let rec = current_record();
+                crate::thread::monitor_park_prep(&rec);
                 st = CV.wait(st).unwrap_or_else(|e| e.into_inner());
+                drop(st);
+                if trace {
+                    STATES_OWNER.store(-1, std::sync::atomic::Ordering::Relaxed);
+                }
+                crate::thread::monitor_wake_prep(&rec);
+                st = states_lock(trace);
             }
             Status::Uninit => break,
         }
     }
     st[class_id as usize].status = Status::Init { owner: me };
     drop(st);
+    if trace {
+        STATES_OWNER.store(-1, std::sync::atomic::Ordering::Relaxed);
+    }
 
+    if std::env::var("J2R_STW_TRACE").is_ok() {
+        eprintln!("clrun cls={class_id} tid={me}");
+    }
     if let Some(f) = clinit {
         // The lock is NOT held here: clinit allocates (L2), throws, and
         // touches other classes' gates (cross-class init chains).
         let _ = f(None, &[]);
     }
 
-    let mut st = STATES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut st = states_lock(trace);
     st[class_id as usize].status = Status::Done;
     drop(st);
+    if trace {
+        STATES_OWNER.store(-1, std::sync::atomic::Ordering::Relaxed);
+        eprintln!("cldone cls={class_id} tid={me}");
+    }
     CV.notify_all();
 }
 

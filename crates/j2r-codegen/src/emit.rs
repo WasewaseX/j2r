@@ -798,6 +798,24 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) ->
     out
 }
 
+/// Safepoint poll for backward branches (T17.1, heap::gc_pending): an
+/// allocation-free loop can never reach an allocation-site collection
+/// point, so a concurrent stop-the-world collection would wait for it
+/// forever — found by the MonitorContention N=1 freeze (the true root
+/// cause of the CI-timing gate-9 hangs; the quiescence handshake waits
+/// for every running thread to park and a tight `synchronized` loop has
+/// no allocating opcode). A backward branch emits a guarded poll: one
+/// Acquire load in the common case; the frame refresh + gc_point park
+/// run only while a collection is actually in flight.
+fn backward_poll(out: &mut Vec<String>, pc: u32, targets: &[u32]) {
+    if !targets.iter().any(|t| *t <= pc) {
+        return;
+    }
+    out.push(format!(
+        "if {RT}::heap::gc_pending() {{ __frame.refresh(&locals, &stack, &thrown); {RT}::heap::gc_point(); }}"
+    ));
+}
+
 fn is_terminator(instr: &Instr) -> bool {
     matches!(
         instr,
@@ -998,6 +1016,7 @@ fn emit_instr(
         )),
         Instr::Cmp(kind) => emit_cmp(*kind, out),
         Instr::IfZero(op, t) => {
+            backward_poll(out, pc, &[*t]);
             out.push("let __a = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
                 "if __a {} 0 {{ pc = {t}u32; }} else {{ pc = {}u32; }}",
@@ -1006,6 +1025,7 @@ fn emit_instr(
             ));
         }
         Instr::IfICmp(op, t) => {
+            backward_poll(out, pc, &[*t]);
             out.push("let __b = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push("let __a = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
@@ -1015,6 +1035,7 @@ fn emit_instr(
             ));
         }
         Instr::IfRefCmp { eq, target } => {
+            backward_poll(out, pc, &[*target]);
             out.push("let __b = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push("let __a = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             let cond = if *eq {
@@ -1028,6 +1049,7 @@ fn emit_instr(
             ));
         }
         Instr::IfNull(t) => {
+            backward_poll(out, pc, &[*t]);
             out.push("let __a = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push(format!(
                 "if __a.is_null() {{ pc = {t}u32; }} else {{ pc = {}u32; }}",
@@ -1035,14 +1057,21 @@ fn emit_instr(
             ));
         }
         Instr::IfNonNull(t) => {
+            backward_poll(out, pc, &[*t]);
             out.push("let __a = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push(format!(
                 "if !__a.is_null() {{ pc = {t}u32; }} else {{ pc = {}u32; }}",
                 next_pc_of(m, pc)
             ));
         }
-        Instr::Goto(t) => out.push(format!("pc = {t}u32;")),
+        Instr::Goto(t) => {
+            backward_poll(out, pc, &[*t]);
+            out.push(format!("pc = {t}u32;"));
+        }
         Instr::TableSwitch { default, low, targets } => {
+            let mut ts = targets.clone();
+            ts.push(*default);
+            backward_poll(out, pc, &ts);
             out.push("let __k = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push("match __k {".into());
             for (i, t) in targets.iter().enumerate() {
@@ -1053,6 +1082,9 @@ fn emit_instr(
             out.push("}".into());
         }
         Instr::LookupSwitch { default, pairs } => {
+            let mut ts: Vec<u32> = pairs.iter().map(|(_, t)| *t).collect();
+            ts.push(*default);
+            backward_poll(out, pc, &ts);
             out.push("let __k = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push("match __k {".into());
             for (v, t) in pairs {

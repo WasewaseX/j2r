@@ -311,6 +311,20 @@ pub fn gc_now() {
     collect();
 }
 
+/// Safepoint-pending probe for generated loop backedges (T17.1): true
+/// while a stop-the-world collection has been requested by any thread.
+/// Generated backward branches emit `if gc_pending() { refresh;
+/// gc_point(); }` — one Acquire load in the common case; the refresh and
+/// park run only while a collection is actually in flight. Without this
+/// poll an allocation-free loop can never reach a safepoint and a
+/// concurrent collection would wait for it forever (found by the
+/// MonitorContention N=1 freeze — the true root cause of the CI-timing
+/// gate-9 hangs: the collector waits for every running thread to park,
+/// and a loop with no allocating opcode never polls).
+pub fn gc_pending() -> bool {
+    crate::thread::GC_REQUESTED.load(Ordering::Acquire)
+}
+
 /// Test/diagnostic hook: force a collection at every Nth collection point
 /// (`N = 1` = collect at every collection point). Overrides the
 /// `J2R_GC_EVERY_N` env var.

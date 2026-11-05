@@ -73,7 +73,7 @@
 
 use crate::heap::JRef;
 use crate::{throw_new, Throw, Value};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -145,6 +145,10 @@ pub struct ThreadRecord {
     /// monitor_wake_prep, whose yield_point re-acquires the turn after
     /// the wake.
     pub in_monitor_wait: AtomicBool,
+    /// Debug progress probe (T17.1): bumped on every monitor enter/exit —
+    /// a thread whose counter freezes is stuck inside one runtime call;
+    /// a thread whose counter grows is looping but missing its polls.
+    pub mon_ops: AtomicU64,
     /// The per-thread wake channel (T14). `interrupt()` delivers through
     /// it so a thread parked on a monitor wait set (or on `sleep`/`join`,
     /// which also poll their record flag at each wake) wakes instantly.
@@ -171,6 +175,7 @@ impl ThreadRecord {
             java_object: Mutex::new(None),
             interrupted: AtomicBool::new(false),
             in_monitor_wait: AtomicBool::new(false),
+            mon_ops: AtomicU64::new(0),
             wakeup_mu: Mutex::new(false),
             wakeup_cv: Condvar::new(),
         }
@@ -250,6 +255,16 @@ fn sched_trace(what: &str, tid: usize) {
                 .map(|h| h.state.load(Ordering::Acquire))
                 .unwrap_or(9)
         );
+    }
+}
+
+/// STW handshake trace (J2R_STW_TRACE): the observability twin of
+/// sched_trace for the collector protocol — safepoint arrivals/exits,
+/// quiescence waits, and releases. Debugging instrument, one Acquire
+/// load when unset.
+fn stw_trace(what: &str, tid: usize) {
+    if std::env::var("J2R_STW_TRACE").is_ok() {
+        eprintln!("stw {} tid{}", what, tid);
     }
 }
 
@@ -472,8 +487,21 @@ pub(crate) fn monitor_park_prep(rec: &Arc<ThreadRecord>) {
         let mut g = lock_sched();
         if g.turn == rec.reg_index {
             g.turn = next_live_index(&g.records, rec.reg_index);
-            notify_all(&g);
         }
+        notify_all(&g);
+    } else {
+        // Free mode: a park is a safepoint-equivalent arrival. The STW
+        // collector's quiescence loop SLEEPS on the SCHED condvar — a
+        // state flip without a notify is invisible to it, and a
+        // monitor/clinit-parking thread (which will never reach a
+        // safepoint or a backedge poll while parked) made collections
+        // wait forever (the second half of the T17.1 freeze: the
+        // clinit-gate fix alone still froze ~3/4 debug runs because the
+        // collector slept through the waiters' flips). The scheduler's
+        // own law is "every state flip notifies" — comply in free mode
+        // too.
+        let g = lock_sched();
+        notify_all(&g);
     }
 }
 
@@ -504,12 +532,14 @@ pub(crate) fn safepoint_poll() {
     }
     chaos();
     let me = current_record();
+    stw_trace("sfp-enter", me.reg_index);
     me.state.store(STATE_PARKED, Ordering::Release);
     let mut g = lock_sched();
     notify_all(&g); // the collector may be waiting for exactly this
     while GC_REQUESTED.load(Ordering::Acquire) {
         g = SCHED_CV.wait(g).unwrap_or_else(|e| e.into_inner());
     }
+    stw_trace("sfp-exit", me.reg_index);
     me.state.store(STATE_RUNNING, Ordering::Release);
 }
 
@@ -555,6 +585,8 @@ impl StwGuard {
         // born-survivor-marked under that lock, and their frame slots are
         // still scanned below.
         let me_index = current_record().reg_index;
+        stw_trace("begin", me_index);
+        let trace_on = std::env::var("J2R_STW_TRACE").is_ok();
         let mut g = lock_sched();
         loop {
             let pending = g.records.iter().any(|r| {
@@ -565,9 +597,35 @@ impl StwGuard {
             if !pending {
                 break;
             }
+            if trace_on {
+                let states: Vec<String> = g
+                    .records
+                    .iter()
+                    .map(|r| {
+                        format!(
+                            "{}:{}{}#{}",
+                            r.reg_index,
+                            r.state.load(Ordering::Acquire),
+                            if r.in_ring.load(Ordering::Acquire) {
+                                "r"
+                            } else {
+                                "-"
+                            },
+                            r.mon_ops.load(Ordering::Relaxed)
+                        )
+                    })
+                    .collect();
+                eprintln!(
+                    "stw wait me={} cls_owner={} [{}]",
+                    me_index,
+                    crate::clinit::STATES_OWNER.load(Ordering::Relaxed),
+                    states.join(" ")
+                );
+            }
             notify_all(&g);
             g = SCHED_CV.wait(g).unwrap_or_else(|e| e.into_inner());
         }
+        stw_trace("quiescent", me_index);
         Some(StwGuard { _token: token })
     }
 }
@@ -575,6 +633,7 @@ impl StwGuard {
 impl Drop for StwGuard {
     fn drop(&mut self) {
         chaos();
+        stw_trace("release", 0);
         GC_REQUESTED.store(false, Ordering::Release);
         // Release every GC-parked thread. Coop-turn waiters are not
         // released by GC — they are granted turns by rotation; their wake
@@ -930,6 +989,12 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
             }
         }
         me.state.store(STATE_PARKED, Ordering::Release);
+        // Every state flip notifies (T17.1): the STW collector's
+        // quiescence loop sleeps on this condvar.
+        {
+            let g = lock_sched();
+            notify_all(&g);
+        }
         loop {
             if interrupted_now(&me) {
                 me.state.store(STATE_RUNNING, Ordering::Release);

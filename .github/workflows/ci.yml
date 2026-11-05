@@ -25,9 +25,10 @@ name: CI
 #     not durations. The gc-probe diagnostic localized the real bombs
 #     (ReflectGC ~14m CI; MonitorContention/WaitNotify CI-timing
 #     protocol race at N=1) and gate-9 now runs DURATION-BALANCED
-#     buckets (solo / monitors-N8 / heavy / light-0..2) with the policy
+#     buckets (solo / monitors / heavy / light-0..2) with the policy
 #     in the harness, unit-tested as a full partition (see the job
-#     comment).
+#     comment). The monitors bucket's temporary N=8 ended 2026-11-05:
+#     the T17 races are fixed and all six legs run the uniform N=1.
 #
 # Gate numbering: 1 fmt, 2 clippy, 3 jvm-differential, 4 build-release,
 # 5 standalone, 6 doc-lint, 7 security-audit, 8 aggregate, 9 gc-stress
@@ -43,8 +44,8 @@ name: CI
 # publish SARIF alerts; like gate-14 they sit outside the gate-8
 # aggregate, and a red run is a stop-the-wave event. Gate 9 bucket
 # policy: diff_suite.rs bucket_for_gate9 (harness-owned, unit-tested
-# partition; monitors bucket runs at J2R_GC_EVERY_N=8 pending the
-# Wave-4 stress fix of the CI-timing protocol race).
+# partition; the monitors bucket is back at N=1 since the T17 race fix
+# 6b6b7e3).
 
 on:
   push:
@@ -203,16 +204,19 @@ jobs:
       matrix:
         bucket:
           - { name: solo, gcn: 1 }
-          - { name: monitors, gcn: 8 }
+          - { name: monitors, gcn: 1 }
           - { name: heavy, gcn: 1 }
           - { name: light-0, gcn: 1 }
           - { name: light-1, gcn: 1 }
           - { name: light-2, gcn: 1 }
     env:
       # Forced-GC mode: a collection runs at EVERY collection point (before
-      # every allocating opcode) — except the monitors bucket, which runs
-      # at N=8 until the CI-timing protocol race is fixed (probe evidence
-      # in the comment above; the local N=1 evidence stands).
+      # every allocating opcode), uniformly N=1 across all six legs. The
+      # monitors bucket ran at N=8 from 2026-11-05 until the T17 races
+      # were fixed (commit 6b6b7e3: the monitor-wait lost-wakeup slice +
+      # the coop turn-grant skip); the completion flip back to N=1 is the
+      # honest end state — CI validates it, a red leg reverts to N=8 with
+      # evidence.
       J2R_GC_EVERY_N: ${{ matrix.bucket.gcn }}
       J2R_DIFF_BUCKET: ${{ matrix.bucket.name }}
     steps:

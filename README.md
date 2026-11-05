@@ -184,8 +184,10 @@ A **JDK-coverage milestone** (M3, [docs/ROADMAP.md](ROADMAP.md)) landed on
 Unsupported features are **compile errors with a precise message** — never
 silent miscompiles. Currently: `jsr`/`ret` (pre-Java-6 bytecode), native
 methods, and most of the JDK beyond the natives/collections/reflection
-list — true threads & concurrency (the runtime is single-threaded by
-design until the threads milestone), streams, `Optional`, `java.time`,
+list — the JMM's volatile/final-freeze semantics (threads, monitors,
+wait/notify, interrupt and daemon shutdown ARE supported — M4; see
+RUNTIME_SAFETY.md §6 for what the concurrency model does and does not
+guarantee), streams, `Optional`, `java.time`,
 regex, serialization, `assert`.
 (`multianewarray`, `monitorenter`/`monitorexit`, `synchronized` methods
 and `ldc` of class constants were implemented across M1.6 and M3

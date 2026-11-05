@@ -94,6 +94,8 @@ impl Monitor {
 pub fn monitor_enter(r: &JRef) -> Result<(), crate::Throw> {
     let m = crate::heap::entry_monitor(*r);
     let rec = crate::thread::current_record();
+    rec.mon_ops
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let me = rec.reg_index;
     let mut parked = false;
     let mut st = m.lock();
@@ -141,7 +143,10 @@ pub fn monitor_enter(r: &JRef) -> Result<(), crate::Throw> {
 /// only `Object.notify`/`notifyAll` reach them (JDK behaviour).
 pub fn monitor_exit(r: &JRef) -> Result<(), crate::Throw> {
     let m = crate::heap::entry_monitor(*r);
-    let me = crate::thread::current_record().reg_index;
+    let rec = crate::thread::current_record();
+    rec.mon_ops
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let me = rec.reg_index;
     let mut unowned = false;
     {
         let mut st = m.lock();

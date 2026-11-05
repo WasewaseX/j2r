@@ -138,6 +138,68 @@ fn emit_cfg_output_equivalence_across_suite() {
         suite_dir.display()
     );
 
+    // Same harness law as diff_suite (bf8a14a): optional stride sharding
+    // and explicit selection, for local windows that cannot fit the whole
+    // suite. CI always runs the unsharded full suite.
+    if let Ok(spec) = std::env::var("J2R_DIFF_SHARD") {
+        assert!(
+            std::env::var("J2R_DIFF_FIXTURES").is_err(),
+            "J2R_DIFF_SHARD and J2R_DIFF_FIXTURES are mutually exclusive"
+        );
+        let (i, n) = spec.split_once('/').expect("shard spec must be i/N");
+        let (i, n): (usize, usize) = (
+            i.parse().expect("shard index"),
+            n.parse().expect("shard count"),
+        );
+        assert!(n > 0, "shard count must be positive");
+        assert!(i < n, "shard index {i} out of range for {n} shards");
+        let total = fixtures.len();
+        // Deterministic stride: position in the sorted census (the same
+        // law as diff_suite — shard selects fixture POSITIONS, so the
+        // partition is stable as fixtures join or leave).
+        let sharded: Vec<_> = fixtures
+            .iter()
+            .enumerate()
+            .filter(|(pos, _)| pos % n == i)
+            .map(|(_, p)| p.clone())
+            .collect();
+        assert!(
+            !sharded.is_empty(),
+            "shard {i}/{n} selected zero fixtures of {total}"
+        );
+        eprintln!(
+            "cfg-equiv shard {i}/{n}: {} of {total} fixtures",
+            sharded.len()
+        );
+        fixtures = sharded;
+    }
+    if let Ok(spec) = std::env::var("J2R_DIFF_FIXTURES") {
+        let names: Vec<&str> = spec
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        assert!(!names.is_empty(), "J2R_DIFF_FIXTURES names no fixtures");
+        let mut selected = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                !seen.contains(*name),
+                "J2R_DIFF_FIXTURES lists {name:?} twice"
+            );
+            seen.insert(*name);
+            let path = suite_dir.join(format!("{name}.java"));
+            assert!(
+                path.is_file(),
+                "J2R_DIFF_FIXTURES names unknown fixture {name:?}"
+            );
+            selected.push(path);
+        }
+        selected.sort();
+        fixtures = selected;
+        eprintln!("cfg-equiv explicit selection: {} fixtures", fixtures.len());
+    }
+
     let mut failures = Vec::new();
     for fixture in &fixtures {
         let name = fixture.file_stem().unwrap().to_string_lossy().into_owned();

@@ -1,4 +1,4 @@
-# M4_PLAN — Threads & Concurrency (rev 1 — ACCEPTED)
+# M4_PLAN — Threads & Concurrency (rev 1 — ACCEPTED; waves implemented, completion review pending)
 
 **Status: accepted (rev 1, 2026-11-04).** The owner reviewed rev 0 against
 the roadmap and accepted the plan: wave order, risk register, determinism

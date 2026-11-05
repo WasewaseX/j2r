@@ -213,15 +213,23 @@ clinit-initialized reference statics — the singleton-factory pattern)
 **open, high priority**, blocks the corpus; F3 (java.io behavior
 natives) follows F2 by design.
 
-## M4 — threads & concurrency (accepted)
+## M4 — threads & concurrency (waves implemented, completion review pending)
 
 The threads milestone M2_PLAN §7 promised: shared heap/statics/identity
 caches, real `Thread`, STW safepoints, monitor contention,
 `wait`/`notify`, interrupt, a cooperative-scheduler determinism strategy
 for differential testing, and a concurrency CI gate. **Accepted at rev 1
-(2026-11-04, owner directive); T01 closed, Wave 1 — shared substrate — is
-the current work.** 18-task register (evidence-before-check) at
-[docs/M4_PLAN.md](docs/M4_PLAN.md).
+(2026-11-04, owner directive). All four waves implemented and CI-verified
+(2026-11-05): Wave 1 shared substrate (T02–T05), Wave 2 real threads
+(T06–T09), Wave 3 monitor contention + wait/notify (T10–T13, incl. the
+JLS 12.4.2 clinit-race fix), Wave 4 interrupt + daemon shutdown +
+JMM-lite + stress (T14–T17) — with the new gate-13-concurrency (coop
+differential × 4 seeds + chaos stress) inside the CI aggregate and the
+gate-9 monitors bucket back at the uniform N=1 after the T17 races were
+fixed.** 18-task register (evidence-before-check) at
+[docs/M4_PLAN.md](docs/M4_PLAN.md); audit pointers per wave in
+[docs/M4_EVIDENCE.md](docs/M4_EVIDENCE.md) §completion package.
+Completion review covers plan + waves; T18 is the submission.
 
 ## M5 — Minecraft readiness (was M4)
 
