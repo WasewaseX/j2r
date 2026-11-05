@@ -116,7 +116,9 @@ local full-gate sweep at the same tree).**
       three runs after 98be983 (e5b152c, d302c2b, 50e0ed6) died at exactly
       60m15s into gate-9 (GitHub renders the timeout kill as a cancelled
       job). The J2R_DIFF_SHARD=i/N stride harness (71483a0, built for
-      exactly this but never wired) is now a 3-way matrix in ci.yml;
+      exactly this but never wired) is now a 4-way matrix in ci.yml under
+      a 90-minute cap (3-way skewed hard: legs of 1m42s / 27m / 60m15s —
+      the real-thread fixtures at the alphabetical tail dominate runtime);
       plumbing proven locally (shard 2/3 → 29 of 89 fixtures, bad spec
       parse verified by inspection).
 - [~] **M4 threads & concurrency — ACCEPTED (owner directive
