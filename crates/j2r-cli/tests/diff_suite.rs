@@ -99,6 +99,58 @@ fn differential_suite_matches_jvm() {
         eprintln!("shard {spec}: {} of {total} fixtures", fixtures.len());
     }
 
+    // Optional explicit selection (ops): J2R_DIFF_FIXTURES="A,B,C" keeps
+    // only the named fixtures (stems, no .java). Added 2026-11-05 for
+    // gate-9's duration-balanced buckets — CI #59 proved stride sharding
+    // balances counts, not durations (legs 14m/1m/>=120m/1m/1m/>=120m on
+    // one tree), so the gate names its buckets explicitly from the
+    // measured weight table (scripts/measure_gc_weights.py). Every named
+    // fixture must exist — a typo must fail loudly, never pass by
+    // selecting nothing. Unknown names and empty selections are errors.
+    // Composable with J2R_DIFF_SHARD? No — the two are mutually
+    // exclusive by assertion; a bucket is already the unit of parallelism.
+    if let Ok(spec) = std::env::var("J2R_DIFF_FIXTURES") {
+        assert!(
+            std::env::var("J2R_DIFF_SHARD").is_err(),
+            "J2R_DIFF_FIXTURES and J2R_DIFF_SHARD are mutually exclusive"
+        );
+        let wanted: Vec<String> = spec
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        assert!(
+            !wanted.is_empty(),
+            "J2R_DIFF_FIXTURES set but selects nothing"
+        );
+        let total = fixtures.len();
+        let mut by_stem: std::collections::HashMap<String, std::path::PathBuf> =
+            std::collections::HashMap::new();
+        for path in &fixtures {
+            let stem = path
+                .file_stem()
+                .expect("fixture path has a stem")
+                .to_string_lossy()
+                .into_owned();
+            assert!(
+                by_stem.insert(stem.clone(), path.clone()).is_none(),
+                "duplicate fixture stem {stem}"
+            );
+        }
+        let mut selected = Vec::with_capacity(wanted.len());
+        for name in &wanted {
+            let path = by_stem
+                .get(name)
+                .unwrap_or_else(|| panic!("J2R_DIFF_FIXTURES names unknown fixture {name:?}"));
+            selected.push(path.clone());
+        }
+        // Keep the suite's sorted order so shard legs run in a stable,
+        // reproducible sequence regardless of how the bucket is spelled.
+        selected.sort();
+        fixtures = selected;
+        eprintln!("explicit selection: {} of {total} fixtures", fixtures.len());
+    }
+
     let mut failures = Vec::new();
     for fixture in &fixtures {
         let out = Command::new(exe)
