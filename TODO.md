@@ -432,12 +432,19 @@ local full-gate sweep at the same tree).**
       levels 0-9 sampled, Z_FINISH/Z_NO_FLUSH round-trips, Adler32/CRC32
       checksums) — **output-identical vs Temurin 21.0.13 on all three
       channels** (locally; pinned permanently in corpus_suite.rs next to
-      entry 1). The wave's real cost: the byte-stream JDK surface a real
+      entry 1). PHASE 2 LANDED (skip/charset wave): the stream wrappers
+      joined the differential — DeflaterOutputStream/InflaterInputStream,
+      ZOutputStream/ZInputStream (getTotalIn/totalOut + JZlib's own
+      decompressor-driven skip), full GZIP roundtrip (header parse +
+      CRC32 trailer) over the landed ByteArrayInputStream/BAOS builtins,
+      byte-identical vs Temurin (wrap-deflate n=72, zstream n=72/72/79,
+      gzip n=84, zskip=20 → 'j'). The wave's real cost: the byte-stream
+      JDK surface a real
       library drags in — Filter{In,Out}putStream hierarchy with named
       protected fields (new builtin-field resolution in codegen),
       ByteArrayOutputStream (JDK field model + growth contract),
-      java/lang/Enum (javac's hand-rolled WrapperType; valueOf loud
-      marker, R2 scope), array clone() on all array types (validate +
+      java/lang/Enum (javac's hand-rolled WrapperType; valueOf was a loud
+      R2 marker here — made real in the F6 wave), array clone() on all array types (validate +
       dispatch), Object.clone default, verifier nested-primitive-array
       lattice ([[I elements are int[] values — aaload yields the
       receiver's shape, anewarray "[I" maps through the operand),

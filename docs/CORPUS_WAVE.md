@@ -254,7 +254,11 @@ because it is part of the reproduction command.
 - BufferedInputStream — buffering state + the "Stream closed" use-after-
   close family; not modelled (loud) — the natural next stream wave.
 - `[[[<prim>` verifier depth — models as Ref elements beyond one level.
-- Stream classes compile and validate; the GZIP wrappers and
-  ZInputStream/ZOutputStream BEHAVIOR are not yet exercised by the
-  driver (phase 2 candidate — ByteArrayInputStream landed in the
-  skip/charset wave; Buffered* stays the prerequisite).
+- Stream wrappers LANDED (phase 2, skip/charset wave): the corpus driver
+  now exercises DeflaterOutputStream/InflaterInputStream,
+  ZOutputStream/ZInputStream (with getTotalIn/totalOut and JZlib's own
+  decompressor-driven skip), and the full GZIP roundtrip (header parse +
+  CRC32 trailer) — all over the landed ByteArrayInputStream/
+  ByteArrayOutputStream builtins, byte-identical vs Temurin
+  (wrap-deflate n=72, zstream n=72/72/79, gzip n=84, zskip=20 → 'j').
+  BufferedInputStream stays the one missing stream builtin (loud).

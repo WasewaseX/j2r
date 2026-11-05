@@ -74,7 +74,7 @@ final class Adler32 implements Checksum {
       int k=NMAX;
       len-=k;
       while(k-->0){
-	s1+=buf[index++]&0xff; s2+=s1;
+        s1+=buf[index++]&0xff; s2+=s1;
       }
       s1%=BASE;
       s2%=BASE;
@@ -186,7 +186,7 @@ final class CRC32 implements Checksum {
       int c = n;
       for (int k = 8;  --k >= 0; ) {
         if ((c & 1) != 0)
-	  c = 0xedb88320 ^ (c >>> 1);
+          c = 0xedb88320 ^ (c >>> 1);
         else
           c = c >>> 1;
       }
@@ -409,7 +409,7 @@ final class Deflate implements Cloneable {
     int max_chain;
     int func;
     Config(int good_length, int max_lazy, 
-	   int nice_length, int max_chain, int func){
+           int nice_length, int max_chain, int func){
       this.good_length=good_length;
       this.max_lazy=max_lazy;
       this.nice_length=nice_length;
@@ -744,15 +744,15 @@ final class Deflate implements Cloneable {
   // when the heap property is re-established (each father smaller than its
   // two sons).
   void pqdownheap(short[] tree,  // the tree to restore
-		  int k          // node to move down
-		  ){
+                  int k          // node to move down
+                  ){
     int v = heap[k];
     int j = k << 1;  // left son of k
     while (j <= heap_len) {
       // Set j to the smallest of the two sons:
       if (j < heap_len &&
-	  smaller(tree, heap[j+1], heap[j], depth)){
-	j++;
+          smaller(tree, heap[j+1], heap[j], depth)){
+        j++;
       }
       // Exit if v is smaller than both sons
       if(smaller(tree, v, heap[j], depth)) break;
@@ -769,14 +769,14 @@ final class Deflate implements Cloneable {
     short tn2=tree[n*2];
     short tm2=tree[m*2];
     return (tn2<tm2 ||
-	    (tn2==tm2 && depth[n] <= depth[m]));
+            (tn2==tm2 && depth[n] <= depth[m]));
   }
 
   // Scan a literal or distance tree to determine the frequencies of the codes
   // in the bit length tree.
   void scan_tree (short[] tree,// the tree to be scanned
-		  int max_code // and its largest code of non zero frequency
-		  ){
+                  int max_code // and its largest code of non zero frequency
+                  ){
     int n;                     // iterates over all tree elements
     int prevlen = -1;          // last emitted length
     int curlen;                // length of current code
@@ -791,30 +791,30 @@ final class Deflate implements Cloneable {
     for(n = 0; n <= max_code; n++) {
       curlen = nextlen; nextlen = tree[(n+1)*2+1];
       if(++count < max_count && curlen == nextlen) {
-	continue;
+        continue;
       }
       else if(count < min_count) {
-	bl_tree[curlen*2] += count;
+        bl_tree[curlen*2] += count;
       }
       else if(curlen != 0) {
-	if(curlen != prevlen) bl_tree[curlen*2]++;
-	bl_tree[REP_3_6*2]++;
+        if(curlen != prevlen) bl_tree[curlen*2]++;
+        bl_tree[REP_3_6*2]++;
       }
       else if(count <= 10) {
-	bl_tree[REPZ_3_10*2]++;
+        bl_tree[REPZ_3_10*2]++;
       }
       else{
-	bl_tree[REPZ_11_138*2]++;
+        bl_tree[REPZ_11_138*2]++;
       }
       count = 0; prevlen = curlen;
       if(nextlen == 0) {
-	max_count = 138; min_count = 3;
+        max_count = 138; min_count = 3;
       }
       else if(curlen == nextlen) {
-	max_count = 6; min_count = 3;
+        max_count = 6; min_count = 3;
       }
       else{
-	max_count = 7; min_count = 4;
+        max_count = 7; min_count = 4;
       }
     }
   }
@@ -865,8 +865,8 @@ final class Deflate implements Cloneable {
   // Send a literal or distance tree in compressed form, using the codes in
   // bl_tree.
   void send_tree (short[] tree,// the tree to be sent
-		  int max_code // and its largest code of non zero frequency
-		  ){
+                  int max_code // and its largest code of non zero frequency
+                  ){
     int n;                     // iterates over all tree elements
     int prevlen = -1;          // last emitted length
     int curlen;                // length of current code
@@ -880,35 +880,35 @@ final class Deflate implements Cloneable {
     for (n = 0; n <= max_code; n++) {
       curlen = nextlen; nextlen = tree[(n+1)*2+1];
       if(++count < max_count && curlen == nextlen) {
-	continue;
+        continue;
       }
       else if(count < min_count) {
-	do { send_code(curlen, bl_tree); } while (--count != 0);
+        do { send_code(curlen, bl_tree); } while (--count != 0);
       }
       else if(curlen != 0){
-	if(curlen != prevlen){
-	  send_code(curlen, bl_tree); count--;
-	}
-	send_code(REP_3_6, bl_tree); 
-	send_bits(count-3, 2);
+        if(curlen != prevlen){
+          send_code(curlen, bl_tree); count--;
+        }
+        send_code(REP_3_6, bl_tree); 
+        send_bits(count-3, 2);
       }
       else if(count <= 10){
-	send_code(REPZ_3_10, bl_tree); 
-	send_bits(count-3, 3);
+        send_code(REPZ_3_10, bl_tree); 
+        send_bits(count-3, 3);
       }
       else{
-	send_code(REPZ_11_138, bl_tree);
-	send_bits(count-11, 7);
+        send_code(REPZ_11_138, bl_tree);
+        send_bits(count-11, 7);
       }
       count = 0; prevlen = curlen;
       if(nextlen == 0){
-	max_count = 138; min_count = 3;
+        max_count = 138; min_count = 3;
       }
       else if(curlen == nextlen){
-	max_count = 6; min_count = 3;
+        max_count = 6; min_count = 3;
       }
       else{
-	max_count = 7; min_count = 4;
+        max_count = 7; min_count = 4;
       }
     }
   }
@@ -984,8 +984,8 @@ final class Deflate implements Cloneable {
   // Save the match info and tally the frequency counts. Return true if
   // the current block must be flushed.
   boolean _tr_tally (int dist, // distance of matched string
-		     int lc // match length-MIN_MATCH or unmatched char (if dist==0)
-		     ){
+                     int lc // match length-MIN_MATCH or unmatched char (if dist==0)
+                     ){
 
     pending_buf[d_buf+last_lit*2] = (byte)(dist>>>8);
     pending_buf[d_buf+last_lit*2+1] = (byte)dist;
@@ -1010,8 +1010,8 @@ final class Deflate implements Cloneable {
       int in_length = strstart - block_start;
       int dcode;
       for (dcode = 0; dcode < D_CODES; dcode++) {
-	out_length += (int)dyn_dtree[dcode*2] *
-	  (5L+Tree.extra_dbits[dcode]);
+        out_length += (int)dyn_dtree[dcode*2] *
+          (5L+Tree.extra_dbits[dcode]);
       }
       out_length >>>= 3;
       if ((matches < (last_lit/2)) && out_length < in_length/2) return true;
@@ -1033,35 +1033,35 @@ final class Deflate implements Cloneable {
 
     if (last_lit != 0){
       do{
-	dist=((pending_buf[d_buf+lx*2]<<8)&0xff00)|
-	  (pending_buf[d_buf+lx*2+1]&0xff);
-	lc=(l_buf[lx])&0xff; lx++;
+        dist=((pending_buf[d_buf+lx*2]<<8)&0xff00)|
+          (pending_buf[d_buf+lx*2+1]&0xff);
+        lc=(l_buf[lx])&0xff; lx++;
 
-	if(dist == 0){
-	  send_code(lc, ltree); // send a literal byte
-	} 
-	else{
-	  // Here, lc is the match length - MIN_MATCH
-	  code = Tree._length_code[lc];
+        if(dist == 0){
+          send_code(lc, ltree); // send a literal byte
+        } 
+        else{
+          // Here, lc is the match length - MIN_MATCH
+          code = Tree._length_code[lc];
 
-	  send_code(code+LITERALS+1, ltree); // send the length code
-	  extra = Tree.extra_lbits[code];
-	  if(extra != 0){
-	    lc -= Tree.base_length[code];
-	    send_bits(lc, extra);       // send the extra length bits
-	  }
-	  dist--; // dist is now the match distance - 1
-	  code = Tree.d_code(dist);
+          send_code(code+LITERALS+1, ltree); // send the length code
+          extra = Tree.extra_lbits[code];
+          if(extra != 0){
+            lc -= Tree.base_length[code];
+            send_bits(lc, extra);       // send the extra length bits
+          }
+          dist--; // dist is now the match distance - 1
+          code = Tree.d_code(dist);
 
-	  send_code(code, dtree);       // send the distance code
-	  extra = Tree.extra_dbits[code];
-	  if (extra != 0) {
-	    dist -= Tree.base_dist[code];
-	    send_bits(dist, extra);   // send the extra distance bits
-	  }
-	} // literal or match pair ?
+          send_code(code, dtree);       // send the distance code
+          extra = Tree.extra_dbits[code];
+          if (extra != 0) {
+            dist -= Tree.base_dist[code];
+            send_bits(dist, extra);   // send the extra distance bits
+          }
+        } // literal or match pair ?
 
-	// Check that the overlay between pending_buf and d_buf+l_buf is ok:
+        // Check that the overlay between pending_buf and d_buf+l_buf is ok:
       }
       while (lx < last_lit);
     }
@@ -1112,9 +1112,9 @@ final class Deflate implements Cloneable {
   // Copy a stored block, storing first the length and its
   // one's complement if requested.
   void copy_block(int buf,         // the input data
-		  int len,         // its length
-		  boolean header   // true if block header must be written
-		  ){
+                  int len,         // its length
+                  boolean header   // true if block header must be written
+                  ){
     int index=0;
     bi_windup();      // align on byte boundary
     last_eob_len = 8; // enough lookahead for inflate
@@ -1133,8 +1133,8 @@ final class Deflate implements Cloneable {
 
   void flush_block_only(boolean eof){
     _tr_flush_block(block_start>=0 ? block_start : -1,
-		    strstart-block_start,
-		    eof);
+                    strstart-block_start,
+                    eof);
     block_start=strstart;
     strm.flush_pending();
   }
@@ -1161,9 +1161,9 @@ final class Deflate implements Cloneable {
     while(true){
       // Fill the window as much as possible:
       if(lookahead<=1){
-	fill_window();
-	if(lookahead==0 && flush==Z_NO_FLUSH) return NeedMore;
-	if(lookahead==0) break; // flush the current block
+        fill_window();
+        if(lookahead==0 && flush==Z_NO_FLUSH) return NeedMore;
+        if(lookahead==0) break; // flush the current block
       }
 
       strstart+=lookahead;
@@ -1172,20 +1172,20 @@ final class Deflate implements Cloneable {
       // Emit a stored block if pending_buf will be full:
       max_start=block_start+max_block_size;
       if(strstart==0|| strstart>=max_start) {
-	// strstart == 0 is possible when wraparound on 16-bit machine
-	lookahead = (int)(strstart-max_start);
-	strstart = (int)max_start;
+        // strstart == 0 is possible when wraparound on 16-bit machine
+        lookahead = (int)(strstart-max_start);
+        strstart = (int)max_start;
       
-	flush_block_only(false);
-	if(strm.avail_out==0) return NeedMore;
+        flush_block_only(false);
+        if(strm.avail_out==0) return NeedMore;
 
       }
 
       // Flush if we may have to slide, otherwise block_start may become
       // negative and the data will be gone:
       if(strstart-block_start >= w_size-MIN_LOOKAHEAD) {
-	flush_block_only(false);
-	if(strm.avail_out==0) return NeedMore;
+        flush_block_only(false);
+        if(strm.avail_out==0) return NeedMore;
       }
     }
 
@@ -1198,9 +1198,9 @@ final class Deflate implements Cloneable {
 
   // Send a stored block
   void _tr_stored_block(int buf,        // input block
-			int stored_len, // length of input block
-			boolean eof     // true if this is the last block for a file
-			){
+                        int stored_len, // length of input block
+                        boolean eof     // true if this is the last block for a file
+                        ){
     send_bits((STORED_BLOCK<<1)+(eof?1:0), 3);  // send block type
     copy_block(buf, stored_len, true);          // with header
   }
@@ -1208,9 +1208,9 @@ final class Deflate implements Cloneable {
   // Determine the best encoding for the current block: dynamic trees, static
   // trees or store, and output the encoded block to the zip file.
   void _tr_flush_block(int buf,        // input block, or NULL if too old
-		       int stored_len, // length of input block
-		       boolean eof     // true if this is the last block for a file
-		       ) {
+                       int stored_len, // length of input block
+                       boolean eof     // true if this is the last block for a file
+                       ) {
     int opt_lenb, static_lenb;// opt_len and static_len in bytes
     int max_blindex = 0;      // index of last bit length code of non zero freq
 
@@ -1288,46 +1288,46 @@ final class Deflate implements Cloneable {
 
       // Deal with !@#$% 64K limit:
       if(more==0 && strstart==0 && lookahead==0){
-	more = w_size;
+        more = w_size;
       } 
       else if(more==-1) {
-	// Very unlikely, but possible on 16 bit machine if strstart == 0
-	// and lookahead == 1 (input done one byte at time)
-	more--;
+        // Very unlikely, but possible on 16 bit machine if strstart == 0
+        // and lookahead == 1 (input done one byte at time)
+        more--;
 
-	// If the window is almost full and there is insufficient lookahead,
-	// move the upper half to the lower one to make room in the upper half.
+        // If the window is almost full and there is insufficient lookahead,
+        // move the upper half to the lower one to make room in the upper half.
       }
       else if(strstart >= w_size+ w_size-MIN_LOOKAHEAD) {
-	System.arraycopy(window, w_size, window, 0, w_size);
-	match_start-=w_size;
-	strstart-=w_size; // we now have strstart >= MAX_DIST
-	block_start-=w_size;
+        System.arraycopy(window, w_size, window, 0, w_size);
+        match_start-=w_size;
+        strstart-=w_size; // we now have strstart >= MAX_DIST
+        block_start-=w_size;
 
-	// Slide the hash table (could be avoided with 32 bit values
-	// at the expense of memory usage). We slide even when level == 0
-	// to keep the hash table consistent if we switch back to level > 0
-	// later. (Using level 0 permanently is not an optimal usage of
-	// zlib, so we don't care about this pathological case.)
+        // Slide the hash table (could be avoided with 32 bit values
+        // at the expense of memory usage). We slide even when level == 0
+        // to keep the hash table consistent if we switch back to level > 0
+        // later. (Using level 0 permanently is not an optimal usage of
+        // zlib, so we don't care about this pathological case.)
 
-	n = hash_size;
-	p=n;
-	do {
-	  m = (head[--p]&0xffff);
-	  head[p]=(m>=w_size ? (short)(m-w_size) : 0);
-	}
-	while (--n != 0);
+        n = hash_size;
+        p=n;
+        do {
+          m = (head[--p]&0xffff);
+          head[p]=(m>=w_size ? (short)(m-w_size) : 0);
+        }
+        while (--n != 0);
 
-	n = w_size;
-	p = n;
-	do {
-	  m = (prev[--p]&0xffff);
-	  prev[p] = (m >= w_size ? (short)(m-w_size) : 0);
-	  // If n is not on any hash chain, prev[n] is garbage but
-	  // its value will never be used.
-	}
-	while (--n!=0);
-	more += w_size;
+        n = w_size;
+        p = n;
+        do {
+          m = (prev[--p]&0xffff);
+          prev[p] = (m >= w_size ? (short)(m-w_size) : 0);
+          // If n is not on any hash chain, prev[n] is garbage but
+          // its value will never be used.
+        }
+        while (--n!=0);
+        more += w_size;
       }
 
       if (strm.avail_in == 0) return;
@@ -1348,8 +1348,8 @@ final class Deflate implements Cloneable {
 
       // Initialize the hash value now that we have some input:
       if(lookahead >= MIN_MATCH) {
-	ins_h = window[strstart]&0xff;
-	ins_h=(((ins_h)<<hash_shift)^(window[strstart+1]&0xff))&hash_mask;
+        ins_h = window[strstart]&0xff;
+        ins_h=(((ins_h)<<hash_shift)^(window[strstart+1]&0xff))&hash_mask;
       }
       // If the whole input has less than MIN_MATCH bytes, ins_h is garbage,
       // but this is not important since only literal bytes will be emitted.
@@ -1373,86 +1373,86 @@ final class Deflate implements Cloneable {
       // for the next match, plus MIN_MATCH bytes to insert the
       // string following the next match.
       if(lookahead < MIN_LOOKAHEAD){
-	fill_window();
-	if(lookahead < MIN_LOOKAHEAD && flush == Z_NO_FLUSH){
-	  return NeedMore;
-	}
-	if(lookahead == 0) break; // flush the current block
+        fill_window();
+        if(lookahead < MIN_LOOKAHEAD && flush == Z_NO_FLUSH){
+          return NeedMore;
+        }
+        if(lookahead == 0) break; // flush the current block
       }
 
       // Insert the string window[strstart .. strstart+2] in the
       // dictionary, and set hash_head to the head of the hash chain:
       if(lookahead >= MIN_MATCH){
-	ins_h=(((ins_h)<<hash_shift)^(window[(strstart)+(MIN_MATCH-1)]&0xff))&hash_mask;
+        ins_h=(((ins_h)<<hash_shift)^(window[(strstart)+(MIN_MATCH-1)]&0xff))&hash_mask;
 
-//	prev[strstart&w_mask]=hash_head=head[ins_h];
+//      prev[strstart&w_mask]=hash_head=head[ins_h];
         hash_head=(head[ins_h]&0xffff);
-	prev[strstart&w_mask]=head[ins_h];
-	head[ins_h]=(short)strstart;
+        prev[strstart&w_mask]=head[ins_h];
+        head[ins_h]=(short)strstart;
       }
 
       // Find the longest match, discarding those <= prev_length.
       // At this point we have always match_length < MIN_MATCH
 
       if(hash_head!=0L && 
-	 ((strstart-hash_head)&0xffff) <= w_size-MIN_LOOKAHEAD
-	 ){
-	// To simplify the code, we prevent matches with the string
-	// of window index 0 (in particular we have to avoid a match
-	// of the string with itself at the start of the input file).
-	if(strategy != Z_HUFFMAN_ONLY){
-	  match_length=longest_match (hash_head);
-	}
-	// longest_match() sets match_start
+         ((strstart-hash_head)&0xffff) <= w_size-MIN_LOOKAHEAD
+         ){
+        // To simplify the code, we prevent matches with the string
+        // of window index 0 (in particular we have to avoid a match
+        // of the string with itself at the start of the input file).
+        if(strategy != Z_HUFFMAN_ONLY){
+          match_length=longest_match (hash_head);
+        }
+        // longest_match() sets match_start
       }
       if(match_length>=MIN_MATCH){
-	//        check_match(strstart, match_start, match_length);
+        //        check_match(strstart, match_start, match_length);
 
-	bflush=_tr_tally(strstart-match_start, match_length-MIN_MATCH);
+        bflush=_tr_tally(strstart-match_start, match_length-MIN_MATCH);
 
-	lookahead -= match_length;
+        lookahead -= match_length;
 
-	// Insert new strings in the hash table only if the match length
-	// is not too large. This saves time but degrades compression.
-	if(match_length <= max_lazy_match &&
-	   lookahead >= MIN_MATCH) {
-	  match_length--; // string at strstart already in hash table
-	  do{
-	    strstart++;
+        // Insert new strings in the hash table only if the match length
+        // is not too large. This saves time but degrades compression.
+        if(match_length <= max_lazy_match &&
+           lookahead >= MIN_MATCH) {
+          match_length--; // string at strstart already in hash table
+          do{
+            strstart++;
 
-	    ins_h=((ins_h<<hash_shift)^(window[(strstart)+(MIN_MATCH-1)]&0xff))&hash_mask;
-//	    prev[strstart&w_mask]=hash_head=head[ins_h];
-	    hash_head=(head[ins_h]&0xffff);
-	    prev[strstart&w_mask]=head[ins_h];
-	    head[ins_h]=(short)strstart;
+            ins_h=((ins_h<<hash_shift)^(window[(strstart)+(MIN_MATCH-1)]&0xff))&hash_mask;
+//          prev[strstart&w_mask]=hash_head=head[ins_h];
+            hash_head=(head[ins_h]&0xffff);
+            prev[strstart&w_mask]=head[ins_h];
+            head[ins_h]=(short)strstart;
 
-	    // strstart never exceeds WSIZE-MAX_MATCH, so there are
-	    // always MIN_MATCH bytes ahead.
-	  }
-	  while (--match_length != 0);
-	  strstart++; 
-	}
-	else{
-	  strstart += match_length;
-	  match_length = 0;
-	  ins_h = window[strstart]&0xff;
+            // strstart never exceeds WSIZE-MAX_MATCH, so there are
+            // always MIN_MATCH bytes ahead.
+          }
+          while (--match_length != 0);
+          strstart++; 
+        }
+        else{
+          strstart += match_length;
+          match_length = 0;
+          ins_h = window[strstart]&0xff;
 
-	  ins_h=(((ins_h)<<hash_shift)^(window[strstart+1]&0xff))&hash_mask;
-	  // If lookahead < MIN_MATCH, ins_h is garbage, but it does not
-	  // matter since it will be recomputed at next deflate call.
-	}
+          ins_h=(((ins_h)<<hash_shift)^(window[strstart+1]&0xff))&hash_mask;
+          // If lookahead < MIN_MATCH, ins_h is garbage, but it does not
+          // matter since it will be recomputed at next deflate call.
+        }
       }
       else {
-	// No match, output a literal byte
+        // No match, output a literal byte
 
-	bflush=_tr_tally(0, window[strstart]&0xff);
-	lookahead--;
-	strstart++; 
+        bflush=_tr_tally(0, window[strstart]&0xff);
+        lookahead--;
+        strstart++; 
       }
       if (bflush){
 
-	flush_block_only(false);
-	if(strm.avail_out==0) return NeedMore;
+        flush_block_only(false);
+        if(strm.avail_out==0) return NeedMore;
       }
     }
 
@@ -1480,22 +1480,22 @@ final class Deflate implements Cloneable {
       // string following the next match.
 
       if (lookahead < MIN_LOOKAHEAD) {
-	fill_window();
-	if(lookahead < MIN_LOOKAHEAD && flush == Z_NO_FLUSH) {
-	  return NeedMore;
-	}
-	if(lookahead == 0) break; // flush the current block
+        fill_window();
+        if(lookahead < MIN_LOOKAHEAD && flush == Z_NO_FLUSH) {
+          return NeedMore;
+        }
+        if(lookahead == 0) break; // flush the current block
       }
 
       // Insert the string window[strstart .. strstart+2] in the
       // dictionary, and set hash_head to the head of the hash chain:
 
       if(lookahead >= MIN_MATCH) {
-	ins_h=(((ins_h)<<hash_shift)^(window[(strstart)+(MIN_MATCH-1)]&0xff)) & hash_mask;
-//	prev[strstart&w_mask]=hash_head=head[ins_h];
-	hash_head=(head[ins_h]&0xffff);
-	prev[strstart&w_mask]=head[ins_h];
-	head[ins_h]=(short)strstart;
+        ins_h=(((ins_h)<<hash_shift)^(window[(strstart)+(MIN_MATCH-1)]&0xff)) & hash_mask;
+//      prev[strstart&w_mask]=hash_head=head[ins_h];
+        hash_head=(head[ins_h]&0xffff);
+        prev[strstart&w_mask]=head[ins_h];
+        head[ins_h]=(short)strstart;
       }
 
       // Find the longest match, discarding those <= prev_length.
@@ -1503,82 +1503,82 @@ final class Deflate implements Cloneable {
       match_length = MIN_MATCH-1;
 
       if (hash_head != 0 && prev_length < max_lazy_match &&
-	  ((strstart-hash_head)&0xffff) <= w_size-MIN_LOOKAHEAD
-	  ){
-	// To simplify the code, we prevent matches with the string
-	// of window index 0 (in particular we have to avoid a match
-	// of the string with itself at the start of the input file).
+          ((strstart-hash_head)&0xffff) <= w_size-MIN_LOOKAHEAD
+          ){
+        // To simplify the code, we prevent matches with the string
+        // of window index 0 (in particular we have to avoid a match
+        // of the string with itself at the start of the input file).
 
-	if(strategy != Z_HUFFMAN_ONLY) {
-	  match_length = longest_match(hash_head);
-	}
-	// longest_match() sets match_start
+        if(strategy != Z_HUFFMAN_ONLY) {
+          match_length = longest_match(hash_head);
+        }
+        // longest_match() sets match_start
 
-	if (match_length <= 5 && (strategy == Z_FILTERED ||
-				  (match_length == MIN_MATCH &&
-				   strstart - match_start > 4096))) {
+        if (match_length <= 5 && (strategy == Z_FILTERED ||
+                                  (match_length == MIN_MATCH &&
+                                   strstart - match_start > 4096))) {
 
-	  // If prev_match is also MIN_MATCH, match_start is garbage
-	  // but we will ignore the current match anyway.
-	  match_length = MIN_MATCH-1;
-	}
+          // If prev_match is also MIN_MATCH, match_start is garbage
+          // but we will ignore the current match anyway.
+          match_length = MIN_MATCH-1;
+        }
       }
 
       // If there was a match at the previous step and the current
       // match is not better, output the previous match:
       if(prev_length >= MIN_MATCH && match_length <= prev_length) {
-	int max_insert = strstart + lookahead - MIN_MATCH;
-	// Do not insert strings in hash table beyond this.
+        int max_insert = strstart + lookahead - MIN_MATCH;
+        // Do not insert strings in hash table beyond this.
 
-	//          check_match(strstart-1, prev_match, prev_length);
+        //          check_match(strstart-1, prev_match, prev_length);
 
-	bflush=_tr_tally(strstart-1-prev_match, prev_length - MIN_MATCH);
+        bflush=_tr_tally(strstart-1-prev_match, prev_length - MIN_MATCH);
 
-	// Insert in hash table all strings up to the end of the match.
-	// strstart-1 and strstart are already inserted. If there is not
-	// enough lookahead, the last two strings are not inserted in
-	// the hash table.
-	lookahead -= prev_length-1;
-	prev_length -= 2;
-	do{
-	  if(++strstart <= max_insert) {
-	    ins_h=(((ins_h)<<hash_shift)^(window[(strstart)+(MIN_MATCH-1)]&0xff))&hash_mask;
-	    //prev[strstart&w_mask]=hash_head=head[ins_h];
-	    hash_head=(head[ins_h]&0xffff);
-	    prev[strstart&w_mask]=head[ins_h];
-	    head[ins_h]=(short)strstart;
-	  }
-	}
-	while(--prev_length != 0);
-	match_available = 0;
-	match_length = MIN_MATCH-1;
-	strstart++;
+        // Insert in hash table all strings up to the end of the match.
+        // strstart-1 and strstart are already inserted. If there is not
+        // enough lookahead, the last two strings are not inserted in
+        // the hash table.
+        lookahead -= prev_length-1;
+        prev_length -= 2;
+        do{
+          if(++strstart <= max_insert) {
+            ins_h=(((ins_h)<<hash_shift)^(window[(strstart)+(MIN_MATCH-1)]&0xff))&hash_mask;
+            //prev[strstart&w_mask]=hash_head=head[ins_h];
+            hash_head=(head[ins_h]&0xffff);
+            prev[strstart&w_mask]=head[ins_h];
+            head[ins_h]=(short)strstart;
+          }
+        }
+        while(--prev_length != 0);
+        match_available = 0;
+        match_length = MIN_MATCH-1;
+        strstart++;
 
-	if (bflush){
-	  flush_block_only(false);
-	  if(strm.avail_out==0) return NeedMore;
-	}
+        if (bflush){
+          flush_block_only(false);
+          if(strm.avail_out==0) return NeedMore;
+        }
       } else if (match_available!=0) {
 
-	// If there was no match at the previous position, output a
-	// single literal. If there was a match but the current match
-	// is longer, truncate the previous match to a single literal.
+        // If there was no match at the previous position, output a
+        // single literal. If there was a match but the current match
+        // is longer, truncate the previous match to a single literal.
 
-	bflush=_tr_tally(0, window[strstart-1]&0xff);
+        bflush=_tr_tally(0, window[strstart-1]&0xff);
 
-	if (bflush) {
-	  flush_block_only(false);
-	}
-	strstart++;
-	lookahead--;
-	if(strm.avail_out == 0) return NeedMore;
+        if (bflush) {
+          flush_block_only(false);
+        }
+        strstart++;
+        lookahead--;
+        if(strm.avail_out == 0) return NeedMore;
       } else {
-	// There is no previous match to compare with, wait for
-	// the next step to decide.
+        // There is no previous match to compare with, wait for
+        // the next step to decide.
 
-	match_available = 1;
-	strstart++;
-	lookahead--;
+        match_available = 1;
+        strstart++;
+        lookahead--;
       }
     }
 
@@ -1633,9 +1633,9 @@ final class Deflate implements Cloneable {
       // Skip to next match if the match length cannot increase
       // or if the match length is less than 2:
       if (window[match+best_len]   != scan_end  ||
-	  window[match+best_len-1] != scan_end1 ||
-	  window[match]       != window[scan]     ||
-	  window[++match]     != window[scan+1])      continue;
+          window[match+best_len-1] != scan_end1 ||
+          window[match]       != window[scan]     ||
+          window[++match]     != window[scan+1])      continue;
 
       // The check at best_len-1 can be removed because it will be made
       // again later. (This heuristic is not always a win.)
@@ -1648,28 +1648,28 @@ final class Deflate implements Cloneable {
       // the 256th check will be made at strstart+258.
       do {
       } while (window[++scan] == window[++match] &&
-	       window[++scan] == window[++match] &&
-	       window[++scan] == window[++match] &&
-	       window[++scan] == window[++match] &&
-	       window[++scan] == window[++match] &&
-	       window[++scan] == window[++match] &&
-	       window[++scan] == window[++match] &&
-	       window[++scan] == window[++match] &&
-	       scan < strend);
+               window[++scan] == window[++match] &&
+               window[++scan] == window[++match] &&
+               window[++scan] == window[++match] &&
+               window[++scan] == window[++match] &&
+               window[++scan] == window[++match] &&
+               window[++scan] == window[++match] &&
+               window[++scan] == window[++match] &&
+               scan < strend);
 
       len = MAX_MATCH - (int)(strend - scan);
       scan = strend - MAX_MATCH;
 
       if(len>best_len) {
-	match_start = cur_match;
-	best_len = len;
-	if (len >= nice_match) break;
-	scan_end1  = window[scan+best_len-1];
-	scan_end   = window[scan+best_len];
+        match_start = cur_match;
+        best_len = len;
+        if (len >= nice_match) break;
+        scan_end1  = window[scan+best_len-1];
+        scan_end   = window[scan+best_len];
       }
 
     } while ((cur_match = (prev[cur_match & wmask]&0xffff)) > limit
-	     && --chain_length != 0);
+             && --chain_length != 0);
 
     if (best_len <= lookahead) return best_len;
     return lookahead;
@@ -1677,18 +1677,18 @@ final class Deflate implements Cloneable {
 
   int deflateInit(int level, int bits, int memlevel){
     return deflateInit(level, Z_DEFLATED, bits, memlevel,
-			Z_DEFAULT_STRATEGY);
+                        Z_DEFAULT_STRATEGY);
   }
     
   int deflateInit(int level, int bits){
     return deflateInit(level, Z_DEFLATED, bits, DEF_MEM_LEVEL,
-			Z_DEFAULT_STRATEGY);
+                        Z_DEFAULT_STRATEGY);
   }
   int deflateInit(int level){
     return deflateInit(level, MAX_WBITS);
   }
   private int deflateInit(int level, int method,  int windowBits,
-			  int memLevel, int strategy){
+                          int memLevel, int strategy){
     int wrap = 1;
     //    byte[] my_version=ZLIB_VERSION;
 
@@ -1713,8 +1713,8 @@ final class Deflate implements Cloneable {
     }
 
     if (memLevel < 1 || memLevel > MAX_MEM_LEVEL || 
-	method != Z_DEFLATED ||
-	windowBits < 9 || windowBits > 15 || level < 0 || level > 9 ||
+        method != Z_DEFLATED ||
+        windowBits < 9 || windowBits > 15 || level < 0 || level > 9 ||
         strategy < 0 || strategy > Z_HUFFMAN_ONLY) {
       return Z_STREAM_ERROR;
     }
@@ -1905,13 +1905,13 @@ final class Deflate implements Cloneable {
     if(pending != 0) {
       strm.flush_pending();
       if(strm.avail_out == 0) {
-	// Since avail_out is 0, deflate will be called again with
-	// more output space, but possibly with both pending and
-	// avail_in equal to zero. There won't be anything to do,
-	// but this is not an error situation so make sure we
-	// return OK instead of BUF_ERROR at next call of deflate:
-	last_flush = -1;
-	return Z_OK;
+        // Since avail_out is 0, deflate will be called again with
+        // more output space, but possibly with both pending and
+        // avail_in equal to zero. There won't be anything to do,
+        // but this is not an error situation so make sure we
+        // return OK instead of BUF_ERROR at next call of deflate:
+        last_flush = -1;
+        return Z_OK;
       }
 
       // Make sure there is something to do and avoid duplicate consecutive
@@ -1919,7 +1919,7 @@ final class Deflate implements Cloneable {
       // returning Z_STREAM_END instead of Z_BUFF_ERROR.
     }
     else if(strm.avail_in==0 && flush <= old_flush &&
-	    flush != Z_FINISH) {
+            flush != Z_FINISH) {
       strm.msg=z_errmsg[Z_NEED_DICT-(Z_BUF_ERROR)];
       return Z_BUF_ERROR;
     }
@@ -1936,52 +1936,52 @@ final class Deflate implements Cloneable {
       int bstate=-1;
       switch(config_table[level].func){
       case STORED: 
-	bstate = deflate_stored(flush);
-	break;
+        bstate = deflate_stored(flush);
+        break;
       case FAST: 
-	bstate = deflate_fast(flush);
-	break;
+        bstate = deflate_fast(flush);
+        break;
       case SLOW: 
-	bstate = deflate_slow(flush);
-	break;
+        bstate = deflate_slow(flush);
+        break;
       default:
       }
 
       if (bstate==FinishStarted || bstate==FinishDone) {
-	status = FINISH_STATE;
+        status = FINISH_STATE;
       }
       if (bstate==NeedMore || bstate==FinishStarted) {
-	if(strm.avail_out == 0) {
-	  last_flush = -1; // avoid BUF_ERROR next call, see above
-	}
-	return Z_OK;
-	// If flush != Z_NO_FLUSH && avail_out == 0, the next call
-	// of deflate should use the same flush parameter to make sure
-	// that the flush is complete. So we don't have to output an
-	// empty block here, this will be done at next call. This also
-	// ensures that for a very small output buffer, we emit at most
-	// one empty block.
+        if(strm.avail_out == 0) {
+          last_flush = -1; // avoid BUF_ERROR next call, see above
+        }
+        return Z_OK;
+        // If flush != Z_NO_FLUSH && avail_out == 0, the next call
+        // of deflate should use the same flush parameter to make sure
+        // that the flush is complete. So we don't have to output an
+        // empty block here, this will be done at next call. This also
+        // ensures that for a very small output buffer, we emit at most
+        // one empty block.
       }
 
       if (bstate==BlockDone) {
-	if(flush == Z_PARTIAL_FLUSH) {
-	  _tr_align();
-	} 
-	else { // FULL_FLUSH or SYNC_FLUSH
-	  _tr_stored_block(0, 0, false);
-	  // For a full flush, this empty block will be recognized
-	  // as a special marker by inflate_sync().
-	  if(flush == Z_FULL_FLUSH) {
-	    //state.head[s.hash_size-1]=0;
-	    for(int i=0; i<hash_size/*-1*/; i++)  // forget history
-	      head[i]=0;
-	  }
-	}
-	strm.flush_pending();
-	if(strm.avail_out == 0) {
-	  last_flush = -1; // avoid BUF_ERROR at next call, see above
-	  return Z_OK;
-	}
+        if(flush == Z_PARTIAL_FLUSH) {
+          _tr_align();
+        } 
+        else { // FULL_FLUSH or SYNC_FLUSH
+          _tr_stored_block(0, 0, false);
+          // For a full flush, this empty block will be recognized
+          // as a special marker by inflate_sync().
+          if(flush == Z_FULL_FLUSH) {
+            //state.head[s.hash_size-1]=0;
+            for(int i=0; i<hash_size/*-1*/; i++)  // forget history
+              head[i]=0;
+          }
+        }
+        strm.flush_pending();
+        if(strm.avail_out == 0) {
+          last_flush = -1; // avoid BUF_ERROR at next call, see above
+          return Z_OK;
+        }
       }
     }
 
@@ -3100,25 +3100,25 @@ final class InfBlocks{
       switch (mode){
       case TYPE:
 
-	while(k<(3)){
-	  if(n!=0){
-	    r=Z_OK;
-	  }
-	  else{
-	    bitb=b; bitk=k; 
-	    z.avail_in=n;
-	    z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    write=q;
-	    return inflate_flush(r);
-	  };
-	  n--;
-	  b|=(z.next_in[p++]&0xff)<<k;
-	  k+=8;
-	}
-	t = (int)(b & 7);
-	last = t & 1;
+        while(k<(3)){
+          if(n!=0){
+            r=Z_OK;
+          }
+          else{
+            bitb=b; bitk=k; 
+            z.avail_in=n;
+            z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            write=q;
+            return inflate_flush(r);
+          };
+          n--;
+          b|=(z.next_in[p++]&0xff)<<k;
+          k+=8;
+        }
+        t = (int)(b & 7);
+        last = t & 1;
 
-	switch (t >>> 1){
+        switch (t >>> 1){
         case 0:                         // stored 
           {b>>>=(3);k-=(3);}
           t = k & 7;                    // go to byte boundary
@@ -3147,334 +3147,334 @@ final class InfBlocks{
           z.msg = "invalid block type";
           r = Z_DATA_ERROR;
 
-	  bitb=b; bitk=k; 
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  write=q;
-	  return inflate_flush(r);
-	}
-	break;
+          bitb=b; bitk=k; 
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          write=q;
+          return inflate_flush(r);
+        }
+        break;
       case LENS:
 
-	while(k<(32)){
-	  if(n!=0){
-	    r=Z_OK;
-	  }
-	  else{
-	    bitb=b; bitk=k; 
-	    z.avail_in=n;
-	    z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    write=q;
-	    return inflate_flush(r);
-	  };
-	  n--;
-	  b|=(z.next_in[p++]&0xff)<<k;
-	  k+=8;
-	}
+        while(k<(32)){
+          if(n!=0){
+            r=Z_OK;
+          }
+          else{
+            bitb=b; bitk=k; 
+            z.avail_in=n;
+            z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            write=q;
+            return inflate_flush(r);
+          };
+          n--;
+          b|=(z.next_in[p++]&0xff)<<k;
+          k+=8;
+        }
 
-	if ((((~b) >>> 16) & 0xffff) != (b & 0xffff)){
-	  mode = BAD;
-	  z.msg = "invalid stored block lengths";
-	  r = Z_DATA_ERROR;
+        if ((((~b) >>> 16) & 0xffff) != (b & 0xffff)){
+          mode = BAD;
+          z.msg = "invalid stored block lengths";
+          r = Z_DATA_ERROR;
 
-	  bitb=b; bitk=k; 
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  write=q;
-	  return inflate_flush(r);
-	}
-	left = (b & 0xffff);
-	b = k = 0;                       // dump bits
-	mode = left!=0 ? STORED : (last!=0 ? DRY : TYPE);
-	break;
+          bitb=b; bitk=k; 
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          write=q;
+          return inflate_flush(r);
+        }
+        left = (b & 0xffff);
+        b = k = 0;                       // dump bits
+        mode = left!=0 ? STORED : (last!=0 ? DRY : TYPE);
+        break;
       case STORED:
-	if (n == 0){
-	  bitb=b; bitk=k; 
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  write=q;
-	  return inflate_flush(r);
-	}
+        if (n == 0){
+          bitb=b; bitk=k; 
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          write=q;
+          return inflate_flush(r);
+        }
 
-	if(m==0){
-	  if(q==end&&read!=0){
-	    q=0; m=(int)(q<read?read-q-1:end-q);
-	  }
-	  if(m==0){
-	    write=q; 
-	    r=inflate_flush(r);
-	    q=write;m=(int)(q<read?read-q-1:end-q);
-	    if(q==end&&read!=0){
-	      q=0; m=(int)(q<read?read-q-1:end-q);
-	    }
-	    if(m==0){
-	      bitb=b; bitk=k; 
-	      z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	      write=q;
-	      return inflate_flush(r);
-	    }
-	  }
-	}
-	r=Z_OK;
+        if(m==0){
+          if(q==end&&read!=0){
+            q=0; m=(int)(q<read?read-q-1:end-q);
+          }
+          if(m==0){
+            write=q; 
+            r=inflate_flush(r);
+            q=write;m=(int)(q<read?read-q-1:end-q);
+            if(q==end&&read!=0){
+              q=0; m=(int)(q<read?read-q-1:end-q);
+            }
+            if(m==0){
+              bitb=b; bitk=k; 
+              z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+              write=q;
+              return inflate_flush(r);
+            }
+          }
+        }
+        r=Z_OK;
 
-	t = left;
-	if(t>n) t = n;
-	if(t>m) t = m;
-	System.arraycopy(z.next_in, p, window, q, t);
-	p += t;  n -= t;
-	q += t;  m -= t;
-	if ((left -= t) != 0)
-	  break;
-	mode = last!=0 ? DRY : TYPE;
-	break;
+        t = left;
+        if(t>n) t = n;
+        if(t>m) t = m;
+        System.arraycopy(z.next_in, p, window, q, t);
+        p += t;  n -= t;
+        q += t;  m -= t;
+        if ((left -= t) != 0)
+          break;
+        mode = last!=0 ? DRY : TYPE;
+        break;
       case TABLE:
 
-	while(k<(14)){
-	  if(n!=0){
-	    r=Z_OK;
-	  }
-	  else{
-	    bitb=b; bitk=k; 
-	    z.avail_in=n;
-	    z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    write=q;
-	    return inflate_flush(r);
-	  };
-	  n--;
-	  b|=(z.next_in[p++]&0xff)<<k;
-	  k+=8;
-	}
+        while(k<(14)){
+          if(n!=0){
+            r=Z_OK;
+          }
+          else{
+            bitb=b; bitk=k; 
+            z.avail_in=n;
+            z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            write=q;
+            return inflate_flush(r);
+          };
+          n--;
+          b|=(z.next_in[p++]&0xff)<<k;
+          k+=8;
+        }
 
-	table = t = (b & 0x3fff);
-	if ((t & 0x1f) > 29 || ((t >> 5) & 0x1f) > 29)
-	  {
-	    mode = BAD;
-	    z.msg = "too many length or distance symbols";
-	    r = Z_DATA_ERROR;
+        table = t = (b & 0x3fff);
+        if ((t & 0x1f) > 29 || ((t >> 5) & 0x1f) > 29)
+          {
+            mode = BAD;
+            z.msg = "too many length or distance symbols";
+            r = Z_DATA_ERROR;
 
-	    bitb=b; bitk=k; 
-	    z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    write=q;
-	    return inflate_flush(r);
-	  }
-	t = 258 + (t & 0x1f) + ((t >> 5) & 0x1f);
-	if(blens==null || blens.length<t){
-	  blens=new int[t];
-	}
-	else{
-	  for(int i=0; i<t; i++){blens[i]=0;}
-	}
+            bitb=b; bitk=k; 
+            z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            write=q;
+            return inflate_flush(r);
+          }
+        t = 258 + (t & 0x1f) + ((t >> 5) & 0x1f);
+        if(blens==null || blens.length<t){
+          blens=new int[t];
+        }
+        else{
+          for(int i=0; i<t; i++){blens[i]=0;}
+        }
 
-	{b>>>=(14);k-=(14);}
+        {b>>>=(14);k-=(14);}
 
-	index = 0;
-	mode = BTREE;
+        index = 0;
+        mode = BTREE;
       case BTREE:
-	while (index < 4 + (table >>> 10)){
-	  while(k<(3)){
-	    if(n!=0){
-	      r=Z_OK;
-	    }
-	    else{
-	      bitb=b; bitk=k; 
-	      z.avail_in=n;
-	      z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	      write=q;
-	      return inflate_flush(r);
-	    };
-	    n--;
-	    b|=(z.next_in[p++]&0xff)<<k;
-	    k+=8;
-	  }
+        while (index < 4 + (table >>> 10)){
+          while(k<(3)){
+            if(n!=0){
+              r=Z_OK;
+            }
+            else{
+              bitb=b; bitk=k; 
+              z.avail_in=n;
+              z.total_in+=p-z.next_in_index;z.next_in_index=p;
+              write=q;
+              return inflate_flush(r);
+            };
+            n--;
+            b|=(z.next_in[p++]&0xff)<<k;
+            k+=8;
+          }
 
-	  blens[border[index++]] = b&7;
+          blens[border[index++]] = b&7;
 
-	  {b>>>=(3);k-=(3);}
-	}
+          {b>>>=(3);k-=(3);}
+        }
 
-	while(index < 19){
-	  blens[border[index++]] = 0;
-	}
+        while(index < 19){
+          blens[border[index++]] = 0;
+        }
 
-	bb[0] = 7;
-	t = inftree.inflate_trees_bits(blens, bb, tb, hufts, z);
-	if (t != Z_OK){
-	  r = t;
-	  if (r == Z_DATA_ERROR){
-	    blens=null;
-	    mode = BAD;
-	  }
+        bb[0] = 7;
+        t = inftree.inflate_trees_bits(blens, bb, tb, hufts, z);
+        if (t != Z_OK){
+          r = t;
+          if (r == Z_DATA_ERROR){
+            blens=null;
+            mode = BAD;
+          }
 
-	  bitb=b; bitk=k; 
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  write=q;
-	  return inflate_flush(r);
-	}
+          bitb=b; bitk=k; 
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          write=q;
+          return inflate_flush(r);
+        }
 
-	index = 0;
-	mode = DTREE;
+        index = 0;
+        mode = DTREE;
       case DTREE:
-	while (true){
-	  t = table;
-	  if(!(index < 258 + (t & 0x1f) + ((t >> 5) & 0x1f))){
-	    break;
-	  }
+        while (true){
+          t = table;
+          if(!(index < 258 + (t & 0x1f) + ((t >> 5) & 0x1f))){
+            break;
+          }
 
-	  int[] h;
-	  int i, j, c;
+          int[] h;
+          int i, j, c;
 
-	  t = bb[0];
+          t = bb[0];
 
-	  while(k<(t)){
-	    if(n!=0){
-	      r=Z_OK;
-	    }
-	    else{
-	      bitb=b; bitk=k; 
-	      z.avail_in=n;
-	      z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	      write=q;
-	      return inflate_flush(r);
-	    };
-	    n--;
-	    b|=(z.next_in[p++]&0xff)<<k;
-	    k+=8;
-	  }
+          while(k<(t)){
+            if(n!=0){
+              r=Z_OK;
+            }
+            else{
+              bitb=b; bitk=k; 
+              z.avail_in=n;
+              z.total_in+=p-z.next_in_index;z.next_in_index=p;
+              write=q;
+              return inflate_flush(r);
+            };
+            n--;
+            b|=(z.next_in[p++]&0xff)<<k;
+            k+=8;
+          }
 
-	  if(tb[0]==-1){
+          if(tb[0]==-1){
             //System.err.println("null...");
-	  }
+          }
 
-	  t=hufts[(tb[0]+(b&inflate_mask[t]))*3+1];
-	  c=hufts[(tb[0]+(b&inflate_mask[t]))*3+2];
+          t=hufts[(tb[0]+(b&inflate_mask[t]))*3+1];
+          c=hufts[(tb[0]+(b&inflate_mask[t]))*3+2];
 
-	  if (c < 16){
-	    b>>>=(t);k-=(t);
-	    blens[index++] = c;
-	  }
-	  else { // c == 16..18
-	    i = c == 18 ? 7 : c - 14;
-	    j = c == 18 ? 11 : 3;
+          if (c < 16){
+            b>>>=(t);k-=(t);
+            blens[index++] = c;
+          }
+          else { // c == 16..18
+            i = c == 18 ? 7 : c - 14;
+            j = c == 18 ? 11 : 3;
 
-	    while(k<(t+i)){
-	      if(n!=0){
-		r=Z_OK;
-	      }
-	      else{
-		bitb=b; bitk=k; 
-		z.avail_in=n;
-		z.total_in+=p-z.next_in_index;z.next_in_index=p;
-		write=q;
-		return inflate_flush(r);
-	      };
-	      n--;
-	      b|=(z.next_in[p++]&0xff)<<k;
-	      k+=8;
-	    }
+            while(k<(t+i)){
+              if(n!=0){
+                r=Z_OK;
+              }
+              else{
+                bitb=b; bitk=k; 
+                z.avail_in=n;
+                z.total_in+=p-z.next_in_index;z.next_in_index=p;
+                write=q;
+                return inflate_flush(r);
+              };
+              n--;
+              b|=(z.next_in[p++]&0xff)<<k;
+              k+=8;
+            }
 
-	    b>>>=(t);k-=(t);
+            b>>>=(t);k-=(t);
 
-	    j += (b & inflate_mask[i]);
+            j += (b & inflate_mask[i]);
 
-	    b>>>=(i);k-=(i);
+            b>>>=(i);k-=(i);
 
-	    i = index;
-	    t = table;
-	    if (i + j > 258 + (t & 0x1f) + ((t >> 5) & 0x1f) ||
-		(c == 16 && i < 1)){
-	      blens=null;
-	      mode = BAD;
-	      z.msg = "invalid bit length repeat";
-	      r = Z_DATA_ERROR;
+            i = index;
+            t = table;
+            if (i + j > 258 + (t & 0x1f) + ((t >> 5) & 0x1f) ||
+                (c == 16 && i < 1)){
+              blens=null;
+              mode = BAD;
+              z.msg = "invalid bit length repeat";
+              r = Z_DATA_ERROR;
 
-	      bitb=b; bitk=k; 
-	      z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	      write=q;
-	      return inflate_flush(r);
-	    }
+              bitb=b; bitk=k; 
+              z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+              write=q;
+              return inflate_flush(r);
+            }
 
-	    c = c == 16 ? blens[i-1] : 0;
-	    do{
-	      blens[i++] = c;
-	    }
-	    while (--j!=0);
-	    index = i;
-	  }
-	}
+            c = c == 16 ? blens[i-1] : 0;
+            do{
+              blens[i++] = c;
+            }
+            while (--j!=0);
+            index = i;
+          }
+        }
 
-	tb[0]=-1;
-	{
-	  bl[0] = 9;         // must be <= 9 for lookahead assumptions
-	  bd[0] = 6;         // must be <= 9 for lookahead assumptions
-	  t = table;
-	  t = inftree.inflate_trees_dynamic(257 + (t & 0x1f), 
-					    1 + ((t >> 5) & 0x1f),
-					    blens, bl, bd, tli, tdi, hufts, z);
+        tb[0]=-1;
+        {
+          bl[0] = 9;         // must be <= 9 for lookahead assumptions
+          bd[0] = 6;         // must be <= 9 for lookahead assumptions
+          t = table;
+          t = inftree.inflate_trees_dynamic(257 + (t & 0x1f), 
+                                            1 + ((t >> 5) & 0x1f),
+                                            blens, bl, bd, tli, tdi, hufts, z);
 
-	  if (t != Z_OK){
-	    if (t == Z_DATA_ERROR){
-	      blens=null;
-	      mode = BAD;
-	    }
-	    r = t;
+          if (t != Z_OK){
+            if (t == Z_DATA_ERROR){
+              blens=null;
+              mode = BAD;
+            }
+            r = t;
 
-	    bitb=b; bitk=k; 
-	    z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    write=q;
-	    return inflate_flush(r);
-	  }
-	  codes.init(bl[0], bd[0], hufts, tli[0], hufts, tdi[0]);
-	}
-	mode = CODES;
+            bitb=b; bitk=k; 
+            z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            write=q;
+            return inflate_flush(r);
+          }
+          codes.init(bl[0], bd[0], hufts, tli[0], hufts, tdi[0]);
+        }
+        mode = CODES;
       case CODES:
-	bitb=b; bitk=k;
-	z.avail_in=n; z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	write=q;
+        bitb=b; bitk=k;
+        z.avail_in=n; z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        write=q;
 
-	if ((r = codes.proc(r)) != Z_STREAM_END){
-	  return inflate_flush(r);
-	}
-	r = Z_OK;
-	codes.free(z);
+        if ((r = codes.proc(r)) != Z_STREAM_END){
+          return inflate_flush(r);
+        }
+        r = Z_OK;
+        codes.free(z);
 
-	p=z.next_in_index; n=z.avail_in;b=bitb;k=bitk;
-	q=write;m=(int)(q<read?read-q-1:end-q);
+        p=z.next_in_index; n=z.avail_in;b=bitb;k=bitk;
+        q=write;m=(int)(q<read?read-q-1:end-q);
 
-	if (last==0){
-	  mode = TYPE;
-	  break;
-	}
-	mode = DRY;
+        if (last==0){
+          mode = TYPE;
+          break;
+        }
+        mode = DRY;
       case DRY:
-	write=q; 
-	r=inflate_flush(r); 
-	q=write; m=(int)(q<read?read-q-1:end-q);
-	if (read != write){
-	  bitb=b; bitk=k; 
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  write=q;
-	  return inflate_flush(r);
-	}
-	mode = DONE;
+        write=q; 
+        r=inflate_flush(r); 
+        q=write; m=(int)(q<read?read-q-1:end-q);
+        if (read != write){
+          bitb=b; bitk=k; 
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          write=q;
+          return inflate_flush(r);
+        }
+        mode = DONE;
       case DONE:
-	r = Z_STREAM_END;
+        r = Z_STREAM_END;
 
-	bitb=b; bitk=k; 
-	z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	write=q;
-	return inflate_flush(r);
+        bitb=b; bitk=k; 
+        z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        write=q;
+        return inflate_flush(r);
       case BAD:
-	r = Z_DATA_ERROR;
+        r = Z_DATA_ERROR;
 
-	bitb=b; bitk=k; 
-	z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	write=q;
-	return inflate_flush(r);
+        bitb=b; bitk=k; 
+        z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        write=q;
+        return inflate_flush(r);
 
       default:
-	r = Z_STREAM_ERROR;
+        r = Z_STREAM_ERROR;
 
-	bitb=b; bitk=k; 
-	z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	write=q;
-	return inflate_flush(r);
+        bitb=b; bitk=k; 
+        z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        write=q;
+        return inflate_flush(r);
       }
     }
   }
@@ -3544,7 +3544,7 @@ final class InfBlocks{
 
       // update check information
       if(check && n>0){
-	z.adler.update(window, q, n);
+        z.adler.update(window, q, n);
       }
 
       // copy
@@ -3659,8 +3659,8 @@ final class InfCodes{
   }
 
   void init(int bl, int bd,
-	   int[] tl, int tl_index,
-	   int[] td, int td_index){
+           int[] tl, int tl_index,
+           int[] td, int td_index){
     mode=START;
     lbits=(byte)bl;
     dbits=(byte)bd;
@@ -3691,267 +3691,267 @@ final class InfCodes{
     // process input and output based on current state
     while (true){
       switch (mode){
-	// waiting for "i:"=input, "o:"=output, "x:"=nothing
+        // waiting for "i:"=input, "o:"=output, "x:"=nothing
       case START:         // x: set up for LEN
-	if (m >= 258 && n >= 10){
+        if (m >= 258 && n >= 10){
 
-	  s.bitb=b;s.bitk=k;
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  s.write=q;
-	  r = inflate_fast(lbits, dbits, 
-			   ltree, ltree_index, 
-			   dtree, dtree_index,
-			   s, z);
+          s.bitb=b;s.bitk=k;
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          s.write=q;
+          r = inflate_fast(lbits, dbits, 
+                           ltree, ltree_index, 
+                           dtree, dtree_index,
+                           s, z);
 
-	  p=z.next_in_index;n=z.avail_in;b=s.bitb;k=s.bitk;
-	  q=s.write;m=q<s.read?s.read-q-1:s.end-q;
+          p=z.next_in_index;n=z.avail_in;b=s.bitb;k=s.bitk;
+          q=s.write;m=q<s.read?s.read-q-1:s.end-q;
 
-	  if (r != Z_OK){
-	    mode = r == Z_STREAM_END ? WASH : BADCODE;
-	    break;
-	  }
-	}
-	need = lbits;
-	tree = ltree;
-	tree_index=ltree_index;
+          if (r != Z_OK){
+            mode = r == Z_STREAM_END ? WASH : BADCODE;
+            break;
+          }
+        }
+        need = lbits;
+        tree = ltree;
+        tree_index=ltree_index;
 
-	mode = LEN;
+        mode = LEN;
       case LEN:           // i: get length/literal/eob next
-	j = need;
+        j = need;
 
-	while(k<(j)){
-	  if(n!=0)r=Z_OK;
-	  else{
+        while(k<(j)){
+          if(n!=0)r=Z_OK;
+          else{
 
-	    s.bitb=b;s.bitk=k;
-	    z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    s.write=q;
-	    return s.inflate_flush(r);
-	  }
-	  n--;
-	  b|=(z.next_in[p++]&0xff)<<k;
-	  k+=8;
-	}
+            s.bitb=b;s.bitk=k;
+            z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            s.write=q;
+            return s.inflate_flush(r);
+          }
+          n--;
+          b|=(z.next_in[p++]&0xff)<<k;
+          k+=8;
+        }
 
-	tindex=(tree_index+(b&inflate_mask[j]))*3;
+        tindex=(tree_index+(b&inflate_mask[j]))*3;
 
-	b>>>=(tree[tindex+1]);
-	k-=(tree[tindex+1]);
+        b>>>=(tree[tindex+1]);
+        k-=(tree[tindex+1]);
 
-	e=tree[tindex];
+        e=tree[tindex];
 
-	if(e == 0){               // literal
-	  lit = tree[tindex+2];
-	  mode = LIT;
-	  break;
-	}
-	if((e & 16)!=0 ){          // length
-	  get = e & 15;
-	  len = tree[tindex+2];
-	  mode = LENEXT;
-	  break;
-	}
-	if ((e & 64) == 0){        // next table
-	  need = e;
-	  tree_index = tindex/3+tree[tindex+2];
-	  break;
-	}
-	if ((e & 32)!=0){               // end of block
-	  mode = WASH;
-	  break;
-	}
-	mode = BADCODE;        // invalid code
-	z.msg = "invalid literal/length code";
-	r = Z_DATA_ERROR;
+        if(e == 0){               // literal
+          lit = tree[tindex+2];
+          mode = LIT;
+          break;
+        }
+        if((e & 16)!=0 ){          // length
+          get = e & 15;
+          len = tree[tindex+2];
+          mode = LENEXT;
+          break;
+        }
+        if ((e & 64) == 0){        // next table
+          need = e;
+          tree_index = tindex/3+tree[tindex+2];
+          break;
+        }
+        if ((e & 32)!=0){               // end of block
+          mode = WASH;
+          break;
+        }
+        mode = BADCODE;        // invalid code
+        z.msg = "invalid literal/length code";
+        r = Z_DATA_ERROR;
 
-	s.bitb=b;s.bitk=k;
-	z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	s.write=q;
-	return s.inflate_flush(r);
+        s.bitb=b;s.bitk=k;
+        z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        s.write=q;
+        return s.inflate_flush(r);
 
       case LENEXT:        // i: getting length extra (have base)
-	j = get;
+        j = get;
 
-	while(k<(j)){
-	  if(n!=0)r=Z_OK;
-	  else{
+        while(k<(j)){
+          if(n!=0)r=Z_OK;
+          else{
 
-	    s.bitb=b;s.bitk=k;
-	    z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    s.write=q;
-	    return s.inflate_flush(r);
-	  }
-	  n--; b|=(z.next_in[p++]&0xff)<<k;
-	  k+=8;
-	}
+            s.bitb=b;s.bitk=k;
+            z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            s.write=q;
+            return s.inflate_flush(r);
+          }
+          n--; b|=(z.next_in[p++]&0xff)<<k;
+          k+=8;
+        }
 
-	len += (b & inflate_mask[j]);
+        len += (b & inflate_mask[j]);
 
-	b>>=j;
-	k-=j;
+        b>>=j;
+        k-=j;
 
-	need = dbits;
-	tree = dtree;
-	tree_index=dtree_index;
-	mode = DIST;
+        need = dbits;
+        tree = dtree;
+        tree_index=dtree_index;
+        mode = DIST;
       case DIST:          // i: get distance next
-	j = need;
+        j = need;
 
-	while(k<(j)){
-	  if(n!=0)r=Z_OK;
-	  else{
+        while(k<(j)){
+          if(n!=0)r=Z_OK;
+          else{
 
-	    s.bitb=b;s.bitk=k;
-	    z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    s.write=q;
-	    return s.inflate_flush(r);
-	  }
-	  n--; b|=(z.next_in[p++]&0xff)<<k;
-	  k+=8;
-	}
+            s.bitb=b;s.bitk=k;
+            z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            s.write=q;
+            return s.inflate_flush(r);
+          }
+          n--; b|=(z.next_in[p++]&0xff)<<k;
+          k+=8;
+        }
 
-	tindex=(tree_index+(b & inflate_mask[j]))*3;
+        tindex=(tree_index+(b & inflate_mask[j]))*3;
 
-	b>>=tree[tindex+1];
-	k-=tree[tindex+1];
+        b>>=tree[tindex+1];
+        k-=tree[tindex+1];
 
-	e = (tree[tindex]);
-	if((e & 16)!=0){               // distance
-	  get = e & 15;
-	  dist = tree[tindex+2];
-	  mode = DISTEXT;
-	  break;
-	}
-	if ((e & 64) == 0){        // next table
-	  need = e;
-	  tree_index = tindex/3 + tree[tindex+2];
-	  break;
-	}
-	mode = BADCODE;        // invalid code
-	z.msg = "invalid distance code";
-	r = Z_DATA_ERROR;
+        e = (tree[tindex]);
+        if((e & 16)!=0){               // distance
+          get = e & 15;
+          dist = tree[tindex+2];
+          mode = DISTEXT;
+          break;
+        }
+        if ((e & 64) == 0){        // next table
+          need = e;
+          tree_index = tindex/3 + tree[tindex+2];
+          break;
+        }
+        mode = BADCODE;        // invalid code
+        z.msg = "invalid distance code";
+        r = Z_DATA_ERROR;
 
-	s.bitb=b;s.bitk=k;
-	z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	s.write=q;
-	return s.inflate_flush(r);
+        s.bitb=b;s.bitk=k;
+        z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        s.write=q;
+        return s.inflate_flush(r);
 
       case DISTEXT:       // i: getting distance extra
-	j = get;
+        j = get;
 
-	while(k<(j)){
-	  if(n!=0)r=Z_OK;
-	  else{
+        while(k<(j)){
+          if(n!=0)r=Z_OK;
+          else{
 
-	    s.bitb=b;s.bitk=k;
-	    z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	    s.write=q;
-	    return s.inflate_flush(r);
-	  }
-	  n--; b|=(z.next_in[p++]&0xff)<<k;
-	  k+=8;
-	}
+            s.bitb=b;s.bitk=k;
+            z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+            s.write=q;
+            return s.inflate_flush(r);
+          }
+          n--; b|=(z.next_in[p++]&0xff)<<k;
+          k+=8;
+        }
 
-	dist += (b & inflate_mask[j]);
+        dist += (b & inflate_mask[j]);
 
-	b>>=j;
-	k-=j;
+        b>>=j;
+        k-=j;
 
-	mode = COPY;
+        mode = COPY;
       case COPY:          // o: copying bytes in window, waiting for space
         f = q - dist;
         while(f < 0){     // modulo window size-"while" instead
           f += s.end;     // of "if" handles invalid distances
-	}
-	while (len!=0){
+        }
+        while (len!=0){
 
-	  if(m==0){
-	    if(q==s.end&&s.read!=0){q=0;m=q<s.read?s.read-q-1:s.end-q;}
-	    if(m==0){
-	      s.write=q; r=s.inflate_flush(r);
-	      q=s.write;m=q<s.read?s.read-q-1:s.end-q;
+          if(m==0){
+            if(q==s.end&&s.read!=0){q=0;m=q<s.read?s.read-q-1:s.end-q;}
+            if(m==0){
+              s.write=q; r=s.inflate_flush(r);
+              q=s.write;m=q<s.read?s.read-q-1:s.end-q;
 
-	      if(q==s.end&&s.read!=0){q=0;m=q<s.read?s.read-q-1:s.end-q;}
+              if(q==s.end&&s.read!=0){q=0;m=q<s.read?s.read-q-1:s.end-q;}
 
-	      if(m==0){
-		s.bitb=b;s.bitk=k;
-		z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-		s.write=q;
-		return s.inflate_flush(r);
-	      }  
-	    }
-	  }
+              if(m==0){
+                s.bitb=b;s.bitk=k;
+                z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+                s.write=q;
+                return s.inflate_flush(r);
+              }  
+            }
+          }
 
-	  s.window[q++]=s.window[f++]; m--;
+          s.window[q++]=s.window[f++]; m--;
 
-	  if (f == s.end)
+          if (f == s.end)
             f = 0;
-	  len--;
-	}
-	mode = START;
-	break;
+          len--;
+        }
+        mode = START;
+        break;
       case LIT:           // o: got literal, waiting for output space
-	if(m==0){
-	  if(q==s.end&&s.read!=0){q=0;m=q<s.read?s.read-q-1:s.end-q;}
-	  if(m==0){
-	    s.write=q; r=s.inflate_flush(r);
-	    q=s.write;m=q<s.read?s.read-q-1:s.end-q;
+        if(m==0){
+          if(q==s.end&&s.read!=0){q=0;m=q<s.read?s.read-q-1:s.end-q;}
+          if(m==0){
+            s.write=q; r=s.inflate_flush(r);
+            q=s.write;m=q<s.read?s.read-q-1:s.end-q;
 
-	    if(q==s.end&&s.read!=0){q=0;m=q<s.read?s.read-q-1:s.end-q;}
-	    if(m==0){
-	      s.bitb=b;s.bitk=k;
-	      z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	      s.write=q;
-	      return s.inflate_flush(r);
-	    }
-	  }
-	}
-	r=Z_OK;
+            if(q==s.end&&s.read!=0){q=0;m=q<s.read?s.read-q-1:s.end-q;}
+            if(m==0){
+              s.bitb=b;s.bitk=k;
+              z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+              s.write=q;
+              return s.inflate_flush(r);
+            }
+          }
+        }
+        r=Z_OK;
 
-	s.window[q++]=(byte)lit; m--;
+        s.window[q++]=(byte)lit; m--;
 
-	mode = START;
-	break;
+        mode = START;
+        break;
       case WASH:           // o: got eob, possibly more output
-	if (k > 7){        // return unused byte, if any
-	  k -= 8;
-	  n++;
-	  p--;             // can always return one
-	}
+        if (k > 7){        // return unused byte, if any
+          k -= 8;
+          n++;
+          p--;             // can always return one
+        }
 
-	s.write=q; r=s.inflate_flush(r);
-	q=s.write;m=q<s.read?s.read-q-1:s.end-q;
+        s.write=q; r=s.inflate_flush(r);
+        q=s.write;m=q<s.read?s.read-q-1:s.end-q;
 
-	if (s.read != s.write){
-	  s.bitb=b;s.bitk=k;
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  s.write=q;
-	  return s.inflate_flush(r);
-	}
-	mode = END;
+        if (s.read != s.write){
+          s.bitb=b;s.bitk=k;
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          s.write=q;
+          return s.inflate_flush(r);
+        }
+        mode = END;
       case END:
-	r = Z_STREAM_END;
-	s.bitb=b;s.bitk=k;
-	z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	s.write=q;
-	return s.inflate_flush(r);
+        r = Z_STREAM_END;
+        s.bitb=b;s.bitk=k;
+        z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        s.write=q;
+        return s.inflate_flush(r);
 
       case BADCODE:       // x: got error
 
-	r = Z_DATA_ERROR;
+        r = Z_DATA_ERROR;
 
-	s.bitb=b;s.bitk=k;
-	z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	s.write=q;
-	return s.inflate_flush(r);
+        s.bitb=b;s.bitk=k;
+        z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        s.write=q;
+        return s.inflate_flush(r);
 
       default:
-	r = Z_STREAM_ERROR;
+        r = Z_STREAM_ERROR;
 
-	s.bitb=b;s.bitk=k;
-	z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	s.write=q;
-	return s.inflate_flush(r);
+        s.bitb=b;s.bitk=k;
+        z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+        s.write=q;
+        return s.inflate_flush(r);
       }
     }
   }
@@ -3966,9 +3966,9 @@ final class InfCodes{
   // distance pair plus four bytes for overloading the bit buffer.
 
   int inflate_fast(int bl, int bd, 
-		   int[] tl, int tl_index,
-		   int[] td, int td_index,
-		   InfBlocks s, ZStream z){
+                   int[] tl, int tl_index,
+                   int[] td, int td_index,
+                   InfBlocks s, ZStream z){
     int t;                // temporary pointer
     int[] tp;             // temporary pointer
     int tp_index;         // temporary pointer
@@ -3999,8 +3999,8 @@ final class InfCodes{
     do {                          // assume called with m >= 258 && n >= 10
       // get literal/length code
       while(k<(20)){              // max bits for literal/length code
-	n--;
-	b|=(z.next_in[p++]&0xff)<<k;k+=8;
+        n--;
+        b|=(z.next_in[p++]&0xff)<<k;k+=8;
       }
 
       t= b&ml;
@@ -4008,153 +4008,153 @@ final class InfCodes{
       tp_index=tl_index;
       tp_index_t_3=(tp_index+t)*3;
       if ((e = tp[tp_index_t_3]) == 0){
-	b>>=(tp[tp_index_t_3+1]); k-=(tp[tp_index_t_3+1]);
+        b>>=(tp[tp_index_t_3+1]); k-=(tp[tp_index_t_3+1]);
 
-	s.window[q++] = (byte)tp[tp_index_t_3+2];
-	m--;
-	continue;
+        s.window[q++] = (byte)tp[tp_index_t_3+2];
+        m--;
+        continue;
       }
       do {
 
-	b>>=(tp[tp_index_t_3+1]); k-=(tp[tp_index_t_3+1]);
+        b>>=(tp[tp_index_t_3+1]); k-=(tp[tp_index_t_3+1]);
 
-	if((e&16)!=0){
-	  e &= 15;
-	  c = tp[tp_index_t_3+2] + ((int)b & inflate_mask[e]);
+        if((e&16)!=0){
+          e &= 15;
+          c = tp[tp_index_t_3+2] + ((int)b & inflate_mask[e]);
 
-	  b>>=e; k-=e;
+          b>>=e; k-=e;
 
-	  // decode distance base of block to copy
-	  while(k<(15)){           // max bits for distance code
-	    n--;
-	    b|=(z.next_in[p++]&0xff)<<k;k+=8;
-	  }
+          // decode distance base of block to copy
+          while(k<(15)){           // max bits for distance code
+            n--;
+            b|=(z.next_in[p++]&0xff)<<k;k+=8;
+          }
 
-	  t= b&md;
-	  tp=td;
-	  tp_index=td_index;
+          t= b&md;
+          tp=td;
+          tp_index=td_index;
           tp_index_t_3=(tp_index+t)*3;
-	  e = tp[tp_index_t_3];
+          e = tp[tp_index_t_3];
 
-	  do {
+          do {
 
-	    b>>=(tp[tp_index_t_3+1]); k-=(tp[tp_index_t_3+1]);
+            b>>=(tp[tp_index_t_3+1]); k-=(tp[tp_index_t_3+1]);
 
-	    if((e&16)!=0){
-	      // get extra bits to add to distance base
-	      e &= 15;
-	      while(k<(e)){         // get extra bits (up to 13)
-		n--;
-		b|=(z.next_in[p++]&0xff)<<k;k+=8;
-	      }
+            if((e&16)!=0){
+              // get extra bits to add to distance base
+              e &= 15;
+              while(k<(e)){         // get extra bits (up to 13)
+                n--;
+                b|=(z.next_in[p++]&0xff)<<k;k+=8;
+              }
 
-	      d = tp[tp_index_t_3+2] + (b&inflate_mask[e]);
+              d = tp[tp_index_t_3+2] + (b&inflate_mask[e]);
 
-	      b>>=(e); k-=(e);
+              b>>=(e); k-=(e);
 
-	      // do the copy
-	      m -= c;
-	      if (q >= d){                // offset before dest
-		//  just copy
-		r=q-d;
-		if(q-r>0 && 2>(q-r)){           
-		  s.window[q++]=s.window[r++]; // minimum count is three,
-		  s.window[q++]=s.window[r++]; // so unroll loop a little
-		  c-=2;
-		}
-		else{
-		  System.arraycopy(s.window, r, s.window, q, 2);
-		  q+=2; r+=2; c-=2;
-		}
-	      }
-	      else{                  // else offset after destination
+              // do the copy
+              m -= c;
+              if (q >= d){                // offset before dest
+                //  just copy
+                r=q-d;
+                if(q-r>0 && 2>(q-r)){           
+                  s.window[q++]=s.window[r++]; // minimum count is three,
+                  s.window[q++]=s.window[r++]; // so unroll loop a little
+                  c-=2;
+                }
+                else{
+                  System.arraycopy(s.window, r, s.window, q, 2);
+                  q+=2; r+=2; c-=2;
+                }
+              }
+              else{                  // else offset after destination
                 r=q-d;
                 do{
                   r+=s.end;          // force pointer in window
                 }while(r<0);         // covers invalid distances
-		e=s.end-r;
-		if(c>e){             // if source crosses,
-		  c-=e;              // wrapped copy
-		  if(q-r>0 && e>(q-r)){           
-		    do{s.window[q++] = s.window[r++];}
-		    while(--e!=0);
-		  }
-		  else{
-		    System.arraycopy(s.window, r, s.window, q, e);
-		    q+=e; r+=e; e=0;
-		  }
-		  r = 0;                  // copy rest from start of window
-		}
+                e=s.end-r;
+                if(c>e){             // if source crosses,
+                  c-=e;              // wrapped copy
+                  if(q-r>0 && e>(q-r)){           
+                    do{s.window[q++] = s.window[r++];}
+                    while(--e!=0);
+                  }
+                  else{
+                    System.arraycopy(s.window, r, s.window, q, e);
+                    q+=e; r+=e; e=0;
+                  }
+                  r = 0;                  // copy rest from start of window
+                }
 
-	      }
+              }
 
-	      // copy all or what's left
-	      if(q-r>0 && c>(q-r)){           
-		do{s.window[q++] = s.window[r++];}
-		while(--c!=0);
-	      }
-	      else{
-		System.arraycopy(s.window, r, s.window, q, c);
-		q+=c; r+=c; c=0;
-	      }
-	      break;
-	    }
-	    else if((e&64)==0){
-	      t+=tp[tp_index_t_3+2];
-	      t+=(b&inflate_mask[e]);
-	      tp_index_t_3=(tp_index+t)*3;
-	      e=tp[tp_index_t_3];
-	    }
-	    else{
-	      z.msg = "invalid distance code";
+              // copy all or what's left
+              if(q-r>0 && c>(q-r)){           
+                do{s.window[q++] = s.window[r++];}
+                while(--c!=0);
+              }
+              else{
+                System.arraycopy(s.window, r, s.window, q, c);
+                q+=c; r+=c; c=0;
+              }
+              break;
+            }
+            else if((e&64)==0){
+              t+=tp[tp_index_t_3+2];
+              t+=(b&inflate_mask[e]);
+              tp_index_t_3=(tp_index+t)*3;
+              e=tp[tp_index_t_3];
+            }
+            else{
+              z.msg = "invalid distance code";
 
-	      c=z.avail_in-n;c=(k>>3)<c?k>>3:c;n+=c;p-=c;k-=c<<3;
+              c=z.avail_in-n;c=(k>>3)<c?k>>3:c;n+=c;p-=c;k-=c<<3;
 
-	      s.bitb=b;s.bitk=k;
-	      z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	      s.write=q;
+              s.bitb=b;s.bitk=k;
+              z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+              s.write=q;
 
-	      return Z_DATA_ERROR;
-	    }
-	  }
-	  while(true);
-	  break;
-	}
+              return Z_DATA_ERROR;
+            }
+          }
+          while(true);
+          break;
+        }
 
-	if((e&64)==0){
-	  t+=tp[tp_index_t_3+2];
-	  t+=(b&inflate_mask[e]);
-	  tp_index_t_3=(tp_index+t)*3;
-	  if((e=tp[tp_index_t_3])==0){
+        if((e&64)==0){
+          t+=tp[tp_index_t_3+2];
+          t+=(b&inflate_mask[e]);
+          tp_index_t_3=(tp_index+t)*3;
+          if((e=tp[tp_index_t_3])==0){
 
-	    b>>=(tp[tp_index_t_3+1]); k-=(tp[tp_index_t_3+1]);
+            b>>=(tp[tp_index_t_3+1]); k-=(tp[tp_index_t_3+1]);
 
-	    s.window[q++]=(byte)tp[tp_index_t_3+2];
-	    m--;
-	    break;
-	  }
-	}
-	else if((e&32)!=0){
+            s.window[q++]=(byte)tp[tp_index_t_3+2];
+            m--;
+            break;
+          }
+        }
+        else if((e&32)!=0){
 
-	  c=z.avail_in-n;c=(k>>3)<c?k>>3:c;n+=c;p-=c;k-=c<<3;
+          c=z.avail_in-n;c=(k>>3)<c?k>>3:c;n+=c;p-=c;k-=c<<3;
  
-	  s.bitb=b;s.bitk=k;
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  s.write=q;
+          s.bitb=b;s.bitk=k;
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          s.write=q;
 
-	  return Z_STREAM_END;
-	}
-	else{
-	  z.msg="invalid literal/length code";
+          return Z_STREAM_END;
+        }
+        else{
+          z.msg="invalid literal/length code";
 
-	  c=z.avail_in-n;c=(k>>3)<c?k>>3:c;n+=c;p-=c;k-=c<<3;
+          c=z.avail_in-n;c=(k>>3)<c?k>>3:c;n+=c;p-=c;k-=c<<3;
 
-	  s.bitb=b;s.bitk=k;
-	  z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
-	  s.write=q;
+          s.bitb=b;s.bitk=k;
+          z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p;
+          s.write=q;
 
-	  return Z_DATA_ERROR;
-	}
+          return Z_DATA_ERROR;
+        }
       } 
       while(true);
     } 
@@ -4505,12 +4505,12 @@ final class InfTree{
     for (; k <= g; k++){
       a = c[k];
       while (a--!=0){
-	// here i is the Huffman code of length k bits for value *p
-	// make tables up to required level
+        // here i is the Huffman code of length k bits for value *p
+        // make tables up to required level
         while (k > w + l){
           h++;
           w += l;                 // previous table always l bits
-	  // compute minimum size table less than or equal to l bits
+          // compute minimum size table less than or equal to l bits
           z = g - w;
           z = (z > l) ? l : z;        // table size upper limit
           if((f=1<<(j=k-w))>a+1){     // try a k-w bit table
@@ -4523,19 +4523,19 @@ final class InfTree{
                   break;              // enough codes to use up j bits
                 f -= c[xp];           // else deduct codes from patterns
               }
-	    }
+            }
           }
           z = 1 << j;                 // table entries for j-bit table
 
-	  // allocate new table
+          // allocate new table
           if (hn[0] + z > MANY){       // (note: doesn't matter for fixed)
             return Z_DATA_ERROR;       // overflow of MANY
           }
           u[h] = q = /*hp+*/ hn[0];   // DEBUG
           hn[0] += z;
  
-	  // connect to last table, if there is one
-	  if(h!=0){
+          // connect to last table, if there is one
+          if(h!=0){
             x[h]=i;           // save pattern for backing up
             r[0]=(byte)j;     // bits in this table
             r[1]=(byte)l;     // bits to dump before this table
@@ -4545,14 +4545,14 @@ final class InfTree{
           }
           else{
             t[0] = q;               // first table is returned result
-	  }
+          }
         }
 
-	// set up table entry in r
+        // set up table entry in r
         r[1] = (byte)(k - w);
         if (p >= n){
           r[0] = 128 + 64;      // out of values--invalid code
-	}
+        }
         else if (v[p] < s){
           r[0] = (byte)(v[p] < 256 ? 0 : 32 + 64);  // 256 is end-of-block
           r[2] = v[p++];          // simple code is just the value
@@ -4566,15 +4566,15 @@ final class InfTree{
         f=1<<(k-w);
         for (j=i>>>w;j<z;j+=f){
           System.arraycopy(r, 0, hp, (q+j)*3, 3);
-	}
+        }
 
-	// backwards increment the k-bit code i
+        // backwards increment the k-bit code i
         for (j = 1 << (k - 1); (i & j)!=0; j >>>= 1){
           i ^= j;
-	}
+        }
         i ^= j;
 
-	// backup over finished tables
+        // backup over finished tables
         mask = (1 << w) - 1;      // needed on HP, cc -O bug
         while ((i & mask) != x[h]){
           h--;                    // don't need to update q
@@ -4662,7 +4662,7 @@ final class InfTree{
                                  int[][] tl,//literal/length tree result
                                  int[][] td,//distance tree result 
                                  ZStream z  //for memory allocation
-				 ){
+                                 ){
     bl[0]=fixed_bl;
     bd[0]=fixed_bd;
     tl[0]=fixed_tl;
@@ -4893,7 +4893,7 @@ final class Inflate{
       switch (this.mode){
       case HEAD:
         if(wrap==0){
-	  this.mode = BLOCKS;
+          this.mode = BLOCKS;
           break;
         } 
 
@@ -4905,7 +4905,7 @@ final class Inflate{
           if(wrap == 4){
             wrap = 2;
           }
-	  z.adler=new CRC32();
+          z.adler=new CRC32();
           checksum(2, this.need);
 
           if(gheader==null) 
@@ -4950,9 +4950,9 @@ final class Inflate{
           this.mode = BAD;
           z.msg="unknown compression method";
           // since zlib 1.2, it is allowted to inflateSync for this case.
-	  /*
+          /*
           this.marker = 5;       // can't try inflateSync
-	  */
+          */
           break;
         }
   
@@ -4964,9 +4964,9 @@ final class Inflate{
           this.mode = BAD;
           z.msg="invalid window size";
           // since zlib 1.2, it is allowted to inflateSync for this case.
-	  /*
+          /*
           this.marker = 5;       // can't try inflateSync
-	  */
+          */
           break;
         }
 
@@ -5075,7 +5075,7 @@ final class Inflate{
           this.mode = BAD;
           this.marker = 5;       // can't try inflateSync
           break;
-	  */
+          */
         }
         else if(flags!=0 && gheader!=null){
           gheader.crc = this.need; 
@@ -5184,22 +5184,22 @@ final class Inflate{
               tmp_string=null;
               if(foo.length == gheader.extra.length){
                 System.arraycopy(foo, 0, gheader.extra, 0, foo.length);
-	      }
+              }
               else{
                 z.msg = "bad extra field length";
                 this.mode = BAD; 
                 break;
-	      }
+              }
             }
           }
           catch(Return e){ return e.r; }
         }
         else if(gheader!=null){
           gheader.extra=null;
-	}
-	this.mode = NAME;
+        }
+        this.mode = NAME;
       case NAME:
-	if ((flags & 0x0800)!=0) {
+        if ((flags & 0x0800)!=0) {
           try { 
             r=readString(r, f);
             if(gheader!=null){
@@ -5211,7 +5211,7 @@ final class Inflate{
         }
         else if(gheader!=null){
           gheader.name=null;
-	}
+        }
         this.mode = COMMENT;
       case COMMENT:
         if ((flags & 0x1000)!=0) {
@@ -5226,10 +5226,10 @@ final class Inflate{
         }
         else if(gheader!=null){
           gheader.comment=null;
-	}
+        }
         this.mode = HCRC;
       case HCRC:
-	if ((flags & 0x0200)!=0) {
+        if ((flags & 0x0200)!=0) {
           try { r=readBytes(2, r, f); }
           catch(Return e){ return e.r; }
           if(gheader!=null){
@@ -5353,7 +5353,7 @@ final class Inflate{
       if(z.avail_in==0){ throw new Return(r); }; r=f;
       z.avail_in--; z.total_in++;
       this.need = this.need | 
-	((z.next_in[z.next_in_index++]&0xff)<<((n-need_bytes)*8));
+        ((z.next_in[z.next_in_index++]&0xff)<<((n-need_bytes)*8));
       need_bytes--;
     }
     if(n==2){
@@ -5431,9 +5431,9 @@ final class Inflate{
       case NAME:
       case COMMENT:
       case HCRC:
-	return true;
+        return true;
       default:
-	return false;
+        return false;
     }
   }
 }
@@ -6059,15 +6059,15 @@ final class StaticTree{
 
   static StaticTree static_l_desc =
     new StaticTree(static_ltree, Tree.extra_lbits,
-		   LITERALS+1, L_CODES, MAX_BITS);
+                   LITERALS+1, L_CODES, MAX_BITS);
 
   static StaticTree static_d_desc =
     new StaticTree(static_dtree, Tree.extra_dbits,
-		   0,  D_CODES, MAX_BITS);
+                   0,  D_CODES, MAX_BITS);
 
   static StaticTree static_bl_desc =
     new StaticTree(null, Tree.extra_blbits,
-		   0, BL_CODES, MAX_BL_BITS);
+                   0, BL_CODES, MAX_BL_BITS);
 
   short[] static_tree;     // static tree or null
   int[] extra_bits;        // extra bits for each code or null
@@ -6303,13 +6303,13 @@ final class Tree{
     for (bits = max_length; bits != 0; bits--) {
       n = s.bl_count[bits];
       while (n != 0) {
-	m = s.heap[--h];
-	if (m > max_code) continue;
-	if (tree[m*2+1] != bits) {
-	  s.opt_len += ((long)bits - (long)tree[m*2+1])*(long)tree[m*2];
-	  tree[m*2+1] = (short)bits;
-	}
-	n--;
+        m = s.heap[--h];
+        if (m > max_code) continue;
+        if (tree[m*2+1] != bits) {
+          s.opt_len += ((long)bits - (long)tree[m*2+1])*(long)tree[m*2];
+          tree[m*2+1] = (short)bits;
+        }
+        n--;
       }
     }
   }
@@ -6336,11 +6336,11 @@ final class Tree{
 
     for(n=0; n<elems; n++) {
       if(tree[n*2] != 0) {
-	s.heap[++s.heap_len] = max_code = n;
-	s.depth[n] = 0;
+        s.heap[++s.heap_len] = max_code = n;
+        s.depth[n] = 0;
       }
       else{
-	tree[n*2+1] = 0;
+        tree[n*2+1] = 0;
       }
     }
 
@@ -6440,8 +6440,8 @@ final class Tree{
   // IN assertion: 1 <= len <= 15
   private final static int bi_reverse(
                         int code, // the value to invert
-			int len   // its bit length
-			){
+                        int len   // its bit length
+                        ){
     int res = 0;
     do{
       res|=code&1;
@@ -6957,12 +6957,12 @@ class ZStream{
        dstate.pending_buf.length<(dstate.pending_out+len) ||
        next_out.length<(next_out_index+len)){
       //System.out.println(dstate.pending_buf.length+", "+dstate.pending_out+
-      //		 ", "+next_out.length+", "+next_out_index+", "+len);
+      //                 ", "+next_out.length+", "+next_out_index+", "+len);
       //System.out.println("avail_out="+avail_out);
     }
 
     System.arraycopy(dstate.pending_buf, dstate.pending_out,
-		     next_out, next_out_index, len);
+                     next_out, next_out_index, len);
 
     next_out_index+=len;
     dstate.pending_out+=len;
@@ -7193,5 +7193,67 @@ public class JZlibCorpus {
     c.update(data, 0, data.length);
     System.out.println("crc=" + Long.toHexString(c.getValue()));
     System.out.println("JZlib=" + JZlib.version());
+
+    // phase 2 (unblocked when ByteArrayInputStream landed, skip/charset
+    // wave): the STREAM wrappers over the landed stream builtins —
+    // DeflaterOutputStream/InflaterInputStream, ZOutputStream/ZInputStream,
+    // GZIPOutputStream/GZIPInputStream. Compressed sizes are deterministic
+    // (same JZlib source both sides), so they diff too.
+
+    // DeflaterOutputStream -> BAOS; InflaterInputStream over BAIS
+    ByteArrayOutputStream bout = new ByteArrayOutputStream();
+    DeflaterOutputStream dos = new DeflaterOutputStream(bout);
+    dos.write(data, 0, data.length);
+    dos.finish();
+    dos.close();
+    byte[] dcomp = bout.toByteArray();
+    InflaterInputStream iis = new InflaterInputStream(new ByteArrayInputStream(dcomp));
+    byte[] dout = new byte[256];
+    int dk = 0, dr;
+    while ((dr = iis.read(dout, dk, dout.length - dk)) > 0) dk += dr;
+    iis.close();
+    System.out.println("wrap-deflate n=" + dcomp.length + " ok="
+        + new String(dout, 0, dk, "UTF-8").equals(text));
+
+    // ZOutputStream -> BAOS; ZInputStream over BAIS (its own skip uses the
+    // decompressor, not the builtin default — exercised separately)
+    ByteArrayOutputStream zbout = new ByteArrayOutputStream();
+    ZOutputStream zout = new ZOutputStream(zbout, JZlib.Z_BEST_SPEED);
+    zout.write(data, 0, data.length);
+    zout.finish();
+    zout.flush();
+    zout.close();
+    byte[] zcomp = zbout.toByteArray();
+    ZInputStream zin = new ZInputStream(new ByteArrayInputStream(zcomp));
+    byte[] zoutb = new byte[256];
+    int zk = 0, zr;
+    while ((zr = zin.read(zoutb, zk, zoutb.length - zk)) > 0) zk += zr;
+    System.out.println("zstream n=" + zcomp.length + " ok="
+        + new String(zoutb, 0, zk, "UTF-8").equals(text)
+        + " totalIn=" + zin.getTotalIn() + " totalOut=" + zin.getTotalOut());
+    zin.close();
+
+    // GZIPOutputStream -> BAOS; GZIPInputStream over BAIS (header parse +
+    // CRC32 trailer both go through JZlib's own code)
+    ByteArrayOutputStream gbout = new ByteArrayOutputStream();
+    GZIPOutputStream gos = new GZIPOutputStream(gbout);
+    gos.write(data, 0, data.length);
+    gos.finish();
+    gos.close();
+    byte[] gz = gbout.toByteArray();
+    GZIPInputStream gis = new GZIPInputStream(new ByteArrayInputStream(gz));
+    byte[] gout = new byte[256];
+    int gk = 0, gr;
+    while ((gr = gis.read(gout, gk, gout.length - gk)) > 0) gk += gr;
+    gis.close();
+    System.out.println("gzip n=" + gz.length + " ok="
+        + new String(gout, 0, gk, "UTF-8").equals(text));
+
+    // ZInputStream.skip — JZlib's own decompressor-driven skip (differs
+    // from the builtin default; both sides run JZlib's code)
+    ZInputStream zskip = new ZInputStream(new ByteArrayInputStream(zcomp));
+    long skipped = zskip.skip(20);
+    System.out.println("zskip=" + skipped + " next=" + zskip.read());
+    zskip.close();
   }
 }
