@@ -369,3 +369,84 @@ fixtures byte-identical vs Temurin on all 3 channels (316.7s local).
 * New builtin hierarchy entries so catch-type verification and handler
   matching resolve: `IllegalMonitorStateException`,
   `InterruptedException` (first fixtures to catch them).
+
+## Wave 4 — T14 interrupt semantics (2026-11-05)
+
+### Probes first (the T13 discipline held again)
+
+Three Temurin 21.0.13+9 probes (InterruptProbe, JoinInterruptProbe,
+EdgeProbe) pinned the contract BEFORE any implementation, and falsified
+one doc-derived assumption outright:
+
+* `sleep` interrupted: `InterruptedException("sleep interrupted")`, flag
+  cleared by the delivery (EdgeProbe C).
+* `join` interrupted — including the self-join case: **message-less**
+  InterruptedException (JoinInterruptProbe; the first probe's shared
+  variable raced and briefly suggested otherwise — the isolated probe is
+  the evidence).
+* `Object.wait` interrupted (pre-set or during): message-less, thrown
+  AFTER the monitor is re-acquired — `notify()` inside the catch succeeds
+  (monitor held); a pre-set flag throws immediately WITHOUT releasing
+  (EdgeProbe A: "threw fast=true").
+* Monitor-enter is NOT interruptible: the interrupted contender never
+  throws, enters, and the flag stays set through the enter
+  ("entered flag=true").
+* `interrupt()` on a dead thread sets the flag: `isInterrupted()==true`
+  afterwards (dead-probe) — a Temurin quirk the javadoc calls a no-op.
+  `interrupt()` on a never-started thread is observable via the object
+  (EdgeProbe D).
+
+### Implementation (commit 3c08842)
+
+* Per-record `interrupted: AtomicBool` is the single carrier for started
+  threads; object slot 5 (`pendingInterrupt`, Thread's sixth slot) is the
+  never-started carrier and MOVES into the record at `start` — two views
+  of one thread can never report different values.
+* Per-thread ticket condvar (`wakeup_mu/wakeup_cv`): notify and interrupt
+  deliver through the same wake channel; the waiter re-derives the
+  meaning (wait-set membership, flag, deadline). JDK wake order pinned:
+  interrupt beats notified beats deadline.
+* `monitor wait` parks on the ticket (monitor lock never held while
+  parked); `sleep`/`join`/self-join park on the scheduler condvar
+  (interrupt notifies it — instant wake); coop-mode sleep/join check the
+  flag per tick (deterministic delivery: the interrupter can only have
+  run during the yielded turn).
+* **Lock law L7 audited twice mid-flight** — the first placement of the
+  wait entry check took the heap lock under the monitor lock, and the
+  delivery paths took it under the SCHED guard; both cycles were found
+  by a hung test run, audited, and closed (entry check moved outside all
+  runtime locks; delivery drops the guard first). The same run surfaced a
+  nested-heap-lock self-deadlock in the test helper (string_value inside
+  with_obj) — the heap Mutex is not reentrant.
+
+### Evidence (wave-4 tree so far)
+
+* runtime unit tests **143 green** (was 134): nine T14 tests — flag
+  protocol, pre-interrupted sleep/join/self-join/wait, cross-thread wake
+  for sleep and monitor-wait (delivery after re-acquire), monitor-enter
+  immunity, dead and never-started observability.
+* Three new differential fixtures byte-identical vs Temurin locally:
+  **InterruptSleep** (self + cross-thread + flag protocol + dead quirk),
+  **InterruptJoin** (self + cross), **InterruptWait** (pre/during +
+  monitor-held-in-catch + enter immunity). Suite 89 → **92**; workspace
+  tests 277 → **287** (the gate-9 bucket partition test below).
+* The interrupt natives joined the dispatch table: interrupt/isInterrupted
+  (instance) and interrupted (static).
+
+### gate-9 re-architecture + the race that started it (same day)
+
+CI #59's six-way stride legs (14m/1m/>=120m/1m/1m/>=120m) were explained
+by the gc-probe one-shot diagnostic (ops tooling, workflow_dispatch,
+rounds #1/#2): ReflectGC ~14m on CI at N=1 (local 540s × ~1.5);
+**MonitorContention 2/2 and WaitNotify 1/2 hit the 15-minute inner
+timeout at N=1** — a timing-sensitive Wave-3 coop/monitor/STW protocol
+race that only slow 2-vCPU runners expose at a collection per allocation
+— while both fixtures finish in under a minute at J2R_GC_EVERY_N=8 and
+are ~6s locally. Every other fixture is <1m on CI. gate-9 now runs six
+duration-balanced legs (solo / monitors-N8 / heavy / light-0..2) with the
+policy in the harness (`diff_suite.rs bucket_for_gate9`), a partition
+unit test pinning union == census, and fixed special lists intersected
+with the on-disk suite. The race itself is registered as the Wave-4
+stress task's first case (TODO §3 T17) — the local N=1 evidence for the
+monitor fixtures stands (all 92 fixtures byte-identical at N=1 locally,
+scripts/gc_weights.csv).
