@@ -587,10 +587,11 @@ fn run_body(rec: &Arc<ThreadRecord>, body: impl FnOnce() -> Result<(), Throw>) {
 
 // ------------------------------------------------------ natives (T06)
 
-/// `java/lang/Thread` slot layout (builtin, 5 slots):
+/// `java/lang/Thread` slot layout (builtin, 6 slots since T14):
 /// 0 runnable, 1 name (`Value::Str`), 2 daemon (Int 0/1), 3 started
-/// (Int 0/1), 4 tid (Int; -1 until `start` links the registry record).
-pub const THREAD_SLOTS: usize = 5;
+/// (Int 0/1), 4 tid (Int; -1 until `start` links the registry record),
+/// 5 pendingInterrupt (Int 0/1; the never-started interrupt carrier).
+pub const THREAD_SLOTS: usize = 6;
 
 /// JDK "Thread-N" default-name numbering (its own counter, like the JDK's
 /// `nextThreadNum` — independent from registry ids).
@@ -702,6 +703,12 @@ pub fn n_thread_start(recv: Option<&JRef>, ctx: crate::Dispatch) -> Result<Value
         rec.interrupted.store(true, Ordering::Release);
         set_slot(&r, 5, Value::Int(0));
     }
+    // Migrate the daemon flag the same way (T15): setDaemon is only legal
+    // before start, so slot 2 was the carrier; without this migration the
+    // registry's shutdown rule (await_non_daemons) would wait on a daemon
+    // — found by the DaemonExit fixture, which hung the process for the
+    // daemon's full sleep budget before this fix.
+    rec.daemon.store(slot_int(&r, 2) != 0, Ordering::Release);
 
     // The child runs the runnable's `run()` (lambda SAM or compiled class
     // walk). With no runnable, `run()` does nothing — JDK-exact.
@@ -1093,6 +1100,13 @@ pub fn n_thread_set_daemon(recv: Option<&JRef>, args: &[Value]) -> Result<Value,
         return Err(throw_new("java/lang/IllegalThreadStateException", None));
     }
     set_slot(&r, 2, Value::Int(on as i32));
+    // setDaemon is only legal BEFORE start, so there is normally no
+    // record yet — the flag rides slot 2 and `start` migrates it (the
+    // interrupt migration's pattern). If a record exists anyway (a
+    // start-linked alias), keep it in sync too.
+    if let Some(rec) = target_record(&r) {
+        rec.daemon.store(on, Ordering::Release);
+    }
     Ok(Value::Void)
 }
 
@@ -1254,7 +1268,13 @@ pub fn await_non_daemons() {
             g.records
                 .iter()
                 .filter(|t| {
+                    // Only STARTED JAVA threads take part in shutdown:
+                    // ring membership is what `start` grants (T09), so a
+                    // bystander (embedder helper, test harness thread) is
+                    // not a Java thread and must never block the JVM exit
+                    // — and in a unit-test registry it never exits.
                     t.reg_index != me
+                        && t.in_ring.load(Ordering::Acquire)
                         && !t.daemon.load(Ordering::Acquire)
                         && t.state.load(Ordering::Acquire) != STATE_EXITED
                 })
@@ -1945,5 +1965,82 @@ mod tests {
         let obj = thread_obj_for(-1);
         n_thread_interrupt(Some(&obj)).unwrap();
         assert_eq!(n_thread_is_interrupted(Some(&obj)).unwrap(), Value::Int(1));
+    }
+    // --------------------------------------------- T15 daemon shutdown (Wave 4)
+
+    /// The JVM shutdown rule: main exits when ONLY daemons remain —
+    /// await_non_daemons must not wait on a live daemon record.
+    #[test]
+    fn main_exits_with_live_daemons() {
+        let _rt = crate::test_support::runtime();
+        let daemon = register_named_record("daemon", false, false);
+        daemon.daemon.store(true, Ordering::Release);
+        daemon.state.store(STATE_RUNNING, Ordering::Release);
+        let t0 = Instant::now();
+        await_non_daemons();
+        assert!(
+            t0.elapsed() < std::time::Duration::from_secs(2),
+            "a live daemon must not block shutdown"
+        );
+        daemon.state.store(STATE_EXITED, Ordering::Release);
+    }
+
+    /// ...and main WAITS for a live non-daemon: await_non_daemons blocks
+    /// until the record exits (the collector's notify reaches it). The
+    /// child joins the coop ring, exactly as `start` grants — a raw
+    /// bystander thread must NOT hold shutdown open (that rule is pinned
+    /// by main_exits_with_live_daemons' counterpart).
+    #[test]
+    fn main_waits_for_non_daemon() {
+        let _rt = crate::test_support::runtime();
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let child = std::thread::spawn(move || {
+            let rec = current_record();
+            rec.in_ring.store(true, Ordering::Release);
+            let _d = TestDeath(rec);
+            tx.send(()).unwrap(); // the record exists before the parent's await snapshot
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        });
+        rx.recv().unwrap();
+        let t0 = Instant::now();
+        await_non_daemons(); // joins the child (non-daemon) before returning
+        assert!(
+            t0.elapsed() >= std::time::Duration::from_millis(100),
+            "shutdown must wait for the live non-daemon"
+        );
+        assert!(t0.elapsed() < std::time::Duration::from_secs(5));
+        child.join().unwrap();
+    }
+
+    /// T15's registry edge case: a thread DYING DURING the STW quiescence
+    /// handshake must release the collector — the death sequence (EXITED +
+    /// notify under the SCHED lock) is the unregister-before-park
+    /// discipline. Bounded by a deadline so a regression fails loudly
+    /// instead of hanging CI.
+    #[test]
+    fn daemon_death_releases_the_stw_handshake() {
+        let _rt = crate::test_support::runtime();
+        let dying = register_named_record("dying-daemon", false, true);
+        dying.daemon.store(true, Ordering::Release);
+        dying.state.store(STATE_RUNNING, Ordering::Release);
+        let d2 = dying.clone();
+        let killer = std::thread::spawn(move || {
+            // Die while the collector is mid-handshake, using run_body's
+            // exact death sequence (EXITED under the SCHED lock + notify).
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            d2.alive.store(false, Ordering::Release);
+            d2.state.store(STATE_EXITED, Ordering::Release);
+            let mut g = lock_sched();
+            notify_all(&g);
+        });
+        let t0 = Instant::now();
+        let guard = StwGuard::begin().expect("collector must win the token");
+        crate::heap::collect_under_held_stw_for_test();
+        drop(guard);
+        assert!(
+            t0.elapsed() < std::time::Duration::from_secs(10),
+            "a death mid-handshake must release the collector"
+        );
+        killer.join().unwrap();
     }
 }

@@ -67,11 +67,12 @@ fn differential_suite_matches_jvm() {
     // scripts/check_doc_counts.py, audit A8).
     // M4 Wave 2 added the real-thread fixtures (ThreadHello, ThreadSafepoint)
     // — 86 on disk. M4 Wave 4 (T14) added the interrupt fixtures
-    // (InterruptSleep, InterruptJoin, InterruptWait) — 92 on disk, guard
-    // one below that.
+    // (InterruptSleep, InterruptJoin, InterruptWait) and (T15) the daemon
+    // fixtures (DaemonExit, DaemonInterrupt) — 94 on disk, guard one
+    // below that.
     assert!(
-        fixtures.len() >= 91,
-        "differential suite shrank: {} fixtures (expected >= 91)",
+        fixtures.len() >= 93,
+        "differential suite shrank: {} fixtures (expected >= 93)",
         fixtures.len()
     );
 
