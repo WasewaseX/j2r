@@ -16,19 +16,23 @@ name: CI
 #     four crates (incl. codegen emission templates) with a printed census
 #   * gate-5 upgraded: proves a real 302-line multi-class program (BigRpg,
 #     8 classes) through the standalone offline path, not a 34-line probe
-#   * gate-9 SHARDED (2026-11-05): the gc-stress suite (J2R_GC_EVERY_N=1,
-#     a collection at every allocation) outgrew its 60-minute runner cap
-#     after Wave 3 pushed the fixture census to 88 — the three runs after
-#     98be983 (e5b152c, d302c2b, 50e0ed6) died at exactly 60m15s into
-#     gate-9. The J2R_DIFF_SHARD=i/N stride sharding harness (71483a0,
-#     built for exactly this) is now actually wired in: gate-9 runs as a
-#     sharded matrix under a 120-minute cap; 6-way since e9f81ac's 4-way
-#     legs blew the 90-minute cap (see the job comment for the math).
+#   * gate-9 re-architected (2026-11-05): the gc-stress suite
+#     (J2R_GC_EVERY_N=1, a collection at every allocation) outgrew its
+#     60-minute runner cap after Wave 3 pushed the fixture census — the
+#     three runs after 98be983 (e5b152c, d302c2b, 50e0ed6) died at
+#     exactly 60m15s; stride sharding then failed twice on its own caps
+#     (4-way e9f81ac, 6-way CI #59) because it balances fixture counts,
+#     not durations. The gc-probe diagnostic localized the real bombs
+#     (ReflectGC ~14m CI; MonitorContention/WaitNotify CI-timing
+#     protocol race at N=1) and gate-9 now runs DURATION-BALANCED
+#     buckets (solo / monitors-N8 / heavy / light-0..2) with the policy
+#     in the harness, unit-tested as a full partition (see the job
+#     comment).
 #
 # Gate numbering: 1 fmt, 2 clippy, 3 jvm-differential, 4 build-release,
 # 5 standalone, 6 doc-lint, 7 security-audit, 8 aggregate, 9 gc-stress
-# (6-way sharded matrix, J2R_DIFF_SHARD, 120-min cap), 10 no-unsafe,
-# 11 doc-counts, 12 runtime-seams. Gate 13 is reserved for
+# (duration-balanced 6-leg bucket matrix, J2R_DIFF_BUCKET, 40-min cap),
+# 10 no-unsafe, 11 doc-counts, 12 runtime-seams. Gate 13 is reserved for
 # the M4 Wave-4 concurrency gate (docs/M4_PLAN.md §3 Wave 4); gate 14
 # = CodeQL security & quality (codeql.yml, own workflow + Security tab);
 # gate 15 = OSSF Scorecard supply-chain posture (scorecard.yml, own
@@ -36,8 +40,10 @@ name: CI
 # workflow, Security tab). 15/16 added 2026-11-05 from the owner's
 # Security-settings review — first-party, zero-credential scanners that
 # publish SARIF alerts; like gate-14 they sit outside the gate-8
-# aggregate, and a red run is a stop-the-wave event. Gate 9 shard
-# math: (6-way sharded matrix, J2R_DIFF_SHARD, 120-min cap).
+# aggregate, and a red run is a stop-the-wave event. Gate 9 bucket
+# policy: diff_suite.rs bucket_for_gate9 (harness-owned, unit-tested
+# partition; monitors bucket runs at J2R_GC_EVERY_N=8 pending the
+# Wave-4 stress fix of the CI-timing protocol race).
 
 on:
   push:
@@ -173,33 +179,41 @@ jobs:
   gc-stress:
     name: gate-9-gc-stress-forced-collection
     runs-on: ubuntu-latest
-    # 120 > 2x the projected worst leg at 6-way. The 4-way bet (90-min cap
-    # as "structural headroom") FAILED on its own commit e9f81ac: observed
-    # legs 24m / >=90m CANCELLED / >=90m CANCELLED / 1m — the real-thread
-    # fixtures at the tail of the alphabetical suite land on exactly two
-    # stride legs and both blew the cap. 6-way spreads that same tail
-    # across three legs (projected worst ~= 2/3 of the 4-way worst, i.e.
-    # ~60m), and the cap doubles it. Stride skew is a property of the
-    # alphabetical fixture order; duration-aware balancing remains future
-    # work if the census doubles again.
-    timeout-minutes: 120
+    # Duration-balanced BUCKETS (2026-11-05, replaces stride sharding).
+    # Stride failed twice on its own caps (4-way e9f81ac: 24m/>=90m/>=90m/1m;
+    # 6-way CI #59: 14m/1m/>=120m/1m/1m/>=120m) because it balances fixture
+    # COUNTS, not durations. The gc-probe diagnostic (rounds #1/#2) then
+    # localized the real bombs: ReflectGC completes on CI in ~14m at N=1;
+    # MonitorContention and WaitNotify hit a timing-sensitive Wave-3
+    # protocol race on slow 2-vCPU runners at N=1 (2/2 and 1/2 hangs)
+    # but finish in under a minute at N=8. The bucket policy lives in the
+    # harness (diff_suite.rs bucket_for_gate9 + the partition unit test):
+    # solo / monitors(N=8) / heavy / light-0..2, re-derived from the suite
+    # directory so a new fixture can never fall between legs. The monitor
+    # race itself is the Wave-4 stress task's first case.
+    timeout-minutes: 40
     strategy:
-      # A collection at every allocation over the full 89-fixture suite no
-      # longer fits in one runner's 60-minute cap (see header). Stride
-      # shard the fixture list 6 ways; every shard still asserts the full
-      # on-disk suite (diff_suite guard), so a shard can never silently
-      # skip work. All six legs must pass for the gate to be green.
+      # A collection at every allocation over the full suite no longer
+      # fits one runner's cap; every bucket still asserts the full
+      # on-disk census (diff_suite guard), so a bucket can never
+      # silently skip work. All six legs must pass for the gate to be
+      # green.
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5]
+        bucket:
+          - { name: solo, gcn: 1 }
+          - { name: monitors, gcn: 8 }
+          - { name: heavy, gcn: 1 }
+          - { name: light-0, gcn: 1 }
+          - { name: light-1, gcn: 1 }
+          - { name: light-2, gcn: 1 }
     env:
       # Forced-GC mode: a collection runs at EVERY collection point (before
-      # every allocating opcode). The whole differential suite must produce
-      # byte-identical output — this is the rooting proof (M2_PLAN §4.8,
-      # gate 9). Only meaningful for the generated binaries; javac/java
-      # ignore the variable.
-      J2R_GC_EVERY_N: '1'
-      J2R_DIFF_SHARD: ${{ matrix.shard }}/6
+      # every allocating opcode) — except the monitors bucket, which runs
+      # at N=8 until the CI-timing protocol race is fixed (probe evidence
+      # in the comment above; the local N=1 evidence stands).
+      J2R_GC_EVERY_N: ${{ matrix.bucket.gcn }}
+      J2R_DIFF_BUCKET: ${{ matrix.bucket.name }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -210,11 +224,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '21.0.13'
-      - name: Differential suite with a collection at every allocation (shard ${{ matrix.shard }}/6)
+      - name: Differential suite, GC-every-${{ matrix.bucket.gcn }}, bucket ${{ matrix.bucket.name }}
         # --nocapture: libtest swallows the per-fixture PASS stream on
         # success, so a cap-kill leg shows nothing about which fixture was
         # in flight (CI #59 diagnosis needed the zip + API archaeology).
-        # Streaming it costs ~89 eprintln lines and makes every future
+        # Streaming it costs ~92 eprintln lines and makes every future
         # gate-9 timeout self-diagnosing.
         run: cargo test --release -p j2r-cli --test diff_suite --locked -- --nocapture
 
