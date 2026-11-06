@@ -416,6 +416,30 @@ local full-gate sweep at the same tree).**
       full suite byte-identical vs Temurin (346s); guard 93 → 94;
       README/gate-11 counts synced. F3 (java.io behavior parity) no
       longer blocked by F2.
+- [x] **Singleton/cyclic-init wave — LANDED (2026-11-06)** — the review's
+      P1 "singleton-factory and cyclic-initialization differential
+      fixtures" made PERMANENT (the F2 probes proved the shapes but were
+      never pinned in the suite). Two new fixtures, both byte-identical
+      vs Temurin 21.0.13 on the first differential run:
+      **SingletonFactory** — the three canonical singleton idioms through
+      `<clinit>`: a `private static final` INSTANCE built by a static
+      factory method calling the private constructor (factory identity:
+      `a == b`, constructor-exactly-once via a `created` counter, state
+      mutation visible through the second handle), the static-init-block
+      form, and the initialization-on-demand-holder idiom WITH A
+      LAZINESS PROOF (reading `HolderSingleton.created` before the first
+      `getInstance()` prints 0 — the holder class's `<clinit>` must not
+      fire early; prints 1 after). **CyclicInit** — two pairs of
+      mutually-referencing `<clinit>` bodies pinning JLS 12.4.2
+      in-progress recursion: cycle 1 (InitA assigns `s=10` BEFORE
+      recursing into InitB) observes the ASSIGNED value across the cycle
+      (10/110/110); cycle 2 (InitC recurses into InitD before assigning
+      x) observes the DEFAULT value (0 → y=1, then x=1, own=5) —
+      1/1/5. The wave-3 JLS 12.4.2 clinit state machine holds for both
+      directions with zero new runtime code needed. Suite 104 → 106;
+      guard 103 → 105; README counts synced (106 programs, 106/106
+      cfg-identical; test count re-measured unchanged at 307 — fixtures
+      add no Rust tests).
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template

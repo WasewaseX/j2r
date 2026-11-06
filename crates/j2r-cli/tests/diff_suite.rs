@@ -100,9 +100,16 @@ fn differential_suite_matches_jvm() {
     // ','-flag legality, null->null/NULL, the uppercase-variant family
     // (S B H C X E G A), the parse-time MFW/FFCME laws —
     // corpus/FmtResidualProbe.java is the 116-row Temurin vector.
+    // The singleton/cyclic-init wave (2026-11-06, the review's P1 ask)
+    // added SingletonFactory (factory singleton with a static-factory
+    // <clinit> constructor call, the static-init-block form, and the
+    // initialization-on-demand-holder idiom with a laziness proof) and
+    // CyclicInit (two pairs of mutually-referencing <clinit> bodies pinning
+    // JLS 12.4.2 in-progress recursion: assigned-value and default-value
+    // visibility) — 106 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 103,
-        "differential suite shrank: {} fixtures (expected >= 103)",
+        fixtures.len() >= 105,
+        "differential suite shrank: {} fixtures (expected >= 105)",
         fixtures.len()
     );
 
