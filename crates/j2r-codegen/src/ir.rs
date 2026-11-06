@@ -244,13 +244,19 @@ pub enum ElemKind {
     /// The elements of a `[[<prim>` array are primitive ARRAYS: `aaload` on
     /// `[[I` yields `[I` (a typed array value), exactly like the JVM
     /// verifier (corpus wave 2, JZlib InfBlocks/InfCodes: `[[I` fields feed
-    /// `[I`-shaped call sites). One extra level only, flattened into four
-    /// variants so the lattice stays Copy; `[[[<prim>` still models as `Ref`
-    /// elements — a registered limit.
+    /// `[I`-shaped call sites). Flattened into Copy variants; the
+    /// deep-arrays wave added a SECOND level (`[[[<prim>`: elements are
+    /// `[[<prim>`-shaped values — corpus/DeepArraysProbe.java pinned real
+    /// 3D programs failing to verify under the old one-level model). Depth
+    /// >= 4 still models as `Ref` elements — a registered, loud limit.
     RefPrimArrayInt,
     RefPrimArrayLong,
     RefPrimArrayFloat,
     RefPrimArrayDouble,
+    RefPrimArray2Int,
+    RefPrimArray2Long,
+    RefPrimArray2Float,
+    RefPrimArray2Double,
 }
 
 impl PrimType {

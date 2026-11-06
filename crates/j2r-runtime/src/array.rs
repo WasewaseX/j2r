@@ -468,13 +468,16 @@ pub fn array_store(r: &JRef, idx: i32, v: Value, ctx: Dispatch) -> Result<(), Th
         if let Value::Ref(Some(obj)) = &v {
             let obj_cls = with_obj(*obj, |o| o.jclass.to_string());
             if !is_subtype(&obj_cls, &elem, ctx.parents) {
+                // Temurin message (AseProbe, 5 shapes on 21.0.13): the
+                // STORED object's external name ALONE — dotted for plain
+                // classes (`java.lang.Object`, `AseProbe$Inner` — binary,
+                // `$` kept), descriptor-verbatim for primitive arrays
+                // (`[[I`), dotted-descriptor for object arrays. The old
+                // "java.lang.X stored into Y" shape was never probe-pinned
+                // and is wrong.
                 return Err(throw_new(
                     "java/lang/ArrayStoreException",
-                    Some(&format!(
-                        "java.lang.{} stored into {}",
-                        obj_cls.replace('/', "."),
-                        cls
-                    )),
+                    Some(&external_name(&obj_cls)),
                 ));
             }
         }

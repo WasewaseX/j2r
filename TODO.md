@@ -437,10 +437,22 @@ local full-gate sweep at the same tree).**
       caught it, twice), "Resetting to invalid mark", and the full "Stream
       closed" family (close() nulls in/buf; every getter then throws).
       Buffered fixture byte-identical vs Temurin; suite 100 → 101.
+- [x] **Deep-arrays wave — LANDED (2026-11-05)** — the `[[[<prim>`
+      verifier-depth gap CLOSED for depth 3 (corpus/DeepArraysProbe.java
+      pinned a real 3D program FAILING TO VERIFY under the old one-level
+      model — `expected Array(IntGroup) on the stack, found Ref`): the
+      lattice now carries depth 1-3 (RefPrimArray + RefPrimArray2 variants,
+      depth-aware array_elem_kind; depth >= 4 stays a registered loud
+      limit). AND a SECOND unverified guess fixed by the same probe: the
+      aastore ArrayStoreException message was "java.lang.X stored into Y"
+      — a shape NO probe ever pinned; Temurin (corpus/AseProbe.java, 5
+      shapes) prints the STORED object's external name ALONE (dotted plain
+      classes, binary name keeps $, primitive arrays descriptor-verbatim
+      `[[I`). DeepArrays fixture byte-identical vs Temurin; suite 101 → 102.
 - [ ] **Wave residuals** — PushbackInputStream (the last unmodelled stream
       builtin), PrintStream.printf/String.format (the Formatter engine:
-      HALF_UP decimal rounding — its own wave), `[[[<prim>` verifier depth
-      stay loud (docs/CORPUS_WAVE.md §gaps).
+      HALF_UP decimal rounding — its own wave), array descriptor depth >= 4
+      in the verifier lattice stay loud (docs/CORPUS_WAVE.md §gaps).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script

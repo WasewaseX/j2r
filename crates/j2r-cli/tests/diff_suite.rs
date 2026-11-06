@@ -85,11 +85,14 @@ fn differential_suite_matches_jvm() {
     // BOM encode/decode, BE/LE, surrogate pairs, U+FFFD substitution,
     // exact UEE names) — 100 on disk. The BufferedInputStream wave added
     // Buffered (buffer-read paths, the skip buffer-vs-inner law, mark/
-    // readlimit invalidation, the "Stream closed" family) — 101 on disk,
-    // guard one below that.
+    // readlimit invalidation, the "Stream closed" family) — 101 on disk.
+    // The deep-arrays wave added DeepArrays (3D primitive arrays:
+    // partial-dim alloc, null rows, clone-at-depth, arraycopy, instanceof,
+    // the aastore ASE external-name shapes) — 102 on disk, guard one
+    // below that.
     assert!(
-        fixtures.len() >= 100,
-        "differential suite shrank: {} fixtures (expected >= 100)",
+        fixtures.len() >= 101,
+        "differential suite shrank: {} fixtures (expected >= 101)",
         fixtures.len()
     );
 

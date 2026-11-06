@@ -225,25 +225,41 @@ fn td_vty(t: &TypeDesc) -> VTy {
     }
 }
 
-/// Element kind of an array descriptor (`[I` → IntGroup, `[J` → Long,
-/// `[[I` → the elements are `int[]` values (RefPrimArray(IntGroup)),
-/// `[L...;` → Ref: the elements are object references).
+/// Element kind of an array descriptor, now DEPTH-AWARE (deep-arrays wave):
+/// `[I` → IntGroup, `[[I` → the elements are `int[]` values
+/// (RefPrimArray(IntGroup)), `[[[I` → the elements are `[[I`-shaped values
+/// (RefPrimArray2) — corpus/DeepArraysProbe.java pinned a real 3D program
+/// failing to verify under the old one-level model. Depth >= 4 collapses to
+/// Ref elements (loud, registered); `[L...;` is Ref at every depth.
 fn array_elem_kind(desc: &str) -> ElemKind {
-    let rest = match desc.strip_prefix('[') {
-        Some(r) => r,
-        None => return ElemKind::Ref,
-    };
-    match rest.chars().next() {
-        Some('J') => ElemKind::Long,
-        Some('F') => ElemKind::Float,
-        Some('D') => ElemKind::Double,
-        Some('Z') | Some('B') | Some('C') | Some('S') | Some('I') => ElemKind::IntGroup,
-        // One nested level: the element itself is a primitive array.
-        Some('[') => match rest[1..].chars().next() {
-            Some('J') => ElemKind::RefPrimArrayLong,
-            Some('F') => ElemKind::RefPrimArrayFloat,
-            Some('D') => ElemKind::RefPrimArrayDouble,
-            Some('Z') | Some('B') | Some('C') | Some('S') | Some('I') => ElemKind::RefPrimArrayInt,
+    let depth = desc.len() - desc.trim_start_matches('[').len();
+    if depth == 0 {
+        return ElemKind::Ref;
+    }
+    let bottom = &desc[depth..];
+    match bottom.chars().next() {
+        Some('J') => match depth {
+            1 => ElemKind::Long,
+            2 => ElemKind::RefPrimArrayLong,
+            3 => ElemKind::RefPrimArray2Long,
+            _ => ElemKind::Ref,
+        },
+        Some('F') => match depth {
+            1 => ElemKind::Float,
+            2 => ElemKind::RefPrimArrayFloat,
+            3 => ElemKind::RefPrimArray2Float,
+            _ => ElemKind::Ref,
+        },
+        Some('D') => match depth {
+            1 => ElemKind::Double,
+            2 => ElemKind::RefPrimArrayDouble,
+            3 => ElemKind::RefPrimArray2Double,
+            _ => ElemKind::Ref,
+        },
+        Some('Z') | Some('B') | Some('C') | Some('S') | Some('I') => match depth {
+            1 => ElemKind::IntGroup,
+            2 => ElemKind::RefPrimArrayInt,
+            3 => ElemKind::RefPrimArray2Int,
             _ => ElemKind::Ref,
         },
         _ => ElemKind::Ref,
@@ -273,6 +289,11 @@ fn elem_vty(k: ElemKind) -> VTy {
         ElemKind::RefPrimArrayLong => VTy::Array(ElemKind::Long),
         ElemKind::RefPrimArrayFloat => VTy::Array(ElemKind::Float),
         ElemKind::RefPrimArrayDouble => VTy::Array(ElemKind::Double),
+        // depth >= 3: elements are `[[<prim>`-shaped values (deep-arrays wave)
+        ElemKind::RefPrimArray2Int => VTy::Array(ElemKind::RefPrimArrayInt),
+        ElemKind::RefPrimArray2Long => VTy::Array(ElemKind::RefPrimArrayLong),
+        ElemKind::RefPrimArray2Float => VTy::Array(ElemKind::RefPrimArrayFloat),
+        ElemKind::RefPrimArray2Double => VTy::Array(ElemKind::RefPrimArrayDouble),
     }
 }
 

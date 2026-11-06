@@ -267,7 +267,16 @@ because it is part of the reproduction command.
   family (close() nulls in/buf; every getter then throws). Buffered
   fixture byte-identical vs Temurin; suite 100 → 101. One loud stream
   builtin remains: PushbackInputStream (unmodelled).
-- `[[[<prim>` verifier depth — models as Ref elements beyond one level.
+- `[[[<prim>` verifier depth — LANDED (deep-arrays wave) for depth 3:
+  corpus/DeepArraysProbe.java pinned a real 3D program failing to verify
+  (the one-level lattice modelled the rows as plain Refs); the lattice now
+  carries RefPrimArray + RefPrimArray2 variants (depth-aware
+  array_elem_kind, elem_vty recursion). Depth >= 4 stays a loud limit.
+  AND the aastore ArrayStoreException message was fixed by
+  corpus/AseProbe.java (5 shapes): Temurin prints the STORED object's
+  external name ALONE (`java.lang.Object`, `AseProbe$Inner` binary with
+  `$`, `[[I` descriptor-verbatim) — the old "java.lang.X stored into Y"
+  shape was never probe-pinned and wrong.
 - Stream wrappers LANDED (phase 2, skip/charset wave): the corpus driver
   now exercises DeflaterOutputStream/InflaterInputStream,
   ZOutputStream/ZInputStream (with getTotalIn/totalOut and JZlib's own
