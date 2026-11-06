@@ -463,7 +463,9 @@ local full-gate sweep at the same tree).**
       (`[[[[I`/`[[[I`/`[[I`), and the `[[[F`-into-`[[[I` ASE message —
       byte-identical vs Temurin 21.0.13. docs/CORPUS_WAVE.md §gaps
       updated; depth >= 5 is the new registered limit, pinned by
-      depth5_still_ref_registered_limit.
+      depth5_still_ref_registered_limit. CI evidence: run 42211742976 on
+      55ed691 fully green — 26/26 check runs success (incl. gate-3, all
+      six gate-9 buckets, all four gate-13 seeds, gates 14-21).
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template
