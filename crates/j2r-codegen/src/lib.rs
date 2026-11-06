@@ -22,6 +22,7 @@ pub mod classpath;
 pub mod emit;
 pub mod ir;
 pub mod lambda;
+pub mod readiness;
 pub mod specialize;
 pub mod verify;
 

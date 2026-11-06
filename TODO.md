@@ -513,6 +513,53 @@ local full-gate sweep at the same tree).**
       including gate-3 (the 107-fixture differential), all six gate-9
       forced-GC buckets, all four gate-13 concurrency seeds, and the
       gate-11 count-sync gate.
+- [x] **Typed-register readiness wave — LANDED (2026-11-07)** — the
+      M2_SHAPE_REPORT's registered follow-up ("track per-position live
+      ranges … re-decided with its own 3a report") delivered as
+      `crates/j2r-codegen/src/readiness.rs` + the `j2r readiness-report`
+      subcommand: per-position EPOCH analysis (kinds Int/Long/Float/
+      Double/Ref collapsed from the verifier lattice; kills = stores to a
+      local slot, depth drops for stack positions; kinds may differ
+      across epochs, never within one — mixed runs count AGAINST
+      readiness), combined with the REAL cfg::lift decision and an
+      occupancy-weighted primitive-share metric; 9 unit tests. The
+      census (107-fixture suite + JAMA + minimal-json + JZlib, before/
+      after tables in docs/TYPED_REGISTER_READINESS.md §3) exposed THREE
+      real lift-pipeline defects, all fixed this wave, all conservative-
+      direction (fallback bodies were exact at all times):
+      (1) `Cfg::idom()` seeded a node's idom with `idoms[pred]` instead
+      of the predecessor itself and intersected on raw indices — EVERY
+      loop with a non-entry header was mis-flagged `Irreducible` (the M2
+      synthetic tests passed only because their loop header WAS the
+      entry block); rewritten as Cooper–Harvey–Kennedy with an RPO
+      intersect, the old `irreducible_falls_back` test replaced with a
+      genuine two-entry cycle (the old graph was actually reducible).
+      (2) `Builder::region()` checked loop headers only on entry, so the
+      pre-loop block FALLING THROUGH into javac's peeled guard emitted
+      the header inline → its guard became a diamond meeting at the
+      header → `ImpureJoin` on every javac for/while; fixed with an
+      in-walk header check (fresh → emit_loop, active fall-through →
+      continue, the do-while back edge). (3) `join_via_label`'s purity
+      check refused a loop-header meet's own back edges → every nested
+      `for` kernel refused; fixed by exempting the meet's loop body
+      nodes (now stored in `Loop`). Effect on real code: probe
+      for/while/nested-for all LIFT; suite needs-lift 184 → 146; JAMA
+      needs-lift 70 → 32 (hottest kernels now show their true named
+      blockers: tred2/orthes/hqr2/LU-ctor ImpureLoopExit, tql2/isNonsin-
+      gular MultiExitLoop); JamaBench --emit-cfg dispatchers 106 → 31
+      (Matrix 63 → 12; LU/QR no longer fully fallback) — and the steady-
+      state control run at this coverage extreme is 275.6s vs the 274.0s
+      hand median, output byte-identical: control-flow structuring
+      measured at BOTH extremes buys nothing at steady state, confirming
+      the typed-operand model as the registered lever (GO, sequenced:
+      ImpureLoopExit + MultiExitLoop lowerings are its prerequisites to
+      reach the hot kernels — docs/TYPED_REGISTER_READINESS.md §5).
+      Local gates at this tree: codegen tests 67 → 83, workspace 323
+      green (README count synced 311 → 323), cfg_equiv 107/107 both
+      modes (451.3s + 445.5s — the newly lifted bodies are output-exact),
+      differential 107/107 (453.0s), corpus 3/3, jar/lambda/soe green,
+      fmt/clippy clean, gates 11 (fixtures=107 tests=323) / 12 / 19 / 20
+      green, path-filter selftest 17/17.
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template

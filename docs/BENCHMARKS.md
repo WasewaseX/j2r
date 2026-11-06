@@ -244,3 +244,22 @@ Honest reading (all numbers above, same day, same box):
   is the typed-register / typed-operand emission model (locals in
   machine registers, direct field access, direct calls), with CFG
   structuring as its prerequisite rather than its payload.
+
+## 2026-11-07 addendum — the lever confirmed at a second lift-coverage extreme
+
+The typed-register readiness wave (docs/TYPED_REGISTER_READINESS.md)
+found and fixed three lift-pipeline defects that had silently zeroed the
+lift's real-loop coverage (every javac `for`/`while` loop was mis-flagged
+`Irreducible` or refused as `ImpureJoin`). With the fixes, `--emit-cfg`
+lift coverage on the same JamaBench workload nearly tripled — **31
+remaining match-pc dispatchers vs 106 default** (Matrix 63 → 12; LU 8 → 4
+and QR 6 → 5, no longer fully fallback; SVD 8 → 1; Eigen 10 → 6;
+Cholesky 4 → 2; driver 5 → 0), release build 50.1s — and the steady-state
+run is **275.6s, output byte-identical, no gain** (vs the 274.0s hand
+median of 2026-11-06, same box and protocol). Control-flow structuring
+now measured at BOTH coverage extremes buys nothing at steady state: the
+hottest kernels (tred2/tql2/orthes/hqr2, LU ctor) are exactly the
+still-refused shapes (`ImpureLoopExit` / `MultiExitLoop`), and lifted
+bodies still run on the `Vec<Value>` operand model. The typed-operand
+model remains the registered lever; its named prerequisites and the
+GO sequencing are in docs/TYPED_REGISTER_READINESS.md §5.

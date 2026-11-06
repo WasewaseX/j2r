@@ -182,29 +182,88 @@ impl Cfg {
         preds
     }
 
+    /// Sorted, deduped successor lists (block indices) — the DFS order
+    /// used by both `analyse` and `idom`.
+    fn sorted_succ_lists(&self) -> Vec<Vec<usize>> {
+        self.blocks
+            .iter()
+            .map(|b| {
+                let mut v: Vec<usize> = b.succs.clone();
+                v.sort_unstable();
+                v.dedup();
+                v
+            })
+            .collect()
+    }
+
+    /// Immediate dominators (Cooper-Harvey-Kennedy): iterative RPO walk,
+    /// a node's idom seeded with a processed PREDECESSOR NODE, intersects
+    /// on reverse-postorder indices.
+    ///
+    /// The previous implementation seeded with `idoms[pred]` (the
+    /// predecessor's own idom) and intersected on raw block indices — a
+    /// node with a single predecessor then got its parent's idom instead
+    /// of the parent, every dominator chain through a loop body skipped
+    /// the header, and the back-edge dominance test in `analyse`
+    /// mis-flagged EVERY loop whose header is not the entry block as
+    /// `Irreducible` (found 2026-11-07 by the readiness wave: javac's
+    /// plain `while`/`for` loops failed `cfg-report` while synthetic
+    /// header==entry tests passed). Unsound only in the conservative
+    /// direction — affected methods fell back to the exact dispatch
+    /// body — but it silently zeroed the lift's real-loop coverage.
     fn idom(&self) -> Vec<Option<usize>> {
         let n = self.blocks.len();
+        let succs = self.sorted_succ_lists();
+
+        // Reverse postorder over the reachable graph (iterative DFS,
+        // ascending successor order — same order as `analyse`'s).
+        let mut state = vec![0u8; n]; // 0 unvisited, 1 on stack, 2 done
+        let mut post: Vec<usize> = Vec::new();
+        let mut stack: Vec<(usize, usize)> = vec![(self.entry, 0)];
+        state[self.entry] = 1;
+        while let Some(&mut (node, ref mut idx)) = stack.last_mut() {
+            if *idx < succs[node].len() {
+                let s = succs[node][*idx];
+                *idx += 1;
+                if state[s] == 0 {
+                    state[s] = 1;
+                    stack.push((s, 0));
+                }
+            } else {
+                state[node] = 2;
+                post.push(node);
+                stack.pop();
+            }
+        }
+        let rpo: Vec<usize> = post.iter().rev().copied().collect();
+        let mut rpono = vec![0usize; n];
+        for (k, &node) in rpo.iter().enumerate() {
+            rpono[node] = k;
+        }
+
         let preds = self.preds();
         let mut idoms: Vec<Option<usize>> = vec![None; n];
         idoms[self.entry] = Some(self.entry);
         let mut changed = true;
         while changed {
             changed = false;
-            for i in 0..n {
-                if i == self.entry {
+            for &b in &rpo {
+                if b == self.entry {
                     continue;
                 }
                 let mut new: Option<usize> = None;
-                for &p in &preds[i] {
-                    if let Some(pd) = idoms[p] {
+                for &p in &preds[b] {
+                    if idoms[p].is_some() {
                         new = Some(match new {
-                            None => pd,
-                            Some(cur) => intersect(&idoms, cur, pd),
+                            // THE FIX: seed with the predecessor node
+                            // itself, not the predecessor's idom.
+                            None => p,
+                            Some(cur) => intersect(&idoms, &rpono, cur, p),
                         });
                     }
                 }
-                if new.is_some() && new != idoms[i] {
-                    idoms[i] = new;
+                if new.is_some() && new != idoms[b] {
+                    idoms[b] = new;
                     changed = true;
                 }
             }
@@ -227,12 +286,14 @@ impl Cfg {
     }
 }
 
-fn intersect(idoms: &[Option<usize>], mut a: usize, mut b: usize) -> usize {
+/// CHK intersect on reverse-postorder indices: walk whichever finger is
+/// RPO-deeper up its idom chain until the fingers meet.
+fn intersect(idoms: &[Option<usize>], rpono: &[usize], mut a: usize, mut b: usize) -> usize {
     while a != b {
-        while a > b {
+        while rpono[a] > rpono[b] {
             a = idoms[a].unwrap_or(a);
         }
-        while b > a {
+        while rpono[b] > rpono[a] {
             b = idoms[b].unwrap_or(b);
         }
     }
@@ -246,6 +307,10 @@ struct Loop {
     header: usize,
     /// The single exit edge (from-block, to-block).
     exit: (usize, usize),
+    /// Every block of the natural loop (header included) — used by the
+    /// builder's join-purity check to recognise the loop's own back
+    /// edges at a loop-header meet.
+    nodes: HashSet<usize>,
 }
 
 /// Analyse the CFG; `Err(reason)` means the method falls back to dispatch.
@@ -345,7 +410,11 @@ fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<Vec<Loop>, Unsupported> {
                 return Err(Unsupported::ImpureLoopExit);
             }
         }
-        loops.push(Loop { header, exit: e });
+        loops.push(Loop {
+            header,
+            exit: e,
+            nodes,
+        });
     }
     Ok(loops)
 }
@@ -492,6 +561,27 @@ impl<'a> Builder<'a> {
             if stops.iter().any(|(s, _)| *s == cur) {
                 self.stop_transfer(cur, stops)?;
                 return Ok(());
+            }
+            // Fall-through into a loop header — only for blocks REACHED by
+            // the walk (not the region's own entry block, which is either
+            // the header itself being emitted for emit_loop, or a plain
+            // first block). A FRESH header must become its loop construct
+            // here: javac peels the first-iteration test to the top, so
+            // the pre-loop block FALLS THROUGH into the guard (the header
+            // is not reached by a jump) — emitting the header inline
+            // instead turned its guard into a diamond whose meet is the
+            // header itself, and the join-purity check then saw the
+            // entry-side predecessor as a third edge (ImpureJoin) — every
+            // javac `for`/`while` loop fell back, with the idom bug
+            // masking the builder gap. An ACTIVE header reached by
+            // fall-through is a back edge without a goto (the do-while
+            // cond shape) → `continue`.
+            if cur != b && self.loop_at(cur) {
+                if let Some((_, l)) = self.active_loops.iter().find(|(h, _)| *h == cur).cloned() {
+                    self.out.push(format!("continue {l};"));
+                    return Ok(());
+                }
+                return self.emit_loop(cur, stops);
             }
             if self.emitted.contains(&cur) {
                 return Err(Unsupported::BranchIntoEmittedCode);
@@ -708,11 +798,29 @@ impl<'a> Builder<'a> {
         // two arm walks, or be the diamond's own root — the root's branch
         // edge into the meet is exactly the empty-arm shape
         // (`if (c) {} else { ... }`), where the branch target IS the join.
-        // Any third edge from outside the diamond falls back.
+        // Any third edge from outside the diamond falls back — EXCEPT the
+        // meet's own loop back edges when the meet is a (fresh) loop
+        // header: a nested loop's header is met by the enclosing diamond's
+        // arm AND re-entered by its body's back edge, which the loop
+        // emission itself lowers to `continue` (the join label never sees
+        // that edge). Found by the readiness census: every javac
+        // nested-`for` numeric kernel refused here.
         let preds = self.cfg.preds();
+        let meet_loop_nodes =
+            if self.loop_at(meet) && !self.active_loops.iter().any(|(h, _)| *h == meet) {
+                self.loops
+                    .iter()
+                    .find(|l| l.header == meet)
+                    .map(|l| l.nodes.clone())
+            } else {
+                None
+            };
         for &p in &preds[meet] {
             if !arm_blocks.contains(&p) && p != root {
-                return Err(Unsupported::ImpureJoin);
+                match &meet_loop_nodes {
+                    Some(nodes) if nodes.contains(&p) => {}
+                    _ => return Err(Unsupported::ImpureJoin),
+                }
             }
         }
         if self.emitted.contains(&meet) {
@@ -914,12 +1022,83 @@ mod tests {
     }
 
     #[test]
-    fn irreducible_falls_back() {
+    fn javac_while_loop_with_non_entry_header_lifts() {
+        // The shape javac actually emits for `while (c) { body }` — the
+        // loop header is a block with an entry-side predecessor AND the
+        // back edge, i.e. NOT the entry block. Under the old idom (seed
+        // = idom(pred)) the body's dominator chain skipped the header
+        // and this lifted shape was mis-flagged Irreducible.
+        // 0:  Goto 4            (entry → header)
+        // 4:  IfZero(Ge, 16)    (header: guard → exit 16)
+        // 8:  Goto 4            (body: back edge to the header)
+        // 16: Return
         let m = method(vec![
-            (0, Instr::Goto(8)),
-            (4, Instr::Goto(12)),
+            (0, Instr::Goto(4)),
+            (4, Instr::IfZero(crate::ir::CmpOp::Ge, 16)),
             (8, Instr::Goto(4)),
-            (12, Instr::Goto(8)),
+            (16, Instr::Return(TypeDesc::Void)),
+        ]);
+        let out = lift(&m, |_, _| {}).unwrap();
+        assert!(out.contains(": loop {"), "{out}");
+    }
+
+    #[test]
+    fn loop_header_after_body_lifts() {
+        // The goto-cond layout (old javac / do-while family): the guard's
+        // false arm jumps BACK into a body block that sits BEFORE the
+        // header in index order. The idom fix surfaced this shape (it
+        // used to be swallowed by the false Irreducible before the
+        // builder ever saw it). Header Bk2 = pc12; body = pc4-8 and the
+        // pc16 jump back into it; single exit at pc20.
+        //  0: Goto 12       (entry → cond)
+        //  4: Nop           (body)
+        //  8: Goto 12       (body end → cond)
+        // 12: IfZero(Ge,20) (cond: exit 20 / fallthrough 16)
+        // 16: Goto 4        (back edge into the body)
+        // 20: Return
+        let m = method(vec![
+            (0, Instr::Goto(12)),
+            (4, Instr::Nop),
+            (8, Instr::Goto(12)),
+            (12, Instr::IfZero(crate::ir::CmpOp::Ge, 20)),
+            (16, Instr::Goto(4)),
+            (20, Instr::Return(TypeDesc::Void)),
+        ]);
+        let out = lift(&m, |_, _| {}).unwrap();
+        assert!(out.contains(": loop {"), "{out}");
+        assert!(out.contains("continue 'loop_"), "{out}");
+        assert!(out.contains("break 'loop_"), "{out}");
+    }
+
+    #[test]
+    fn sequential_loops_lift() {
+        // Two loop headers, both non-entry, sharing one trailing exit —
+        // the second header's dominator chain must survive the first.
+        let m = method(vec![
+            (0, Instr::Goto(4)),
+            (4, Instr::IfZero(crate::ir::CmpOp::Ge, 16)),
+            (8, Instr::Goto(4)),
+            (16, Instr::Goto(20)),
+            (20, Instr::IfZero(crate::ir::CmpOp::Ge, 32)),
+            (24, Instr::Goto(20)),
+            (32, Instr::Return(TypeDesc::Void)),
+        ]);
+        let out = lift(&m, |_, _| {}).unwrap();
+        assert_eq!(out.matches(": loop {").count(), 2, "{out}");
+    }
+
+    #[test]
+    fn irreducible_falls_back() {
+        // GENUINE irreducibility: a two-entry cycle. B0 branches into
+        // B1 and B2, and B1 ⇄ B2 form a cycle entered from BOTH sides —
+        // no single header dominates the cycle, so no natural loop
+        // exists. (The old test used a single-entry cycle that is
+        // actually reducible and only "failed" because of the idom bug.)
+        let m = method(vec![
+            (0, Instr::IfZero(crate::ir::CmpOp::Eq, 8)),
+            (4, Instr::Goto(8)),
+            (8, Instr::Goto(4)),
+            (12, Instr::Return(TypeDesc::Void)),
         ]);
         assert_eq!(lift(&m, |_, _| {}), Err(Unsupported::Irreducible));
     }

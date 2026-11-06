@@ -116,6 +116,14 @@ enum Cmd {
         /// Input .class files.
         inputs: Vec<PathBuf>,
     },
+    /// Typed-register readiness report (the M2_SHAPE_REPORT registered
+    /// follow-up): per-method live-range epoch analysis + CFG-lift
+    /// status — the measurement the typed-operand GO/NO-GO is decided
+    /// on. Observes and decides; changes no emission.
+    ReadinessReport {
+        /// Input .class files.
+        inputs: Vec<PathBuf>,
+    },
 }
 
 fn main() {
@@ -153,6 +161,7 @@ fn main() {
         } => cmd_test(&file, release, &args),
         Cmd::CfgReport { inputs } => cmd_cfg_report(&inputs),
         Cmd::ShapeReport { inputs } => cmd_shape_report(&inputs),
+        Cmd::ReadinessReport { inputs } => cmd_readiness_report(&inputs),
     };
     std::process::exit(code);
 }
@@ -220,6 +229,54 @@ fn cmd_shape_report(inputs: &[PathBuf]) -> i32 {
                     r.spec.stack_counts.0,
                     r.spec.local_counts.1,
                     r.spec.local_counts.0,
+                );
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("j2r: {e}");
+            1
+        }
+    }
+}
+
+/// Typed-register readiness report: per-method epoch analysis (the M2
+/// shape report's registered live-range refinement) + the real CFG-lift
+/// decision, so the typed-operand GO/NO-GO is measured, not assumed.
+fn cmd_readiness_report(inputs: &[PathBuf]) -> i32 {
+    let opts = j2r_codegen::Options {
+        inputs: inputs.to_vec(),
+        classpath: Vec::new(),
+        main_class: None,
+        crate_name: "j2r-readiness-report".to_string(),
+        out_dir: std::env::temp_dir().join("j2r-readiness-report"),
+        emit_cfg: false,
+    };
+    match j2r_codegen::compile(&opts) {
+        Ok(prog) => {
+            let rows = j2r_codegen::readiness::plan_program(&prog);
+            print!("{}", j2r_codegen::readiness::render_report(&rows));
+            for r in &rows {
+                println!(
+                    "| {} | {} | {:?} | {} | {:.1}% | {}/{} | {}/{} | {}/{} |",
+                    r.class,
+                    r.method,
+                    r.verdict,
+                    r.lift_reason
+                        .as_ref()
+                        .map(|x| format!("{x:?}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                    if r.prim_traffic + r.ref_traffic == 0 {
+                        0.0
+                    } else {
+                        r.prim_traffic as f64 * 100.0 / (r.prim_traffic + r.ref_traffic) as f64
+                    },
+                    r.epochs_prim,
+                    r.epochs_total,
+                    r.positions_epoch_clean,
+                    r.positions_total,
+                    r.positions_pool_stable,
+                    r.positions_total,
                 );
             }
             0

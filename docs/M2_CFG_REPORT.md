@@ -159,3 +159,23 @@ in M3 with per-method cost data.** Reasons:
 whole suite (39/39, automated in CI as part of the differential gate
 jobs' workspace test run), and default emission is byte-for-byte
 unchanged versus Wave 3.
+
+## Addendum 2026-11-07 — three lift defects found by the readiness census
+
+The typed-register readiness wave (docs/TYPED_REGISTER_READINESS.md)
+re-measured this pipeline on real corpus code and found that this
+report's §2 census understated the lift's limits: **every loop whose
+header is not the entry block was mis-flagged `Irreducible`** by an
+immediate-dominator defect (seed = `idoms[pred]` instead of the
+predecessor, intersect on raw indices instead of RPO) — this report's
+13 `Irreducible` fallbacks were that bug, not real irreducibility; two
+further builder gaps (fall-through into a fresh loop header emitted the
+header inline → `ImpureJoin` on every javac `for`/`while`; the join
+purity check refused a loop-header meet's own back edges → every nested
+`for` refused) did the rest. All three fixed, all conservative-direction
+(fallback bodies were exact at all times), cfg_equiv re-proven 107/107
+both modes, codegen tests 67 → 83. The §2 numbers above are preserved as
+the historical record of the wave as it ran; the corrected census and
+the remaining named lift limits (handlers, `MultiExitLoop`, residual
+`ImpureJoin`, `ImpureLoopExit`) live in
+docs/TYPED_REGISTER_READINESS.md §3.
