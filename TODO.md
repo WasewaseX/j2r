@@ -439,7 +439,10 @@ local full-gate sweep at the same tree).**
       directions with zero new runtime code needed. Suite 104 → 106;
       guard 103 → 105; README counts synced (106 programs, 106/106
       cfg-identical; test count re-measured unchanged at 307 — fixtures
-      add no Rust tests).
+      add no Rust tests). CI evidence: run 42198778306 on 27489e8 fully
+      green — 27/27 check runs success, including gate-3 (the 106-fixture
+      differential), all six gate-9 forced-GC buckets, all four gate-13
+      concurrency seeds, and the gate-11 count-sync gate.
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template
