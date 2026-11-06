@@ -748,9 +748,15 @@ local full-gate sweep at the same tree).**
       identical on JamaBench output (observed differential). Full table
       + protocol + JVM-side caveats (full-JIT slower than C1 at this
       run length on 2 cores): docs/BENCHMARKS.md §First steady-state
-      comparison. Remaining: measure --emit-cfg emission speed (the
-      equivalence-proven prototype — now one command away), JZlib
-      release row still blocked by the rustc-memory finding.
+      comparison. Same-day addendum: the --emit-cfg speed question is
+      ANSWERED — no steady-state gain (274.1s vs 274.0s, partial lift
+      under an unchanged Vec<Value> operand model) → the registered
+      performance lever is the typed-register/typed-operand emission
+      model, with CFG structuring as prerequisite, not payload.
+      Remaining: JZlib release row still blocked by the rustc-memory
+      finding. CI evidence: run 42256131915 on 926b6ca fully green —
+      27/27 check jobs success (incl. gate-3 107-fixture differential,
+      gate-9 forced-GC solo leg, CodeQL / OSV / Scorecard).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 
