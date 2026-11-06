@@ -727,8 +727,30 @@ local full-gate sweep at the same tree).**
       sub-second). Gap status: corpus bench rows TAKEN for minimal-json
       (0.04x) and JAMA (0.09x) with the wave-3 landing (2026-11-06,
       docs/BENCHMARKS.md); JZlibCorpus rowless BY RULE (release build is
-      the registered rustc-memory finding). Remaining: steady-state/
-      throughput numbers only after corpus expansion (F2/F4/F5).
+      the registered rustc-memory finding). **FIRST STEADY-STATE ROW
+      TAKEN (2026-11-06, owner asked "why is it so much slower" — the
+      honest answer needed the number)**: new corpus stem JamaBench
+      (scripts/build_corpus_jamabench.sh, real JAMA 1.0.3 code, 1200
+      iterations of the full LU/QR/Cholesky/Eigen/SVD battery at
+      40x40/40x24, fixed xorshift seed, 3-line deterministic output),
+      harness extended with --fulljit (the DEFAULT full tiered JVM as a
+      second java channel) and --native-reps/--native-warmups (the
+      274s/run native channel cannot fit a sandbox session at reps=5 —
+      recorded per row). Result: native 274.2s vs full-JIT 3.18s =
+      **86.2x slower at steady state** (vs C1-only 1.31s = 208.8x),
+      WHILE the ms-scale corpus rows stay 0.03-0.09x (native 12-33x
+      ahead in wall time) — both true, different regimes, neither
+      quotable without the other. Attribution: GC-deferred control run
+      identical (273.4s vs 274.0s median) → the interpreter-shaped
+      default emission (match-pc dispatch over Vec<Value> stacks,
+      per-access runtime helpers, stringly-typed dispatch, per-block
+      safepoint refresh), not the collector. Every channel byte-
+      identical on JamaBench output (observed differential). Full table
+      + protocol + JVM-side caveats (full-JIT slower than C1 at this
+      run length on 2 cores): docs/BENCHMARKS.md §First steady-state
+      comparison. Remaining: measure --emit-cfg emission speed (the
+      equivalence-proven prototype — now one command away), JZlib
+      release row still blocked by the rustc-memory finding.
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 

@@ -141,3 +141,91 @@ python3 scripts/bench_suite.py --reps 5 MinimalJsonCorpus JamaCorpus
   registered memory limit above (re-confirmed and quantified today);
   its debug-binary scale reference from 2026-11-05 remains the only
   JZlib number, and per the locked policy no claim is made from it.
+
+## First steady-state comparison — 2026-11-06, 2-core Xeon / 4 GB (JamaBench)
+
+The R5 register's remaining item ("steady-state/throughput numbers") is
+now measured for the first time. `corpus/JamaBench.java` (assembled by
+`scripts/build_corpus_jamabench.sh` from the same verbatim NIST JAMA
+1.0.3 sources) runs 1200 iterations of a real decomposition battery —
+LU, QR, Cholesky on an SPD product, symmetric Eigen, rectangular SVD,
+LU solve, over 40x40 / 40x24 problems — with a fixed xorshift seed and
+a 3-line deterministic output. At K=1200 the full tiered JVM reaches
+steady state (startup + JIT warmup are noise at ~2.5s of hot-loop
+execution).
+
+Repro (three harness invocations; javaC1 = -XX:TieredStopAtLevel=1 as
+always, javaFull = the DEFAULT full tiered JVM C1→C2):
+
+```
+python3 scripts/bench_suite.py --reps 5 --warmups 2 --fulljit \
+    --native-reps 1 --native-warmups 0 JamaBench
+python3 scripts/bench_suite.py --reps 5 --warmups 2 --fulljit \
+    JamaCorpus MinimalJsonCorpus
+```
+
+| fixture | javac (s) | java C1 (ms) | java full JIT (ms) | j2r-gen (s) | native (ms) | native/C1 | native/full |
+|---|---|---|---|---|---|---|---|
+| JamaBench (steady state) | 1.224 | 1313.4 | 3181.9 | 49.81 | 274223.1 | **208.8x** | **86.2x** |
+| JamaCorpus (startup-dominated context) | 1.244 | 81.0 | 72.6 | 55.65 | 5.9 | 0.07x | 0.08x |
+| MinimalJsonCorpus (startup-dominated context) | 1.279 | 71.0 | 81.0 | 18.33 | 2.4 | 0.03x | 0.03x |
+
+Raw rows: `scripts/bench_results_fulljit.csv` (the `native_reps` /
+`native_warmups` columns record exactly how many runs produced each
+native median).
+
+Honest reading (all numbers above, same day, same box):
+
+* **Steady-state hot loops: the native binary is ~86x slower than the
+  full tiered JIT and ~209x slower than C1-only on real dense numeric
+  code.** The startup-dominated corpus rows taken in wave 3 (native
+  0.03-0.09x, i.e. 12-33x ahead in wall time) coexist with this: BOTH
+  are true, they measure different things. On millisecond-scale
+  programs the JVM's startup + JIT warmup dominate and the AOT binary
+  wins big; on seconds-scale hot loops the JIT's compiled code wins by
+  two orders of magnitude. Neither number may be quoted without its
+  regime.
+* **Attribution — it is the execution model, not the GC.** The default
+  emission is a bytecode-level interpreter per method: a `match pc`
+  dispatch loop over a `Vec<Value>` operand stack and `Vec<Value>`
+  locals (every operand is a cloned enum), runtime helper calls for
+  every array access, stringly-typed virtual dispatch
+  (`invoke_virtual(.., "Matrix", "getArray", "()[[D", ..)`), and
+  `frame.refresh` + `gc_point` safepoint bookkeeping at block
+  boundaries. C2 compiles the same loops to register machine code with
+  bounds-check elimination, escape analysis and vectorization — the
+  classic interpreter-vs-JIT gap, now measured on real code instead of
+  assumed. Control experiment: `J2R_GC_EVERY_N=999999999` (GC cadence
+  effectively disabled) runs in 273.4s vs the 274.0s hand median —
+  removing the collector changes nothing; the interpreter does.
+* **Native-channel protocol note.** A single steady-state native run is
+  ~274s, so the sandbox's hard per-process time cap cannot fit
+  reps=5+warmup in one session: the harness row carries the one
+  mechanically-produced native run (274.2s, native_reps=1), and four
+  additional runs of the SAME binary under the SAME protocol were taken
+  by hand the same hour: 274.1s / 273.5s / 273.9s / 275.7s (median
+  274.0s, spread ±0.4%). The harness run sits 0.1% off the hand median.
+* **JVM-side caveat (do not overclaim in the JIT's favor either):** on
+  this 2-core box at this run length the full tiered JVM is SLOWER than
+  C1-only (3.18s vs 1.31s) — C2 compile threads and profiling overhead
+  cost more than C2's better code earns back in ~3s of wall time, and
+  the allocation-heavy battery gives escape analysis little room. The
+  86x figure is honest for THIS box and run length; a long-running
+  server workload would amortize C2 better and widen the gap further.
+* **Correctness came free:** every JamaBench run on every channel
+  (java C1, java full JIT, native, GC-deferred native) printed the
+  byte-identical 3-line output (`acc=5.3624293456203656E14`,
+  `seedTail=-5877300977697633972`) — an observed differential proof on
+  the bench workload itself. (Observation, not a gate: differential
+  correctness remains gate-3's job; pinning JamaBench into
+  corpus_suite is a cheap follow-up since the output is deterministic
+  and tiny.)
+* **Where this closes:** M2's CFG reconstruction prototype
+  (`--emit-cfg`) is provably output-equivalent across the whole suite
+  (cfg_equiv gate, 107/107 both modes, 452.7s + 449.5s at the current
+  tree) and its default-emission NO-GO (docs/M2_CFG_REPORT.md) was a
+  scope decision, not a performance measurement. Lifting structured
+  register emission to default is now the highest-leverage performance
+  item on the board; with this harness, its cost claim is one
+  `--fulljit` command away. Per the locked policy these numbers observe
+  and never gate.

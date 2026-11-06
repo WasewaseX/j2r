@@ -5,3 +5,5 @@ j2r-out/
 *.class
 !crates/j2r-codegen/tests/fixtures/*.class
 tools/
+target/
+__pycache__/
