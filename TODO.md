@@ -165,6 +165,61 @@ local full-gate sweep at the same tree).**
       callers fail validation, codeql-action#2117; fixed 7bb7a8d).
       Dependabot PRs #1/#2 (actions/checkout 4.4.0→7.0.1, setup-java
       4.9.1→6.1.0) open — owner decides merge.
+- [x] **Gate upgrade package 2 (2026-11-06, owner directive: take the
+      WasewaseX/master-ci review, check the claims, fix the true ones,
+      and "customize it and add and improve our current gates — no need
+      to delete current, update and improve and add more gates")** —
+      five NEW gates (17–21) + one efficiency mechanism, zero existing
+      gates removed:
+      * **gate-17-supply-chain** — cargo-deny 0.20.2 (deny.toml: license
+        compliance trimmed to the licenses actually in the resolved tree
+        — MIT/Apache-2.0/Unicode-3.0, so a new license reds the gate;
+        multiple-versions deny; source-registry pinning to crates.io;
+        advisories as defense in depth on gate-7) + **gitleaks** v2.3.9
+        secret scan (local full-history evidence: 93 commits, ~3.1 MB,
+        no leaks). Local: `advisories ok, bans ok, licenses ok, sources
+        ok`.
+      * **gate-18-actions-security** — **zizmor** v0.8.1 action + **actionlint**
+        v1.7.9 over all five workflows. zizmor's birth run found a REAL
+        gap the audit class knew about and we had missed: every checkout
+        persisted the GITHUB_TOKEN into the runner's .git/config
+        (artipacked, 14 findings) — all 14 fixed with
+        `persist-credentials: false`; CI never pushes, so the runner
+        now keeps no long-lived credential. zizmor re-run: "No findings
+        to report" (23 suppressed); actionlint green.
+      * **gate-19-doc-links** — `scripts/check_doc_links.py`: every
+        relative link and intra-file anchor in README/TODO/ROADMAP/
+        examples + docs/**/*.md must resolve (deterministic: external
+        URLs deliberately not checked — no network false positives).
+        Ships with a synthetic-tree selftest (4/4 findings match).
+      * **gate-20-code-integrity** — `scripts/check_stubs.py`: the
+        master-ci "blocking-grade rules only" model — deterministic
+        content defects block, stylistic prose heuristics never do (the
+        external review's own verdict on AI detectors). Scans
+        crates/**/*.rs for todo!(/unimplemented!(/elision markers
+        ("... existing code ...")/FIXME. Birth scan: zero hits; selftest
+        4/4.
+      * **gate-21-dependency-hygiene (ADVISORY)** — cargo-machete 0.9.2,
+        `continue-on-error: true` BY DESIGN (grep-based, can miss
+        macro-only usage; reports, never blocks). Local run: "no unused
+        dependencies". Promotion to blocking needs a green history +
+        owner decision.
+      * **`changes` path filter** — prose-only PRs skip the five heavy
+        compile-and-run legs (gates 3/4/5/9/13) on pull_request ONLY;
+        pushes to main always run everything (evidence chain intact).
+        Fails OPEN on any uncertainty; the review's edge cases (shared
+        lib, manifest, lockfile, root config, generated file, workflow
+        itself, corpus fixture, empty diff) are pinned by
+        `scripts/path_filter.py --selftest` — 17/17 green — which runs
+        inside the changes job on EVERY invocation.
+      * gate-8 aggregate extended: 11 → 16 upstream gates
+        (+17/18/19/20; advisory 21 stays outside).
+      * All new third-party actions SHA-pinned (gitleaks-action v2.3.9,
+        zizmor-action v0.8.1, rhysd/actionlint v1.7.9); new scanners
+        version-pinned via taiki-e (cargo-deny@0.20.2,
+        cargo-machete@0.9.2). Every tool was run locally against the
+        real tree BEFORE the push — the package landed green by
+        evidence, not by hope.
 - [~] **M4 threads & concurrency — ACCEPTED (owner directive
       2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
       **Wave 1 shared substrate LANDED** (T02–T05, commit 4ddfe1b; CI

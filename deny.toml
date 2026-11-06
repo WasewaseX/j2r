@@ -1,0 +1,48 @@
+# cargo-deny policy — gate-17-supply-chain (2026-11-06, master-ci-inspired
+# gate-upgrade package). Complements gate-7 (cargo-audit: RustSec advisories)
+# with the three checks audit does not cover: license compliance, duplicate
+# dependency versions, and source-registry pinning (the supply-chain half of
+# the external review: "verify artifact provenance and integrity").
+#
+# j2r's external-dependency surface is deliberately tiny (clap for the CLI,
+# everything else is a workspace path dependency), so this policy is strict.
+
+[licenses]
+version = 2
+# Only the licenses actually present in the resolved tree (clap's
+# dependency closure: MIT OR Apache-2.0 throughout, plus Unicode-3.0).
+# Unused allowances were trimmed on purpose: a new license must red this
+# gate and get a reviewed, documented addition.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+# A duplicate version in this tree means a dependency crept in without
+# review — deny, not warn.
+multiple-versions = "deny"
+# The workspace's own crates are path dependencies without a version
+# (j2r-classfile = { path = ".." }) — cargo-deny counts those as
+# "wildcards". That is by design for an unpublished workspace, so the
+# wildcard rule stays report-only; the registry-published surface is
+# still pinned by [sources] below.
+wildcards = "warn"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[advisories]
+# cargo-deny 0.20: vulnerabilities are ALWAYS errors (the key was removed,
+# EmbarkStudios/cargo-deny#611) — defense in depth on top of gate-7's
+# cargo-audit. unmaintained uses the scope vocabulary ("none" = never
+# error, the report stays in the log); yanked stays warn-only so a
+# registry re-signing cannot red the gate without a reviewed decision.
+unmaintained = "none"
+yanked = "warn"

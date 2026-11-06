@@ -283,6 +283,42 @@ skips itself gracefully when no JDK is present; CI installs Temurin 21.
 Runtime guarantees and the panic-path inventory live in
 [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).
 
+## CI gates
+
+Every push to `main` runs the full evidence chain — every job, every run
+(prose-only pull requests skip the five heavy compile-and-run legs; a
+`main` push never does). The gate inventory:
+
+| # | Gate | What it proves |
+|---|------|----------------|
+| 1 | fmt | rustfmt, zero tolerance |
+| 2 | clippy | all targets/features, warnings are errors |
+| 3 | test | unit + e2e + differential suite vs a real JVM |
+| 4 | build-release | clean `--release --locked` build |
+| 5 | standalone | generated crate builds `--offline`, runs byte-identical |
+| 6 | doc | rustdoc builds with `-D warnings` |
+| 7 | security-audit | cargo-audit: any RustSec advisory fails |
+| 8 | all-gates | the aggregate: 16 upstream gates green |
+| 9 | gc-stress | differential at a collection per allocation (6 duration-balanced legs) |
+| 10 | no-unsafe | zero `unsafe` — compiler-enforced forbid + grep evidence |
+| 11 | doc-counts | README counts match measured reality (machine-checked) |
+| 12 | runtime-seams | every `thread_local!` seam annotated |
+| 13 | concurrency | thread fixtures × 4 deterministic schedules + stress |
+| 14 | CodeQL | security-extended + quality suites (own workflow) |
+| 15 | Scorecard | OSSF supply-chain posture (own workflow) |
+| 16 | OSV | dependency vulnerability scan (own workflow) |
+| 17 | supply-chain | cargo-deny licenses/bans/sources + gitleaks secret scan |
+| 18 | actions-security | zizmor workflow audit + actionlint over all workflows |
+| 19 | doc-links | every local markdown link and anchor resolves |
+| 20 | code-integrity | no stubs, elision markers or FIXME tokens in `crates/` |
+| 21 | dependency-hygiene | unused-dependency report (advisory by design) |
+
+Supply-chain posture: every third-party action pinned by commit SHA,
+workflow-level `permissions: contents: read` only, `persist-credentials:
+false` on every checkout, per-job timeouts, `--locked` on all cargo
+invocations, toolchain pinned to the exact local-evidence versions
+(rust 1.99.1, Temurin 21.0.13).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
