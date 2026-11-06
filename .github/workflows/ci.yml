@@ -426,6 +426,13 @@ jobs:
     name: gate-18-actions-security
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # zizmor-action publishes its findings as SARIF to the Security tab
+    # (same model as gates 14/15/16), which needs security-events: write
+    # on THIS job only — the workflow-level contents: read stays minimal
+    # everywhere else (same lesson as gate-16's 7bb7a8d fix).
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
