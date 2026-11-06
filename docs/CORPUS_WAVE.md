@@ -141,7 +141,9 @@ differential harnesses).
   destination order, nulls always copy. Pinned by the ArraycopyMismatch
   fixture, byte-identical vs Temurin.
 * InputStream.skip(J) default (JZlib wave), UTF-16 charset family,
-  `[[[<prim>` verifier depth, Enum.valueOf — unchanged, loud.
+  Enum.valueOf — unchanged, loud. (The `[[[<prim>` verifier-depth item was
+  closed by the deep-arrays wave for depth 3 and by the depth-4 wave for
+  `[[[[<prim>` — see below; depth >= 5 is the remaining registered limit.)
 
 ## Wave order
 
@@ -290,7 +292,17 @@ because it is part of the reproduction command.
   corpus/DeepArraysProbe.java pinned a real 3D program failing to verify
   (the one-level lattice modelled the rows as plain Refs); the lattice now
   carries RefPrimArray + RefPrimArray2 variants (depth-aware
-  array_elem_kind, elem_vty recursion). Depth >= 4 stays a loud limit.
+  array_elem_kind, elem_vty recursion). **DEPTH 4 LANDED (depth-4 wave,
+  2026-11-06)**: the lattice gained RefPrimArray3 variants — `[[[[<prim>`
+  elements are `[[[<prim>`-shaped values; the extracted rows now satisfy
+  `[[[<prim>`-typed call sites with exact typing, wrong-kind primitive
+  ops on a `[[[[I` fail verification naming the exact shape
+  (`array is RefPrimArray3Int`), and the DeepArrays fixture grew ten
+  in-place depth-4 rows (full/partial/one-dim allocation, typed call
+  site, shallow clone, arraycopy, null-row NPE, instanceof + getName
+  shapes, the `[[[F`-into-`[[[I` ASE message) — byte-identical vs
+  Temurin. **Depth >= 5 is the remaining registered limit** (loud Ref
+  collapse; verifier tests pin it).
   AND the aastore ArrayStoreException message was fixed by
   corpus/AseProbe.java (5 shapes): Temurin prints the STORED object's
   external name ALONE (`java.lang.Object`, `AseProbe$Inner` binary with

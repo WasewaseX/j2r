@@ -229,8 +229,10 @@ fn td_vty(t: &TypeDesc) -> VTy {
 /// `[I` → IntGroup, `[[I` → the elements are `int[]` values
 /// (RefPrimArray(IntGroup)), `[[[I` → the elements are `[[I`-shaped values
 /// (RefPrimArray2) — corpus/DeepArraysProbe.java pinned a real 3D program
-/// failing to verify under the old one-level model. Depth >= 4 collapses to
-/// Ref elements (loud, registered); `[L...;` is Ref at every depth.
+/// failing to verify under the old one-level model, and the depth-4 wave
+/// added RefPrimArray3 (`[[[[I` → the elements are `[[[I`-shaped values).
+/// Depth >= 5 collapses to Ref elements (loud, registered); `[L...;` is
+/// Ref at every depth.
 fn array_elem_kind(desc: &str) -> ElemKind {
     let depth = desc.len() - desc.trim_start_matches('[').len();
     if depth == 0 {
@@ -242,24 +244,28 @@ fn array_elem_kind(desc: &str) -> ElemKind {
             1 => ElemKind::Long,
             2 => ElemKind::RefPrimArrayLong,
             3 => ElemKind::RefPrimArray2Long,
+            4 => ElemKind::RefPrimArray3Long,
             _ => ElemKind::Ref,
         },
         Some('F') => match depth {
             1 => ElemKind::Float,
             2 => ElemKind::RefPrimArrayFloat,
             3 => ElemKind::RefPrimArray2Float,
+            4 => ElemKind::RefPrimArray3Float,
             _ => ElemKind::Ref,
         },
         Some('D') => match depth {
             1 => ElemKind::Double,
             2 => ElemKind::RefPrimArrayDouble,
             3 => ElemKind::RefPrimArray2Double,
+            4 => ElemKind::RefPrimArray3Double,
             _ => ElemKind::Ref,
         },
         Some('Z') | Some('B') | Some('C') | Some('S') | Some('I') => match depth {
             1 => ElemKind::IntGroup,
             2 => ElemKind::RefPrimArrayInt,
             3 => ElemKind::RefPrimArray2Int,
+            4 => ElemKind::RefPrimArray3Int,
             _ => ElemKind::Ref,
         },
         _ => ElemKind::Ref,
@@ -289,11 +295,16 @@ fn elem_vty(k: ElemKind) -> VTy {
         ElemKind::RefPrimArrayLong => VTy::Array(ElemKind::Long),
         ElemKind::RefPrimArrayFloat => VTy::Array(ElemKind::Float),
         ElemKind::RefPrimArrayDouble => VTy::Array(ElemKind::Double),
-        // depth >= 3: elements are `[[<prim>`-shaped values (deep-arrays wave)
+        // depth >= 3: elements are `[[<prim>`-shaped values (deep-arrays wave);
+        // depth 4: elements are `[[[<prim>`-shaped values (depth-4 wave)
         ElemKind::RefPrimArray2Int => VTy::Array(ElemKind::RefPrimArrayInt),
         ElemKind::RefPrimArray2Long => VTy::Array(ElemKind::RefPrimArrayLong),
         ElemKind::RefPrimArray2Float => VTy::Array(ElemKind::RefPrimArrayFloat),
         ElemKind::RefPrimArray2Double => VTy::Array(ElemKind::RefPrimArrayDouble),
+        ElemKind::RefPrimArray3Int => VTy::Array(ElemKind::RefPrimArray2Int),
+        ElemKind::RefPrimArray3Long => VTy::Array(ElemKind::RefPrimArray2Long),
+        ElemKind::RefPrimArray3Float => VTy::Array(ElemKind::RefPrimArray2Float),
+        ElemKind::RefPrimArray3Double => VTy::Array(ElemKind::RefPrimArray2Double),
     }
 }
 
@@ -2023,6 +2034,178 @@ mod tests {
         );
         let e = verify_err(&m);
         assert!(e.message.contains("expected Array"), "{e}");
+    }
+
+    #[test]
+    fn depth4_aaload_chain_yields_typed_shapes() {
+        // Depth-4 wave: `[[[[I` elements are `[[[I`-shaped values
+        // (RefPrimArray3Int); three aaloads descend the lattice
+        // RefPrimArray3Int → RefPrimArray2Int → RefPrimArrayInt → IntGroup,
+        // and the extracted `int[]` accepts iastore.
+        let m = plan(
+            "()V",
+            true,
+            4,
+            0,
+            vec![
+                (0, Instr::IConst(0)),
+                (1, Instr::IConst(0)),
+                (2, Instr::IConst(0)),
+                (3, Instr::IConst(0)),
+                (
+                    4,
+                    Instr::MultiNewArray {
+                        desc: "[[[[I".to_string(),
+                        dims: 4,
+                    },
+                ),
+                (5, Instr::IConst(0)),
+                (6, Instr::ALoad(ElemKind::Ref)), // -> [[[I
+                (7, Instr::IConst(0)),
+                (8, Instr::ALoad(ElemKind::Ref)), // -> [[I
+                (9, Instr::IConst(0)),
+                (10, Instr::ALoad(ElemKind::Ref)), // -> [I
+                (11, Instr::IConst(0)),
+                (12, Instr::IConst(42)),
+                (13, Instr::AStore(ElemKind::IntGroup)), // iastore into [I
+                (14, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        verify_ok(&m);
+    }
+
+    #[test]
+    fn depth4_wrong_kind_load_names_precise_kind() {
+        // The precision the wave buys: iaload directly on a `[[[[I` array
+        // fails with the EXACT depth-4 shape named (the pre-wave Ref
+        // fallback made the message generic).
+        let m = plan(
+            "()V",
+            true,
+            4,
+            0,
+            vec![
+                (0, Instr::IConst(0)),
+                (1, Instr::IConst(0)),
+                (2, Instr::IConst(0)),
+                (3, Instr::IConst(0)),
+                (
+                    4,
+                    Instr::MultiNewArray {
+                        desc: "[[[[I".to_string(),
+                        dims: 4,
+                    },
+                ),
+                (5, Instr::IConst(0)),
+                (6, Instr::ALoad(ElemKind::IntGroup)), // iaload on the outer
+                (7, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        let e = verify_err(&m);
+        assert!(e.message.contains("array is RefPrimArray3Int"), "{e}");
+    }
+
+    #[test]
+    fn depth4_aaload_result_feeds_typed_call_site() {
+        // The JZlib-wave pattern one level deeper: the extracted `[[[I`
+        // rows satisfy a `([[[I)V`-typed call site — the whole reason the
+        // lattice is typed instead of Ref-collapsed.
+        let m = plan(
+            "()V",
+            true,
+            4,
+            0,
+            vec![
+                (0, Instr::IConst(0)),
+                (1, Instr::IConst(0)),
+                (2, Instr::IConst(0)),
+                (3, Instr::IConst(0)),
+                (
+                    4,
+                    Instr::MultiNewArray {
+                        desc: "[[[[I".to_string(),
+                        dims: 4,
+                    },
+                ),
+                (5, Instr::IConst(0)),
+                (6, Instr::ALoad(ElemKind::Ref)), // -> [[[I
+                (
+                    7,
+                    Instr::InvokeStatic {
+                        class: "C".to_string(),
+                        name: "m".to_string(),
+                        desc: "([[[I)V".to_string(),
+                    },
+                ),
+                (8, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        verify_ok(&m);
+    }
+
+    #[test]
+    fn depth5_still_ref_registered_limit() {
+        // The registered limit is unchanged: depth >= 5 collapses to Ref.
+        // Reference chains still verify (untyped), and a primitive load on
+        // the Ref-collapsed shape is still rejected — loudly, naming Ref.
+        let m = plan(
+            "()V",
+            true,
+            5,
+            0,
+            vec![
+                (0, Instr::IConst(0)),
+                (1, Instr::IConst(0)),
+                (2, Instr::IConst(0)),
+                (3, Instr::IConst(0)),
+                (4, Instr::IConst(0)),
+                (
+                    5,
+                    Instr::MultiNewArray {
+                        desc: "[[[[[I".to_string(),
+                        dims: 5,
+                    },
+                ),
+                (6, Instr::IConst(0)),
+                (7, Instr::ALoad(ElemKind::Ref)), // -> Ref (collapsed)
+                (
+                    8,
+                    Instr::InvokeStatic {
+                        class: "C".to_string(),
+                        name: "m".to_string(),
+                        desc: "(Ljava/lang/Object;)V".to_string(),
+                    },
+                ),
+                (9, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        verify_ok(&m);
+
+        let bad = plan(
+            "()V",
+            true,
+            5,
+            0,
+            vec![
+                (0, Instr::IConst(0)),
+                (1, Instr::IConst(0)),
+                (2, Instr::IConst(0)),
+                (3, Instr::IConst(0)),
+                (4, Instr::IConst(0)),
+                (
+                    5,
+                    Instr::MultiNewArray {
+                        desc: "[[[[[I".to_string(),
+                        dims: 5,
+                    },
+                ),
+                (6, Instr::IConst(0)),
+                (7, Instr::ALoad(ElemKind::IntGroup)), // iaload on the outer
+                (8, Instr::Return(TypeDesc::Void)),
+            ],
+        );
+        let e = verify_err(&bad);
+        assert!(e.message.contains("array is Ref"), "{e}");
     }
 
     #[test]

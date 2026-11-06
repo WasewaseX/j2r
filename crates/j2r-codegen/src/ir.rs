@@ -247,8 +247,10 @@ pub enum ElemKind {
     /// `[I`-shaped call sites). Flattened into Copy variants; the
     /// deep-arrays wave added a SECOND level (`[[[<prim>`: elements are
     /// `[[<prim>`-shaped values — corpus/DeepArraysProbe.java pinned real
-    /// 3D programs failing to verify under the old one-level model). Depth
-    /// >= 4 still models as `Ref` elements — a registered, loud limit.
+    /// 3D programs failing to verify under the old one-level model). The
+    /// depth-4 wave added a THIRD level (`[[[[<prim>`: elements are
+    /// `[[[<prim>`-shaped values). Depth >= 5 still models as `Ref`
+    /// elements — a registered, loud limit.
     RefPrimArrayInt,
     RefPrimArrayLong,
     RefPrimArrayFloat,
@@ -257,6 +259,10 @@ pub enum ElemKind {
     RefPrimArray2Long,
     RefPrimArray2Float,
     RefPrimArray2Double,
+    RefPrimArray3Int,
+    RefPrimArray3Long,
+    RefPrimArray3Float,
+    RefPrimArray3Double,
 }
 
 impl PrimType {

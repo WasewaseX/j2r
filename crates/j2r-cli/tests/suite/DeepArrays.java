@@ -101,5 +101,76 @@ public class DeepArrays {
         } catch (ArrayStoreException e) {
             System.out.println("ase4: " + e.getMessage());
         }
+
+        // 12. depth 4 (the depth-4 wave, `[[[[I`): full-dim allocation +
+        //     nested length at every level
+        int[][][][] hyper = new int[2][3][4][5];
+        System.out.println(hyper.length + " " + hyper[0].length + " "
+                + hyper[0][0].length + " " + hyper[0][0][0].length);
+
+        // 13. nested store/load at depth 4: the leaf is an int
+        hyper[1][2][3][4] = 42;
+        hyper[0][0][0][0] = hyper[1][2][3][4] - 40;
+        System.out.println(hyper[1][2][3][4] + " " + hyper[0][0][0][0]);
+
+        // 14. partial allocation at depth 4: two dims specified, leaf
+        //     matrices null until assigned
+        int[][][][] hp = new int[2][3][][];
+        System.out.println(hp.length + " " + hp[0].length + " " + (hp[1][2] == null));
+        hp[1][2] = new int[4][5];
+        hp[1][2][3][4] = 7;
+        System.out.println(hp[1][2][3][4]);
+
+        // 15. one-dim-only allocation at depth 4: every row null
+        int[][][][] tops4 = new int[2][][][];
+        System.out.println(tops4.length + " " + (tops4[1] == null));
+        tops4[1] = new int[1][1][1];
+        tops4[1][0][0][0] = 6;
+        System.out.println(tops4[1][0][0][0]);
+
+        // 16. the typed-lattice payoff: hyper[0] is a `[[[I`-shaped value
+        //     and satisfies an int[][][]-typed call site
+        System.out.println(probe3d(hyper[0]));
+
+        // 17. clone() at depth 4: outer clones, everything below shares
+        int[][][][] o4 = new int[1][1][1][1];
+        o4[0][0][0][0] = 9;
+        int[][][][] c4 = o4.clone();
+        c4[0][0][0][0] = 11;
+        System.out.println(o4[0][0][0][0] + " " + (c4 != o4) + " " + (c4[0] == o4[0]));
+
+        // 18. arraycopy of a 4D array (reference semantics per element)
+        int[][][][] d4 = new int[2][][][];
+        System.arraycopy(hyper, 0, d4, 0, 2);
+        System.out.println(d4[1][2][3][4]);
+
+        // 19. null row at depth 4: loading through it NPEs
+        int[][][][] n4 = new int[2][2][2][2];
+        n4[1] = null;
+        try {
+            System.out.println(n4[1][0][0][0]);
+        } catch (NullPointerException e) {
+            System.out.println("row4 NPE");
+        }
+
+        // 20. instanceof at depth 4 + getClass().getName() shapes
+        Object oo = hyper;
+        System.out.println((oo instanceof int[][][][]) + " " + (oo instanceof Object[]));
+        System.out.println(hyper.getClass().getName());
+        System.out.println(hyper[0].getClass().getName());
+        System.out.println(hyper[0][0].getClass().getName());
+
+        // 21. the aastore ASE message at depth 4: a `[[[F` stored into an
+        //     `[[[I` slot names the STORED object descriptor-verbatim
+        try {
+            Object[] h4 = new int[1][1][1][];
+            h4[0] = new float[1][1][1];
+        } catch (ArrayStoreException e) {
+            System.out.println("ase5: " + e.getMessage());
+        }
+    }
+
+    static int probe3d(int[][][] m) {
+        return m[0][0][0];
     }
 }

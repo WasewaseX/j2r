@@ -106,7 +106,11 @@ fn differential_suite_matches_jvm() {
     // initialization-on-demand-holder idiom with a laziness proof) and
     // CyclicInit (two pairs of mutually-referencing <clinit> bodies pinning
     // JLS 12.4.2 in-progress recursion: assigned-value and default-value
-    // visibility) — 106 on disk, guard one below that.
+    // visibility) — 106 on disk, guard one below that. The depth-4 wave
+    // (2026-11-06) then extended DeepArrays IN PLACE (count unchanged):
+    // ten `[[[[I` rows — full/partial/one-dim allocation, the typed-lattice
+    // call-site payoff, shallow clone, 4D arraycopy, null-row NPE,
+    // instanceof/getName shapes, the [[[F-into-[[[I ASE message.
     assert!(
         fixtures.len() >= 105,
         "differential suite shrank: {} fixtures (expected >= 105)",

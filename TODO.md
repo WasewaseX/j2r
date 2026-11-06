@@ -443,6 +443,27 @@ local full-gate sweep at the same tree).**
       green — 27/27 check runs success, including gate-3 (the 106-fixture
       differential), all six gate-9 forced-GC buckets, all four gate-13
       concurrency seeds, and the gate-11 count-sync gate.
+- [x] **Depth-4 verifier wave — LANDED (2026-11-06)** — the registered
+      "depth >= 4" limit closed: the verifier lattice gained
+      RefPrimArray3{Int,Long,Float,Double} (the deep-arrays wave pattern
+      one level deeper), so `[[[[<prim>` arrays now verify with EXACT
+      typing: extracted `[[[<prim>` rows satisfy `[[[<prim>`-typed call
+      sites, and wrong-kind primitive ops on a `[[[[I` fail verification
+      naming the exact shape (`array element kind mismatch ... array is
+      RefPrimArray3Int`) instead of the old generic Ref. The runtime
+      needed ZERO changes (it was already descriptor-driven and exact —
+      the limit was verifier-side precision only; a 4D program compiled
+      and ran byte-identical even before this wave). Four new verifier
+      unit tests (chain typing, precise mismatch message, typed call
+      site, depth-5 Ref collapse still loud); codegen 67 → 71. The
+      DeepArrays fixture grew ten IN-PLACE depth-4 rows (count stays
+      106): full/partial/one-dim allocation, nested store/load, the
+      typed call-site payoff, shallow clone (leaves share), 4D
+      arraycopy, null-row NPE, instanceof + getClass().getName() shapes
+      (`[[[[I`/`[[[I`/`[[I`), and the `[[[F`-into-`[[[I` ASE message —
+      byte-identical vs Temurin 21.0.13. docs/CORPUS_WAVE.md §gaps
+      updated; depth >= 5 is the new registered limit, pinned by
+      depth5_still_ref_registered_limit.
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template
@@ -601,9 +622,11 @@ local full-gate sweep at the same tree).**
       `0.50000e+00`, now `5.000000e-01`). Fmt fixture extended in place
       (104 on disk, unchanged); suite counts: tests 304 → 307.
       Docs: README §runtime features + unsupported-list refresh.
-- [ ] **Wave residuals (remaining)** — array descriptor depth >= 4 in
+- [ ] **Wave residuals (remaining)** — array descriptor depth >= 5 in
       the verifier lattice stays loud BY DESIGN (a registered limit with
-      a precise error, not undone work — docs/CORPUS_WAVE.md §gaps).
+      a precise error, not undone work — docs/CORPUS_WAVE.md §gaps);
+      depth 4 was closed by the depth-4 verifier wave (see the entry in
+      §Corpus & quality).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script
