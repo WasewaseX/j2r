@@ -449,10 +449,27 @@ local full-gate sweep at the same tree).**
       shapes) prints the STORED object's external name ALONE (dotted plain
       classes, binary name keeps $, primitive arrays descriptor-verbatim
       `[[I`). DeepArrays fixture byte-identical vs Temurin; suite 101 → 102.
+- [x] **Formatter wave — LANDED (2026-11-05)** — String.format +
+      PrintStream.printf/format (the biggest remaining loud gap; corpus/
+      FmtProbe.java pins 43 rows on Temurin 21.0.13): %s %S (width/
+      precision/flags), %d (width, 0-pad after sign, +/space, comma
+      grouping, left-justify, parenthesized negatives), %x %X %o (+ `#`,
+      two's-complement negatives ffffff01), %f %e (width.precision, %e
+      lowercase, HALF_UP on the SHORTEST decimal repr — the probe caught
+      2.675 -> 2.68, proving the JDK rounds the shortest repr like
+      Double.toString, NOT BigDecimal(double) which would give 2.67),
+      %b %c %h, %%, %n, argument indexing (%2$s, %<). Varargs auto-boxing
+      handled (numeric conversions auto-unbox Integer/Long/... heap
+      objects; %s/%b keep the original — a boxed Boolean's truth is not
+      its int). Exact errors: UnknownFormatConversionException
+      "Conversion = 'q'", IllegalFormatConversionException
+      "d != java.lang.String", MissingFormatArgumentException
+      "Format specifier '%d'". 3 formatter unit tests + Fmt fixture
+      byte-identical vs Temurin; suite 102 → 103, tests 301 → 304.
 - [ ] **Wave residuals** — PushbackInputStream (the last unmodelled stream
-      builtin), PrintStream.printf/String.format (the Formatter engine:
-      HALF_UP decimal rounding — its own wave), array descriptor depth >= 4
-      in the verifier lattice stay loud (docs/CORPUS_WAVE.md §gaps).
+      builtin), Formatter leftovers (uppercase %E %G %a, %,d grouping on
+      %x, %f of null), array descriptor depth >= 4 in the verifier lattice
+      stay loud (docs/CORPUS_WAVE.md §gaps).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script

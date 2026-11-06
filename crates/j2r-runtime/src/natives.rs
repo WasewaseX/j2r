@@ -16,6 +16,7 @@
 
 use crate::collections as c;
 use crate::concat;
+use crate::formatter;
 use crate::heap::with_obj;
 use crate::heap::JRef;
 use crate::io;
@@ -2674,6 +2675,28 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "valueOf",
         "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;",
         n_enum_value_of,
+    ),
+    // Formatter engine (FmtProbe wave): String.format + PrintStream.printf
+    // and the format alias. Implementation in formatter.rs; semantics
+    // pinned by corpus/FmtProbe.java (43 rows incl. the HALF_UP-on-shortest-
+    // repr %f law and the exact three error messages).
+    (
+        "java/lang/String",
+        "format",
+        "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;",
+        formatter::n_string_format,
+    ),
+    (
+        "java/io/PrintStream",
+        "printf",
+        "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/io/PrintStream;",
+        formatter::n_print_stream_printf,
+    ),
+    (
+        "java/io/PrintStream",
+        "format",
+        "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/io/PrintStream;",
+        formatter::n_print_stream_printf,
     ),
     // java/lang/System
     ("java/lang/System", "exit", "(I)V", n_system_exit),

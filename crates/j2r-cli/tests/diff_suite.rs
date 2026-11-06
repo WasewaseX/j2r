@@ -88,11 +88,13 @@ fn differential_suite_matches_jvm() {
     // readlimit invalidation, the "Stream closed" family) — 101 on disk.
     // The deep-arrays wave added DeepArrays (3D primitive arrays:
     // partial-dim alloc, null rows, clone-at-depth, arraycopy, instanceof,
-    // the aastore ASE external-name shapes) — 102 on disk, guard one
-    // below that.
+    // the aastore ASE external-name shapes) — 102 on disk. The Formatter
+    // wave added Fmt (String.format/printf subset: %s %S %d %x %X %o %f %e
+    // %b %c %h, flags/width/precision, HALF_UP on the shortest repr, the
+    // exact three error messages) — 103 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 101,
-        "differential suite shrank: {} fixtures (expected >= 101)",
+        fixtures.len() >= 102,
+        "differential suite shrank: {} fixtures (expected >= 102)",
         fixtures.len()
     );
 

@@ -45,6 +45,12 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/ArrayStoreException" => "java/lang/RuntimeException",
         "java/lang/IllegalArgumentException" => "java/lang/RuntimeException",
         "java/lang/NumberFormatException" => "java/lang/IllegalArgumentException",
+        // Formatter exception family (FmtProbe wave): the three exact
+        // classes the probe catches; parents flattened to IAE (the JDK's
+        // UnknownFormatException layer adds nothing observable here).
+        "java/util/UnknownFormatConversionException" => "java/lang/IllegalArgumentException",
+        "java/util/IllegalFormatConversionException" => "java/lang/IllegalArgumentException",
+        "java/util/MissingFormatArgumentException" => "java/lang/IllegalArgumentException",
         // M4 Wave 3 (T13): monitor/conditioning exceptions. IMSE is thrown
         // by monitorexit and Object.wait/notify on a non-owned monitor;
         // InterruptedException by Thread.sleep/join/wait. Both must resolve

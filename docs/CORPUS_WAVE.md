@@ -237,11 +237,6 @@ because it is part of the reproduction command.
   it is concrete and inherited by read()-only subclasses; both are real
   now. ByteArrayInputStream landed with it (the wave-2 phase-2
   candidate; close() is a no-op, negative skip = 0).
-- `PrintStream.printf` / `String.format` — the Formatter engine (HALF_UP
-  decimal rounding, %s/%d/%.Nf/%n) is unmodelled; calling it fails loud
-  (F6 wave registered it when corpus/EnumProbe.java pinned enum surface
-  — the probe pins doubles via println instead). Its own wave, probe
-  first.
 - UTF-16 charset family — LANDED (skip/charset wave,
   corpus/Utf16Probe.java): UTF-16/BE/LE encode+decode with the exact BOM
   rules (FE FF→BE, FF FE→LE, none→BE default), surrogate pairs, U+FFFD
@@ -251,6 +246,13 @@ because it is part of the reproduction command.
   and failed the whole load — now lossy-normalized (the same substitution
   the JDK encoders emit). Standard charsets BEYOND the family (UTF-32,
   KOI8_R — Temurin accepts them silently) stay loud.
+- `PrintStream.printf` / `String.format` — LANDED (Formatter wave,
+  corpus/FmtProbe.java, 43 rows): the common subset with JDK-exact
+  semantics; the probe's most important catch is the %f rounding LAW —
+  HALF_UP on the SHORTEST decimal repr (2.675 -> 2.68; BigDecimal(double)
+  would give 2.67), implemented by rounding the double_to_string digit
+  string as a decimal. Uppercase %E, %G, %a, %,x grouping and %f-of-null
+  stay loud. Implementation: crates/j2r-runtime/src/formatter.rs.
 - BufferedInputStream — LANDED (stream wave 3, corpus/BufferedProbe.java
   pins 26 rows): the buffer state machine (inherited inner slot + buf/pos/
   count/markpos/marklimit), read-through-buffer and read([BII) spanning
