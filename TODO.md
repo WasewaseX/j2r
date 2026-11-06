@@ -220,6 +220,19 @@ local full-gate sweep at the same tree).**
         cargo-machete@0.9.2). Every tool was run locally against the
         real tree BEFORE the push — the package landed green by
         evidence, not by hope.
+      * **First-run CI evidence at 1952c10: fully green — all 32 check
+        runs success, including gate-8-all-gates-green, the five new
+        gates (17/18/19/20/21), the path-filter job, and every heavy leg
+        (gate-3 differential, gate-9 all six buckets, gate-13 all four
+        seeds).** One honest miss that CI itself caught on the first
+        push (f392220): the zizmor SCAN was green but the action's
+        post-processing SARIF upload 403'd under the workflow-level
+        `contents: read` ("Resource not accessible by integration") —
+        zizmor-action publishes findings to the Security tab via the
+        CodeQL-action, which needs `security-events: write`. Fixed
+        scoped to that one job only (1952c10) — the gate-16 lesson
+        (7bb7a8d) replayed. gate-18 now also publishes zizmor SARIF to
+        the Security tab, matching gates 14/15/16.
 - [~] **M4 threads & concurrency — ACCEPTED (owner directive
       2026-11-04, plan rev 1)** — 18-task register at docs/M4_PLAN.md §6.
       **Wave 1 shared substrate LANDED** (T02–T05, commit 4ddfe1b; CI
