@@ -229,3 +229,18 @@ Honest reading (all numbers above, same day, same box):
   item on the board; with this harness, its cost claim is one
   `--fulljit` command away. Per the locked policy these numbers observe
   and never gate.
+* **Same-day addendum — the CFG prototype measured, and it is NOT the
+  lever.** The same JamaBench workload translated with `--emit-cfg`
+  (M2's output-equivalent structured-CFG emission; j2r-gen 47.4s) and
+  release-built runs in **274.1s — indistinguishable from the 274.0s
+  hand median of the default emission** (output byte-identical again).
+  The lift was partial (Matrix.rs 63 → 40 match-pc dispatchers,
+  Eigen 10 → 6, SVD 8 → 3, Cholesky 4 → 2; LU and QR fully fallback —
+  their bodies carry handler edges), so this measures a mix of lifted
+  and fallback bodies under an UNCHANGED operand model (`Vec<Value>`
+  stacks, per-access runtime helpers, stringly dispatch, per-block
+  safepoint refresh). Honest conclusion: control-flow structuring
+  alone buys nothing at steady state; the registered performance lever
+  is the typed-register / typed-operand emission model (locals in
+  machine registers, direct field access, direct calls), with CFG
+  structuring as its prerequisite rather than its payload.
