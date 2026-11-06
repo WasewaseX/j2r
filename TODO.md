@@ -559,7 +559,11 @@ local full-gate sweep at the same tree).**
       modes (451.3s + 445.5s — the newly lifted bodies are output-exact),
       differential 107/107 (453.0s), corpus 3/3, jar/lambda/soe green,
       fmt/clippy clean, gates 11 (fixtures=107 tests=323) / 12 / 19 / 20
-      green, path-filter selftest 17/17.
+      green, path-filter selftest 17/17. CI evidence: run 42284179620 on
+      29c5cc6 fully green — 30/30 check runs success, including gate-3
+      (the 107-fixture differential), gate-9 forced-GC solo leg, all four
+      gate-13 concurrency seeds, CodeQL / OSV / Scorecard, and the
+      gate-11 count-sync gate (tests 311 → 323).
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template
