@@ -21,8 +21,8 @@
 //! resolution): (a) `-` without a width on a numeric conversion is
 //! MissingFormatWidthException carrying the raw spec text ("%-d");
 //! (b) the `,` flag is legal ONLY on d/f/g — anything else throws
-//! FormatFlagsConversionMismatchException "Conversion = <lower>, Flags = ,"
-//! (so `%d` of an Integer is still `f != java.lang.Integer`);
+//! FormatFlagsConversionMismatchException "Conversion = lc, Flags = ,"
+//! where lc is the LOWERCASED conversion char;
 //! (c) `#` is illegal on d/g. Known-conversion error messages use the
 //! LOWERCASED conversion char (`%E` of an Integer: `e != java.lang.Integer`),
 //! while UnknownFormatConversionException keeps the original (`Conversion
