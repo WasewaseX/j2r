@@ -83,10 +83,13 @@ fn differential_suite_matches_jvm() {
     // ByteArrayInputStream semantics incl. close-no-op and mark/reset,
     // FilterInputStream delegation) and Utf16 (the UTF-16 charset family:
     // BOM encode/decode, BE/LE, surrogate pairs, U+FFFD substitution,
-    // exact UEE names) — 100 on disk, guard one below that.
+    // exact UEE names) — 100 on disk. The BufferedInputStream wave added
+    // Buffered (buffer-read paths, the skip buffer-vs-inner law, mark/
+    // readlimit invalidation, the "Stream closed" family) — 101 on disk,
+    // guard one below that.
     assert!(
-        fixtures.len() >= 99,
-        "differential suite shrank: {} fixtures (expected >= 99)",
+        fixtures.len() >= 100,
+        "differential suite shrank: {} fixtures (expected >= 100)",
         fixtures.len()
     );
 

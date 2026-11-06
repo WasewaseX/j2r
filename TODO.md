@@ -421,8 +421,24 @@ local full-gate sweep at the same tree).**
       Fixtures SkipDefault + Utf16 byte-identical vs Temurin; suite 98 →
       100. Standard charsets beyond the family (UTF-32, KOI8_R — Temurin
       SUCCEEDS silently) stay a registered loud gap.
-- [ ] **Wave residuals** — BufferedInputStream (buffering state + "Stream
-      closed"), PrintStream.printf/String.format (the Formatter engine:
+- [x] **Stream wave 3: BufferedInputStream — LANDED (2026-11-05)** —
+      corpus/BufferedProbe.java pins 26 rows on Temurin 21.0.13: the buffer
+      state machine (inherited inner slot + buf/pos/count/markpos/
+      marklimit), read-through-buffer + read([BII) across buffer edges
+      (read1 with the >= marklimit direct bypass that invalidates the
+      mark), the skip LAW the probe discovered — a skip over a PARTIALLY
+      consumed buffer consumes ONLY the buffer (skip(20) over 7 buffered
+      bytes returns 7, pos advances to count, next read refills from the
+      inner stream) while a skip on an EMPTY buffer drains the inner
+      stream clamped to its available() (skip(100) over 26 = 26) — mark/
+      reset with readlimit growth (fill() shifts the marked region to the
+      front even when the buffer is exhausted, re-anchoring markpos to 0;
+      the first-draft fill reconstruction got this wrong and the probe
+      caught it, twice), "Resetting to invalid mark", and the full "Stream
+      closed" family (close() nulls in/buf; every getter then throws).
+      Buffered fixture byte-identical vs Temurin; suite 100 → 101.
+- [ ] **Wave residuals** — PushbackInputStream (the last unmodelled stream
+      builtin), PrintStream.printf/String.format (the Formatter engine:
       HALF_UP decimal rounding — its own wave), `[[[<prim>` verifier depth
       stay loud (docs/CORPUS_WAVE.md §gaps).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib

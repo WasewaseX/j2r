@@ -3494,6 +3494,68 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         io::n_fis_available,
     ),
     ("java/io/FilterInputStream", "close", "()V", io::n_fis_close),
+    // BufferedInputStream (stream wave 3; Temurin-pinned by
+    // corpus/BufferedProbe.java — including the skip surprise: a partially
+    // consumed buffer consumes ONLY the buffer (skip(20) over 7 = 7), an
+    // EMPTY buffer drains the inner stream clamped to available() (26)).
+    // Slots: 0 in (inherited) / 1 buf / 2 pos / 3 count / 4 markpos /
+    // 5 marklimit; close() nulls in+buf — the null slots ARE the closed
+    // state ("Stream closed").
+    (
+        "java/io/BufferedInputStream",
+        "<init>",
+        "(Ljava/io/InputStream;)V",
+        io::n_buf_init,
+    ),
+    (
+        "java/io/BufferedInputStream",
+        "<init>",
+        "(Ljava/io/InputStream;I)V",
+        io::n_buf_init_size,
+    ),
+    ("java/io/BufferedInputStream", "read", "()I", io::n_buf_read),
+    (
+        "java/io/BufferedInputStream",
+        "read",
+        "([BII)I",
+        io::n_buf_read_range,
+    ),
+    (
+        "java/io/BufferedInputStream",
+        "skip",
+        "(J)J",
+        io::n_buf_skip,
+    ),
+    (
+        "java/io/BufferedInputStream",
+        "available",
+        "()I",
+        io::n_buf_available,
+    ),
+    (
+        "java/io/BufferedInputStream",
+        "mark",
+        "(I)V",
+        io::n_buf_mark,
+    ),
+    (
+        "java/io/BufferedInputStream",
+        "reset",
+        "()V",
+        io::n_buf_reset,
+    ),
+    (
+        "java/io/BufferedInputStream",
+        "markSupported",
+        "()Z",
+        io::n_buf_mark_supported,
+    ),
+    (
+        "java/io/BufferedInputStream",
+        "close",
+        "()V",
+        io::n_buf_close,
+    ),
     // ByteArrayInputStream (skip/charset wave — the JZlib wave-2 phase-2
     // candidate; semantics pinned by corpus/SkipProbe.java: close() is a
     // no-op, negative skip returns 0, skip past EOF returns the actual

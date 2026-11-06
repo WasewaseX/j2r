@@ -251,8 +251,22 @@ because it is part of the reproduction command.
   and failed the whole load — now lossy-normalized (the same substitution
   the JDK encoders emit). Standard charsets BEYOND the family (UTF-32,
   KOI8_R — Temurin accepts them silently) stay loud.
-- BufferedInputStream — buffering state + the "Stream closed" use-after-
-  close family; not modelled (loud) — the natural next stream wave.
+- BufferedInputStream — LANDED (stream wave 3, corpus/BufferedProbe.java
+  pins 26 rows): the buffer state machine (inherited inner slot + buf/pos/
+  count/markpos/marklimit), read-through-buffer and read([BII) spanning
+  buffer edges (read1 with the >= marklimit direct-bypass that invalidates
+  the mark), the skip law discovered by the probe — a skip over a
+  PARTIALLY consumed buffer consumes ONLY the buffer (skip(20) over 7
+  buffered bytes returns 7, pos advances to count, the next read refills
+  from the inner stream) while a skip on an EMPTY buffer drains the inner
+  stream clamped to its available() (skip(100) over 26 = 26) — mark/
+  reset with readlimit growth (fill() shifts the marked region to the
+  front even when the buffer is exhausted, re-anchoring markpos to 0;
+  the JDK's first-draft fill reconstruction got this wrong and the probe
+  caught it), "Resetting to invalid mark", and the full "Stream closed"
+  family (close() nulls in/buf; every getter then throws). Buffered
+  fixture byte-identical vs Temurin; suite 100 → 101. One loud stream
+  builtin remains: PushbackInputStream (unmodelled).
 - `[[[<prim>` verifier depth — models as Ref elements beyond one level.
 - Stream wrappers LANDED (phase 2, skip/charset wave): the corpus driver
   now exercises DeflaterOutputStream/InflaterInputStream,

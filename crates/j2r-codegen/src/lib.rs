@@ -328,6 +328,11 @@ fn builtin_is_instantiable(class: &str) -> bool {
             // pinned by corpus/SkipProbe.java (close() no-op, negative skip
             // = 0, skip past EOF = actual count).
             | "java/io/ByteArrayInputStream"
+            // Stream wave 3: BufferedInputStream — slots (inherited in,
+            // buf ref, pos, count, markpos, marklimit), behavior in io.rs;
+            // pinned by corpus/BufferedProbe.java ("Stream closed" family,
+            // mark/readlimit invalidation, the skip buffer-vs-inner law).
+            | "java/io/BufferedInputStream"
     ) {
         return true;
     }
