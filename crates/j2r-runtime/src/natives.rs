@@ -3517,6 +3517,67 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         io::n_fis_available,
     ),
     ("java/io/FilterInputStream", "close", "()V", io::n_fis_close),
+    // PushbackInputStream (stream wave 4; Temurin-pinned by
+    // corpus/PushbackProbe.java — unread exhaustion
+    // "Push back buffer is full", skip consumes the pushback first,
+    // markSupported false, the "Stream closed" family).
+    // Slots: 0 in (inherited) / 1 buf / 2 pos.
+    (
+        "java/io/PushbackInputStream",
+        "<init>",
+        "(Ljava/io/InputStream;)V",
+        io::n_pb_init,
+    ),
+    (
+        "java/io/PushbackInputStream",
+        "<init>",
+        "(Ljava/io/InputStream;I)V",
+        io::n_pb_init_size,
+    ),
+    ("java/io/PushbackInputStream", "read", "()I", io::n_pb_read),
+    (
+        "java/io/PushbackInputStream",
+        "read",
+        "([BII)I",
+        io::n_pb_read_range,
+    ),
+    (
+        "java/io/PushbackInputStream",
+        "unread",
+        "(I)V",
+        io::n_pb_unread,
+    ),
+    (
+        "java/io/PushbackInputStream",
+        "unread",
+        "([B)V",
+        io::n_pb_unread_bulk,
+    ),
+    (
+        "java/io/PushbackInputStream",
+        "unread",
+        "([BII)V",
+        io::n_pb_unread_range,
+    ),
+    ("java/io/PushbackInputStream", "skip", "(J)J", io::n_pb_skip),
+    (
+        "java/io/PushbackInputStream",
+        "available",
+        "()I",
+        io::n_pb_available,
+    ),
+    (
+        "java/io/PushbackInputStream",
+        "markSupported",
+        "()Z",
+        io::n_pb_mark_supported,
+    ),
+    (
+        "java/io/PushbackInputStream",
+        "close",
+        "()V",
+        io::n_pb_close,
+    ),
     // BufferedInputStream (stream wave 3; Temurin-pinned by
     // corpus/BufferedProbe.java — including the skip surprise: a partially
     // consumed buffer consumes ONLY the buffer (skip(20) over 7 = 7), an

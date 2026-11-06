@@ -155,6 +155,9 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         // marklimit. close() nulls in/buf — the null slots ARE the closed
         // state ("Stream closed" checks read them).
         "java/io/BufferedInputStream" => "java/io/FilterInputStream",
+        // PushbackInputStream (stream wave 4): inherits the inner slot, then
+        // the pushback buffer (byte[] ref) + the read cursor pos.
+        "java/io/PushbackInputStream" => "java/io/FilterInputStream",
         // Real-world corpus wave 2 (JZlib): javac compiles every `enum`
         // to `extends java/lang/Enum` (WrapperType). Two own slots: name
         // (Str) then ordinal (Int) — see the Enum natives rows.
@@ -337,6 +340,9 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // FilterInputStream slot — buf (byte[] ref), pos, count, markpos,
         // marklimit (total 6 slots flattened).
         "java/io/BufferedInputStream" => 5,
+        // PushbackInputStream (stream wave 4): own slots after the inherited
+        // FilterInputStream slot — buf (byte[] ref), pos (total 3 flattened).
+        "java/io/PushbackInputStream" => 2,
         // Enum: slot 0 = name (Str), slot 1 = ordinal (Int). The generated
         // subclass (javac's WrapperType) starts at base 2.
         "java/lang/Enum" => 2,

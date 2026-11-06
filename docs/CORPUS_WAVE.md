@@ -253,6 +253,10 @@ because it is part of the reproduction command.
   would give 2.67), implemented by rounding the double_to_string digit
   string as a decimal. Uppercase %E, %G, %a, %,x grouping and %f-of-null
   stay loud. Implementation: crates/j2r-runtime/src/formatter.rs.
+- PushbackInputStream — LANDED (stream wave 4, corpus/PushbackProbe.java,
+  11 rows, byte-identical on the first run): the last unmodelled stream
+  builtin — the stream builtins are now COMPLETE (BAIS/BAOS/Buffered/
+  Pushback/Filter{In,Out}/StringWriter/StringReader).
 - BufferedInputStream — LANDED (stream wave 3, corpus/BufferedProbe.java
   pins 26 rows): the buffer state machine (inherited inner slot + buf/pos/
   count/markpos/marklimit), read-through-buffer and read([BII) spanning

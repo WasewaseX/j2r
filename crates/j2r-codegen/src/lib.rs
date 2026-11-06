@@ -333,6 +333,10 @@ fn builtin_is_instantiable(class: &str) -> bool {
             // pinned by corpus/BufferedProbe.java ("Stream closed" family,
             // mark/readlimit invalidation, the skip buffer-vs-inner law).
             | "java/io/BufferedInputStream"
+            // Stream wave 4: PushbackInputStream — slots (inherited in,
+            // pushback buf ref, pos), behavior in io.rs; pinned by
+            // corpus/PushbackProbe.java.
+            | "java/io/PushbackInputStream"
     ) {
         return true;
     }

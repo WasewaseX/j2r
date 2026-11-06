@@ -466,10 +466,22 @@ local full-gate sweep at the same tree).**
       "d != java.lang.String", MissingFormatArgumentException
       "Format specifier '%d'". 3 formatter unit tests + Fmt fixture
       byte-identical vs Temurin; suite 102 → 103, tests 301 → 304.
-- [ ] **Wave residuals** — PushbackInputStream (the last unmodelled stream
-      builtin), Formatter leftovers (uppercase %E %G %a, %,d grouping on
-      %x, %f of null), array descriptor depth >= 4 in the verifier lattice
-      stay loud (docs/CORPUS_WAVE.md §gaps).
+- [x] **Stream wave 4: PushbackInputStream — LANDED (2026-11-05)** — the
+      LAST unmodelled stream builtin (corpus/PushbackProbe.java, 11 rows,
+      byte-identical on the first run): unread(int)/([B)/([BII) with the
+      LIFO re-read law, buffer exhaustion -> IOException "Push back buffer
+      is full", skip consumes the pushback region FIRST then inner.skip,
+      read([BII) drains the pushback then the inner stream (partial-pushback
+      EOF still counts the pushed bytes), markSupported FALSE (reset falls
+      through to the InputStream default "mark/reset not supported"),
+      available() = pushback + inner, close() nulls in/buf ("Stream closed"
+      family). Pushback fixture byte-identical vs Temurin; suite 103 → 104.
+      THE STREAM BUILTINS ARE NOW COMPLETE: ByteArrayInputStream,
+      ByteArrayOutputStream, BufferedInputStream, PushbackInputStream,
+      Filter{In,Out}putStream, StringWriter/StringReader.
+- [ ] **Wave residuals** — Formatter leftovers (uppercase %E %G %a, %,d
+      grouping on %x, %f of null), array descriptor depth >= 4 in the
+      verifier lattice stay loud (docs/CORPUS_WAVE.md §gaps).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script

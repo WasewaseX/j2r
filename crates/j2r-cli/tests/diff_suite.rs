@@ -91,10 +91,14 @@ fn differential_suite_matches_jvm() {
     // the aastore ASE external-name shapes) — 102 on disk. The Formatter
     // wave added Fmt (String.format/printf subset: %s %S %d %x %X %o %f %e
     // %b %c %h, flags/width/precision, HALF_UP on the shortest repr, the
-    // exact three error messages) — 103 on disk, guard one below that.
+    // exact three error messages) — 103 on disk. The stream wave 4 added
+    // Pushback (unread single/bulk/range, buffer exhaustion
+    // "Push back buffer is full", skip-through-pushback, markSupported
+    // false, the "Stream closed" family) — 104 on disk, guard one below
+    // that.
     assert!(
-        fixtures.len() >= 102,
-        "differential suite shrank: {} fixtures (expected >= 102)",
+        fixtures.len() >= 103,
+        "differential suite shrank: {} fixtures (expected >= 103)",
         fixtures.len()
     );
 
