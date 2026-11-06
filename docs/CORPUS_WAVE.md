@@ -251,8 +251,21 @@ because it is part of the reproduction command.
   semantics; the probe's most important catch is the %f rounding LAW —
   HALF_UP on the SHORTEST decimal repr (2.675 -> 2.68; BigDecimal(double)
   would give 2.67), implemented by rounding the double_to_string digit
-  string as a decimal. Uppercase %E, %G, %a, %,x grouping and %f-of-null
-  stay loud. Implementation: crates/j2r-runtime/src/formatter.rs.
+  string as a decimal. Implementation: crates/j2r-runtime/src/formatter.rs.
+  RESIDUALS LANDED (2026-11-06, corpus/FmtResidualProbe.java, 116 rows —
+  the six-round probe falsified three implementation guesses): the
+  uppercase-variant family S B H C X E G A uppercases the WHOLE piece
+  (%E of Infinity -> `INFINITY`); ',' is legal ONLY on d/f/g (the old
+  %,x grouping was wrong — parse-time FormatFlagsConversionMismatchException
+  before argument resolution); null prints `null`/`NULL` through every
+  conversion except %b (the old %h-of-null PANICKED); %a/%A hex float
+  (subnormal 0.x forms, precision HALF_UP on >= 8 with renormalizing
+  carries); %g rounds sci-first then branches on the ROUNDED exponent
+  with NO trailing-zero stripping; the float family does NOT widen
+  integral types; '-' without width -> MissingFormatWidthException; AND
+  a real render_e bug exposed: %e of values in [1e-3, 1) had the wrong
+  decimal exponent (0.5 printed `0.50000e+00`). Fmt fixture extended in
+  place; tests 304 -> 307.
 - PushbackInputStream — LANDED (stream wave 4, corpus/PushbackProbe.java,
   11 rows, byte-identical on the first run): the last unmodelled stream
   builtin — the stream builtins are now COMPLETE (BAIS/BAOS/Buffered/

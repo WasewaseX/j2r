@@ -51,6 +51,12 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/UnknownFormatConversionException" => "java/lang/IllegalArgumentException",
         "java/util/IllegalFormatConversionException" => "java/lang/IllegalArgumentException",
         "java/util/MissingFormatArgumentException" => "java/lang/IllegalArgumentException",
+        // FmtResidualProbe wave: the two remaining IllegalFormatException
+        // subclasses the JDK Formatter throws at PARSE time (flag/width
+        // legality), plus catch-type resolution for the generated catch
+        // blocks. Parents flattened to IAE like the three above.
+        "java/util/MissingFormatWidthException" => "java/lang/IllegalArgumentException",
+        "java/util/FormatFlagsConversionMismatchException" => "java/lang/IllegalArgumentException",
         // M4 Wave 3 (T13): monitor/conditioning exceptions. IMSE is thrown
         // by monitorexit and Object.wait/notify on a non-owned monitor;
         // InterruptedException by Thread.sleep/join/wait. Both must resolve

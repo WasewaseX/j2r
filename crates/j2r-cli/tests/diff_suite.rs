@@ -95,7 +95,11 @@ fn differential_suite_matches_jvm() {
     // Pushback (unread single/bulk/range, buffer exhaustion
     // "Push back buffer is full", skip-through-pushback, markSupported
     // false, the "Stream closed" family) — 104 on disk, guard one below
-    // that.
+    // that. The Formatter-residuals wave (2026-11-06) extended Fmt IN
+    // PLACE (no new fixture, count unchanged): %E %G %a/%A, the
+    // ','-flag legality, null->null/NULL, the uppercase-variant family
+    // (S B H C X E G A), the parse-time MFW/FFCME laws —
+    // corpus/FmtResidualProbe.java is the 116-row Temurin vector.
     assert!(
         fixtures.len() >= 103,
         "differential suite shrank: {} fixtures (expected >= 103)",

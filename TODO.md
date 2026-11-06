@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-05.
+fix the board. Last updated: 2026-11-06.
 
 Project: J2R — Java → Rust compiler, 100% safe Rust (zero `unsafe`).
 North star: compile Minecraft Java Edition + mods (Fabric/Forge/NeoForge,
@@ -479,9 +479,36 @@ local full-gate sweep at the same tree).**
       THE STREAM BUILTINS ARE NOW COMPLETE: ByteArrayInputStream,
       ByteArrayOutputStream, BufferedInputStream, PushbackInputStream,
       Filter{In,Out}putStream, StringWriter/StringReader.
-- [ ] **Wave residuals** — Formatter leftovers (uppercase %E %G %a, %,d
-      grouping on %x, %f of null), array descriptor depth >= 4 in the
-      verifier lattice stay loud (docs/CORPUS_WAVE.md §gaps).
+- [x] **Formatter residuals — LANDED (2026-11-06, the FmtResidualProbe
+      wave)** — the registered loud gaps closed after a six-round Temurin
+      probe that falsified three assumptions on its way in: (1) the
+      uppercase-variant family is REAL and uppercases the WHOLE piece
+      (%E of Infinity → `INFINITY`, %G of NaN → `NAN`, %A of null →
+      `NULL`; S B H C X E G A all legal); (2) the ',' flag is legal ONLY
+      on d/f/g — `%,x`/`%,X`/`%,o`/`%,e`/`%,a`/`%,s`/`%,c`/`%,b`/`%,h`
+      throw FormatFlagsConversionMismatchException `Conversion = x,
+      Flags = ,` at PARSE time, before argument resolution (the old code
+      "supported" %,x grouping — wrong); (3) null prints `null`/`NULL`
+      through EVERY conversion except %b (the old %d/%c paths threw IFCE
+      and %h of null PANICKED). Plus: %a/%A hex float (13-nibble mantissa,
+      trailing-zero strip, subnormal 0.x form with exp -1022, precision
+      rounds HALF_UP on >= 8 and renormalizes carries `0x1.F8` →
+      `0x1.0p1`, subnormal+precision renormalizes to the 1.x true-exp
+      form), %g/%G (round to p-1 sci digits FIRST, then branch on the
+      ROUNDED exponent — %.2G of 9.99 → `10`, %.3G of 999.99 stays
+      scientific; NO trailing-zero stripping in the fixed branch —
+      1e-4 → `0.000100000`; precision 0 → 1), the float family does NOT
+      widen integral types (%f of Integer → IFCE `f != java.lang.Integer`
+      — the old widening was an unpinned guess), '-' without width on
+      numeric → MissingFormatWidthException with the raw spec, and a REAL
+      render_e bug the %g work exposed: fixed-form reprs below 1.0
+      ("0.001") got the wrong decimal exponent (%e of 0.5 printed
+      `0.50000e+00`, now `5.000000e-01`). Fmt fixture extended in place
+      (104 on disk, unchanged); suite counts: tests 304 → 307.
+      Docs: README §runtime features + unsupported-list refresh.
+- [ ] **Wave residuals (remaining)** — array descriptor depth >= 4 in
+      the verifier lattice stays loud BY DESIGN (a registered limit with
+      a precise error, not undone work — docs/CORPUS_WAVE.md §gaps).
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script

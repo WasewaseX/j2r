@@ -167,6 +167,14 @@ A **JDK-coverage milestone** (M3, [docs/ROADMAP.md](ROADMAP.md)) landed on
   Temurin-exact failure messages
 * Java-exact `Double.toString`/`Float.toString` including the subnormal
   digit-count quirk (`4.9E-324`, not `5e-324`) — verified against OpenJDK 21
+* `String.format` / `PrintStream.printf` (Formatter wave + residuals,
+  corpus/FmtResidualProbe.java): %s %d %x %o %f %e %g %a with flags,
+  width/precision and argument indexing, the whole uppercase-variant
+  family (%S %B %H %C %X %E %G %A — `%E` of Infinity is `INFINITY`),
+  subnormal hex-float forms, and the JDK's exact parse-time error
+  contracts (`FormatFlagsConversionMismatchException`,
+  `MissingFormatWidthException`, null → `null`/`NULL`) — differentially
+  pinned to Temurin 21 byte-for-byte
 * Catchable `StackOverflowError` and a tracing, cycle-collecting GC with
   generation-tagged handles (M2 Waves 1–2; see the milestone section above)
 * Investigation tooling: `j2r shape-report` (typed-storage decisions) and
@@ -187,7 +195,9 @@ methods, and most of the JDK beyond the natives/collections/reflection
 list — the JMM's volatile/final-freeze semantics (threads, monitors,
 wait/notify, interrupt and daemon shutdown ARE supported — M4; see
 RUNTIME_SAFETY.md §6 for what the concurrency model does and does not
-guarantee), streams, `Optional`, `java.time`,
+guarantee), the stream classes beyond the byte-stream builtins the corpus
+entries pulled in (ByteArray/Buffered/Pushback/Filter streams,
+StringReader/Writer), `Optional`, `java.time`,
 regex, serialization, `assert`.
 (`multianewarray`, `monitorenter`/`monitorexit`, `synchronized` methods
 and `ldc` of class constants were implemented across M1.6 and M3
@@ -262,7 +272,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 304 tests: unit + differential/forced-GC/SOE-e2e/cfg-equivalence/jar suites
+$ cargo test                       # 307 tests: unit + differential/forced-GC/SOE-e2e/cfg-equivalence/jar suites
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar
