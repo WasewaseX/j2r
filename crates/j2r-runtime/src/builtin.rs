@@ -142,6 +142,20 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/io/InputStream" => "java/lang/Object",
         "java/io/ObjectInputStream" => "java/io/InputStream",
         "java/io/Serializable" => "java/lang/Object",
+        // Real-world corpus wave 3 (JAMA): the write-side text surface plus
+        // the registered-loud classes. PrintWriter is REAL (io subset in
+        // natives.rs); DecimalFormat/DecimalFormatSymbols/StreamTokenizer/
+        // Vector resolve and instantiate but every behavior native fails
+        // loud (natives.rs wave-3 marker rows) — machinery does not exist
+        // and says so by name, exactly like the serialization surface.
+        "java/io/PrintWriter" => "java/io/Writer",
+        "java/text/Format" => "java/lang/Object",
+        "java/text/NumberFormat" => "java/text/Format",
+        "java/text/DecimalFormat" => "java/text/NumberFormat",
+        "java/text/DecimalFormatSymbols" => "java/lang/Object",
+        "java/io/StreamTokenizer" => "java/lang/Object",
+        "java/util/Vector" => "java/lang/Object",
+        "java/util/Locale" => "java/lang/Object",
         // Real-world corpus wave 2 (JZlib): the byte-stream hierarchy.
         // JZlib's stream classes (ZOutputStream, ZInputStream,
         // DeflaterOutputStream, GZIP*, InflaterInputStream) extend the
@@ -236,6 +250,15 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
             &["java/io/Closeable", "java/io/Flushable"]
         }
         "java/io/InputStream" | "java/io/FilterInputStream" => &["java/io/Closeable"],
+        // Corpus wave 3 (JAMA): PrintWriter implements the Writer trio
+        // directly in the JDK; Vector is a List (List→Collection→Iterable
+        // already chained above).
+        "java/io/PrintWriter" => &[
+            "java/io/Appendable",
+            "java/io/Closeable",
+            "java/io/Flushable",
+        ],
+        "java/util/Vector" => &["java/util/List"],
         "java/io/Serializable" => &[],
         _ => &[],
     }
@@ -349,6 +372,20 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // PushbackInputStream (stream wave 4): own slots after the inherited
         // FilterInputStream slot — buf (byte[] ref), pos (total 3 flattened).
         "java/io/PushbackInputStream" => 2,
+        // PrintWriter (corpus wave 3): absolute slots after the inherited
+        // Writer lock — 1 = sink ref, 2 = autoFlush (Int). Behavior subset in
+        // natives.rs (native stdout/stderr + StringWriter sinks).
+        "java/io/PrintWriter" => 2,
+        // Registered-loud wave-3 classes: minimal layouts (the constructor
+        // natives fail loudly before any slot could matter). StreamTokenizer
+        // owns ttype (I) / sval (Str) / nval (D) — the getfield sites in
+        // JAMA's uncalled Matrix.read resolve through builtin_field_slot.
+        "java/io/StreamTokenizer" => 3,
+        "java/util/Vector" => 0,
+        "java/text/NumberFormat" => 0,
+        "java/text/DecimalFormat" => 0,
+        "java/text/DecimalFormatSymbols" => 0,
+        "java/util/Locale" => 0,
         // Enum: slot 0 = name (Str), slot 1 = ordinal (Int). The generated
         // subclass (javac's WrapperType) starts at base 2.
         "java/lang/Enum" => 2,
@@ -389,6 +426,11 @@ pub fn builtin_field_slot(class: &str, field: &str) -> Option<usize> {
     match (class, field) {
         ("java/io/FilterOutputStream", "out") => Some(0),
         ("java/io/FilterInputStream", "in") => Some(0),
+        // Corpus wave 3 (JAMA): StreamTokenizer's three public fields read
+        // directly by the uncalled Matrix.read loop.
+        ("java/io/StreamTokenizer", "ttype") => Some(0),
+        ("java/io/StreamTokenizer", "sval") => Some(1),
+        ("java/io/StreamTokenizer", "nval") => Some(2),
         _ => None,
     }
 }

@@ -5,3 +5,5 @@ date,cpu,cores,reps,fixture,javac_s,java_ms,j2r_gen_s,native_ms,native_over_java
 2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,WaitNotify,0.596,196.6,7.64,152.5,0.776
 2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,ThreadHello,0.519,38.8,6.75,1.1,0.028
 2026-11-05T16:46:37,Intel(R) Xeon(R) Processor,2,5,ThreadSafepoint,0.592,43.3,6.78,3.3,0.077
+2026-11-06T14:02:42,Intel(R) Xeon(R) Processor,2,5,MinimalJsonCorpus,1.450,74.3,17.66,2.6,0.035
+2026-11-06T14:02:42,Intel(R) Xeon(R) Processor,2,5,JamaCorpus,1.663,72.3,52.41,6.2,0.086

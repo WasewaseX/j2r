@@ -1,0 +1,12 @@
+JAMA : A Java Matrix Package
+
+This software is a cooperative product of The MathWorks and the National
+Institute of Standards and Technology (NIST) which has been released to the
+public domain. Neither The MathWorks nor NIST assumes any responsibility
+whatsoever for its use by other parties, and makes no guarantees, expressed
+or implied, about its quality, reliability, or any other characteristic.
+
+Source: https://math.nist.gov/javanumerics/jama/ (Jama-1.0.3)
+Vendored verbatim for the j2r real-world corpus wave 3 (differential
+testing), unmodified except as documented in scripts/build_corpus_jama.sh
+and docs/CORPUS_WAVE.md.

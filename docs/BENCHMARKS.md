@@ -104,3 +104,40 @@ The honest state:
   comparison and must not be quoted as one. The release row lands when
   the generated crate fits a standard runner's memory (either after the
   codegen scale-up or on a bigger machine).
+
+* **2026-11-06 re-confirmation, quantified:** five fresh attempts at the
+  release build of the same crate (opt-level 3, opt-level 2,
+  codegen-units=16, three quiet-system retries) all died SIGKILL with
+  rustc peak RSS measured at **3.03–3.56 GB** — the borrow-check/MIR
+  phase, not codegen, dominates (opt-level 2 peaked HIGHER than 3). The
+  sandbox has ~3.3 GB available; the limit is real and stable.
+
+## Corpus bench rows — 2026-11-06, 2-core Xeon / 4 GB (wave 3)
+
+Repro (the harness resolves corpus driver stems under `corpus/`):
+
+```
+python3 scripts/bench_suite.py --reps 5 MinimalJsonCorpus JamaCorpus
+```
+
+| fixture | javac (s) | java (ms) | j2r-gen (s) | native (ms) | native/java |
+|---|---|---|---|---|---|
+| MinimalJsonCorpus | 1.450 | 74.3 | 17.66 | 2.6 | 0.04x |
+| JamaCorpus | 1.663 | 72.3 | 52.41 | 6.2 | 0.09x |
+
+* These are REAL programs, not micro-probes: minimal-json parses,
+  mutates and pretty-prints JSON documents; JAMA runs the full
+  decomposition battery (LU/QR/Cholesky/SVD/Eigen over the Hilbert 5x5
+  ill-conditioned matrix, thousands of IEEE double ops through the
+  interpreter). Both natives finish startup+run in 2.6-6.2 ms vs
+  72-74 ms C1 JVM runs — the same startup-dominated regime as the
+  first table, now on real-world code shapes.
+* j2r-gen grew with corpus size: JAMA's 3.5k-line merged file costs
+  52.4 s of translate+release-build vs 17.7 s for minimal-json's 4.0k
+  lines (JAMA's dense numeric loops emit far more per-line IR than a
+  parser's control flow). Translation itself stays sub-second; the
+  vendored-runtime cargo build dominates both.
+* **JZlibCorpus stays rowless on purpose** — the release build is the
+  registered memory limit above (re-confirmed and quantified today);
+  its debug-binary scale reference from 2026-11-05 remains the only
+  JZlib number, and per the locked policy no claim is made from it.

@@ -182,6 +182,23 @@ pub fn take_thrown(stack: &mut Vec<Value>) -> Result<JRef, Throw> {
 /// The lazily-created `System.out` object (permanent root; M4 Wave 1, T04).
 static OUT_REF: Mutex<Option<JRef>> = Mutex::new(None);
 
+static LOCALE_US_REF: Mutex<Option<JRef>> = Mutex::new(None);
+
+/// `java/util/Locale.US` (corpus wave 3, JAMA): a builtin constant object.
+/// Nothing reads its fields yet — the only wave-3 consumer
+/// (DecimalFormat) is registered loud — but identity is process-wide, like
+/// the JDK's static final constant.
+pub fn locale_us_ref() -> JRef {
+    let mut r = LOCALE_US_REF.lock().unwrap_or_else(|e| e.into_inner());
+    if r.is_none() {
+        *r = Some(alloc(JObj {
+            jclass: Arc::from("java/util/Locale"),
+            slots: vec![],
+        }));
+    }
+    r.expect("just initialized")
+}
+
 fn native_stream(sink: i32) -> JRef {
     alloc(JObj {
         jclass: Arc::from("java/io/PrintStream"),

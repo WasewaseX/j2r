@@ -111,9 +111,13 @@ fn differential_suite_matches_jvm() {
     // ten `[[[[I` rows — full/partial/one-dim allocation, the typed-lattice
     // call-site payoff, shallow clone, 4D arraycopy, null-row NPE,
     // instanceof/getName shapes, the [[[F-into-[[[I ASE message.
+    // The JAMA corpus wave (2026-11-06) added ArrayCovarianceProbe —
+    // JLS 4.10.3 array covariance pinned differentially ([[D flows into
+    // Object[] parameters/assignments; the verifier's covariant pop_exact
+    // rule and the runtime store checks are the JDK's own): 107 on disk.
     assert!(
-        fixtures.len() >= 105,
-        "differential suite shrank: {} fixtures (expected >= 105)",
+        fixtures.len() >= 106,
+        "differential suite shrank: {} fixtures (expected >= 106)",
         fixtures.len()
     );
 

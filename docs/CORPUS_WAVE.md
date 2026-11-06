@@ -316,3 +316,89 @@ because it is part of the reproduction command.
   ByteArrayOutputStream builtins, byte-identical vs Temurin
   (wrap-deflate n=72, zstream n=72/72/79, gzip n=84, zskip=20 → 'j').
   BufferedInputStream stays the one missing stream builtin (loud).
+
+## Wave 3 — JAMA (entry 3, landed 2026-11-06)
+
+**Entry**: NIST JAMA 1.0.3 (public domain, `corpus/jama/LICENSE.txt`) —
+7 files, ~3.3k lines: the classic Java matrix package (Matrix +
+Cholesky/LU/QR/SingularValue/Eigenvalue decompositions + util/Maths).
+A completely different real-world shape from waves 1-2: dense 2D double
+arrays, IEEE-heavy numeric loops, `Math` natives, and javac's compound
+double-assignment bytecode. Vendored verbatim (including the
+"temporary code" sections JAMA disables by breaking its own comment
+markers — `\** ... *\` inside a real block comment; `getR()` and the
+`(Matrix,int)` constructors are NOT part of the public API), merged into
+one default-package file by `scripts/build_corpus_jama.sh`, driver
+`JamaCorpus` exercising construction/copy/slice semantics, arithmetic,
+norms, all five decompositions, the Hilbert 5x5 SVD, symmetric +
+nonsymmetric eigen with residuals, and three error paths
+(out-of-bounds get, singular LU solve, non-SPD Cholesky solve, packed
+ctor, dimension mismatch — five, all message-exact). Output printed via
+Double.toString only — no NumberFormat paths in the driver.
+**Output-identical to Temurin 21.0.13 on all three channels** — locally
+and pinned permanently in `corpus_suite.rs` (now three entries).
+
+### What wave 3 actually cost (each item found by a loud failure)
+
+1. **Verifier: array covariance (JLS 4.10.3)** — `Vector.copyInto(
+   [Ljava/lang/Object;)V` receives a `double[][]`: `[[D <: [Object`
+   because `[D <: Object` and `S <: T ⟹ S[] <: T[]`. `pop_exact` now
+   accepts `Array(k)` with reference-elements for `Array(Ref)`
+   (`ElemKind::elements_are_refs()` in ir.rs); `[I`-style primitive
+   groups stay exact. Pinned differentially by the new
+   `ArrayCovarianceProbe` fixture (10 rows: parameter/assignment
+   covariance, aastore through a covariant view with the JDK's exact
+   ArrayStoreException messages `[I` / `java.lang.String`, null stores,
+   `[[D` clone independence) — byte-identical vs Temurin on the first
+   run. Suite 106 → 107, guard 105 → 106.
+2. **Verifier: dup2_x2 forms were scrambled** — the JAMA pivot swap
+   `LUrowi[j] = LUcolj[i] -= s;` emits javac's compound cat-2
+   assignment: `dup2_x2` with a cat-2 value on TOP of two cat-1s —
+   JVMS form 2 — and the old verifier rejected it ("form 4 requires a
+   category-2 value below"; a unit test even pinned the wrong
+   classification). Rewritten to the runtime stack.rs table (which was
+   right all along and differential-proven): F1 all-cat1, F2 cat2-top
+   (v3,v2,v1 → v1,v3,v2,v1), F3 cat2-at-bottom (→ v2,v1,v3,v2,v1), F4
+   two-cat2; the no-form cat1-on-top-of-cat2 shape now errors with a
+   named message. Three unit tests updated to the corrected forms.
+3. **`Math.random()` — REAL** (natives.rs/langext.rs): the JDK's own
+   48-bit LCG (Random.nextDouble algorithm, seed-uniquifier XOR
+   nanoTime lazy seed, CAS per next(bits)). Values are deliberately
+   unpredictable — no fixture may print them; the native exists so
+   programs referencing `Matrix.random` compile (JLS contract: uniform
+   [0,1) doubles).
+4. **`PrintWriter` — REAL subset** (natives.rs): JDK-source semantics
+   for print(String)/print(char)/println()/println(String)/write(String)
+   (null → "null", println = "\n" on Linux) over the two sink families
+   the corpus and console output exercise — native stdout/stderr
+   PrintStream objects and StringWriter buffers. Slots: inherited
+   Writer lock + sink ref + autoFlush. Exotic sinks throw a loud
+   UnsupportedOperationException naming the subset.
+5. **Registered loud (the serialization precedent)**: `java.util.Vector`
+   (5 rows), `java.io.StreamTokenizer` (6 rows + ttype/sval/nval field
+   slots), `java.text.DecimalFormat`/`NumberFormat.format(D)`/
+   `DecimalFormatSymbols` (9 rows) — resolve and instantiate so real
+   programs compile end to end; every behavior native throws
+   UnsupportedOperationException naming the gap. The corpus driver
+   never calls them (Matrix.read / Matrix.print are uncalled; the
+   print path would need the HALF_EVEN-over-exact-decimal DecimalFormat
+   engine — a future probe-first wave). `Double.valueOf(String)` is
+   REAL (parse + box); `Locale.US` is a real interned constant object.
+6. **Bench rows** (the R5 gap "one row per corpus entry"):
+   MinimalJsonCorpus 0.04x, JamaCorpus 0.09x native/java (details in
+   docs/BENCHMARKS.md §Corpus bench rows 2026-11-06). JZlibCorpus stays
+   rowless: the release build is the registered memory limit
+   (re-confirmed 2026-11-06 with measured rustc peak RSS 3.03-3.56 GB
+   across five attempts and three profiles).
+
+### Wave 3 result
+
+`corpus/JamaCorpus.java` (3,518 lines) compiles natively and is
+output-identical to Temurin 21.0.13 on stdout, stderr and exit (180
+deterministic lines, including eigenvalue residuals at 1e-13 through
+thousands of interpreted double ops — the LU pivot swaps run javac's
+dup2_x2 form 2 at full speed). Local gates at this tree: differential
+107/107 sharded, cfg_equiv 107/107 both modes (452.7s + 449.5s), corpus
+3/3, lib tests 272 green, jar/lambda/soe suites green, fmt/clippy clean,
+gates 11 (fixtures=107 tests=311) / 12 / 19 / 20 green, path-filter
+17/17, forced-GC on the new fixture green.

@@ -67,6 +67,14 @@ fn sw_append(recv: Option<&JRef>, op: &str, add: &str) -> Result<Value, Throw> {
     Ok(Value::Void)
 }
 
+/// PrintWriter (corpus wave 3, JAMA) sink support: append `add` to a
+/// StringWriter's payload. `r` is the StringWriter object itself (not the
+/// PrintWriter); used by the PrintWriter write path when its sink is a
+/// StringWriter.
+pub fn sw_append_ref(r: &JRef, add: &str) -> Result<(), Throw> {
+    sw_append(Some(r), "PrintWriter.write", add).map(|_| ())
+}
+
 pub fn n_sw_write_int(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let c = match args.first() {
         Some(v) => v.expect_int(),

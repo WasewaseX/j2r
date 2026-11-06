@@ -337,6 +337,15 @@ fn builtin_is_instantiable(class: &str) -> bool {
             // pushback buf ref, pos), behavior in io.rs; pinned by
             // corpus/PushbackProbe.java.
             | "java/io/PushbackInputStream"
+            // Corpus wave 3 (JAMA): PrintWriter (real subset, natives.rs),
+            // plus the registered-loud trio (Vector / StreamTokenizer /
+            // DecimalFormat family — constructors resolve, behavior natives
+            // throw naming the gap).
+            | "java/io/PrintWriter"
+            | "java/util/Vector"
+            | "java/io/StreamTokenizer"
+            | "java/text/DecimalFormat"
+            | "java/text/DecimalFormatSymbols"
     ) {
         return true;
     }
@@ -1174,6 +1183,11 @@ fn validate_instr(
         }
         ir::Instr::GetStatic { class, field, .. } => {
             if class == "java/lang/System" && (field == "out" || field == "err") {
+                return Ok(());
+            }
+            // Corpus wave 3 (JAMA): the Locale constant objects — builtin
+            // materialized at emit time (only the referenced subset).
+            if class == "java/util/Locale" && field == "US" {
                 return Ok(());
             }
             // The nine `X.class` pseudo-fields (M3_PLAN §8.1): javac

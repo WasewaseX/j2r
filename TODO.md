@@ -466,6 +466,49 @@ local full-gate sweep at the same tree).**
       depth5_still_ref_registered_limit. CI evidence: run 42211742976 on
       55ed691 fully green — 26/26 check runs success (incl. gate-3, all
       six gate-9 buckets, all four gate-13 seeds, gates 14-21).
+- [x] **Corpus wave 3: JAMA — LANDED (2026-11-06)** — the third real-world
+      corpus entry (NIST JAMA 1.0.3, public domain, 7 files / ~3.3k lines:
+      Matrix + all five decompositions — a dense-2D-double-array,
+      IEEE-heavy numeric shape unlike minimal-json's object graph or
+      JZlib's byte streams). Vendored verbatim into corpus/jama/ (JAMA's
+      self-disabled "temporary code" sections preserved — getR() and the
+      (Matrix,int) ctors are commented out upstream by broken comment
+      markers), merged by scripts/build_corpus_jama.sh, driver JamaCorpus
+      (construction/copy/slice semantics, arithmetic, norms, all five
+      decompositions, Hilbert 5x5 SVD, symmetric + nonsymmetric eigen with
+      residuals, five message-exact error paths). **Output-identical to
+      Temurin 21.0.13 on all three channels, first run** — 180 lines
+      incl. eigen residuals at 1e-13 through thousands of interpreted
+      double ops. Pinned permanently in corpus_suite.rs (2 → 3 entries).
+      What it cost, each found by a loud failure: (1) verifier array
+      covariance — JLS 4.10.3 (`[[D <: [Object`) now accepted by
+      pop_exact for reference-element arrays (ElemKind::elements_are_refs),
+      pinned differentially by the new ArrayCovarianceProbe fixture
+      (10 rows, byte-identical first run, suite 106 → 107, guard 105 →
+      106); (2) the verifier's dup2_x2 form classification was scrambled —
+      javac's compound cat-2 assignment (`LUrowi[j] = LUcolj[i] -= s;`)
+      emits JVMS form 2 (cat2-on-top-of-two-cat1) and the old verifier
+      REJECTED it (a unit test even pinned the wrong shape) — rewritten
+      to the runtime stack.rs table (which was differential-proven
+      correct all along), three unit tests updated; (3) Math.random is
+      REAL (the JDK's 48-bit LCG with uniquifier^nanoTime lazy seed);
+      (4) PrintWriter is a REAL subset (JDK-source print/println/write
+      semantics over native stdout/stderr + StringWriter sinks);
+      (5) Vector / StreamTokenizer / DecimalFormat family registered
+      LOUD (the serialization precedent: resolve + instantiate so real
+      programs compile, behavior throws naming the gap — Matrix.read /
+      Matrix.print are uncalled by the driver); Double.valueOf(String)
+      is real; Locale.US is a real interned constant. Bench rows taken
+      per the R5 gap ("one row per corpus entry"): MinimalJsonCorpus
+      0.04x / JamaCorpus 0.09x native-vs-C1-java (docs/BENCHMARKS.md);
+      JZlibCorpus stays rowless BY RULE — the release build's rustc peak
+      RSS re-measured at 3.03-3.56 GB across five attempts and three
+      profiles, above the sandbox ceiling (the registered codegen-scale
+      finding). Local gates at this tree: differential 107/107 sharded,
+      cfg_equiv 107/107 both modes (452.7s + 449.5s), corpus 3/3, lib
+      tests 272 green, jar/lambda/soe green, fmt/clippy clean, gates
+      11 (fixtures=107 tests=311) / 12 / 19 / 20 green, path-filter
+      selftest 17/17, forced-GC on the new fixture green.
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template
@@ -677,9 +720,11 @@ local full-gate sweep at the same tree).**
       startup-dominated micros, WaitNotify parity 0.78x (real sleep
       windows dominate — sanity check passed), compile-side ~10x slower
       than javac (vendored-runtime build dominates; translation is
-      sub-second). Gap vs fully done: one bench row per future corpus
-      entry; steady-state/throughput numbers only after corpus
-      expansion (F2/F4/F5).
+      sub-second). Gap status: corpus bench rows TAKEN for minimal-json
+      (0.04x) and JAMA (0.09x) with the wave-3 landing (2026-11-06,
+      docs/BENCHMARKS.md); JZlibCorpus rowless BY RULE (release build is
+      the registered rustc-memory finding). Remaining: steady-state/
+      throughput numbers only after corpus expansion (F2/F4/F5).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 

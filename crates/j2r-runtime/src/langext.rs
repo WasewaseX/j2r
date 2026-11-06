@@ -21,6 +21,7 @@
 use crate::heap::{with_obj, JRef};
 use crate::Value;
 use crate::{throw_new, Dispatch, Throw};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 
 fn str_of(v: &Value, who: &str) -> Arc<String> {
@@ -891,6 +892,62 @@ pub fn n_math_pow(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resul
     let a = arg(args, 0, "Math.pow").expect_double();
     let b = arg(args, 1, "Math.pow").expect_double();
     Ok(Value::Double(a.powf(b)))
+}
+
+/// Shared state of `Math.random()` — JDK semantics: `new
+/// Random().nextDouble()` on one shared generator. That generator is
+/// java.util.Random's 48-bit LCG, lazily seeded from a uniquifier XORed
+/// with `System.nanoTime()` (Random.java's `Random()` no-arg path), one
+/// CAS per `next(bits)` call so threads share the stream exactly like the
+/// JDK's holder. The produced values are deliberately unpredictable and
+/// unspecified — no differential fixture may print them; the native exists
+/// so real programs that *reference* `Math.random` compile (JAMA wave 3:
+/// `Matrix.random`, uncalled by the corpus driver).
+static MATH_RANDOM_SEED: AtomicI64 = AtomicI64::new(0);
+static MATH_RANDOM_SEEDED: AtomicBool = AtomicBool::new(false);
+static MATH_RANDOM_UNIQUIFIER: AtomicI64 = AtomicI64::new(8682522807148012199);
+
+const LCG_MULTIPLIER: i64 = 0x5DEECE66D;
+const LCG_ADDEND: i64 = 0xB;
+
+fn math_random_next(bits: u32) -> i64 {
+    const MASK: i64 = (1 << 48) - 1;
+    loop {
+        let old = MATH_RANDOM_SEED.load(Ordering::Acquire);
+        let next = (old.wrapping_mul(LCG_MULTIPLIER).wrapping_add(LCG_ADDEND)) & MASK;
+        if MATH_RANDOM_SEED
+            .compare_exchange_weak(old, next, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            return next >> (48 - bits);
+        }
+    }
+}
+
+pub fn n_math_random(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    if !MATH_RANDOM_SEEDED.load(Ordering::Acquire) {
+        let uniqu = MATH_RANDOM_UNIQUIFIER
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |u: i64| {
+                Some(u.wrapping_mul(1181783497276652981))
+            })
+            .unwrap_or(8682522807148012199);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as i64)
+            .unwrap_or(0);
+        MATH_RANDOM_SEED.store(uniqu ^ now, Ordering::Release);
+        MATH_RANDOM_SEEDED.store(true, Ordering::Release);
+    }
+    // Random.nextDouble(): ((long)(next(26)) << 27) + next(27), scaled by
+    // 0x1.0p-53. (1 << 53) is a power of two, so the divisor is exact.
+    let hi = math_random_next(26);
+    let lo = math_random_next(27);
+    let unit = 1.0f64 / (1u64 << 53) as f64;
+    Ok(Value::Double(((hi << 27) + lo) as f64 * unit))
 }
 
 pub fn n_math_floor(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {

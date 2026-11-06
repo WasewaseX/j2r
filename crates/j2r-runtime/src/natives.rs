@@ -108,6 +108,235 @@ ps!(n_ps_print_d, 'D', false);
 ps!(n_ps_print_s, 'L', false);
 ps!(n_ps_print_l, 'L', false);
 
+// ---------------------------------------------------------------- PrintWriter
+//
+// Real-world corpus wave 3 (JAMA): JDK-exact subset of java.io.PrintWriter.
+// The JDK class wraps its sink (OutputStream → BufferedWriter(
+// OutputStreamWriter(out)); Writer → passthrough) and funnels every
+// print/println/write into write(String) + newLine(); autoflush flushes
+// after println. The subset here models exactly the surface the corpus
+// (and typical console output) exercises:
+//   * sinks: the native stdout/stderr streams (PrintStream sink-id objects,
+//     as returned by System.out/err) and StringWriter buffers;
+//   * print(String)/print(char)/println()/println(String)/write(String)/
+//     flush/close.
+// JDK source semantics kept verbatim: write(s) = write(s == null ? "null"
+// : s); print(c) = write(String.valueOf(c)); println() = newLine() =
+// write(line.separator) — "\n" on Linux; println(x) = print(x); println().
+// Autoflush on these sinks is a no-op (native streams are already
+// unbuffered from the runtime's side; StringWriter has nothing to flush).
+// Slots: absolute 0 = inherited Writer `lock`, absolute 1 = sink ref,
+// absolute 2 = autoFlush flag (Int).
+
+fn pw_sink_of(recv: Option<&JRef>) -> Result<JRef, Throw> {
+    let r = this(recv, "PrintWriter method");
+    // Writer owns slot 0 (the JDK `lock`); the sink ref is own-slot 0 =
+    // absolute slot 1, autoFlush is absolute slot 2.
+    let sink = crate::heap::with_obj(*r, |o| o.slots[1].clone());
+    match sink {
+        Value::Ref(Some(s)) => Ok(s),
+        other => Err(internal_error(&format!(
+            "j2r internal: PrintWriter sink {other:?}"
+        ))),
+    }
+}
+
+fn pw_write_str(sink: &JRef, text: &str, newline: bool) -> Result<(), Throw> {
+    let class = crate::heap::with_obj(*sink, |o| o.jclass.to_string());
+    match class.as_str() {
+        "java/io/PrintStream" => {
+            let id = crate::heap::with_obj(*sink, |o| o.slots[0].expect_int());
+            print_string(id, text, newline);
+            Ok(())
+        }
+        "java/io/StringWriter" => {
+            io::sw_append_ref(sink, text)?;
+            if newline {
+                io::sw_append_ref(sink, "\n")?;
+            }
+            Ok(())
+        }
+        other => Err(throw_new(
+            "java/lang/UnsupportedOperationException",
+            Some(&format!(
+                "J2R: PrintWriter over {other} sink is not supported (corpus wave 3 subset: native stdout/stderr and StringWriter sinks)"
+            )),
+        )),
+    }
+}
+
+fn pw_write(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw> {
+    let sink = pw_sink_of(recv)?;
+    let text = match args.first() {
+        Some(Value::Ref(Some(o))) if crate::object::is_string(o) => {
+            crate::object::string_value(o).to_string()
+        }
+        Some(Value::Ref(None)) | None => "null".to_string(),
+        other => {
+            return Err(internal_error(&format!(
+                "j2r internal: PrintWriter.write arg {other:?}"
+            )))
+        }
+    };
+    pw_write_str(&sink, &text, false)?;
+    Ok(Value::Void)
+}
+
+fn n_pw_init_os(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "PrintWriter.<init>");
+    let sink = match args.first() {
+        Some(Value::Ref(Some(s))) => *s,
+        other => {
+            return Err(internal_error(&format!(
+                "j2r internal: PrintWriter.<init> sink {other:?}"
+            )))
+        }
+    };
+    let autoflush = match args.get(1) {
+        Some(Value::Int(1)) => 1,
+        Some(Value::Int(0)) => 0,
+        other => {
+            return Err(internal_error(&format!(
+                "j2r internal: PrintWriter.<init> autoflush {other:?}"
+            )))
+        }
+    };
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[1] = Value::Ref(Some(sink));
+        o.slots[2] = Value::Int(autoflush);
+    });
+    Ok(Value::Void)
+}
+
+fn n_pw_init_writer(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "PrintWriter.<init>");
+    let sink = match args.first() {
+        Some(Value::Ref(Some(s))) => *s,
+        other => {
+            return Err(internal_error(&format!(
+                "j2r internal: PrintWriter.<init> sink {other:?}"
+            )))
+        }
+    };
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[1] = Value::Ref(Some(sink));
+        o.slots[2] = Value::Int(0);
+    });
+    Ok(Value::Void)
+}
+
+fn n_pw_print_c(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let sink = pw_sink_of(recv)?;
+    let c = arg(args, "PrintWriter.print").expect_int();
+    let ch = char::from_u32(c as u32).unwrap_or('\u{fffd}');
+    let mut buf = String::with_capacity(4);
+    buf.push(ch);
+    pw_write_str(&sink, &buf, false)?;
+    Ok(Value::Void)
+}
+
+fn n_pw_print_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let _ = ctx;
+    pw_write(recv, args)
+}
+
+fn n_pw_println(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let sink = pw_sink_of(recv)?;
+    pw_write_str(&sink, "\n", false)?;
+    Ok(Value::Void)
+}
+
+fn n_pw_println_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    // JDK: print(x) then println() — two write calls, one newline.
+    n_pw_print_s(recv, args, ctx)?;
+    n_pw_println(recv, &[], ctx)
+}
+
+fn n_pw_write_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let _ = ctx;
+    pw_write(recv, args)
+}
+
+fn n_pw_flush(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    // Native streams are flushed per write; StringWriter keeps everything
+    // in the payload. Nothing buffered here to move.
+    Ok(Value::Void)
+}
+
+fn n_pw_close(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    // JDK close() closes the sink; the supported sinks are process-wide
+    // (stdout/stderr) or in-memory (StringWriter, whose close is a no-op
+    // like the JDK's), so there is nothing to close either way.
+    Ok(Value::Void)
+}
+
+// ------------------------------------------------- corpus wave 3 loud rows
+//
+// JAMA drags in three surfaces the runtime has no machinery for yet. They
+// are REGISTERED LOUDLY (the wave-1 serialization precedent): every entry
+// resolves and instantiates so real programs compile end to end, and every
+// behavior native throws UnsupportedOperationException naming the gap.
+// The corpus driver never calls them (Matrix.read / Matrix.print are
+// uncalled), so the differential proof is unaffected; closing them with
+// probe-pinned implementations is future corpus work
+// (docs/CORPUS_WAVE.md §wave 3 open gaps).
+
+fn loud_unsupported(what: &str) -> Result<Value, Throw> {
+    Err(throw_new(
+        "java/lang/UnsupportedOperationException",
+        Some(what),
+    ))
+}
+
+fn n_loud_vector(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    loud_unsupported(
+        "J2R: java.util.Vector is not supported (corpus wave 3 registration: legacy synchronized collections machinery does not exist; JAMA's uncalled Matrix.read references it)",
+    )
+}
+
+fn n_loud_stream_tokenizer(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    loud_unsupported(
+        "J2R: java.io.StreamTokenizer is not supported (corpus wave 3 registration: the syntax-table tokenizer is unmodeled; JAMA's uncalled Matrix.read references it)",
+    )
+}
+
+fn n_loud_decimal_format(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    loud_unsupported(
+        "J2R: java.text.DecimalFormat/NumberFormat is not supported (corpus wave 3 registration: the HALF_EVEN formatting engine with symbol tables is a registered gap; JAMA's uncalled Matrix.print references it)",
+    )
+}
+
+/// `java/util/Locale.US` as a `Value` (corpus wave 3: the only locale
+/// constant real code references here).
+pub fn builtin_locale_us() -> Value {
+    Value::Ref(Some(object::locale_us_ref()))
+}
+
+/// `Double.valueOf(String)` — parse then box (JAMA's uncalled Matrix.read
+/// parses tokens through it; the parsing core is the probed
+/// parseDouble contract).
+fn n_double_value_of_s(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let v = n_double_parse_double(_recv, args, ctx)?;
+    let Value::Double(d) = v else {
+        return Err(internal_error("j2r internal: parseDouble result"));
+    };
+    let r = object::new_obj("java/lang/Double", 1)?;
+    object::obj_set(&r, 0, Value::Double(d));
+    Ok(Value::Ref(Some(r)))
+}
+
 // ---------------------------------------------------------------- Object
 
 fn n_object_init(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
@@ -3120,6 +3349,170 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()V",
         n_object_input_stream_default_read_object,
     ),
+    // ------------------------------- corpus wave 3 (JAMA) -----------------
+    // PrintWriter — REAL subset (see the implementation block above):
+    // stdout/stderr and StringWriter sinks, print/println/write/flush/close.
+    (
+        "java/io/PrintWriter",
+        "<init>",
+        "(Ljava/io/OutputStream;Z)V",
+        n_pw_init_os,
+    ),
+    (
+        "java/io/PrintWriter",
+        "<init>",
+        "(Ljava/io/Writer;)V",
+        n_pw_init_writer,
+    ),
+    (
+        "java/io/PrintWriter",
+        "<init>",
+        "(Ljava/io/Writer;Z)V",
+        n_pw_init_writer,
+    ),
+    ("java/io/PrintWriter", "print", "(C)V", n_pw_print_c),
+    (
+        "java/io/PrintWriter",
+        "print",
+        "(Ljava/lang/String;)V",
+        n_pw_print_s,
+    ),
+    ("java/io/PrintWriter", "println", "()V", n_pw_println),
+    (
+        "java/io/PrintWriter",
+        "println",
+        "(Ljava/lang/String;)V",
+        n_pw_println_s,
+    ),
+    (
+        "java/io/PrintWriter",
+        "write",
+        "(Ljava/lang/String;)V",
+        n_pw_write_s,
+    ),
+    ("java/io/PrintWriter", "flush", "()V", n_pw_flush),
+    ("java/io/PrintWriter", "close", "()V", n_pw_close),
+    // Registered loud (corpus wave 3): Vector / StreamTokenizer /
+    // DecimalFormat family — resolve + instantiate so real programs
+    // compile; behavior throws UnsupportedOperationException naming the
+    // gap. See the loud-rows block above and docs/CORPUS_WAVE.md.
+    ("java/util/Vector", "<init>", "()V", n_loud_vector),
+    (
+        "java/util/Vector",
+        "addElement",
+        "(Ljava/lang/Object;)V",
+        n_loud_vector,
+    ),
+    (
+        "java/util/Vector",
+        "elementAt",
+        "(I)Ljava/lang/Object;",
+        n_loud_vector,
+    ),
+    (
+        "java/util/Vector",
+        "copyInto",
+        "([Ljava/lang/Object;)V",
+        n_loud_vector,
+    ),
+    ("java/util/Vector", "size", "()I", n_loud_vector),
+    (
+        "java/io/StreamTokenizer",
+        "<init>",
+        "(Ljava/io/Reader;)V",
+        n_loud_stream_tokenizer,
+    ),
+    (
+        "java/io/StreamTokenizer",
+        "resetSyntax",
+        "()V",
+        n_loud_stream_tokenizer,
+    ),
+    (
+        "java/io/StreamTokenizer",
+        "wordChars",
+        "(II)V",
+        n_loud_stream_tokenizer,
+    ),
+    (
+        "java/io/StreamTokenizer",
+        "whitespaceChars",
+        "(II)V",
+        n_loud_stream_tokenizer,
+    ),
+    (
+        "java/io/StreamTokenizer",
+        "eolIsSignificant",
+        "(Z)V",
+        n_loud_stream_tokenizer,
+    ),
+    (
+        "java/io/StreamTokenizer",
+        "nextToken",
+        "()I",
+        n_loud_stream_tokenizer,
+    ),
+    (
+        "java/text/DecimalFormat",
+        "<init>",
+        "()V",
+        n_loud_decimal_format,
+    ),
+    (
+        "java/text/DecimalFormat",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_loud_decimal_format,
+    ),
+    (
+        "java/text/DecimalFormat",
+        "setDecimalFormatSymbols",
+        "(Ljava/text/DecimalFormatSymbols;)V",
+        n_loud_decimal_format,
+    ),
+    (
+        "java/text/DecimalFormat",
+        "setMinimumIntegerDigits",
+        "(I)V",
+        n_loud_decimal_format,
+    ),
+    (
+        "java/text/DecimalFormat",
+        "setMaximumFractionDigits",
+        "(I)V",
+        n_loud_decimal_format,
+    ),
+    (
+        "java/text/DecimalFormat",
+        "setMinimumFractionDigits",
+        "(I)V",
+        n_loud_decimal_format,
+    ),
+    (
+        "java/text/DecimalFormat",
+        "setGroupingUsed",
+        "(Z)V",
+        n_loud_decimal_format,
+    ),
+    (
+        "java/text/NumberFormat",
+        "format",
+        "(D)Ljava/lang/String;",
+        n_loud_decimal_format,
+    ),
+    (
+        "java/text/DecimalFormatSymbols",
+        "<init>",
+        "(Ljava/util/Locale;)V",
+        n_loud_decimal_format,
+    ),
+    // Double.valueOf(String) (JAMA Matrix.read parses tokens through it)
+    (
+        "java/lang/Double",
+        "valueOf",
+        "(Ljava/lang/String;)Ljava/lang/Double;",
+        n_double_value_of_s,
+    ),
     // parseFloat/parseDouble (corpus wave 1)
     (
         "java/lang/Float",
@@ -4514,6 +4907,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ("java/lang/Math", "sqrt", "(D)D", le::n_math_sqrt),
     ("java/lang/Math", "cbrt", "(D)D", le::n_math_cbrt),
     ("java/lang/Math", "pow", "(DD)D", le::n_math_pow),
+    ("java/lang/Math", "random", "()D", le::n_math_random),
     ("java/lang/Math", "floor", "(D)D", le::n_math_floor),
     ("java/lang/Math", "ceil", "(D)D", le::n_math_ceil),
     ("java/lang/Math", "signum", "(D)D", le::n_math_signum_d),

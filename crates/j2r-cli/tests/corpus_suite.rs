@@ -56,6 +56,7 @@ fn corpus_entries_match_jvm() {
     let entries: Vec<String> = vec![
         "MinimalJsonCorpus.java".to_string(),
         "JZlibCorpus.java".to_string(),
+        "JamaCorpus.java".to_string(),
     ];
     let mut failures = Vec::new();
     for entry in &entries {

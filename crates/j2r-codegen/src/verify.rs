@@ -525,13 +525,19 @@ impl<'a> Sim<'a> {
     /// Pops one value that must be exactly `want` (`Top` is accepted for
     /// any category-1 `want`; `Null` is accepted for every reference shape
     /// — `Ref` *and* typed arrays, because `null` is assignable to any
-    /// array type, corpus F2 — and typed arrays for `Ref`).
+    /// array type, corpus F2 — and typed arrays for `Ref`; arrays-of-
+    /// references are accepted for `Array(Ref)`, JLS 4.10.3 covariance:
+    /// `[[D <: [Object` because `[D <: Object`, so a `double[][]` may be
+    /// passed where an `Object[]` parameter is declared — JAMA wave 3,
+    /// `Vector.copyInto(Object[])` on `double[][]`).
     fn pop_exact(&mut self, want: VTy) -> std::result::Result<VTy, VerifyError> {
         let v = self.pop()?;
         let ok = v == want
             || (v == VTy::Top && want.is_cat1())
             || (v == VTy::Null && matches!(want, VTy::Ref | VTy::Array(_)))
-            || (matches!(v, VTy::Array(_)) && want == VTy::Ref);
+            || (matches!(v, VTy::Array(_)) && want == VTy::Ref)
+            || (matches!(v, VTy::Array(k) if k.elements_are_refs())
+                && want == VTy::Array(ElemKind::Ref));
         if ok {
             Ok(want)
         } else {
@@ -707,37 +713,49 @@ impl<'a> Sim<'a> {
                 }
             }
             Instr::Dup2X2 => {
+                // Forms follow the runtime's stack.rs table (and the JVMS):
+                // each of the top two two-slot units (U = the duplicated
+                // unit on top, X = the unit the copy is inserted below) is
+                // either one category-2 value or two category-1 values.
+                //   F1 U=c1,c1  X=c1,c1: v4,v3,v2,v1 -> v2,v1,v4,v3,v2,v1
+                //   F2 U=cat2   X=c1,c1: v3,v2,v1 -> v1,v3,v2,v1
+                //     (JAMA wave 3: `LUrowi[j] = LUcolj[i] -= s;` — javac's
+                //     compound double assignment ends cat2-on-top)
+                //   F3 U=c1,c1  X=cat2:  v3,v2,v1 -> v2,v1,v3,v2,v1
+                //   F4 U=cat2   X=cat2:  v2,v1 -> v1,v2,v1
                 let v1 = self.pop()?;
-                if v1.is_cat2() {
-                    // Form 4: v2(cat2), v1(cat2) -> v1, v2, v1
-                    let v2 = self.pop()?;
-                    if !v2.is_cat2() {
-                        return Err(self.e("dup2_x2 form 4 requires a category-2 value below"));
-                    }
-                    self.push(v1)?;
-                    self.push(v2)?;
-                    self.push(v1)?;
-                } else {
-                    let v2 = self.pop()?;
-                    if v2.is_cat2() {
-                        // Form 3: v3(cat1), v2(cat2), v1(cat1) -> v2, v1, v3, v2, v1
-                        let v3 = self.pop_cat1("dup2_x2")?;
+                let v2 = self.pop()?;
+                match (v1.is_cat2(), v2.is_cat2()) {
+                    (true, true) => {
+                        // Form 4
+                        self.push(v1)?;
                         self.push(v2)?;
+                        self.push(v1)?;
+                    }
+                    (true, false) => {
+                        // Form 2
+                        let v3 = self.pop_cat1("dup2_x2")?;
                         self.push(v1)?;
                         self.push(v3)?;
                         self.push(v2)?;
                         self.push(v1)?;
-                    } else {
+                    }
+                    (false, true) => {
+                        return Err(self.e(
+                            "dup2_x2: no JVMS form has a category-1 value on top of a category-2 value",
+                        ));
+                    }
+                    (false, false) => {
                         let v3 = self.pop()?;
                         if v3.is_cat2() {
-                            // Form 2: v3(cat2), v2, v1 -> v1, v3, v2, v1
+                            // Form 3
+                            self.push(v2)?;
                             self.push(v1)?;
                             self.push(v3)?;
                             self.push(v2)?;
                             self.push(v1)?;
                         } else {
-                            // Form 1: v4, v3, v2, v1 (all cat1)
-                            //   -> v2, v1, v4, v3, v2, v1
+                            // Form 1
                             let v4 = self.pop_cat1("dup2_x2")?;
                             self.push(v2)?;
                             self.push(v1)?;
@@ -1445,8 +1463,31 @@ mod tests {
     }
 
     #[test]
-    fn dup2_x2_form2_cat2_below_two_cat1() {
-        // result [v1, v3(cat2), v2, v1] -> pop, pop, pop2, pop
+    fn dup2_x2_form2_cat2_top_jama_compound_assignment() {
+        // JAMA wave 3 shape: javac's compound double assignment
+        // `LUrowi[j] = LUcolj[i] -= s;` ends with a cat-2 value on top of
+        // two cat-1 values — JVMS form 2. Result [v1(cat2), v3, v2, v1]:
+        // the two dastores that follow consume v1,i,arr then v1,j,arr2.
+        let m = dup2x2_case(
+            vec![
+                (0, Instr::IConst(1)),
+                (1, Instr::IConst(2)),
+                (2, Instr::LConst(3)),
+                (3, Instr::Dup2X2),
+                (4, Instr::Pop2),
+                (5, Instr::Pop),
+                (6, Instr::Pop),
+                (7, Instr::Pop2),
+                (8, Instr::Return(TypeDesc::Void)),
+            ],
+            6,
+        );
+        verify_ok(&m);
+    }
+
+    #[test]
+    fn dup2_x2_form3_cat2_at_bottom() {
+        // v3(cat2), v2, v1 -> v2, v1, v3, v2, v1
         let m = dup2x2_case(
             vec![
                 (0, Instr::LConst(1)),
@@ -1457,27 +1498,7 @@ mod tests {
                 (5, Instr::Pop),
                 (6, Instr::Pop2),
                 (7, Instr::Pop),
-                (8, Instr::Return(TypeDesc::Void)),
-            ],
-            6,
-        );
-        verify_ok(&m);
-    }
-
-    #[test]
-    fn dup2_x2_form3_cat2_in_middle() {
-        // result [v2(cat2), v1, v3, v2, v1] -> pop, pop2, pop, pop, pop2
-        let m = dup2x2_case(
-            vec![
-                (0, Instr::IConst(1)),
-                (1, Instr::LConst(2)),
-                (2, Instr::IConst(3)),
-                (3, Instr::Dup2X2),
-                (4, Instr::Pop),
-                (5, Instr::Pop2),
-                (6, Instr::Pop),
-                (7, Instr::Pop),
-                (8, Instr::Pop2),
+                (8, Instr::Pop),
                 (9, Instr::Return(TypeDesc::Void)),
             ],
             6,
@@ -1503,19 +1524,21 @@ mod tests {
     }
 
     #[test]
-    fn dup2_x2_cat2_on_top_of_cat1_is_invalid() {
-        // no JVMS form has a category-2 value on top of a category-1 one
+    fn dup2_x2_cat1_on_top_of_cat2_is_invalid() {
+        // no JVMS form has a category-1 value on top of a category-2 one
+        // (the old verifier ACCEPTED this shape with a scrambled push
+        // order — the JAMA corpus wave corrected the classification)
         let m = dup2x2_case(
             vec![
-                (0, Instr::IConst(1)),
-                (1, Instr::LConst(2)),
+                (0, Instr::LConst(2)),
+                (1, Instr::IConst(1)),
                 (2, Instr::Dup2X2),
                 (3, Instr::Return(TypeDesc::Void)),
             ],
             5,
         );
         let e = verify_err(&m);
-        assert!(e.message.contains("form 4"), "{e}");
+        assert!(e.message.contains("no JVMS form"), "{e}");
     }
 
     #[test]

@@ -265,6 +265,22 @@ pub enum ElemKind {
     RefPrimArray3Double,
 }
 
+impl ElemKind {
+    /// Does this element kind hold *references* (as opposed to raw
+    /// primitive groups)? Every `RefPrimArray*` element is itself an array
+    /// value — a reference. Arrays-of-references are covariant subtypes of
+    /// `[Ljava/lang/Object;` (JLS 4.10.3: `S <: T ⟹ S[] <: T[]`, and every
+    /// array type is a subtype of `Object`), which is why javac may pass a
+    /// `double[][]` to a `copyInto(Object[])` parameter — the JAMA corpus
+    /// entry (wave 3) depends on exactly that acceptance.
+    pub fn elements_are_refs(self) -> bool {
+        !matches!(
+            self,
+            ElemKind::IntGroup | ElemKind::Long | ElemKind::Float | ElemKind::Double
+        )
+    }
+}
+
 impl PrimType {
     pub fn array_desc(self) -> &'static str {
         match self {

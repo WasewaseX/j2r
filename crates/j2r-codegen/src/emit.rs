@@ -1108,6 +1108,9 @@ fn emit_instr(
                 out.push(format!("stack.push({RT}::natives::system_out());"));
             } else if class == "java/lang/System" && field == "err" {
                 out.push(format!("stack.push({RT}::natives::system_err());"));
+            } else if class == "java/util/Locale" && field == "US" {
+                // Corpus wave 3 (JAMA): the Locale.US constant object.
+                out.push(format!("stack.push({RT}::natives::builtin_locale_us());"));
             } else if field == "TYPE" {
                 if let Some(desc) = crate::primitive_type_field(class) {
                     out.push(format!(
