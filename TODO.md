@@ -611,7 +611,11 @@ local full-gate sweep at the same tree).**
       both modes** (6 shards, 136-150s each), differential **107/107**
       vs Temurin 21.0.13 (437.9s), corpus 3/3, jar/lambda/soe green,
       fmt/clippy clean, gates 11/12/19/20 + path-filter selftest 17/17
-      green locally.
+      green locally. CI evidence: **30/30 check runs success on 98b37e3**
+      (verified via the GitHub check-runs API) — including gate-3 (the
+      107-fixture differential AND the cfg-equivalence suite with the new
+      lowerings), all gate-9 forced-GC buckets, all four gate-13
+      concurrency seeds, and the gate-11 count-sync gate (327).
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template
