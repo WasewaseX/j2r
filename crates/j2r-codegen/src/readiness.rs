@@ -152,7 +152,11 @@ pub(crate) fn value_effect(instr: &Instr) -> (usize, PushKind) {
         | I::InvokeInterface { desc, .. }
         | I::InvokeStatic { desc, .. } => {
             let (params, ret) = j2r_runtime::parse_method_desc(desc).expect("valid descriptor");
-            let recv = if matches!(instr, I::InvokeStatic { .. }) { 0 } else { 1 };
+            let recv = if matches!(instr, I::InvokeStatic { .. }) {
+                0
+            } else {
+                1
+            };
             let push = match ret {
                 j2r_runtime::TypeDesc::Void => PushKind::None,
                 j2r_runtime::TypeDesc::Int => PushKind::Val(Kind::Int),
@@ -176,7 +180,11 @@ pub(crate) fn value_effect(instr: &Instr) -> (usize, PushKind) {
         // the caller special-cases it before the slot walk.
         I::Pop2 => (2, PushKind::None),
         I::Return(t) => (
-            if matches!(t, j2r_runtime::TypeDesc::Void) { 0 } else { 1 },
+            if matches!(t, j2r_runtime::TypeDesc::Void) {
+                0
+            } else {
+                1
+            },
             PushKind::None,
         ),
         I::PutField { .. } => (2, PushKind::None),
@@ -400,11 +408,9 @@ pub(crate) fn shuffle_slot_writes(instr: &Instr, in_stack: &[VTy]) -> Option<Vec
     // each out value advances the cursor by exactly one slot; the cat-2
     // checks above decide the FORM only (the runtime's own rule).
     let region: Vec<usize> = vs[k - n..].to_vec();
-    let mut cur = region[0];
     let mut writes = Vec::with_capacity(out.len());
-    for &src in out {
-        writes.push((cur, region[src]));
-        cur += 1;
+    for (i, &src) in out.iter().enumerate() {
+        writes.push((region[0] + i, region[src]));
     }
     Some(writes)
 }
@@ -460,7 +466,7 @@ pub(crate) fn position_reports(
                 .and_then(|s| s.stack.get(i))
                 .and_then(|v| Kind::of(*v))
         };
-        let slot = i as usize;
+        let slot = i;
         let boundary = |pc: u32| -> bool {
             let Some(shape) = shapes.per_pc.get(&pc) else {
                 return false;
@@ -493,9 +499,7 @@ pub(crate) fn position_reports(
                         && out_slot != src_slot
                         && Kind::of(shape.stack[out_slot]).is_some()
                         && Kind::of(shape.stack[out_slot]) != Kind::of(shape.stack[src_slot])
-                }) && writes
-                    .iter()
-                    .any(|&(out_slot, _)| out_slot == slot);
+                }) && writes.iter().any(|&(out_slot, _)| out_slot == slot);
             }
             match push {
                 PushKind::None => false, // shrink: unoccupancy closes the epoch

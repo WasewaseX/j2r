@@ -378,3 +378,51 @@ Repro:
 
     export PATH="$HOME/.cargo/bin:$PATH"
     python3 scripts/bench_suite.py StringsSimCorpus --reps 5 --warmups 1 --fulljit
+
+## 2026-11-08 addendum 5 — StringsSimBench: the FIRST steady-state row for the
+## stringsim family (and it lands in the JamaBench regime)
+
+Corpus wave 4 pinned the java-string-similarity differential; this
+addendum adds the LOOP-SIZED stem (StringsSimBench, merged by
+scripts/build_corpus_stringsimbench.sh — the SAME library code as
+StringsSimCorpus plus a deterministic xorshift64* driver) mirroring the
+owner's results_v1.1 workload shapes at bench scale: W1 Levenshtein
+short pairs 200k, W5 JaroWinkler 500k, W7a getProfile x1,000 docs +
+W7b Cosine over PREBUILT profiles x10,000 (float aggregation
+deliberately under HashMap iteration — the order law), W8 NGram(2)+(4)
+x10,000 DNA pairs. Observed differential BEFORE the row: java (C1 and
+full tiered) and the native binary print byte-identical checksums —
+w1=2449167.0, w5=192374.1393435562, w7a=811272, w7b=4024.3242675735173,
+w8=12044.130793690681 (the w7b/w8 doubles are aggregated over HashMap
+iteration order and still match bit-for-bit).
+
+Row (2-core Xeon / 4 GB, Temurin 21.0.13+9, CSV stamp
+2026-11-07T21:08:25, native_reps=1 native_warmups=0 per the JamaBench
+protocol):
+
+    fixture          javac(s) javaC1(ms) javaFull(ms) j2r-gen(s) native(ms)  nat/C1 nat/full
+    StringsSimBench     1.003     3848.6       2710.1      14.34   281325.1  73.10  103.81
+
+Reading, honestly: j2r's steady state is 73-104x behind the JIT — the
+SAME regime as JamaBench (86.2x/98.1x, addendum above), now confirmed
+on an algorithm family with completely different kernels (DP tables +
+float aggregation + HashMap churn instead of dense LU/QR loops). The
+two regimes stay non-quotable against each other: startup-dominated
+rows (StringsSimCorpus 0.058, addendum 4) and steady-state rows (this
+addendum) answer different questions. The attribution carries over
+unchanged: the interpreter-shaped default emission (match-pc dispatch
+over Vec<Value> stacks, per-access expect_*/obj helpers), NOT the
+collector and NOT the algorithm translation — the owner's HAND port of
+the same library lands at 0.5-2.3x of the JVM (results_v1.1), so the
+~100x j2r gap is almost entirely the execution model. That is the
+registered typed-operand unification lever
+(docs/TYPED_REGISTER_READINESS.md §5), and this row is its second
+family-scale baseline. The compilation-side number stays healthy:
+j2r-gen 14.34 s (translate + offline release build of the corpus crate).
+
+Repro:
+
+    export PATH="$HOME/.cargo/bin:$PATH"
+    bash scripts/build_corpus_stringsimbench.sh
+    python3 scripts/bench_suite.py StringsSimBench --fulljit \
+        --reps 3 --warmups 1 --native-reps 1 --native-warmups 0

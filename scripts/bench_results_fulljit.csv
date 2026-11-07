@@ -4,3 +4,4 @@ date,cpu,cores,reps,warmups,fixture,javac_s,java_c1_ms,java_full_ms,j2r_gen_s,na
 2026-11-06T16:40:17,Intel(R) Xeon(R) Processor,2,5,2,MinimalJsonCorpus,1.279,71.0,81.0,18.33,2.4,0.034,0.030,5,2
 2026-11-07T18:38:29,Intel(R) Xeon(R) Processor,2,3,2,JamaBench,1.908,1760.4,3657.3,75.25,358681.0,203.745,98.072,1,0
 2026-11-07T20:41:42,Intel(R) Xeon(R) Processor,2,5,2,StringsSimCorpus,1.119,68.7,70.5,15.91,4.0,0.058,0.057,5,1
+2026-11-07T21:08:25,Intel(R) Xeon(R) Processor,2,3,2,StringsSimBench,1.003,3848.6,2710.1,14.34,281325.1,73.099,103.806,1,0

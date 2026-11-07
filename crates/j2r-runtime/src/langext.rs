@@ -789,13 +789,7 @@ pub fn n_math_floor_mod_i(
     Ok(Value::Int(m))
 }
 
-pub fn n_math_floor_div_j(
-    _recv: Option<&JRef>,
-    args: &[Value],
-    _ctx: Dispatch,
-) -> Result<Value, Throw> {
-    let a = arg(args, 0, "Math.floorDiv").expect_long();
-    let b = arg(args, 1, "Math.floorDiv").expect_long();
+fn floor_div_jj_core(a: i64, b: i64) -> Result<Value, Throw> {
     if b == 0 {
         return Err(throw_new(
             "java/lang/ArithmeticException",
@@ -812,13 +806,7 @@ pub fn n_math_floor_div_j(
     Ok(Value::Long(adjusted))
 }
 
-pub fn n_math_floor_mod_j(
-    _recv: Option<&JRef>,
-    args: &[Value],
-    _ctx: Dispatch,
-) -> Result<Value, Throw> {
-    let a = arg(args, 0, "Math.floorMod").expect_long();
-    let b = arg(args, 1, "Math.floorMod").expect_long();
+fn floor_mod_jj_core(a: i64, b: i64) -> Result<Value, Throw> {
     if b == 0 {
         return Err(throw_new(
             "java/lang/ArithmeticException",
@@ -832,6 +820,64 @@ pub fn n_math_floor_mod_j(
         r
     };
     Ok(Value::Long(m))
+}
+
+pub fn n_math_floor_div_j(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let a = arg(args, 0, "Math.floorDiv").expect_long();
+    let b = arg(args, 1, "Math.floorDiv").expect_long();
+    floor_div_jj_core(a, b)
+}
+
+pub fn n_math_floor_mod_j(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let a = arg(args, 0, "Math.floorMod").expect_long();
+    let b = arg(args, 1, "Math.floorMod").expect_long();
+    floor_mod_jj_core(a, b)
+}
+
+/// `Math.floorDiv(long, int)` — the JDK 9+ mixed overload. OpenJDK
+/// widens the int divisor to long and delegates to the (long, long)
+/// form; the result is a LONG. Pinned differentially by
+/// tests/suite/MathExact.java vs Temurin 21 (mixed signs, Long.MIN_VALUE
+/// numerator, zero-divisor message).
+pub fn n_math_floor_div_ji(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let a = arg(args, 0, "Math.floorDiv").expect_long();
+    let b = i64::from(i32_at(args, 1, "Math.floorDiv"));
+    floor_div_jj_core(a, b)
+}
+
+/// `Math.floorMod(long, int)` — the JDK 9+ mixed overload. NOTE the
+/// asymmetric JDK shape: floorDiv(long, int) returns LONG but
+/// floorMod(long, int) returns INT (javap-pinned: `(JI)I`). OpenJDK
+/// computes `(int) floorMod(x, (long) y)` — the long floor-mod always
+/// fits an int when the divisor is an int (the result lies in [0, y) or
+/// (y, 0] with y in int range), so the narrowing cast is exact. Pinned
+/// by tests/suite/MathExact.java vs Temurin 21.
+pub fn n_math_floor_mod_ji(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let a = arg(args, 0, "Math.floorMod").expect_long();
+    let b = i64::from(i32_at(args, 1, "Math.floorMod"));
+    match floor_mod_jj_core(a, b)? {
+        Value::Long(m) => Ok(Value::Int(m as i32)),
+        _ => Err(throw_new(
+            "java/lang/InternalError",
+            Some("floor_mod_ji_core returned a non-long"),
+        )),
+    }
 }
 
 /// `Math.round(double)` — OpenJDK 21's JDK-8010430 algorithm: the

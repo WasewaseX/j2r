@@ -216,7 +216,7 @@ fn merge_branch_epochs(epochs: Vec<(u32, Kind)>, bes: &[(u32, u32)]) -> MergedEp
     }
     let n = epochs.len();
     let mut parent: Vec<usize> = (0..n).collect();
-    fn find(p: &mut Vec<usize>, mut x: usize) -> usize {
+    fn find(p: &mut [usize], mut x: usize) -> usize {
         while p[x] != x {
             p[x] = p[p[x]];
             x = p[x];
@@ -501,9 +501,7 @@ impl<'a> Ctx<'a> {
             }
             Var::Dead => unreachable!("j2r internal: ref of dead stack slot"),
         };
-        format!(
-            "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::stack::ref_of({name}))"
-        )
+        format!("{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::stack::ref_of({name}))")
     }
 
     /// Read expression for local `slot` at `pc`.
@@ -660,8 +658,7 @@ impl<'a> Ctx<'a> {
             return;
         }
         self.refresh(pc);
-        self.out
-            .push(format!("{RT}::heap::gc_point();"));
+        self.out.push(format!("{RT}::heap::gc_point();"));
     }
 
     /// int/long read of an operand slot (typed var bare, or cell unwrap).
@@ -797,10 +794,7 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
                         "    let mut v{j}: {RT}::Value = __loc_tmp[{j}usize].clone();"
                     );
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "    let mut v{j}: {RT}::Value = {RT}::Value::Void;"
-                    );
+                    let _ = writeln!(out, "    let mut v{j}: {RT}::Value = {RT}::Value::Void;");
                 }
             }
             Var::Typed(epochs) => {
@@ -809,16 +803,11 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
                     let ty = prim.rust_ty();
                     if e == 0 && *start <= first_pc && j < arg_slots && j < locals_len {
                         let f = prim.expect_fn();
-                        let _ = writeln!(
-                            out,
-                            "    let mut {name}: {ty} = __loc_tmp[{j}usize].{f}();"
-                        );
+                        let _ =
+                            writeln!(out, "    let mut {name}: {ty} = __loc_tmp[{j}usize].{f}();");
                     } else {
                         let default = prim.default_lit();
-                        let _ = writeln!(
-                            out,
-                            "    let mut {name}: {ty} = {default};"
-                        );
+                        let _ = writeln!(out, "    let mut {name}: {ty} = {default};");
                     }
                 }
             }
@@ -848,10 +837,7 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
         match var {
             Var::Dead => {}
             Var::Cell => {
-                let _ = writeln!(
-                    out,
-                    "    let mut s{n}: {RT}::Value = {RT}::Value::Void;"
-                );
+                let _ = writeln!(out, "    let mut s{n}: {RT}::Value = {RT}::Value::Void;");
             }
             Var::Typed(epochs) => {
                 for (e, (_, prim)) in epochs.iter().enumerate() {
@@ -926,10 +912,7 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
             out,
             "        if let ::core::option::Option::Some(t) = thrown.take() {{"
         );
-        let _ = writeln!(
-            out,
-            "            return ::core::result::Result::Err(t);"
-        );
+        let _ = writeln!(out, "            return ::core::result::Result::Err(t);");
         let _ = writeln!(out, "        }}");
     }
 
@@ -948,18 +931,17 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
         }
         let _ = writeln!(out, "            }}");
     }
-    let _ = writeln!(out, "            _ => ::core::unreachable!(\"j2r internal: pc out of range\"),");
+    let _ = writeln!(
+        out,
+        "            _ => ::core::unreachable!(\"j2r internal: pc out of range\"),"
+    );
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");
     out
 }
 
-fn emit_block_typed(
-    ctx: &mut Ctx<'_>,
-    leader: u32,
-    next_leader: Option<u32>,
-) -> Vec<String> {
+fn emit_block_typed(ctx: &mut Ctx<'_>, leader: u32, next_leader: Option<u32>) -> Vec<String> {
     let m = ctx.m;
     let start = match m.instrs.iter().position(|(pc, _)| *pc == leader) {
         Some(s) => s,
@@ -1086,10 +1068,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.out.push(format!("let __idx = {idx_expr};"));
             let arr_expr = ctx.try_ref_of(pc, vs[k - 2], &fault);
             ctx.out.push(format!("let __arr = {arr_expr};"));
-            let load = try_wrap(
-                &fault,
-                format!("{RT}::array::array_load(&__arr, __idx)"),
-            );
+            let load = try_wrap(&fault, format!("{RT}::array::array_load(&__arr, __idx)"));
             ctx.out.push(format!("let __v = {load};"));
             if let Some(t) = ctx.refill_target(vs[k - 2], pc, Some(elem_kind(instr))) {
                 ctx.assign(t, "__v".to_string(), Src::Value);
@@ -1155,10 +1134,15 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 let (expr, src) = temps
                     .iter()
                     .find(|(s, _, _)| *s == src_slot)
-                    .map(|(_, t, site)| (t.clone(), match site {
-                        Site::Cell => Src::Value,
-                        Site::Typed(sp) => Src::Prim(*sp),
-                    }))
+                    .map(|(_, t, site)| {
+                        (
+                            t.clone(),
+                            match site {
+                                Site::Cell => Src::Value,
+                                Site::Typed(sp) => Src::Prim(*sp),
+                            },
+                        )
+                    })
                     .expect("j2r internal: shuffle source temp");
                 let expr = match (&src, last_use[wi]) {
                     (Src::Value, false) => format!("{expr}.clone()"),
@@ -1182,15 +1166,11 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let expr = ctx.read_v(pc, j);
             let line = match ctx.site_v(pc, j) {
                 Site::Typed(Prim::I) => {
-                    let (target, _) = ctx
-                        .store_target(j, pc)
-                        .expect("j2r internal: iinc target");
+                    let (target, _) = ctx.store_target(j, pc).expect("j2r internal: iinc target");
                     format!("{target} = {expr}.wrapping_add({c});")
                 }
                 Site::Cell => {
-                    let (target, _) = ctx
-                        .store_target(j, pc)
-                        .expect("j2r internal: iinc target");
+                    let (target, _) = ctx.store_target(j, pc).expect("j2r internal: iinc target");
                     format!("{target} = {RT}::Value::Int(v{j}.expect_int().wrapping_add({c}));")
                 }
                 Site::Typed(other) => unreachable!("j2r internal: iinc on {other:?}"),
@@ -1286,16 +1266,17 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 .push(format!("crate::statics::set({slot}u32, __v);"));
         }
         I::GetField { class, field, .. } => {
-            let f = crate::resolve_field_pub(ctx.prog, class, field, false)
-                .expect("validated field");
+            let f =
+                crate::resolve_field_pub(ctx.prog, class, field, false).expect("validated field");
             let slot = f.instance_slot.expect("instance field");
             let r = ctx.try_ref_of(pc, vs[k - 1], &fault);
             ctx.out.push(format!("let __r = {r};"));
             // obj_get returns a plain `Value` (the NPE is already raised
             // by ref_of above) — exactly the default body's law; no
             // j2r_try wrap here.
-            ctx.out
-                .push(format!("let __v = {RT}::object::obj_get(&__r, {slot}usize);"));
+            ctx.out.push(format!(
+                "let __v = {RT}::object::obj_get(&__r, {slot}usize);"
+            ));
             if let Some(t) = ctx.refill_target(vs[k - 1], pc, Some(desc_kind_of(&f.desc))) {
                 ctx.assign(t, "__v".to_string(), Src::Value);
             }
@@ -1310,14 +1291,14 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.out
                 .push(format!("{RT}::object::obj_set(&__r, {slot}usize, __v);"));
         }
-        I::InvokeVirtual { class, name, desc }
-        | I::InvokeInterface { class, name, desc } => {
+        I::InvokeVirtual { class, name, desc } | I::InvokeInterface { class, name, desc } => {
             // Call boundary: refresh the root snapshot before the args
             // leave the operand positions (M2_PLAN §4.4).
             ctx.refresh(pc);
             let n = arg_count(desc);
             let args: Vec<String> = ((k - n)..k).map(|i| ctx.wrap_s(pc, vs[i])).collect();
-            ctx.out.push(format!("let __a = vec![{}];", args.join(", ")));
+            ctx.out
+                .push(format!("let __a = vec![{}];", args.join(", ")));
             let r = ctx.try_ref_of(pc, vs[k - n - 1], &fault);
             ctx.out.push(format!("let __r = {r};"));
             let call = try_wrap(
@@ -1333,7 +1314,8 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.refresh(pc);
             let n = arg_count(desc);
             let args: Vec<String> = ((k - n)..k).map(|i| ctx.wrap_s(pc, vs[i])).collect();
-            ctx.out.push(format!("let __a = vec![{}];", args.join(", ")));
+            ctx.out
+                .push(format!("let __a = vec![{}];", args.join(", ")));
             let r = ctx.try_ref_of(pc, vs[k - n - 1], &fault);
             ctx.out.push(format!("let __r = {r};"));
             match crate::resolve_call_pub(ctx.prog, class, name, desc).expect("validated call") {
@@ -1362,7 +1344,8 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.refresh(pc);
             let n = arg_count(desc);
             let args: Vec<String> = ((k - n)..k).map(|i| ctx.wrap_s(pc, vs[i])).collect();
-            ctx.out.push(format!("let __a = vec![{}];", args.join(", ")));
+            ctx.out
+                .push(format!("let __a = vec![{}];", args.join(", ")));
             match crate::resolve_call_pub(ctx.prog, class, name, desc).expect("validated call") {
                 crate::CallTarget::User { module, fn_name } => {
                     for (id, expr) in crate::emit::ensure_calls(ctx.prog, class) {
@@ -1481,7 +1464,10 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let list: Vec<String> = (0..*dims).map(|i| format!("__dim{i}")).collect();
             let new = try_wrap(
                 &fault,
-                format!("{RT}::array::array_new_multi({desc:?}, &[{}])", list.join(", ")),
+                format!(
+                    "{RT}::array::array_new_multi({desc:?}, &[{}])",
+                    list.join(", ")
+                ),
             );
             ctx.out.push(format!("let __narr = {new};"));
             // In-place refill of the FIRST popped dimension slot (the
@@ -1517,9 +1503,8 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
         I::InstanceOf { class } => {
             let v = ctx.read_s(pc, vs[k - 1]);
             ctx.out.push(format!("let __v = {v};"));
-            let io = format!(
-                "{RT}::j2r_instance_of(&__v, {class:?}, crate::j2r_dispatch()) as i32"
-            );
+            let io =
+                format!("{RT}::j2r_instance_of(&__v, {class:?}, crate::j2r_dispatch()) as i32");
             if let Some(t) = ctx.refill_target(vs[k - 1], pc, Some(Kind::Int)) {
                 ctx.assign(t, io, Src::Prim(Prim::I));
             }
@@ -1625,7 +1610,11 @@ fn emit_arith_typed(
                         ctx.assign(t, "__a.wrapping_neg()".to_string(), Src::Prim(prim));
                     }
                 }
-                ArithOp::Add | ArithOp::Sub | ArithOp::Mul | ArithOp::And | ArithOp::Or
+                ArithOp::Add
+                | ArithOp::Sub
+                | ArithOp::Mul
+                | ArithOp::And
+                | ArithOp::Or
                 | ArithOp::Xor => {
                     let rust_op = match op {
                         ArithOp::Add => "wrapping_add",
@@ -1693,7 +1682,11 @@ fn emit_arith_typed(
             };
             let a = ctx.read_prim(pc, a_slot, prim);
             let b = ctx.read_prim(pc, b_slot, prim);
-            let new_kind = if kind == NK::Float { Kind::Float } else { Kind::Double };
+            let new_kind = if kind == NK::Float {
+                Kind::Float
+            } else {
+                Kind::Double
+            };
             let rust_op = match op {
                 ArithOp::Neg => {
                     ctx.out.push(format!("let __a = {a};"));
@@ -1728,9 +1721,7 @@ fn emit_convert_typed(ctx: &mut Ctx<'_>, pc: u32, conv: Conv, vs: &[usize]) {
         (NK::Int, NK::Float) => (Prim::I, Prim::F),
         (NK::Int, NK::Double) => (Prim::I, Prim::D),
         (NK::Int, NK::Byte) | (NK::Int, NK::Char) | (NK::Int, NK::Short) => (Prim::I, Prim::I),
-        (NK::Long, NK::Int) | (NK::Long, NK::Float) | (NK::Long, NK::Double) => {
-            (Prim::L, Prim::L)
-        }
+        (NK::Long, NK::Int) | (NK::Long, NK::Float) | (NK::Long, NK::Double) => (Prim::L, Prim::L),
         (NK::Float, NK::Int) | (NK::Float, NK::Long) => (Prim::F, Prim::F),
         (NK::Float, NK::Double) => (Prim::F, Prim::D),
         (NK::Double, NK::Int) | (NK::Double, NK::Long) => (Prim::D, Prim::D),
@@ -1774,9 +1765,9 @@ fn emit_convert_typed(ctx: &mut Ctx<'_>, pc: u32, conv: Conv, vs: &[usize]) {
     if let Some((name, site)) = target {
         let expr = format!("__a{cast}");
         let src = match (site, conv.to) {
-            (Site::Typed(_), NK::Byte) | (Site::Typed(_), NK::Char) | (Site::Typed(_), NK::Short) => {
-                Src::Prim(Prim::I)
-            }
+            (Site::Typed(_), NK::Byte)
+            | (Site::Typed(_), NK::Char)
+            | (Site::Typed(_), NK::Short) => Src::Prim(Prim::I),
             (Site::Typed(_), NK::Long) => Src::Prim(Prim::L),
             (Site::Typed(_), NK::Float) => Src::Prim(Prim::F),
             (Site::Typed(_), NK::Double) => Src::Prim(Prim::D),
@@ -1855,8 +1846,8 @@ fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, _fault: &str, class: &str, f
             push_value(ctx, pc, format!("crate::statics::get({slot}u32)"));
         }
     } else {
-        let f = crate::resolve_field_pub(ctx.prog, class, field, true)
-            .expect("validated static field");
+        let f =
+            crate::resolve_field_pub(ctx.prog, class, field, true).expect("validated static field");
         let slot = f.static_slot.expect("static field");
         let ensures = crate::emit::ensure_calls(ctx.prog, class);
         // `ensure` may dispatch into user code (<clinit>): refresh first.
@@ -1870,25 +1861,15 @@ fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, _fault: &str, class: &str, f
         let kind = desc_kind_of(&f.desc);
         if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
             match t.1 {
-                Site::Cell => ctx.assign(
-                    t,
-                    format!("crate::statics::get({slot}u32)"),
-                    Src::Value,
-                ),
+                Site::Cell => ctx.assign(t, format!("crate::statics::get({slot}u32)"), Src::Value),
                 Site::Typed(tp) => {
                     assert_eq!(Some(tp), Prim::of(kind), "j2r internal: static kind");
-                    ctx.assign(
-                        t,
-                        format!("crate::statics::get({slot}u32)"),
-                        Src::Value,
-                    );
+                    ctx.assign(t, format!("crate::statics::get({slot}u32)"), Src::Value);
                 }
             }
         }
     }
 }
-
-
 
 // ---------------------------------------------------------------- tests
 
@@ -1964,7 +1945,12 @@ mod tests {
     fn nested_loop_back_edges_merge_transitively() {
         // Two back edges (inner 16→9, outer 20→4) over epochs at 5, 11, 18:
         // all three merge with the epoch covering 4.
-        let epochs = vec![(2, Kind::Int), (5, Kind::Int), (11, Kind::Int), (18, Kind::Int)];
+        let epochs = vec![
+            (2, Kind::Int),
+            (5, Kind::Int),
+            (11, Kind::Int),
+            (18, Kind::Int),
+        ];
         let bes = vec![(16, 9), (20, 4)];
         match merge_branch_epochs(epochs, &bes) {
             MergedEpochs::List(m) => assert_eq!(m, vec![(2, Kind::Int)]),
@@ -1985,9 +1971,9 @@ mod tests {
             is_sync: false,
             fn_name: "t".into(),
             instrs: vec![
-                (0, Instr::Goto(9)),                                  // forward
-                (1, Instr::IfNull(1)),                                // self-loop
-                (4, Instr::IfICmp(crate::ir::CmpOp::Ge, 0)),          // backward
+                (0, Instr::Goto(9)),                         // forward
+                (1, Instr::IfNull(1)),                       // self-loop
+                (4, Instr::IfICmp(crate::ir::CmpOp::Ge, 0)), // backward
                 (9, Instr::Return(j2r_runtime::TypeDesc::Void)),
             ],
             exception_table: vec![],

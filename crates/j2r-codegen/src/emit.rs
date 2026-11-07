@@ -648,7 +648,13 @@ fn emit_class(prog: &Program, c: &ClassPlan, emit_cfg: bool, emit_typed: bool) -
     out
 }
 
-fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool, emit_typed: bool) -> String {
+fn emit_method(
+    prog: &Program,
+    c: &ClassPlan,
+    m: &MethodPlan,
+    emit_cfg: bool,
+    emit_typed: bool,
+) -> String {
     // The typed-operand body (the registered lever, off by default) is a
     // complete function — its own preamble, 'run loop and dispatch. Any
     // unsupported shape falls back to the approved default body below,
@@ -659,11 +665,13 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool, em
                 body.push('\n');
                 return body;
             }
-            Err(reason) => return format!(
-                "// j2r: typed fallback ({})\n{}",
-                reason.name(),
-                emit_method(prog, c, m, emit_cfg, false)
-            ),
+            Err(reason) => {
+                return format!(
+                    "// j2r: typed fallback ({})\n{}",
+                    reason.name(),
+                    emit_method(prog, c, m, emit_cfg, false)
+                )
+            }
         }
     }
     let mut out = String::new();
@@ -1560,7 +1568,9 @@ pub(crate) fn new_obj_lines(prog: &Program, class: &str, fault: &str, out: &mut 
         out.push(format!(
             "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize));"
         ));
-        out.push(format!("{RT}::object::set_defaults(&__nobj, {spec_str:?});"));
+        out.push(format!(
+            "{RT}::object::set_defaults(&__nobj, {spec_str:?});"
+        ));
     } else {
         out.push(format!(
             "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_builtin({class:?}));"

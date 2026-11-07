@@ -247,10 +247,7 @@ fn emit_cfg_output_equivalence_across_suite() {
             (Mode::Cfg, build_and_run(fixture, Mode::Cfg, "cfg")),
             (Mode::Typed, build_and_run(fixture, Mode::Typed, "typed")),
         ] {
-            if base.code != run.code
-                || base.stdout != run.stdout
-                || base.stderr != run.stderr
-            {
+            if base.code != run.code || base.stdout != run.stdout || base.stderr != run.stderr {
                 failures.push(format!(
                     "{name} ({}): exit {} vs {}, stdout equal: {}, stderr equal: {}",
                     mode.flag_name(),

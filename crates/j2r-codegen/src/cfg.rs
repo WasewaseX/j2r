@@ -1001,9 +1001,7 @@ impl<'a> Builder<'a> {
         // with the CURRENT stops — no join_via_label, no trailing region:
         // the owner emits the meet after its labeled block.
         let meet_already_stopped = match (m1, m2) {
-            (Some(m), Some(n)) if m == n => {
-                stops.iter().any(|(s, _)| *s == m)
-            }
+            (Some(m), Some(n)) if m == n => stops.iter().any(|(s, _)| *s == m),
             (Some(m), None) | (None, Some(m)) => stops.iter().any(|(s, _)| *s == m),
             _ => false,
         };
@@ -1037,10 +1035,8 @@ impl<'a> Builder<'a> {
                 // never silently. Without a transfer arm the diamond is
                 // genuinely divergent (two live meets the outer walk
                 // still has to place) — refused as before.
-                let t_is_transfer =
-                    stops.iter().any(|(s, _)| *s == t_b || *s == m1);
-                let f_is_transfer =
-                    stops.iter().any(|(s, _)| *s == f_b || *s == m2);
+                let t_is_transfer = stops.iter().any(|(s, _)| *s == t_b || *s == m1);
+                let f_is_transfer = stops.iter().any(|(s, _)| *s == f_b || *s == m2);
                 if !(t_is_transfer || f_is_transfer) {
                     if std::env::var_os("J2R_CFG_DEBUG").is_some() {
                         eprintln!(
@@ -1203,19 +1199,21 @@ pub fn lift(
             cfg.entry
         );
         for (i, b) in cfg.blocks.iter().enumerate() {
-            let term = b.end.checked_sub(1).and_then(|j| m.instrs.get(j)).map(
-                |(_, ins)| match ins {
-                    Instr::Goto(_) => "goto".to_string(),
-                    Instr::IfZero(_, _)
-                    | Instr::IfICmp(_, _)
-                    | Instr::IfNull(_)
-                    | Instr::IfNonNull(_)
-                    | Instr::IfRefCmp { .. } => "if".to_string(),
-                    Instr::Return(_) => "ret".to_string(),
-                    Instr::AThrow => "athrow".to_string(),
-                    _ => "fall".to_string(),
-                },
-            );
+            let term =
+                b.end
+                    .checked_sub(1)
+                    .and_then(|j| m.instrs.get(j))
+                    .map(|(_, ins)| match ins {
+                        Instr::Goto(_) => "goto".to_string(),
+                        Instr::IfZero(_, _)
+                        | Instr::IfICmp(_, _)
+                        | Instr::IfNull(_)
+                        | Instr::IfNonNull(_)
+                        | Instr::IfRefCmp { .. } => "if".to_string(),
+                        Instr::Return(_) => "ret".to_string(),
+                        Instr::AThrow => "athrow".to_string(),
+                        _ => "fall".to_string(),
+                    });
             eprintln!(
                 "cfg-debug:   block {i}: pc[{},{}] term={term:?} succs={:?}",
                 m.instrs[b.start].0,

@@ -152,7 +152,15 @@ fn main() {
                 eprintln!("j2r: error: --emit-cfg and --emit-typed are mutually exclusive (the typed wave composes with the dispatch body only)");
                 2
             } else {
-                cmd_compile(&inputs, &out, &classpath, main_class, &crate_name, emit_cfg, emit_typed)
+                cmd_compile(
+                    &inputs,
+                    &out,
+                    &classpath,
+                    main_class,
+                    &crate_name,
+                    emit_cfg,
+                    emit_typed,
+                )
             }
         }
         Cmd::Build {
@@ -348,7 +356,9 @@ fn cmd_compile(
     emit_cfg: bool,
     emit_typed: bool,
 ) -> i32 {
-    match compile_crate(inputs, out, classpath, main_class, crate_name, emit_cfg, emit_typed) {
+    match compile_crate(
+        inputs, out, classpath, main_class, crate_name, emit_cfg, emit_typed,
+    ) {
         Ok(dir) => {
             println!("generated Rust crate: {}", dir.display());
             println!(
@@ -368,6 +378,10 @@ fn cargo_binary() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string())
 }
 
+// 8 args = the build command's natural surface (paths + naming + release
+// + the two emission-mode flags); bundling them would move the CLI's
+// grammar for lint-count reasons alone.
+#[allow(clippy::too_many_arguments)]
 fn cmd_build(
     inputs: &[PathBuf],
     out: &Path,
@@ -378,7 +392,9 @@ fn cmd_build(
     emit_cfg: bool,
     emit_typed: bool,
 ) -> i32 {
-    let dir = match compile_crate(inputs, out, classpath, main_class, crate_name, emit_cfg, emit_typed) {
+    let dir = match compile_crate(
+        inputs, out, classpath, main_class, crate_name, emit_cfg, emit_typed,
+    ) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("j2r: error: {e}");

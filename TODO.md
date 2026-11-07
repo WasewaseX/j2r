@@ -841,8 +841,9 @@ local full-gate sweep at the same tree).**
       windows dominate — sanity check passed), compile-side ~10x slower
       than javac (vendored-runtime build dominates; translation is
       sub-second). Gap status: corpus bench rows TAKEN for minimal-json
-      (0.04x) and JAMA (0.09x) with the wave-3 landing (2026-11-06,
-      docs/BENCHMARKS.md); JZlibCorpus rowless BY RULE (release build is
+      (0.04x), JAMA (0.09x), and stringsim (0.058 startup + 103.8x
+      steady-state, 2026-11-08, docs/BENCHMARKS.md addenda 4-5);
+      JZlibCorpus rowless BY RULE (release build is
       the registered rustc-memory finding). **FIRST STEADY-STATE ROW
       TAKEN (2026-11-06, owner asked "why is it so much slower" — the
       honest answer needed the number)**: new corpus stem JamaBench
@@ -1158,6 +1159,65 @@ local full-gate sweep at the same tree).**
         workloads), and upstream jzlib's own deflate() is famously
         huge; an 80-line application limit misfires on every corpus
         file by construction. NO ACTION (by-design).
+- [x] **Stringsim steady-state wave + two JDK/codegen gaps closed
+      (2026-11-08)** — building the stringsim bench stem found the gaps
+      the honest way (the compiler refused loudly, never silently), and
+      each one closed with a differential pin:
+      * **Math.floorDiv(long,int) / Math.floorMod(long,int)** — the JDK 9+
+        mixed overloads were absent (first loud failure: the new driver's
+        PRNG). OpenJDK's asymmetric shape preserved EXACTLY: floorDiv
+        returns LONG (widen-and-delegate) but floorMod returns INT
+        (javap-pinned descriptor `(JI)I`; `(int) floorMod(x, (long) y)` —
+        the narrowing is always exact for an int divisor). New fixture
+        rows in MathExact (mixed signs, negative divisors, Long.MIN_VALUE
+        numerator, Long.MAX_VALUE/Integer.MIN_VALUE, zero-divisor
+        messages e9/e10, and the floorDiv*y + floorMod == x identity);
+        MathExact's old multiplyExact row — previously pinned as a
+        byte-identical CRASH through the normalized-stderr channel — is
+        now a caught-message row (e11), which pins the same "integer
+        overflow" text on stdout, a stricter channel, and lets the new
+        rows actually run. Harness-green: J2R_DIFF_FIXTURES=MathExact
+        byte-identical vs Temurin 21.0.13.
+      * **ANewArray accepts builtin INTERFACE element types** — the
+        second loud failure: `new Map[1000]` ("unknown array element
+        type java/util/Map"). The F4/F5 wave had registered Comparable
+        by hand in builtin_parent_of; the general law replaces the
+        special case (the element check now also accepts
+        builtin_is_interface) — interface-typed arrays are ordinary ref
+        arrays, and aastore's ASE check already walks the interface
+        subtype graph, so stores are checked at full strength of the
+        type law. Exercised for real by the bench driver's Map[] of
+        1,000 unmodifiable profiles.
+      * **StringsSimBench** (corpus stem, scripts/
+        build_corpus_stringsimbench.sh) — the same library merge as
+        StringsSimCorpus + a loop-sized xorshift64* driver mirroring the
+        owner's results_v1.1 shapes (W1 200k Levenshtein short, W5 500k
+        JaroWinkler, W7a 1,000 getProfile docs, W7b 10k Cosine over
+        PREBUILT profiles — float aggregation deliberately under HashMap
+        iteration, the order law — W8 10k NGram(2)+(4) DNA). Observed
+        differential BEFORE any row: C1, full-tiered, and native all
+        print byte-identical checksums (w7b = 4024.3242675735173 with
+        HashMap-order float aggregation — bit-exact).
+      * **Two bench rows TAKEN** (docs/BENCHMARKS.md addenda 4+5):
+        StringsSimCorpus 0.058 nat/C1 (startup-dominated regime, the
+        wave-4 deferral closed) and StringsSimBench nat/full **103.8x**
+        nat/C1 73.1x (native 281.3s vs full-JIT 2.71s) — the SECOND
+        family-scale steady-state baseline, landing in the JamaBench
+        regime (98x) on completely different kernels; combined with the
+        owner's hand-port at 0.5-2.3x of the JVM, the ~100x is the
+        interpreter-shaped emission model, not translation — the
+        typed-operand unification lever's evidence base grows to two
+        families.
+      * **Gate repairs found on the way in**: main was fmt-red
+        (cargo fmt applied — zero-tolerance gate-1) and clippy-red
+        under -D warnings (4 sites: my unused binding + 3 pre-existing
+        in readiness.rs/typed.rs, all mechanical: enumerate-instead-of-
+        counter, no-op usize cast, &mut Vec -> &mut [usize]; the CLI's
+        cmd_build carries a documented too_many_arguments allow — 8 args
+        is the build command's natural surface). Local: fmt clean,
+        clippy --all-targets --all-features -D warnings clean, runtime
+        163/163, codegen 98+12+1+1, doc counts 109/338 in sync. CI
+        evidence: (this commit).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 

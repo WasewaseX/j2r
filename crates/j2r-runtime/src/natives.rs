@@ -5083,6 +5083,18 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(JJ)J",
         le::n_math_floor_mod_j,
     ),
+    (
+        "java/lang/Math",
+        "floorDiv",
+        "(JI)J",
+        le::n_math_floor_div_ji,
+    ),
+    (
+        "java/lang/Math",
+        "floorMod",
+        "(JI)I",
+        le::n_math_floor_mod_ji,
+    ),
     ("java/lang/Math", "round", "(D)J", le::n_math_round_d),
     ("java/lang/Math", "round", "(F)I", le::n_math_round_f),
     ("java/lang/Math", "sqrt", "(D)D", le::n_math_sqrt),

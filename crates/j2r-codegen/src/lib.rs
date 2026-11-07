@@ -1277,9 +1277,17 @@ fn validate_instr(
             }
         }
         ir::Instr::ANewArray { elem } => {
+            // Interface-typed arrays are ordinary ref arrays: the F4/F5
+            // wave registered Comparable by hand in builtin_parent_of, but
+            // the general law is "the element type must be a user class,
+            // Object, an array descriptor, or a known builtin CLASS OR
+            // INTERFACE" (aastore's ASE check already walks the interface
+            // subtype graph, so a stored value is checked against the
+            // component type at the full strength of the type law).
             if prog.is_user(elem)
                 || elem == "java/lang/Object"
                 || builtin::builtin_parent_of(elem).is_some()
+                || builtin::builtin_is_interface(elem)
                 || elem.starts_with('[')
             {
                 Ok(())
