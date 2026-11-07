@@ -993,10 +993,70 @@ impl<'a> Builder<'a> {
             return Ok(());
         }
 
+        // The meet is ALREADY a stop target: an enclosing structure owns
+        // it (an outer diamond's labeled join, the loop exit). The arms
+        // walk to it and break with the OWNER's label; re-joining here
+        // would emit the meet twice (cfg-debug census: tred2's nested
+        // diamond 16 meeting at 18, diamond 6's join). Free-walk if/else
+        // with the CURRENT stops — no join_via_label, no trailing region:
+        // the owner emits the meet after its labeled block.
+        let meet_already_stopped = match (m1, m2) {
+            (Some(m), Some(n)) if m == n => {
+                stops.iter().any(|(s, _)| *s == m)
+            }
+            (Some(m), None) | (None, Some(m)) => stops.iter().any(|(s, _)| *s == m),
+            _ => false,
+        };
+        if meet_already_stopped {
+            self.out.push("if __cond {".into());
+            self.region(t_b, stops)?;
+            self.out.push("} else {".into());
+            self.region(f_b, stops)?;
+            self.out.push("}".into());
+            return Ok(());
+        }
+
         match (m1, m2) {
             (Some(meet), Some(_)) if meet == m2.unwrap() => {
                 self.join_via_label(meet, t_b, f_b, root, &arm_blocks, stops)?;
                 self.region(meet, stops)
+            }
+            (Some(m1), Some(m2)) if m1 != m2 => {
+                // Divergent joins (readiness census: tql2/tred2/orthes
+                // loop-header diamonds). At least one arm is a TRANSFER
+                // arm: it starts at, or its walk meets, a block that is
+                // already a stop target (the enclosing loop's exit or an
+                // enclosing join) — its region ends in that stop's own
+                // `break`/`continue`, never falls through. Lower as a
+                // free-walk if/else: each arm's region consumes its own
+                // side (nested diamonds own their meets). An arm walk that
+                // is NOT a transfer must not fall past its meet — the
+                // m1==m2 shared-meet shape is the join_via_label case
+                // above; a walk that runs into emitted code or off the
+                // end fails LOUDLY (BranchIntoEmittedCode / FallOffEnd),
+                // never silently. Without a transfer arm the diamond is
+                // genuinely divergent (two live meets the outer walk
+                // still has to place) — refused as before.
+                let t_is_transfer =
+                    stops.iter().any(|(s, _)| *s == t_b || *s == m1);
+                let f_is_transfer =
+                    stops.iter().any(|(s, _)| *s == f_b || *s == m2);
+                if !(t_is_transfer || f_is_transfer) {
+                    if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+                        eprintln!(
+                            "cfg-debug: divergent joins unresolved {}{} ci={} (block {}) \
+                             t_b={} f_b={} m1={:?} m2={:?}",
+                            self.m.name, self.m.desc, ci, root, t_b, f_b, m1, m2
+                        );
+                    }
+                    return Err(Unsupported::ImpureJoin);
+                }
+                self.out.push("if __cond {".into());
+                self.region(t_b, stops)?;
+                self.out.push("} else {".into());
+                self.region(f_b, stops)?;
+                self.out.push("}".into());
+                Ok(())
             }
             (Some(meet), None) | (None, Some(meet)) => {
                 self.join_via_label(meet, t_b, f_b, root, &arm_blocks, stops)?;
@@ -1012,7 +1072,7 @@ impl<'a> Builder<'a> {
                 self.out.push("}".into());
                 Ok(())
             }
-            _ => Err(Unsupported::ImpureJoin),
+            _ => unreachable!("diamond: both-equal meet handled above"),
         }
     }
 
@@ -1118,7 +1178,53 @@ pub fn lift(
     emit_fn: impl FnMut(usize, &mut Vec<String>),
 ) -> Result<String, Unsupported> {
     let cfg = Cfg::build(m);
+    if std::env::var("J2R_CFG_DEBUG").as_deref() == Ok("2") {
+        // Block-table dump for join-shape diagnosis: id, pc range,
+        // successors (as instruction indices), terminator class.
+        eprintln!(
+            "cfg-debug: block table for {}{} ({} blocks, entry {})",
+            m.name,
+            m.desc,
+            cfg.blocks.len(),
+            cfg.entry
+        );
+        for (i, b) in cfg.blocks.iter().enumerate() {
+            let term = b.end.checked_sub(1).and_then(|j| m.instrs.get(j)).map(
+                |(_, ins)| match ins {
+                    Instr::Goto(_) => "goto".to_string(),
+                    Instr::IfZero(_, _)
+                    | Instr::IfICmp(_, _)
+                    | Instr::IfNull(_)
+                    | Instr::IfNonNull(_)
+                    | Instr::IfRefCmp { .. } => "if".to_string(),
+                    Instr::Return(_) => "ret".to_string(),
+                    Instr::AThrow => "athrow".to_string(),
+                    _ => "fall".to_string(),
+                },
+            );
+            eprintln!(
+                "cfg-debug:   block {i}: pc[{},{}] term={term:?} succs={:?}",
+                m.instrs[b.start].0,
+                m.instrs[b.end - 1].0,
+                b.succs
+            );
+        }
+    }
     let (loops, tramp) = analyse(&cfg, m)?;
+    if std::env::var("J2R_CFG_DEBUG").as_deref() == Ok("2") {
+        for l in &loops {
+            eprintln!(
+                "cfg-debug: loop header={} exit={:?} nodes={:?}",
+                l.header,
+                l.exit,
+                {
+                    let mut v: Vec<usize> = l.nodes.iter().copied().collect();
+                    v.sort_unstable();
+                    v
+                }
+            );
+        }
+    }
     let mut b = Builder::new(m, &cfg, loops, tramp.clone(), Box::new(emit_fn));
     let entry = cfg.entry;
     b.region(entry, &Vec::new())?;
@@ -1522,7 +1628,14 @@ mod tests {
     }
 
     #[test]
-    fn join_with_third_predecessor_falls_back() {
+    fn join_with_third_predecessor_lifts_via_owner_stop() {
+        // The 2026-11-08 meet-already-stopped law: a nested diamond whose
+        // meet is an ENCLOSING diamond's join does not re-join it — its
+        // arms break with the owner's label and the owner emits the meet
+        // exactly once. This shape previously refused ImpureJoin (the
+        // nested join_via_label saw the outer root as a third edge); the
+        // free-walk arms make it liftable with identical semantics:
+        // c0 -> 12 -> 20; !c0 -> (c4 ? 20 : 8 -> 20).
         let m = method(vec![
             (0, Instr::IfZero(crate::ir::CmpOp::Eq, 12)),
             (4, Instr::IfZero(crate::ir::CmpOp::Eq, 20)),
@@ -1532,8 +1645,20 @@ mod tests {
             (20, Instr::Return(TypeDesc::Void)),
         ]);
         let r = lift(&m, |_, _| {});
-        assert!(matches!(r, Err(Unsupported::ImpureJoin)));
+        let out = r.expect("the owner-stop nested join now lifts");
+        assert!(
+            out.contains("break 'join_"),
+            "arms must transfer to the owner's join label, got:\n{out}"
+        );
     }
+
+    // NOTE on divergent-join refusals: a straight-line (loop-free) method
+    // cannot produce a genuinely divergent both-Some-meets diamond — its
+    // arm walks converge through single-predecessor chains to the same
+    // final join, which is the shared-meet case above. Real divergence
+    // needs loop contexts (transfer arms), covered by the free-walk law
+    // in diamond(); unplaceable joins surface loudly via
+    // BranchIntoEmittedCode at the end-of-lift all-blocks check.
 
     #[test]
     fn cfg_dominators_on_diamond() {

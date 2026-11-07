@@ -1088,3 +1088,40 @@ local full-gate sweep at the same tree).**
 - Test counts synchronized with docs, mechanically (gate-11).
 - Differential evidence is three-channel (stdout/stderr/exit) vs a real
   Temurin 21 — a masking bug in the harness poisons every green claim.
+- [x] **Divergent-join lift wave (2026-11-08)** — the readiness census's
+      next refusal layer ("arm walks diverge to different joins") landed
+      as TWO new diamond laws in cfg.rs, both found by J2R_CFG_DEBUG
+      block-table/loop-table dumps on the JamaBench kernels and both
+      verified by the batteries:
+      (1) TRANSFER-ARM free-walk: a divergent diamond (m1 != m2) whose
+      at-least-one arm starts at or walks to an EXISTING stop target
+      (loop exit / enclosing join) lowers as a plain if/else — the
+      transfer arm ends in that stop's own break/continue, the other
+      arm's nested machinery consumes its own side; unplaceable joins
+      still fail LOUDLY (BranchIntoEmittedCode / FallOffEnd), never
+      silently. tql2 is the shape: header diamond 4, exit edge (4,25) IS
+      the true arm — `if c { break 'loop } else { <whole body> }`.
+      (2) MEET-ALREADY-STOPPED: a nested diamond whose meet is an
+      enclosing structure's stop does not re-join it — arms break with
+      the OWNER's label, the owner emits the meet exactly once (the old
+      path double-joined and refused; the pinned law test
+      join_with_third_predecessor_falls_back became
+      join_with_third_predecessor_lifts_via_owner_stop with the emitted
+      structure traced semantically identical: c0 -> 12 -> 20; !c0 ->
+      (c4 ? 20 : 8 -> 20)).
+      Effect: tql2 NeedsCfgLift -> TypedReady (92.2% prim traffic, the
+      hottest Eigen kernel); JamaBench census 93/106 lifted (13
+      fallback, was 21). tred2/orthes still refuse: their shared
+      continue-tails (block 39: `d[i]=...; i--; goto header`) have
+      outside-diamond predecessors — that needs a DEFERRED-JOIN
+      mechanism (register the meet as a loop-scoped stop, emit its body
+      once at the loop-body end before the back edge) — the registered
+      next layer. hqr2 refuses elsewhere (next census row).
+      Battery: cfg_equiv 109x{base,cfg,typed} zero divergences (295.9s +
+      297.9s), diff_suite 109 (361.9s + 350.8s), corpus 4/4 (69.3s),
+      codegen 98 (1 law updated with justification), runtime 163/163.
+      Typed payload with tql2 in: 358.5s byte-identical vs same-session
+      default 358.7s — flat at a FIFTH coverage point; the operand-
+      extraction verdict (BENCHMARKS addendum 3) stands. Diagnostics:
+      J2R_CFG_DEBUG=1 unresolved-join lines, =2 adds block/loop tables.
+      CI evidence: (this commit).
