@@ -294,3 +294,52 @@ different joins), exception-table bodies (82/9), and switch lowering
 (7/1). The typed-operand model remains the lever; validation evidence:
 cfg_equiv 107/107 both modes (6 shards), differential 107/107 vs
 Temurin 21.0.13 (437.9s), codegen lib tests 87 green, corpus 3/3.
+
+## 2026-11-08 addendum 3 — the typed-operand backend (first slice) measured; structuring + typed LOCALS still flat at a fourth coverage point
+
+The typed-register backend's first slice is LANDED (`typed.rs`, off by
+default, `--emit-typed`): per-method live-range epochs give JVM locals
+REAL Rust types (`v1e0: f64`, no `Value` box, no per-access `expect_*`)
+with entry values taken from the descriptor's argument slots only —
+cfg_equiv caught the first live bug on the way (BigJson `skipWs()V`
+panicked "expected int value, got Void": the preamble read a loop-live
+NON-argument local from the unmarshal Vec; fixed to read only
+`j < arg_slots`, slot-widened per the descriptor, `this` included) —
+and the backend is verified suite-wide: cfg_equiv 109 × {base, cfg,
+typed} zero divergences, diff_suite 109, corpus 4/4 vs Temurin.
+
+JamaBench typed census: 75 of 106 methods emit typed bodies (31 fall
+back: 27 `NoPrimitiveEpoch`, 1 `HasInvokeDynamic`, 1 `HasSwitch`, 2
+driver); the HOTTEST kernel (`Matrix.times`) IS typed. Controlled
+same-session pair (the 2026-11-06 274.0s baseline is 1.31x stale on
+today's machine state — the control run re-measured it at 358.7 s,
+CSV stamp 2026-11-07T18:38, so only same-session pairs are quotable):
+
+* default emission: **358.7 s** (harness row) / 357.4 s (hand run)
+* `--emit-typed`: **355.9 s** (hand run) — ratio 0.992, NO steady-state
+  gain; nat/full 97.3x at the same-session JVM (3.657 s full tiered)
+
+Both runs output byte-identical to the JVM (observed differential).
+Why flat, precisely: the slice types the LOCALS but the operand stack
+still runs on `Value` — 2,457 `expect_*` extraction sites and 367
+per-block `gc_point()` safepoints remain across JamaBench's classes,
+plus `obj_get`/`obj_set` per field access and `invoke_virtual` per
+call. This is the SAME verdict the CFG addenda measured at three
+coverage points, now confirmed for typed locals at a fourth: operand
+EXTRACTION cost, not control-flow shape or local boxing, is the
+residual steady-state cost. The registered lever's remaining
+prerequisite is operand-stack/register unification — typed stack slots
+feeding operators directly — per docs/TYPED_REGISTER_READINESS.md §5.
+
+Repro (2-core Xeon / 4 GB sandbox, Temurin 21.0.13+9):
+
+    # same-session default control (CSV row 2026-11-07T18:38:29):
+    python3 scripts/bench_suite.py --fulljit --reps 3 \
+        --native-warmups 0 --native-reps 1 JamaBench
+    # typed run (the harness row needs >600 s for gen+build+run on this
+    # box; the hand pair fits):
+    javac -d /tmp/jb-cls corpus/JamaBench.java
+    j2r compile --emit-typed -o /tmp/jb-typed /tmp/jb-cls/*.class \
+        --main-class JamaBench --crate-name j2r_app
+    cargo build --release --manifest-path /tmp/jb-typed/Cargo.toml
+    time /tmp/jb-typed/target/release/j2r_app   # 355.9 s, byte-identical

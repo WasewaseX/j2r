@@ -113,6 +113,10 @@ def main() -> int:
                     help="native-channel reps override (default: --reps)")
     ap.add_argument("--native-warmups", type=int, default=None,
                     help="native-channel warmup override (default: --warmups)")
+    ap.add_argument("--emit-typed", action="store_true",
+                    help="compile the native channel with --emit-typed (the "
+                         "typed-operand backend). Row fixture names get a "
+                         "[typed] suffix so the CSV rows are distinct.")
     args = ap.parse_args()
     full_warmups = max(2, args.warmups) if args.fulljit else args.warmups
     native_reps = args.native_reps if args.native_reps is not None else args.reps
@@ -207,10 +211,12 @@ def main() -> int:
         else:
             classes = sorted((work / "classes").glob(f"{name}*.class"))
         t0 = time.perf_counter()
-        gen = subprocess.run(
-            [str(cli_bin), "compile", *[str(c) for c in classes],
-             "--main-class", name, "--crate-name", "j2r_app",
-             "--out", str(work / "crate")],
+        gen_cmd = [str(cli_bin), "compile", *[str(c) for c in classes],
+                   "--main-class", name, "--crate-name", "j2r_app",
+                   "--out", str(work / "crate")]
+        if args.emit_typed:
+            gen_cmd.append("--emit-typed")
+        gen = subprocess.run(gen_cmd,
             capture_output=True, env=env, cwd=REPO, timeout=1200)
         if gen.returncode != 0:
             print(f"{name:<16} COMPILE FAILED — skipped")
@@ -237,20 +243,25 @@ def main() -> int:
                                   warmup=native_warmups)
         native_ms *= 1000.0
 
+        # The CSV keys rows by fixture name; a typed-backend run of the
+        # same program must not look like a re-measurement of the default
+        # emission. [typed] suffix = same law as the --emit-cfg addendum.
+        row_name = f"{name}[typed]" if args.emit_typed else name
+
         if args.fulljit:
             r_c1 = native_ms / java_ms if java_ms > 0 else float("nan")
             r_full = native_ms / java_full_ms if java_full_ms > 0 else float("nan")
-            print(f"{name:<16} {javac_s:>9.3f} {java_ms:>10.1f} "
+            print(f"{row_name:<16} {javac_s:>9.3f} {java_ms:>10.1f} "
                   f"{java_full_ms:>12.1f} {native_total:>10.2f} "
                   f"{native_ms:>10.1f} {r_c1:>8.2f} {r_full:>8.2f}")
-            rows.append((name, f"{javac_s:.3f}", f"{java_ms:.1f}",
+            rows.append((row_name, f"{javac_s:.3f}", f"{java_ms:.1f}",
                          f"{java_full_ms:.1f}", f"{native_total:.2f}",
                          f"{native_ms:.1f}", f"{r_c1:.3f}", f"{r_full:.3f}"))
         else:
             ratio = native_ms / java_ms if java_ms > 0 else float("nan")
-            print(f"{name:<16} {javac_s:>9.3f} {java_ms:>9.1f} "
+            print(f"{row_name:<16} {javac_s:>9.3f} {java_ms:>9.1f} "
                   f"{native_total:>10.2f} {native_ms:>10.1f} {ratio:>12.2f}x")
-            rows.append((name, f"{javac_s:.3f}", f"{java_ms:.1f}",
+            rows.append((row_name, f"{javac_s:.3f}", f"{java_ms:.1f}",
                          f"{native_total:.2f}", f"{native_ms:.1f}", f"{ratio:.3f}"))
 
     if args.fulljit:

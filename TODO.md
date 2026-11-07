@@ -1045,6 +1045,23 @@ local full-gate sweep at the same tree).**
       (69.9 s), runtime 163/163, codegen 98+12+1, jar 3, lambda 2,
       soe 1. Shrink guard 108 = 109 on disk − 1; README counts
       untouched (109 programs, 109/109). CI evidence: (this commit).
+- [x] **Typed-backend payload measurement (2026-11-08)** — the registered
+      lever's first slice, measured honestly and the answer is NO
+      steady-state gain yet: JamaBench controlled same-session pair —
+      default 358.7 s (fresh harness control row; the 274.0 s baseline of
+      2026-11-06 is 1.31x stale machine-state, which is WHY the control
+      exists) vs `--emit-typed` 355.9 s (ratio 0.992), both byte-
+      identical to the JVM. Coverage is real: 75/106 methods typed,
+      `Matrix.times` (the hot kernel) typed — but the slice types LOCALS
+      only; the operand stack still runs on `Value` (2,457 `expect_*`
+      sites, 367 per-block safepoints, obj_get/obj_set + invoke_virtual
+      per access). Fourth coverage point with the same verdict as the
+      three CFG addenda: operand EXTRACTION, not control-flow shape or
+      local boxing, is the residual cost; the lever's remaining
+      prerequisite is operand-stack/register unification
+      (docs/TYPED_REGISTER_READINESS.md §5). Harness extended with
+      `--emit-typed` passthrough + `[typed]` CSV row suffix; full table +
+      repro in docs/BENCHMARKS.md addendum 3. CI evidence: (this commit).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 
