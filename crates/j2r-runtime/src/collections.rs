@@ -1521,6 +1521,62 @@ pub fn n_hs_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result
     Ok(Value::Int((!old.is_null()) as i32))
 }
 
+/// `Set.addAll(Collection)` — the stringsim corpus wave (Jaccard's union).
+/// Iterates through Collection dispatch so any modelled collection works.
+pub fn n_hs_add_all(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let set = recv.expect("j2r internal: Set.addAll without receiver");
+    let coll = match args.first() {
+        Some(Value::Ref(Some(c))) => *c,
+        Some(Value::Ref(None)) | None => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        _ => return Err(internal_error("Set.addAll needs a Collection")),
+    };
+    // Lock law L3: no heap access nests inside a heap guard — read the
+    // backing map ref first, then its size, as two flat accesses.
+    let map = with_obj(*set, |o| match &o.slots[HS_MAP] {
+        Value::Ref(Some(m)) => *m,
+        _ => panic!("j2r internal: HashSet backing map"),
+    });
+    let before = with_obj(map, |m| m.slots[HM_SIZE].expect_int());
+    let it = invoke_virtual(
+        &coll,
+        "java/util/Collection",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        &[],
+        ctx,
+    )?;
+    let it_ref = match it {
+        Value::Ref(Some(r)) => r,
+        _ => return Err(internal_error("Set.addAll: iterator() not an object")),
+    };
+    loop {
+        let has = invoke_virtual(&it_ref, "java/util/Iterator", "hasNext", "()Z", &[], ctx)?;
+        if !matches!(has, Value::Int(1)) {
+            break;
+        }
+        let v = invoke_virtual(
+            &it_ref,
+            "java/util/Iterator",
+            "next",
+            "()Ljava/lang/Object;",
+            &[],
+            ctx,
+        )?;
+        invoke_virtual(
+            set,
+            "java/util/Set",
+            "add",
+            "(Ljava/lang/Object;)Z",
+            std::slice::from_ref(&v),
+            ctx,
+        )?;
+    }
+    let after = with_obj(map, |m| m.slots[HM_SIZE].expect_int());
+    Ok(Value::Int((after != before) as i32))
+}
+
 pub fn n_hs_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = hs_map(recv, "contains");
     let e = args.first().cloned().unwrap_or(Value::Ref(None));
@@ -1551,6 +1607,307 @@ pub fn n_hs_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Re
 }
 
 // ---------------------------------------------------------------- Objects
+// ---------------------------------------------------------------- EntrySet
+//
+// The stringsim corpus wave (2026-11-07): profile iteration through
+// Map.entrySet(). The JDK returns the INTERNAL Node objects as the
+// Map.Entry values (HashMap$Node implements Map.Entry), so the entry
+// iterator hands out the node itself and getKey/getValue are registered
+// as virtual rows on HashMap$Node. The EntrySet view is slot-0-delegate
+// like KeySet/Values; iteration order is the map's table order, already
+// byte-identical to Temurin by the HashMapOrder law.
+
+pub fn n_hm_entry_set(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let map = recv.expect("j2r internal: HashMap.entrySet without receiver");
+    let view = new_obj("java/util/HashMap$EntrySet", 1)?;
+    with_obj_mut(view, |o| o.slots[0] = Value::Ref(Some(*map)));
+    Ok(Value::Ref(Some(view)))
+}
+
+fn hes_map(recv: Option<&JRef>, who: &str) -> JRef {
+    let r = recv.unwrap_or_else(|| panic!("j2r internal: EntrySet.{who} without receiver"));
+    with_obj(*r, |o| match &o.slots[0] {
+        Value::Ref(Some(m)) => *m,
+        _ => panic!("j2r internal: EntrySet.{who} without backing map"),
+    })
+}
+
+pub fn n_hes_iterator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let map = hes_map(recv, "iterator");
+    hm_new_hash_iterator(&map, "java/util/HashMap$EntryIterator")
+}
+
+pub fn n_hes_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(with_obj(hes_map(recv, "size"), |o| {
+        o.slots[HM_SIZE].expect_int()
+    })))
+}
+
+pub fn n_hes_is_empty(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Ok(Value::Int(
+        (with_obj(hes_map(recv, "isEmpty"), |o| o.slots[HM_SIZE].expect_int()) == 0) as i32,
+    ))
+}
+
+pub fn n_ei_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    n_ki_has_next(recv, _args, _ctx)
+}
+
+/// JDK semantics: the entry iterator's next() IS the internal Node, exposed
+/// as Map.Entry (HashMap$Node implements Map.Entry).
+pub fn n_ei_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, node) = hm_hash_next_node(recv, "EntryIterator.next")?;
+    Ok(Value::Ref(Some(node)))
+}
+
+pub fn n_node_get_key(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let n = recv.expect("j2r internal: Node.getKey without receiver");
+    Ok(node_parts(n).1)
+}
+
+pub fn n_node_get_value(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let n = recv.expect("j2r internal: Node.getValue without receiver");
+    Ok(node_parts(n).2)
+}
+
+// ------------------------------------------------- Collections$UnmodifiableMap
+//
+// The stringsim corpus wave: ShingleBased.getProfile returns
+// Collections.unmodifiableMap(shingles). Slot 0 = delegate map. Reads
+// forward; mutations throw UnsupportedOperationException (JDK: no
+// message). entrySet forwards to the delegate — the JDK wrapper also
+// iterates the delegate's entrySet, so order semantics are unchanged.
+
+/// `Collections.unmodifiableMap(m)` — static factory for the wrapper.
+pub fn n_collections_unmodifiable_map(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let _ = recv;
+    let wrapper = new_obj("java/util/Collections$UnmodifiableMap", 1)?;
+    n_um_init(Some(&wrapper), args, ctx)?;
+    Ok(Value::Ref(Some(wrapper)))
+}
+
+pub fn n_um_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: UnmodifiableMap.<init> without receiver");
+    let delegate = match args.first() {
+        Some(Value::Ref(Some(m))) => *m,
+        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+    };
+    with_obj_mut(*r, |o| o.slots[0] = Value::Ref(Some(delegate)));
+    Ok(Value::Void)
+}
+
+fn um_delegate(recv: Option<&JRef>, who: &str) -> JRef {
+    let r = recv.unwrap_or_else(|| panic!("j2r internal: UnmodifiableMap.{who} without receiver"));
+    with_obj(*r, |o| match &o.slots[0] {
+        Value::Ref(Some(m)) => *m,
+        _ => panic!("j2r internal: UnmodifiableMap.{who} without delegate"),
+    })
+}
+
+pub fn n_um_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let map = um_delegate(recv, "get");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    match hm_find(&map, &key, ctx)? {
+        Some(node) => Ok(with_obj(node, |o| o.slots[2].clone())),
+        None => Ok(Value::Ref(None)),
+    }
+}
+
+pub fn n_um_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(with_obj(um_delegate(recv, "size"), |o| {
+        o.slots[HM_SIZE].expect_int()
+    })))
+}
+
+pub fn n_um_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(
+        (with_obj(um_delegate(recv, "isEmpty"), |o| {
+            o.slots[HM_SIZE].expect_int()
+        }) == 0) as i32,
+    ))
+}
+
+pub fn n_um_entry_set(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let map = um_delegate(recv, "entrySet");
+    n_hm_entry_set(Some(&map), _args, _ctx)
+}
+
+/// `UnmodifiableMap.keySet()` — forwards to the delegate. The JDK wraps
+/// in an UnmodifiableSet view; for read-only use (the corpus rule) the
+/// delegate's keySet is observationally identical.
+pub fn n_um_key_set(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let map = um_delegate(recv, "keySet");
+    invoke_virtual(
+        &map,
+        "java/util/Map",
+        "keySet",
+        "()Ljava/util/Set;",
+        args,
+        ctx,
+    )
+}
+
+/// `UnmodifiableMap.containsKey(k)` — forwards to the delegate.
+pub fn n_um_contains_key(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let map = um_delegate(recv, "containsKey");
+    invoke_virtual(
+        &map,
+        "java/util/Map",
+        "containsKey",
+        "(Ljava/lang/Object;)Z",
+        args,
+        ctx,
+    )
+}
+
+pub fn n_um_put(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let _ = um_delegate(recv, "put");
+    Err(throw_new("java/lang/UnsupportedOperationException", None))
+}
+
+// ---------------------------------------------------------------- LinkedList
+//
+// The stringsim corpus wave (Sift4's index-oriented Offset list). Same
+// storage model as ArrayList (slot 0 size, slot 1 modCount, slot 2 the
+// Object[] payload); the JDK's deque methods stay unregistered (loud)
+// until a caller needs them — the honest surface rule.
+
+const LL_SIZE: usize = 0;
+const LL_MODCOUNT: usize = 1;
+const LL_ELEMS: usize = 2;
+
+fn ll_elems_ref(r: &JRef) -> JRef {
+    with_obj(*r, |o| match &o.slots[LL_ELEMS] {
+        Value::Ref(Some(a)) => *a,
+        _ => panic!("j2r internal: LinkedList elements slot"),
+    })
+}
+
+fn ll_ensure_capacity(r: &JRef, need: usize, ctx: Dispatch) -> Result<(), Throw> {
+    let arr = ll_elems_ref(r);
+    let cap = crate::array::array_length(&arr)? as usize;
+    if need <= cap {
+        return Ok(());
+    }
+    // ArrayList growth law: 1.5x, min 10 (see the module note: a no-arg
+    // list grows to size+1 first; capacity is not observable).
+    let mut newcap = cap + (cap >> 1);
+    if newcap < need {
+        newcap = need;
+    }
+    if newcap < 10 {
+        newcap = 10;
+    }
+    let new_arr = crate::array::array_new_ref("java/lang/Object", newcap as i32)?;
+    let old = ll_elems_ref(r);
+    let n = with_obj(*r, |o| o.slots[LL_SIZE].expect_int());
+    for i in 0..n {
+        let v = crate::array::array_load(&old, i)?;
+        crate::array::array_store(&new_arr, i, v, ctx)?;
+    }
+    with_obj_mut(*r, |o| o.slots[LL_ELEMS] = Value::Ref(Some(new_arr)));
+    Ok(())
+}
+
+pub fn n_ll_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedList.<init> without receiver");
+    let arr = crate::array::array_new_ref("java/lang/Object", 10)?;
+    with_obj_mut(*r, |o| {
+        o.slots[LL_SIZE] = Value::Int(0);
+        o.slots[LL_MODCOUNT] = Value::Int(0);
+        o.slots[LL_ELEMS] = Value::Ref(Some(arr));
+    });
+    Ok(Value::Void)
+}
+
+pub fn n_ll_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedList.size without receiver");
+    Ok(Value::Int(with_obj(*r, |o| o.slots[LL_SIZE].expect_int())))
+}
+
+pub fn n_ll_add(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedList.add without receiver");
+    let v = args.first().cloned().unwrap_or(Value::Ref(None));
+    let size = with_obj(*r, |o| o.slots[LL_SIZE].expect_int());
+    ll_ensure_capacity(r, size as usize + 1, ctx)?;
+    let arr = ll_elems_ref(r);
+    crate::array::array_store(&arr, size, v.clone(), ctx)?;
+    with_obj_mut(*r, |o| {
+        o.slots[LL_SIZE] = Value::Int(size + 1);
+        o.slots[LL_MODCOUNT] = Value::Int(o.slots[LL_MODCOUNT].expect_int() + 1);
+    });
+    Ok(Value::Int(1))
+}
+
+pub fn n_ll_get(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedList.get without receiver");
+    let i = args.first().cloned().unwrap_or(Value::Int(0)).expect_int();
+    let size = with_obj(*r, |o| o.slots[LL_SIZE].expect_int());
+    if i < 0 || i >= size {
+        return Err(throw_new(
+            "java/lang/IndexOutOfBoundsException",
+            Some(&format!("Index: {i}, Size: {size}")),
+        ));
+    }
+    let arr = ll_elems_ref(r);
+    crate::array::array_load(&arr, i)
+}
+
+pub fn n_ll_remove(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedList.remove without receiver");
+    let i = args.first().cloned().unwrap_or(Value::Int(0)).expect_int();
+    let size = with_obj(*r, |o| o.slots[LL_SIZE].expect_int());
+    if i < 0 || i >= size {
+        return Err(throw_new(
+            "java/lang/IndexOutOfBoundsException",
+            Some(&format!("Index: {i}, Size: {size}")),
+        ));
+    }
+    let arr = ll_elems_ref(r);
+    let old = crate::array::array_load(&arr, i)?;
+    for j in i..size - 1 {
+        let v = crate::array::array_load(&arr, j + 1)?;
+        crate::array::array_store(&arr, j, v, _ctx)?;
+    }
+    crate::array::array_store(&arr, size - 1, Value::Ref(None), _ctx)?;
+    with_obj_mut(*r, |o| {
+        o.slots[LL_SIZE] = Value::Int(size - 1);
+        o.slots[LL_MODCOUNT] = Value::Int(o.slots[LL_MODCOUNT].expect_int() + 1);
+    });
+    Ok(old)
+}
 
 pub fn n_objects_equals(
     recv: Option<&JRef>,

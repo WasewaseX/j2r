@@ -59,6 +59,12 @@ enum Cmd {
         /// the approved pc-dispatch body per method.
         #[arg(long)]
         emit_cfg: bool,
+        /// The registered typed-operand lever (docs/TYPED_REGISTER_READINESS.md
+        /// §5, default OFF): per-epoch typed operand storage for planned
+        /// methods; unsupported shapes fall back per method. Mutually
+        /// exclusive with --emit-cfg.
+        #[arg(long)]
+        emit_typed: bool,
     },
     /// Translate .class files and build a native binary with cargo.
     Build {
@@ -90,6 +96,10 @@ enum Cmd {
         /// the approved pc-dispatch body per method.
         #[arg(long)]
         emit_cfg: bool,
+        /// The registered typed-operand lever, default OFF. Mutually
+        /// exclusive with --emit-cfg.
+        #[arg(long)]
+        emit_typed: bool,
     },
     /// Differential test: javac + java vs j2r + cargo, comparing stdout,
     /// stderr and exit code.
@@ -136,7 +146,15 @@ fn main() {
             main_class,
             crate_name,
             emit_cfg,
-        } => cmd_compile(&inputs, &out, &classpath, main_class, &crate_name, emit_cfg),
+            emit_typed,
+        } => {
+            if emit_cfg && emit_typed {
+                eprintln!("j2r: error: --emit-cfg and --emit-typed are mutually exclusive (the typed wave composes with the dispatch body only)");
+                2
+            } else {
+                cmd_compile(&inputs, &out, &classpath, main_class, &crate_name, emit_cfg, emit_typed)
+            }
+        }
         Cmd::Build {
             inputs,
             out,
@@ -145,15 +163,24 @@ fn main() {
             crate_name,
             release,
             emit_cfg,
-        } => cmd_build(
-            &inputs,
-            &out,
-            &classpath,
-            main_class,
-            &crate_name,
-            release,
-            emit_cfg,
-        ),
+            emit_typed,
+        } => {
+            if emit_cfg && emit_typed {
+                eprintln!("j2r: error: --emit-cfg and --emit-typed are mutually exclusive (the typed wave composes with the dispatch body only)");
+                2
+            } else {
+                cmd_build(
+                    &inputs,
+                    &out,
+                    &classpath,
+                    main_class,
+                    &crate_name,
+                    release,
+                    emit_cfg,
+                    emit_typed,
+                )
+            }
+        }
         Cmd::Test {
             file,
             release,
@@ -176,6 +203,7 @@ fn cmd_cfg_report(inputs: &[PathBuf]) -> i32 {
         crate_name: "j2r-cfg-report".to_string(),
         out_dir: std::env::temp_dir().join("j2r-cfg-report"),
         emit_cfg: false,
+        emit_typed: false,
     };
     match j2r_codegen::compile(&opts) {
         Ok(prog) => {
@@ -209,6 +237,7 @@ fn cmd_shape_report(inputs: &[PathBuf]) -> i32 {
         crate_name: "j2r-shape-report".to_string(),
         out_dir: std::env::temp_dir().join("j2r-shape-report"),
         emit_cfg: false,
+        emit_typed: false,
     };
     match j2r_codegen::compile(&opts) {
         Ok(prog) => {
@@ -251,6 +280,7 @@ fn cmd_readiness_report(inputs: &[PathBuf]) -> i32 {
         crate_name: "j2r-readiness-report".to_string(),
         out_dir: std::env::temp_dir().join("j2r-readiness-report"),
         emit_cfg: false,
+        emit_typed: false,
     };
     match j2r_codegen::compile(&opts) {
         Ok(prog) => {
@@ -295,6 +325,7 @@ fn compile_crate(
     main_class: Option<String>,
     crate_name: &str,
     emit_cfg: bool,
+    emit_typed: bool,
 ) -> Result<PathBuf, String> {
     let opts = Options {
         inputs: inputs.to_vec(),
@@ -303,6 +334,7 @@ fn compile_crate(
         crate_name: crate_name.to_string(),
         out_dir: out.to_path_buf(),
         emit_cfg,
+        emit_typed,
     };
     j2r_codegen::compile_to_crate(&opts).map_err(|e| e.to_string())
 }
@@ -314,8 +346,9 @@ fn cmd_compile(
     main_class: Option<String>,
     crate_name: &str,
     emit_cfg: bool,
+    emit_typed: bool,
 ) -> i32 {
-    match compile_crate(inputs, out, classpath, main_class, crate_name, emit_cfg) {
+    match compile_crate(inputs, out, classpath, main_class, crate_name, emit_cfg, emit_typed) {
         Ok(dir) => {
             println!("generated Rust crate: {}", dir.display());
             println!(
@@ -343,8 +376,9 @@ fn cmd_build(
     crate_name: &str,
     release: bool,
     emit_cfg: bool,
+    emit_typed: bool,
 ) -> i32 {
-    let dir = match compile_crate(inputs, out, classpath, main_class, crate_name, emit_cfg) {
+    let dir = match compile_crate(inputs, out, classpath, main_class, crate_name, emit_cfg, emit_typed) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("j2r: error: {e}");
@@ -433,6 +467,7 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
             &[],
             Some(main_class),
             "j2r-test-app",
+            false,
             false,
         )?;
         // 3. cargo build

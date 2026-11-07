@@ -316,16 +316,15 @@ because it is part of the reproduction command.
   ByteArrayOutputStream builtins, byte-identical vs Temurin
   (wrap-deflate n=72, zstream n=72/72/79, gzip n=84, zskip=20 → 'j').
   BufferedInputStream stays the one missing stream builtin (loud).
-- `java.util.regex` (Pattern/Matcher) — REGISTERED (2026-11-07,
-  external-converter-report ingestion): not a builtin yet; any use fails
-  LOUDLY at compile time (the documented gap pattern). When it lands,
-  the first differential law to pin is the `\s` divergence the external
-  report's B21 caught in the wild: Java Pattern's default `\s` is the
-  ASCII class [ \t\n\x0B\f\r] while Rust regex's `\s` is Unicode-aware
-  (matches U+00A0, U+3000, ...) — a naive mapping silently changes
-  shingle/token profiles for Unicode-whitespace inputs. The same law
-  family applies to `\w`, `\d`, and the `(?U)` flag inversion. Evidence
-  trail: the owner's java-string-similarity bugs.md §B21 + opt.md §2.4.
+- `java.util.regex` (Pattern/Matcher) — LANDED NARROW (stringsim wave,
+  2026-11-07): `Pattern.compile("\\s+")` + `matcher(...).replaceAll(...)`
+  with the law the registered gap demanded — Java's default `\s` is the
+  ASCII class [ \t\n\x0B\f\r] (six chars), hardcoded in
+  crates/j2r-runtime/src/regex.rs, NOT Rust's Unicode-aware `\s`; the
+  NBSP row in StringsSimCorpus pins it differentially. Any other pattern
+  fails LOUDLY naming the gap (the honest surface rule). `\w`/`\d`/
+  `(?U)` stay registered for when a caller needs them. Evidence trail:
+  the owner's java-string-similarity bugs.md §B21 + opt.md §2.4.
 
 ## Wave 3 — JAMA (entry 3, landed 2026-11-06)
 
@@ -412,3 +411,51 @@ dup2_x2 form 2 at full speed). Local gates at this tree: differential
 3/3, lib tests 272 green, jar/lambda/soe suites green, fmt/clippy clean,
 gates 11 (fixtures=107 tests=311) / 12 / 19 / 20 green, path-filter
 17/17, forced-GC on the new fixture green.
+
+## Wave 4 — java-string-similarity (entry 4, landed 2026-11-07)
+
+**Entry**: tdebatty/java-string-similarity v0.24 (Apache-2.0,
+`corpus/stringsim/LICENSE.txt`) — 15 algorithm classes + 5 interfaces +
+experimental/Sift4, ~2k LOC, vendored verbatim. This is the SAME library
+the owner's external report converted with cguz/java-to-rust into 27
+broken .rs files and 309 rustc errors; through j2r it compiles clean and
+runs **output-identical to Temurin 21.0.13** (after the surface gaps
+below closed), merging by scripts/build_corpus_stringsim.sh, driver
+StringsSimCorpus, corpus_suite 3 -> 4 entries (70.9s local).
+
+What it cost (each found by a loud failure or the differential):
+
+1. **Map.entrySet / Map.Entry** — the JDK's entry iterator hands out the
+   INTERNAL `HashMap$Node` as the `Map.Entry` (Node implements
+   Map.Entry), so: HashMap$EntrySet/EntryIterator views (KeySet/KeyIterator
+   layout precedents), getKey/getValue rows at BOTH levels (concrete
+   `HashMap$Node` AND interface `java/util/Map$Entry` — the static-type
+   dispatch law), and the subtype row `HashMap$Node =>
+   ["java/util/Map$Entry"]` (the enhanced-for's checkcast depends on it).
+2. **Collections.unmodifiableMap** — ShingleBased.getProfile returns it:
+   the wrapper forwards get/size/isEmpty/entrySet/keySet/containsKey to
+   the delegate and throws the JDK's message-less
+   UnsupportedOperationException on put.
+3. **Set/HashSet.addAll** — Jaccard's union. Iterates through
+   Collection dispatch so any modelled collection works. FOUND+FIXED
+   during the wave: the first draft NESTED heap guards (with_obj inside
+   with_obj while reading the size counters) and deadlocked at 0% CPU —
+   exactly what the module header's lock law L3 forbids; flattened, and
+   the AddAllProbe repro is the regression story.
+4. **java/util/Map interface-level entrySet row** — static-type dispatch
+   needs the row at the interface level (the keySet precedent), not only
+   on the concrete classes.
+5. **java.util.regex LANDED NARROW** (the registered gap's landing
+   condition, see the updated gap line above): the ASCII-`\s` law
+   hardcoded, NBSP pinned differentially.
+
+The driver pins the external report's silent-semantic rows against
+Temurin: `Levenshtein("\uD83D\uDC4D", "x") = 2.0` (the UTF-16 law the
+broken converter's B16 called unfixable), JaroWinkler's f32-fidelity
+bits (`jw=0.996666669845581` — the report's B17 row, bit-exact through
+j2r's typed float model), the NBSP profile verbatim (B21/ASCII-\s), the
+3-shingle HashMap-iteration-order profile prints, Sift4's method-local
+class + LinkedList (the converter's B11), interface dispatch through
+user implementations, overload resolution, and the message-exact error
+paths (nulls, k<=0). Bench rows: NOT taken this wave (correctness
+first; the JamaBench steady-state protocol applies when they are).

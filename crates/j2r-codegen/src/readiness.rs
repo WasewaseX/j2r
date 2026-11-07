@@ -26,12 +26,19 @@
 //!   redefines the slot, so the old value is dead from there on even
 //!   though the verifier's merged state still shows it (the verifier
 //!   itself documents javac's disjoint-range slot reuse — see
-//!   `VTy::merge_local`). A STACK position's only kill is the depth
-//!   dropping to or below it (popping a deeper position requires
-//!   popping this one first — stack discipline). Stack shuffles
-//!   (`dup_x1` …) can change a position's kind without a kill; the
-//!   analysis counts those AGAINST readiness (mixed epoch), never for
-//!   it — conservative by construction.
+//!   `VTy::merge_local`). A STACK position's kills are the depth
+//!   dropping to or below it AND — the typed wave's refinement (2026-11-07)
+//!   — a pop-and-REFILL whose KIND CHANGES: an `xXaload`/arithmetic/convert/
+//!   compare/field/call result lands on the slot its popped operand
+//!   occupied, redefining it in place exactly like a store redefines a
+//!   local (the old operand is consumed; every later read on every path
+//!   reads the new value — the verifier's join consistency is what makes
+//!   the linear redefinition sound). Same-kind refills (`iadd` feeding an
+//!   `iadd`) are NOT boundaries — the refill overwrites the epoch's own
+//!   variable after the operand reads, mirroring a same-kind local store
+//!   chain. Stack shuffles (`dup_x1` …) can still change a position's
+//!   kind without any kill; the analysis counts those AGAINST readiness
+//!   (mixed epoch), never for it — conservative by construction.
 //! * A position is EPOCH-CLEAN when every epoch holds a single kind.
 //!   Kinds may differ ACROSS epochs: the verifier guarantees the
 //!   position is dead between them (a load in between would have failed
@@ -63,7 +70,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    fn of(v: VTy) -> Option<Kind> {
+    pub(crate) fn of(v: VTy) -> Option<Kind> {
         match v {
             VTy::Int => Some(Kind::Int),
             VTy::Long => Some(Kind::Long),
@@ -89,6 +96,115 @@ pub struct Epoch {
     pub mixed: bool,
 }
 
+/// The instruction-stack effect the boundary rule needs, in VALUE space:
+/// how many operand values the instruction consumes and what it pushes
+/// back onto the stack (`None` = nothing, or a push onto a FRESH slot —
+/// fresh slots need no boundary; their epoch opens on first occupancy).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PushKind {
+    None,
+    /// One value of this kind pushed back onto a popped slot (refill).
+    Val(Kind),
+    /// `swap`: the two top cat-1 slots exchange — a mutual refill.
+    Swap,
+}
+
+/// Value-space stack effect of one instruction: how many operand VALUES
+/// it consumes (cat-2 values are one value) and what it pushes back
+/// (`None` = nothing, or a push onto a FRESH slot — fresh slots need no
+/// boundary; their epoch opens on first occupancy). `swap` is special: a
+/// mutual refill of the two top slots.
+pub(crate) fn value_effect(instr: &Instr) -> (usize, PushKind) {
+    use crate::ir::{ArithOp, Instr as I, NumKind as NK};
+    let val = |k: NK| match k {
+        NK::Int | NK::Byte | NK::Char | NK::Short => Kind::Int,
+        NK::Long => Kind::Long,
+        NK::Float => Kind::Float,
+        NK::Double => Kind::Double,
+    };
+    let desc_kind = |desc: &str| match desc.as_bytes().last() {
+        Some(b'I') | Some(b'B') | Some(b'C') | Some(b'S') | Some(b'Z') => Kind::Int,
+        Some(b'J') => Kind::Long,
+        Some(b'F') => Kind::Float,
+        Some(b'D') => Kind::Double,
+        _ => Kind::Ref,
+    };
+    match instr {
+        I::ALoad(e) => {
+            let k = match e {
+                crate::ir::ElemKind::IntGroup => Kind::Int,
+                crate::ir::ElemKind::Long => Kind::Long,
+                crate::ir::ElemKind::Float => Kind::Float,
+                crate::ir::ElemKind::Double => Kind::Double,
+                _ => Kind::Ref,
+            };
+            (2, PushKind::Val(k))
+        }
+        I::Arith { op, kind } => match op {
+            ArithOp::Neg => (1, PushKind::Val(val(*kind))),
+            _ => (2, PushKind::Val(val(*kind))),
+        },
+        I::Convert(conv) => (1, PushKind::Val(val(conv.to))),
+        I::Cmp(_) => (2, PushKind::Val(Kind::Int)),
+        I::GetField { desc, .. } => (1, PushKind::Val(desc_kind(desc))),
+        I::InvokeVirtual { desc, .. }
+        | I::InvokeSpecial { desc, .. }
+        | I::InvokeInterface { desc, .. }
+        | I::InvokeStatic { desc, .. } => {
+            let (params, ret) = j2r_runtime::parse_method_desc(desc).expect("valid descriptor");
+            let recv = if matches!(instr, I::InvokeStatic { .. }) { 0 } else { 1 };
+            let push = match ret {
+                j2r_runtime::TypeDesc::Void => PushKind::None,
+                j2r_runtime::TypeDesc::Int => PushKind::Val(Kind::Int),
+                j2r_runtime::TypeDesc::Long => PushKind::Val(Kind::Long),
+                j2r_runtime::TypeDesc::Float => PushKind::Val(Kind::Float),
+                j2r_runtime::TypeDesc::Double => PushKind::Val(Kind::Double),
+                _ => PushKind::Val(Kind::Ref),
+            };
+            (params.len() + recv, push)
+        }
+        // The report's boundary walk may still see an indy call before the
+        // emitter rejects the method: an under-counted pop can only MERGE
+        // epochs (mixed or same-kind), never split one — conservative.
+        I::InvokeDynamic { .. } => (0, PushKind::None),
+        I::ArrayLength => (1, PushKind::Val(Kind::Int)),
+        I::InstanceOf { .. } => (1, PushKind::Val(Kind::Int)),
+        I::CheckCast { .. } => (1, PushKind::Val(Kind::Ref)),
+        I::Swap => (2, PushKind::Swap),
+        I::Pop => (1, PushKind::None),
+        // Pop2 in value space: two SLOTS (one cat-2 value or two cat-1s) —
+        // the caller special-cases it before the slot walk.
+        I::Pop2 => (2, PushKind::None),
+        I::Return(t) => (
+            if matches!(t, j2r_runtime::TypeDesc::Void) { 0 } else { 1 },
+            PushKind::None,
+        ),
+        I::PutField { .. } => (2, PushKind::None),
+        I::PutStatic { .. } => (1, PushKind::None),
+        I::MonitorEnter | I::MonitorExit | I::AThrow => (1, PushKind::None),
+        I::IfZero(..) | I::IfNull(_) | I::IfNonNull(_) => (1, PushKind::None),
+        I::IfICmp(..) | I::IfRefCmp { .. } => (2, PushKind::None),
+        // Array construction POPS its dimension operands and pushes the
+        // array in their place — a REFILL of the first popped slot, not a
+        // fresh push (the Matrix.<init> NPE: the missing Ref epoch left
+        // the result write untargeted and the field stored garbage).
+        I::NewArray(_) | I::ANewArray { .. } => (1, PushKind::Val(Kind::Ref)),
+        I::MultiNewArray { dims, .. } => (*dims as usize, PushKind::Val(Kind::Ref)),
+        // Zero-pop, fresh-slot push or no stack effect at all.
+        _ => (0, PushKind::None),
+    }
+}
+
+/// Slot-space stack effect of one instruction at one pc. The verifier's
+/// operand stack is 1-slot-per-value (`State::push` appends one entry;
+/// `check_max` counts entries) — so the slot count IS the value count,
+/// and category-2 values occupy one stack slot even though a cat-2 LOCAL
+/// occupies two local slots.
+pub(crate) fn slot_effect(instr: &Instr, _in_stack: &[VTy]) -> (usize, PushKind) {
+    let (pv, push) = value_effect(instr);
+    (pv, push)
+}
+
 /// The epoch decomposition of one position (stack slot or local slot),
 /// with the two stability verdicts:
 ///
@@ -99,6 +215,9 @@ pub struct Epoch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PositionReport {
     pub epochs: Vec<Epoch>,
+    /// The pc each epoch OPENS at (first occupied pc of the run), parallel
+    /// to `epochs` — the typed emitter's per-epoch variable map.
+    pub epoch_starts: Vec<u32>,
     pub epoch_clean: bool,
     pub pool_stable: bool,
 }
@@ -109,6 +228,7 @@ fn analyze_position(
     boundary: impl Fn(u32) -> bool,
 ) -> PositionReport {
     let mut done: Vec<Epoch> = Vec::new();
+    let mut starts: Vec<u32> = Vec::new();
     // The currently-open epoch: (first kind, any kind mix seen so far).
     let mut cur: Option<(Kind, bool)> = None;
     for &pc in pcs {
@@ -123,10 +243,16 @@ fn analyze_position(
                         mixed: mixed || k != k0,
                     });
                 }
-                (Some(k), None) => done.push(Epoch {
-                    kind: k,
-                    mixed: false,
-                }),
+                (Some(k), None) => {
+                    // The closing epoch existed only at this pc (the value
+                    // was pushed by the previous instruction and is being
+                    // consumed here) — its start is this pc.
+                    starts.push(pc);
+                    done.push(Epoch {
+                        kind: k,
+                        mixed: false,
+                    });
+                }
                 (None, Some((k0, mixed))) => done.push(Epoch { kind: k0, mixed }),
                 (None, None) => {}
             }
@@ -137,7 +263,11 @@ fn analyze_position(
                     // one: the kind must agree or the run is mixed.
                     cur = Some((k0, mixed || k != k0));
                 }
-                (Some(k), None) => cur = Some((k, false)),
+                (Some(k), None) => {
+                    // First occupancy opens a fresh epoch at this pc.
+                    starts.push(pc);
+                    cur = Some((k, false));
+                }
                 (None, Some((k0, mixed))) => done.push(Epoch { kind: k0, mixed }),
                 (None, None) => {}
             }
@@ -151,6 +281,7 @@ fn analyze_position(
     let pool_stable = !done.is_empty() && done.iter().all(|e| e.kind == first.unwrap());
     PositionReport {
         epochs: done,
+        epoch_starts: starts,
         epoch_clean,
         pool_stable,
     }
@@ -198,31 +329,102 @@ pub struct MethodReadiness {
     pub verdict: Verdict,
 }
 
-/// Decides one method from its instruction stream and verified shapes.
-/// `lifted`/`lift_reason` come from `cfg::lift` (the caller runs the real
-/// pipeline once); this function never re-decides it.
-pub fn analyze(
-    class: &str,
-    method: &str,
+/// The slot write-map of a stack-shuffle instruction (`swap`, `dup`,
+/// `dup_x1`, `dup_x2`, `dup2`, `dup2_x1`, `dup2_x2`): `(out_slot,
+/// src_slot)` pairs — the value whose LOW slot is `src_slot` is copied to
+/// `out_slot`. Derived from the runtime's own pop-then-push forms (the
+/// differentially-pinned semantics in `j2r_runtime::stack`); the form is
+/// decided by the categories of the in-shape values exactly as the runtime
+/// decides them from the values. HighHalf slots never appear (dead by
+/// law); same-slot writes are skipped by the caller. `None` for
+/// non-shuffle instructions.
+pub(crate) fn shuffle_slot_writes(instr: &Instr, in_stack: &[VTy]) -> Option<Vec<(usize, usize)>> {
+    use Instr as I;
+    // Occupied value slots, bottom → top (HighHalf skipped).
+    let vs: Vec<usize> = in_stack
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| Kind::of(**v).is_some())
+        .map(|(i, _)| i)
+        .collect();
+    let k = vs.len();
+    if k == 0 {
+        return None;
+    }
+    let cat2 = |i: usize| in_stack[vs[i]].is_cat2();
+    // The affected region (deepest first) and the out sequence as indices
+    // into it, per the runtime's pop-then-push forms.
+    let (n, out): (usize, &[usize]) = match instr {
+        I::Swap => (2, &[1, 0]),
+        I::Dup => (1, &[0, 0]),
+        I::DupX1 => (2, &[1, 0, 1]),
+        I::DupX2 => {
+            if cat2(k - 2) {
+                (2, &[1, 0, 1])
+            } else {
+                (3, &[2, 0, 1, 2])
+            }
+        }
+        I::Dup2 => {
+            if cat2(k - 1) {
+                (1, &[0, 0])
+            } else {
+                (2, &[0, 1, 0, 1])
+            }
+        }
+        I::Dup2X1 => {
+            if cat2(k - 1) {
+                (2, &[1, 0, 1])
+            } else {
+                (3, &[1, 2, 0, 1, 2])
+            }
+        }
+        I::Dup2X2 => match (cat2(k - 1), cat2(k - 2)) {
+            (true, true) => (2, &[1, 0, 1]),
+            (true, false) => (3, &[2, 0, 1, 2]),
+            (false, true) => (3, &[1, 2, 0, 1, 2]),
+            (false, false) => {
+                if cat2(k - 3) {
+                    (3, &[1, 2, 0, 1, 2])
+                } else {
+                    (4, &[2, 3, 0, 1, 2, 3])
+                }
+            }
+        },
+        _ => return None,
+    };
+    if k < n {
+        return None; // malformed — the verifier rejects it anyway
+    }
+    // Region value slots (deepest first). The stack is 1-slot-per-value:
+    // each out value advances the cursor by exactly one slot; the cat-2
+    // checks above decide the FORM only (the runtime's own rule).
+    let region: Vec<usize> = vs[k - n..].to_vec();
+    let mut cur = region[0];
+    let mut writes = Vec::with_capacity(out.len());
+    for &src in out {
+        writes.push((cur, region[src]));
+        cur += 1;
+    }
+    Some(writes)
+}
+
+/// The epoch decomposition of every stack slot and every local slot of a
+/// method — the shared walk behind `analyze` (the report) and the typed
+/// emitter's plan (the emission). Stack-slot kills: the depth dropping to
+/// or below the slot, plus a pop-and-refill whose KIND CHANGES (the
+/// in-place redefinition law — see the module docs; shuffles included via
+/// `shuffle_slot_writes`). Local-slot kills: every store to the slot
+/// (`xstore`/`iinc`).
+pub(crate) fn position_reports(
     instrs: &[(u32, Instr)],
     shapes: &MethodShapes,
-    lifted: bool,
-    lift_reason: Option<crate::cfg::Unsupported>,
-) -> MethodReadiness {
+) -> (Vec<PositionReport>, Vec<PositionReport>) {
     let mut pcs: Vec<u32> = shapes.per_pc.keys().copied().collect();
     pcs.sort_unstable();
 
-    // Store boundaries per local slot: `xstore` and `iinc` both redefine
-    // the slot. (Wide forms are decoded to the same `Instr` variants.)
-    let mut store_pcs: std::collections::BTreeMap<u16, Vec<u32>> = Default::default();
-    for (pc, ins) in instrs {
-        match ins {
-            Instr::Store(idx) => store_pcs.entry(*idx).or_default().push(*pc),
-            Instr::IInc { idx, .. } => store_pcs.entry(*idx).or_default().push(*pc),
-            _ => {}
-        }
-    }
-    let no_bounds: Vec<u32> = Vec::new();
+    let instr_by_pc: std::collections::HashMap<u32, &Instr> =
+        instrs.iter().map(|(pc, i)| (*pc, i)).collect();
 
     let max_stack_seen = shapes
         .per_pc
@@ -237,6 +439,106 @@ pub fn analyze(
         .max()
         .unwrap_or(0);
 
+    // Store boundaries per local slot: `xstore` and `iinc` both redefine
+    // the slot. (Wide forms are decoded to the same `Instr` variants.)
+    let mut store_pcs: std::collections::BTreeMap<u16, Vec<u32>> = Default::default();
+    for (pc, ins) in instrs {
+        match ins {
+            Instr::Store(idx) => store_pcs.entry(*idx).or_default().push(*pc),
+            Instr::IInc { idx, .. } => store_pcs.entry(*idx).or_default().push(*pc),
+            _ => {}
+        }
+    }
+    let no_bounds: Vec<u32> = Vec::new();
+
+    let mut stack_reports = Vec::with_capacity(max_stack_seen);
+    for i in 0..max_stack_seen {
+        let occupied = |pc: u32| -> Option<Kind> {
+            shapes
+                .per_pc
+                .get(&pc)
+                .and_then(|s| s.stack.get(i))
+                .and_then(|v| Kind::of(*v))
+        };
+        let slot = i as usize;
+        let boundary = |pc: u32| -> bool {
+            let Some(shape) = shapes.per_pc.get(&pc) else {
+                return false;
+            };
+            let in_len = shape.stack.len();
+            if in_len <= slot {
+                return false; // slot not occupied at pc — nothing to redefine
+            }
+            let Some(instr) = instr_by_pc.get(&pc) else {
+                return false;
+            };
+            let (popped, push) = slot_effect(instr, &shape.stack);
+            // Shuffle refills: the write-map's existing-slot entries whose
+            // kind changes across the move.
+            if matches!(
+                instr,
+                Instr::Swap
+                    | Instr::Dup
+                    | Instr::DupX1
+                    | Instr::DupX2
+                    | Instr::Dup2
+                    | Instr::Dup2X1
+                    | Instr::Dup2X2
+            ) {
+                let Some(writes) = shuffle_slot_writes(instr, &shape.stack) else {
+                    return false;
+                };
+                return writes.iter().any(|&(out_slot, src_slot)| {
+                    out_slot < in_len
+                        && out_slot != src_slot
+                        && Kind::of(shape.stack[out_slot]).is_some()
+                        && Kind::of(shape.stack[out_slot]) != Kind::of(shape.stack[src_slot])
+                }) && writes
+                    .iter()
+                    .any(|&(out_slot, _)| out_slot == slot);
+            }
+            match push {
+                PushKind::None => false, // shrink: unoccupancy closes the epoch
+                PushKind::Swap => false, // swap handled by the shuffle map above
+                PushKind::Val(k) => {
+                    // The stack is 1-slot-per-value: the result lands on
+                    // the slot `popped` below the top. Boundary iff the
+                    // kind changes across the refill.
+                    let r = in_len.checked_sub(popped).unwrap_or(usize::MAX);
+                    r == slot && Kind::of(shape.stack[slot]) != Some(k)
+                }
+            }
+        };
+        stack_reports.push(analyze_position(&pcs, occupied, boundary));
+    }
+
+    let mut local_reports = Vec::with_capacity(max_locals_seen);
+    for j in 0..max_locals_seen {
+        let occupied = |pc: u32| -> Option<Kind> {
+            shapes
+                .per_pc
+                .get(&pc)
+                .and_then(|s| s.locals.get(j))
+                .and_then(|v| Kind::of(*v))
+        };
+        let bounds: &[u32] = store_pcs.get(&(j as u16)).map_or(&no_bounds, |v| v);
+        local_reports.push(analyze_position(&pcs, occupied, |pc| bounds.contains(&pc)));
+    }
+
+    (stack_reports, local_reports)
+}
+
+/// Decides one method from its instruction stream and verified shapes.
+/// `lifted`/`lift_reason` come from `cfg::lift` (the caller runs the real
+/// pipeline once); this function never re-decides it.
+pub fn analyze(
+    class: &str,
+    method: &str,
+    instrs: &[(u32, Instr)],
+    shapes: &MethodShapes,
+    lifted: bool,
+    lift_reason: Option<crate::cfg::Unsupported>,
+) -> MethodReadiness {
     let mut prim_traffic: u64 = 0;
     let mut ref_traffic: u64 = 0;
     for shape in shapes.per_pc.values() {
@@ -256,33 +558,10 @@ pub fn analyze(
         }
     }
 
+    let (stack_reports, local_reports) = position_reports(instrs, shapes);
     let mut reports: Vec<PositionReport> = Vec::new();
-    // Stack positions: occupied = the state's depth covers the index;
-    // the only kill is the depth dropping to/below the index. No store
-    // boundaries (the operand stack has no named slots).
-    for i in 0..max_stack_seen {
-        let occupied = |pc: u32| -> Option<Kind> {
-            shapes
-                .per_pc
-                .get(&pc)
-                .and_then(|s| s.stack.get(i))
-                .and_then(|v| Kind::of(*v))
-        };
-        reports.push(analyze_position(&pcs, occupied, |_| false));
-    }
-    // Local slots: occupied = the state's local table covers the index
-    // with a concrete kind; kills = dead pcs + every store to the slot.
-    for j in 0..max_locals_seen {
-        let occupied = |pc: u32| -> Option<Kind> {
-            shapes
-                .per_pc
-                .get(&pc)
-                .and_then(|s| s.locals.get(j))
-                .and_then(|v| Kind::of(*v))
-        };
-        let bounds: &[u32] = store_pcs.get(&(j as u16)).map_or(&no_bounds, |v| v);
-        reports.push(analyze_position(&pcs, occupied, |pc| bounds.contains(&pc)));
-    }
+    reports.extend(stack_reports);
+    reports.extend(local_reports);
 
     // Only positions occupied at least once roll up (a slot never seen
     // with a concrete kind has nothing to type).

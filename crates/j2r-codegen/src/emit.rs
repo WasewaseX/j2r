@@ -357,7 +357,7 @@ pub fn class_monitor(idx: u32) -> ::j2r_runtime::heap::JRef {
 
     // per-class modules -----------------------------------------------------------
     for c in &prog.classes {
-        let code = emit_class(prog, c, opts.emit_cfg);
+        let code = emit_class(prog, c, opts.emit_cfg, opts.emit_typed);
         std::fs::write(src.join("classes").join(format!("{}.rs", c.module)), code)?;
     }
 
@@ -579,24 +579,58 @@ fn copy_runtime(out: &Path) -> crate::Result<()> {
     let manifest = env!("CARGO_MANIFEST_DIR");
     let source = Path::new(manifest).join("../j2r-runtime");
     let dest = out.join("runtime");
-    if dest.exists() {
-        std::fs::remove_dir_all(&dest)?;
-    }
+    // Idempotent vendoring: a file is copied only when its CONTENT differs
+    // from what is already at the destination, and stale files that no
+    // longer exist upstream are removed. An unchanged runtime therefore
+    // keeps its mtimes, so cargo's fingerprints stay valid across repeated
+    // emit_crate calls into the same out dir — the cfg-equiv harness
+    // regenerates per fixture, and without this the vendored runtime (the
+    // expensive compile unit) rebuilt 3 × fixtures times. A stale or
+    // partially-written file fails the content compare and is re-copied:
+    // self-healing.
     std::fs::create_dir_all(&dest)?;
-    std::fs::copy(source.join("Cargo.toml"), dest.join("Cargo.toml"))?;
+    copy_file_idempotent(&source.join("Cargo.toml"), &dest.join("Cargo.toml"))?;
     std::fs::create_dir_all(dest.join("src"))?;
+    let mut upstream: Vec<std::ffi::OsString> = Vec::new();
     for entry in std::fs::read_dir(source.join("src"))? {
         let entry = entry?;
         if entry.file_type()?.is_file() {
-            std::fs::copy(entry.path(), dest.join("src").join(entry.file_name()))?;
+            let name = entry.file_name();
+            upstream.push(name.clone());
+            let dst = dest.join("src").join(name);
+            copy_file_idempotent(&entry.path(), &dst)?;
+        }
+    }
+    for entry in std::fs::read_dir(dest.join("src"))? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if entry.file_type()?.is_file() && !upstream.iter().any(|u| u == &name) {
+            std::fs::remove_file(entry.path())?;
         }
     }
     Ok(())
 }
 
+/// Copy `src` to `dst` only when the destination's content differs (missing,
+/// stale, or partially written). Preserves mtimes — and with them cargo's
+/// path-dep fingerprints — when nothing changed.
+fn copy_file_idempotent(src: &Path, dst: &Path) -> crate::Result<()> {
+    let want = std::fs::read(src)?;
+    if let Ok(have) = std::fs::read(dst) {
+        if have == want {
+            return Ok(());
+        }
+    }
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(dst, want)?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------- class module
 
-fn emit_class(prog: &Program, c: &ClassPlan, emit_cfg: bool) -> String {
+fn emit_class(prog: &Program, c: &ClassPlan, emit_cfg: bool, emit_typed: bool) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -609,12 +643,29 @@ fn emit_class(prog: &Program, c: &ClassPlan, emit_cfg: bool) -> String {
     );
     for m in &c.methods {
         let _ = writeln!(out);
-        let _ = writeln!(out, "{}", emit_method(prog, c, m, emit_cfg));
+        let _ = writeln!(out, "{}", emit_method(prog, c, m, emit_cfg, emit_typed));
     }
     out
 }
 
-fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) -> String {
+fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool, emit_typed: bool) -> String {
+    // The typed-operand body (the registered lever, off by default) is a
+    // complete function — its own preamble, 'run loop and dispatch. Any
+    // unsupported shape falls back to the approved default body below,
+    // with a loud machine-countable marker comment.
+    if emit_typed {
+        match crate::typed::try_emit(prog, c, m) {
+            Ok(mut body) => {
+                body.push('\n');
+                return body;
+            }
+            Err(reason) => return format!(
+                "// j2r: typed fallback ({})\n{}",
+                reason.name(),
+                emit_method(prog, c, m, emit_cfg, false)
+            ),
+        }
+    }
     let mut out = String::new();
     let instance = !m.is_static;
     let unmarshal_start = if instance { 1usize } else { 0usize };
@@ -757,7 +808,8 @@ fn emit_method(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) ->
     // by default): try a structured lift for the conservative subset; any
     // unsupported shape silently falls back to the identical dispatch body,
     // so `--emit-cfg` can never change semantics — only the shape of the
-    // bodies it successfully lifts.
+    // bodies it successfully lifts. The typed-operand body was already
+    // decided above (emit_typed); it never reaches this point.
     let lifted = if emit_cfg {
         crate::cfg::lift(m, |idx, tmp| {
             let (pc, instr) = &m.instrs[idx];
@@ -816,7 +868,7 @@ fn backward_poll(out: &mut Vec<String>, pc: u32, targets: &[u32]) {
     ));
 }
 
-fn is_terminator(instr: &Instr) -> bool {
+pub(crate) fn is_terminator(instr: &Instr) -> bool {
     matches!(
         instr,
         Instr::Goto(_)
@@ -832,7 +884,7 @@ fn is_terminator(instr: &Instr) -> bool {
     )
 }
 
-fn compute_leaders(m: &MethodPlan) -> std::collections::BTreeSet<u32> {
+pub(crate) fn compute_leaders(m: &MethodPlan) -> std::collections::BTreeSet<u32> {
     let mut leaders = std::collections::BTreeSet::new();
     if m.instrs.is_empty() {
         return leaders;
@@ -1287,72 +1339,10 @@ fn emit_instr(
             // before the <clinit> ensure dispatch.
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             out.push(format!("{RT}::heap::gc_point();"));
-            if prog.is_user(class) {
-                let target = prog.class(class).unwrap();
-                let total = target.total_slots;
-                // JLS §4.12.5: instance fields carry default values (0,
-                // false, null) between allocation and the constructor body.
-                // The spec must span the WHOLE user-ancestor chain — a
-                // subclass allocating without running `new Parent()`
-                // anywhere still gets its inherited fields defaulted. The
-                // builtin-parent region below the root user class stays
-                // Void: those are the builtin's internals, written by its
-                // constructors before any user code can read them.
-                let mut root_name = class.clone();
-                loop {
-                    let sup = prog.class(&root_name).and_then(|c| c.super_name.clone());
-                    match sup {
-                        Some(s) if prog.is_user(&s) => root_name = s,
-                        _ => break,
-                    }
-                }
-                let spec_base = prog.class(&root_name).unwrap().base_slots;
-                let mut spec = vec![b'i'; total - spec_base];
-                // Fill from the root user class downward so the subclass
-                // overrides any shadowed region (layouts are dense and
-                // non-overlapping, so the walk order only matters for
-                // sanity).
-                let mut chain = Vec::new();
-                let mut cur = class.clone();
-                loop {
-                    chain.push(cur.clone());
-                    match prog.class(&cur).and_then(|c| c.super_name.clone()) {
-                        Some(s) if prog.is_user(&s) => cur = s,
-                        _ => break,
-                    }
-                }
-                for cls in chain.iter().rev() {
-                    let plan = prog.class(cls).unwrap();
-                    for f in &plan.fields {
-                        if let Some(abs) = f.instance_slot {
-                            spec[abs - spec_base] = match f.desc.as_str() {
-                                "B" | "C" | "S" | "I" | "Z" => b'i',
-                                "J" => b'j',
-                                "F" => b'f',
-                                "D" => b'd',
-                                _ => b'r',
-                            };
-                        }
-                    }
-                }
-                let spec_str: String = spec.iter().map(|&c| c as char).collect();
-                for (id, expr) in ensure_calls(prog, class) {
-                    out.push(format!("crate::statics::ensure({id}u32, {expr});"));
-                }
-                out.push(format!(
-                    "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize));"
-                ));
-                out.push(format!(
-                    "{RT}::object::set_defaults(&__nobj, {spec_str:?});"
-                ));
-                out.push(format!(
-                    "stack.push({RT}::Value::Ref(::core::option::Option::Some(__nobj)));"
-                ));
-            } else {
-                out.push(format!(
-                    "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_builtin({class:?})))));"
-                ));
-            }
+            new_obj_lines(prog, class, &fault, out);
+            out.push(format!(
+                "stack.push({RT}::Value::Ref(::core::option::Option::Some(__nobj)));"
+            ));
         }
         Instr::NewArray(prim) => {
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
@@ -1414,7 +1404,7 @@ fn emit_instr(
 }
 
 /// Rust float literal that is valid for every value (NaN/inf included).
-fn f64_lit(v: f64) -> String {
+pub(crate) fn f64_lit(v: f64) -> String {
     if v.is_nan() {
         "f64::NAN".to_string()
     } else if v.is_infinite() {
@@ -1428,7 +1418,7 @@ fn f64_lit(v: f64) -> String {
     }
 }
 
-fn f32_lit(v: f32) -> String {
+pub(crate) fn f32_lit(v: f32) -> String {
     if v.is_nan() {
         "f32::NAN".to_string()
     } else if v.is_infinite() {
@@ -1442,7 +1432,7 @@ fn f32_lit(v: f32) -> String {
     }
 }
 
-fn next_pc_of(m: &MethodPlan, pc: u32) -> u32 {
+pub(crate) fn next_pc_of(m: &MethodPlan, pc: u32) -> u32 {
     for (p, _) in &m.instrs {
         if *p > pc {
             return *p;
@@ -1451,14 +1441,14 @@ fn next_pc_of(m: &MethodPlan, pc: u32) -> u32 {
     pc + 1
 }
 
-fn returns_void(desc: &str) -> bool {
+pub(crate) fn returns_void(desc: &str) -> bool {
     matches!(
         j2r_runtime::parse_method_desc(desc),
         Some((_, j2r_runtime::TypeDesc::Void))
     )
 }
 
-fn arg_count(desc: &str) -> usize {
+pub(crate) fn arg_count(desc: &str) -> usize {
     let (params, _) = j2r_runtime::parse_method_desc(desc).expect("valid descriptor");
     params.len()
 }
@@ -1479,7 +1469,7 @@ fn constant_literal(v: &j2r_runtime::Value) -> String {
 /// `ensure` calls for the user-class chain from the topmost user ancestor
 /// down to `start` — mirrors Java's rule that initializing a class first
 /// initializes its superclasses.
-fn ensure_calls(prog: &Program, start: &str) -> Vec<(u32, String)> {
+pub(crate) fn ensure_calls(prog: &Program, start: &str) -> Vec<(u32, String)> {
     let mut chain: Vec<String> = Vec::new();
     let mut cur = start.to_string();
     for _ in 0..64 {
@@ -1509,6 +1499,73 @@ fn ensure_calls(prog: &Program, start: &str) -> Vec<(u32, String)> {
             (c.id, expr)
         })
         .collect()
+}
+
+/// The allocation sequence for `new {class}`, shared by the default and
+/// typed emitters (one source of truth for the JLS §4.12.5 default-value
+/// law): the `<clinit>` ensure calls, the `new_obj`/`new_builtin` call
+/// bound to `__nobj`, and the field-default spec. The refresh + gc_point
+/// stay at the call site (identical for both emitters).
+pub(crate) fn new_obj_lines(prog: &Program, class: &str, fault: &str, out: &mut Vec<String>) {
+    if prog.is_user(class) {
+        let target = prog.class(class).unwrap();
+        let total = target.total_slots;
+        // JLS §4.12.5: instance fields carry default values (0, false,
+        // null) between allocation and the constructor body. The spec
+        // must span the WHOLE user-ancestor chain — a subclass allocating
+        // without running `new Parent()` anywhere still gets its
+        // inherited fields defaulted. The builtin-parent region below the
+        // root user class stays Void: those are the builtin's internals,
+        // written by its constructors before any user code can read them.
+        let mut root_name = class.to_string();
+        loop {
+            let sup = prog.class(&root_name).and_then(|c| c.super_name.clone());
+            match sup {
+                Some(s) if prog.is_user(&s) => root_name = s,
+                _ => break,
+            }
+        }
+        let spec_base = prog.class(&root_name).unwrap().base_slots;
+        let mut spec = vec![b'i'; total - spec_base];
+        // Fill from the root user class downward so the subclass
+        // overrides any shadowed region (layouts are dense and
+        // non-overlapping, so the walk order only matters for sanity).
+        let mut chain = Vec::new();
+        let mut cur = class.to_string();
+        loop {
+            chain.push(cur.clone());
+            match prog.class(&cur).and_then(|c| c.super_name.clone()) {
+                Some(s) if prog.is_user(&s) => cur = s,
+                _ => break,
+            }
+        }
+        for cls in chain.iter().rev() {
+            let plan = prog.class(cls).unwrap();
+            for f in &plan.fields {
+                if let Some(abs) = f.instance_slot {
+                    spec[abs - spec_base] = match f.desc.as_str() {
+                        "B" | "C" | "S" | "I" | "Z" => b'i',
+                        "J" => b'j',
+                        "F" => b'f',
+                        "D" => b'd',
+                        _ => b'r',
+                    };
+                }
+            }
+        }
+        let spec_str: String = spec.iter().map(|&c| c as char).collect();
+        for (id, expr) in ensure_calls(prog, class) {
+            out.push(format!("crate::statics::ensure({id}u32, {expr});"));
+        }
+        out.push(format!(
+            "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize));"
+        ));
+        out.push(format!("{RT}::object::set_defaults(&__nobj, {spec_str:?});"));
+    } else {
+        out.push(format!(
+            "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_builtin({class:?}));"
+        ));
+    }
 }
 
 fn emit_arith(op: ArithOp, kind: NumKind, fault: &str, out: &mut Vec<String>) {

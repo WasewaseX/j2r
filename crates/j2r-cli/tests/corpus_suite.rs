@@ -57,6 +57,9 @@ fn corpus_entries_match_jvm() {
         "MinimalJsonCorpus.java".to_string(),
         "JZlibCorpus.java".to_string(),
         "JamaCorpus.java".to_string(),
+        // Entry 4 (stringsim wave, 2026-11-07): the same library an
+        // external regex-shaped converter mangled into 309 rustc errors.
+        "StringsSimCorpus.java".to_string(),
     ];
     let mut failures = Vec::new();
     for entry in &entries {

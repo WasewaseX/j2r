@@ -95,6 +95,16 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/HashMap$ValueIterator" => "java/lang/Object",
         "java/util/HashMap$KeySet" => "java/lang/Object",
         "java/util/HashMap$Values" => "java/lang/Object",
+        // stringsim corpus wave (2026-11-07): entrySet views + the
+        // unmodifiableMap wrapper + Sift4's index-oriented LinkedList.
+        "java/util/HashMap$EntrySet" => "java/lang/Object",
+        // stringsim corpus wave: the narrow regex surface (Pattern \s+ /
+        // Matcher.replaceAll), slots owned by j2r-runtime/src/regex.rs.
+        "java/util/regex/Pattern" => "java/lang/Object",
+        "java/util/regex/Matcher" => "java/lang/Object",
+        "java/util/HashMap$EntryIterator" => "java/lang/Object",
+        "java/util/Collections$UnmodifiableMap" => "java/lang/Object",
+        "java/util/LinkedList" => "java/lang/Object",
         "java/util/HashSet" => "java/lang/Object",
         "java/util/Objects" => "java/lang/Object",
         "java/util/NoSuchElementException" => "java/lang/RuntimeException",
@@ -228,8 +238,17 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         "java/util/HashSet" => &["java/util/Set"],
         "java/util/Set" => &["java/util/Collection"],
         "java/util/HashMap" => &["java/util/Map"],
-        "java/util/HashMap$KeySet" => &["java/util/Set"],
+        // JDK: HashMap.Node implements Map.Entry — the enhanced-for's
+        // JDK: HashMap.Node implements Map.Entry — the enhanced-for's
+        // checkcast Map$Entry on entrySet iteration depends on this.
+        "java/util/HashMap$Node" => &["java/util/Map$Entry"],
         "java/util/HashMap$Values" => &["java/util/Collection"],
+        // stringsim corpus wave: the entry view is a Set; the wrapper is a
+        // Map; Sift4's list is a List (interfaces the compiled code sees).
+        "java/util/HashMap$EntrySet" => &["java/util/Set"],
+        "java/util/HashMap$EntryIterator" => &["java/util/Iterator"],
+        "java/util/Collections$UnmodifiableMap" => &["java/util/Map"],
+        "java/util/LinkedList" => &["java/util/List"],
         "java/util/ArrayList$Itr"
         | "java/util/HashMap$KeyIterator"
         | "java/util/HashMap$ValueIterator" => &["java/util/Iterator"],
@@ -342,6 +361,17 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         "java/util/HashMap$Node" => 4,
         // hash iterators: map ref, table idx, pending node, expectedModCount
         "java/util/HashMap$KeyIterator" | "java/util/HashMap$ValueIterator" => 4,
+        // stringsim corpus wave: EntryIterator shares the KeyIterator layout;
+        // EntrySet/UnmodifiableMap are slot-0-delegate views; LinkedList
+        // copies the ArrayList storage model (size, modCount, Object[]).
+        "java/util/HashMap$EntryIterator" => 4,
+        // stringsim corpus wave: Pattern (the pattern text), Matcher
+        // (pattern text + input text).
+        "java/util/regex/Pattern" => 1,
+        "java/util/regex/Matcher" => 2,
+        "java/util/HashMap$EntrySet" => 1,
+        "java/util/Collections$UnmodifiableMap" => 1,
+        "java/util/LinkedList" => 3,
         // views: map ref
         "java/util/HashMap$KeySet" | "java/util/HashMap$Values" => 1,
         // HashSet: backing map ref

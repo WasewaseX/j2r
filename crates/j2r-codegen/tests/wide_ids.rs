@@ -154,6 +154,7 @@ fn static_pool_beyond_65535_slots_compiles_and_runs() {
         crate_name: "j2r-wide-app".to_string(),
         out_dir: dir.join("out"),
         emit_cfg: false,
+        emit_typed: false,
     };
     j2r_codegen::compile_to_crate(&opts).expect("80,000-slot program compiles");
 

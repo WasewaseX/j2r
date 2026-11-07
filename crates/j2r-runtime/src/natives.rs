@@ -25,6 +25,7 @@ use crate::lambda;
 use crate::langext as le;
 use crate::object::{self, is_string, new_obj};
 use crate::reflect;
+use crate::regex;
 use crate::Value;
 use crate::{internal_error, javafmt, throw_new, Dispatch, NativeFn, Throw};
 use std::collections::HashMap;
@@ -4361,6 +4362,158 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()Ljava/util/Set;",
         c::n_hm_key_set,
     ),
+    // stringsim corpus wave (2026-11-07): entrySet views — the JDK's
+    // entry iterator hands out the INTERNAL Node as Map.Entry, so
+    // getKey/getValue dispatch on HashMap$Node.
+    (
+        "java/util/HashMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        c::n_hm_entry_set,
+    ),
+    (
+        "java/util/HashMap$EntrySet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        c::n_hes_iterator,
+    ),
+    ("java/util/HashMap$EntrySet", "size", "()I", c::n_hes_size),
+    (
+        "java/util/HashMap$EntrySet",
+        "isEmpty",
+        "()Z",
+        c::n_hes_is_empty,
+    ),
+    (
+        "java/util/HashMap$EntryIterator",
+        "hasNext",
+        "()Z",
+        c::n_ei_has_next,
+    ),
+    (
+        "java/util/HashMap$EntryIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        c::n_ei_next,
+    ),
+    // The stringsim driver dispatches getKey/getValue through the
+    // java/util/Map$Entry INTERFACE type — interface-level rows, same law
+    // as the java/util/Map family above.
+    (
+        "java/util/Map$Entry",
+        "getKey",
+        "()Ljava/lang/Object;",
+        c::n_node_get_key,
+    ),
+    (
+        "java/util/Map$Entry",
+        "getValue",
+        "()Ljava/lang/Object;",
+        c::n_node_get_value,
+    ),
+    (
+        "java/util/HashMap$Node",
+        "getKey",
+        "()Ljava/lang/Object;",
+        c::n_node_get_key,
+    ),
+    (
+        "java/util/HashMap$Node",
+        "getValue",
+        "()Ljava/lang/Object;",
+        c::n_node_get_value,
+    ),
+    // stringsim corpus wave: Collections.unmodifiableMap wrapper +
+    // Sift4's index-oriented LinkedList.
+    (
+        "java/util/Collections",
+        "unmodifiableMap",
+        "(Ljava/util/Map;)Ljava/util/Map;",
+        c::n_collections_unmodifiable_map,
+    ),
+    (
+        "java/util/Collections$UnmodifiableMap",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_um_get,
+    ),
+    (
+        "java/util/Collections$UnmodifiableMap",
+        "size",
+        "()I",
+        c::n_um_size,
+    ),
+    (
+        "java/util/Collections$UnmodifiableMap",
+        "isEmpty",
+        "()Z",
+        c::n_um_is_empty,
+    ),
+    (
+        "java/util/Collections$UnmodifiableMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        c::n_um_entry_set,
+    ),
+    (
+        "java/util/Collections$UnmodifiableMap",
+        "containsKey",
+        "(Ljava/lang/Object;)Z",
+        c::n_um_contains_key,
+    ),
+    (
+        "java/util/Collections$UnmodifiableMap",
+        "keySet",
+        "()Ljava/util/Set;",
+        c::n_um_key_set,
+    ),
+    (
+        "java/util/Collections$UnmodifiableMap",
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_um_put,
+    ),
+    ("java/util/LinkedList", "<init>", "()V", c::n_ll_init),
+    ("java/util/LinkedList", "size", "()I", c::n_ll_size),
+    (
+        "java/util/LinkedList",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        c::n_ll_add,
+    ),
+    (
+        "java/util/LinkedList",
+        "get",
+        "(I)Ljava/lang/Object;",
+        c::n_ll_get,
+    ),
+    (
+        "java/util/LinkedList",
+        "remove",
+        "(I)Ljava/lang/Object;",
+        c::n_ll_remove,
+    ),
+    // stringsim corpus wave: the narrow java.util.regex surface. The
+    // ASCII-\s law is the registered gap's first pin (docs/CORPUS_WAVE.md):
+    // Java's default \s is [ \t\n\x0B\f\r], NOT Unicode-aware.
+    (
+        "java/util/regex/Pattern",
+        "compile",
+        "(Ljava/lang/String;)Ljava/util/regex/Pattern;",
+        regex::n_pattern_compile,
+    ),
+    (
+        "java/util/regex/Pattern",
+        "matcher",
+        "(Ljava/lang/CharSequence;)Ljava/util/regex/Matcher;",
+        regex::n_pattern_matcher,
+    ),
+    (
+        "java/util/regex/Matcher",
+        "replaceAll",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        regex::n_matcher_replace_all,
+    ),
     (
         "java/util/HashMap",
         "values",
@@ -4413,6 +4566,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ("java/util/Map", "size", "()I", c::n_hm_size),
     ("java/util/Map", "isEmpty", "()Z", c::n_hm_is_empty),
     ("java/util/Map", "clear", "()V", c::n_hm_clear),
+    (
+        "java/util/Map",
+        "entrySet",
+        "()Ljava/util/Set;",
+        c::n_hm_entry_set,
+    ),
     (
         "java/util/Map",
         "keySet",
@@ -4525,6 +4684,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     ),
     (
         "java/util/HashSet",
+        "addAll",
+        "(Ljava/util/Collection;)Z",
+        c::n_hs_add_all,
+    ),
+    (
+        "java/util/HashSet",
         "remove",
         "(Ljava/lang/Object;)Z",
         c::n_hs_remove,
@@ -4562,6 +4727,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "contains",
         "(Ljava/lang/Object;)Z",
         c::n_hs_contains,
+    ),
+    (
+        "java/util/Set",
+        "addAll",
+        "(Ljava/util/Collection;)Z",
+        c::n_hs_add_all,
     ),
     ("java/util/Set", "size", "()I", c::n_hs_size),
     ("java/util/Set", "isEmpty", "()Z", c::n_hs_is_empty),

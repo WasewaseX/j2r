@@ -59,6 +59,18 @@ pub fn pop_ref(s: &mut Vec<Value>) -> Result<JRef, Throw> {
     }
 }
 
+/// The `pop_ref` law applied to a value that is already off the stack —
+/// the typed-operand emitter reads stack positions in place and needs the
+/// exact same null handling (`Value::Ref(None)` and non-ref kinds raise
+/// `NullPointerException` exactly as `pop_ref` does). Pure: borrows the
+/// value, touches no stack.
+pub fn ref_of(v: &Value) -> Result<JRef, Throw> {
+    match v {
+        Value::Ref(Some(r)) => Ok(*r),
+        _ => Err(crate::throw_new("java/lang/NullPointerException", None)),
+    }
+}
+
 fn top(s: &[Value]) -> &Value {
     s.last().expect("j2r internal: peek on empty stack")
 }

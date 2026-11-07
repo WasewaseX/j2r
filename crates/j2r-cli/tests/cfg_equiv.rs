@@ -1,11 +1,15 @@
 //! Wave-4 output-equivalence test (M2_PLAN §6.2): for every fixture in the
 //! differential suite, the crate compiled with `--emit-cfg` (the Wave-4
-//! structured-lift investigation, default OFF) must produce **byte-identical
-//! stdout, stderr and exit status** to the crate compiled with the approved
-//! default pc-dispatch emission.
+//! structured-lift investigation, default OFF) — and, since the typed wave,
+//! the crate compiled with `--emit-typed` (the registered typed-operand
+//! lever, docs/TYPED_REGISTER_READINESS.md §5, default OFF) — must produce
+//! **byte-identical stdout, stderr and exit status** to the crate compiled
+//! with the approved default pc-dispatch emission.
 //!
-//! This is the prototype's gate: a structured lift that changes any
-//! observable fails here, regardless of the unit tests in j2r-codegen.
+//! This is the prototype's gate: a structured lift or a typed body that
+//! changes any observable fails here, regardless of the unit tests in
+//! j2r-codegen. Unsupported shapes fall back per method, so the modes can
+//! only differ by emission BUGS, never by design.
 //!
 //! Skips silently when no JDK is available (CI installs one) — fixture
 //! compilation needs `javac`.
@@ -49,6 +53,25 @@ fn javac_binary() -> String {
     std::env::var("J2R_JAVAC").unwrap_or_else(|_| "javac".to_string())
 }
 
+/// One emission mode under test. `Base` is the approved default; the
+/// investigation modes must never change observable output.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Base,
+    Cfg,
+    Typed,
+}
+
+impl Mode {
+    fn flag_name(self) -> &'static str {
+        match self {
+            Mode::Base => "base",
+            Mode::Cfg => "emit_cfg",
+            Mode::Typed => "emit_typed",
+        }
+    }
+}
+
 struct Out {
     code: i32,
     stdout: String,
@@ -57,17 +80,23 @@ struct Out {
 
 /// Compiles `fixture` into a native binary with the given emission mode and
 /// runs it, capturing all three channels.
-fn build_and_run(fixture: &std::path::Path, emit_cfg: bool, tag: &str) -> Out {
-    let tmp = std::env::temp_dir().join(format!(
-        "j2r-cfg-equiv-{}-{}",
-        tag,
-        fixture.file_stem().unwrap().to_string_lossy()
-    ));
-    let _ = std::fs::remove_dir_all(&tmp);
+fn build_and_run(fixture: &std::path::Path, mode: Mode, tag: &str) -> Out {
+    // Stable per-mode crate dirs (no fixture suffix): the vendored runtime
+    // path stays identical across fixtures, so with the shared
+    // CARGO_TARGET_DIR below the expensive runtime compile unit builds ONCE
+    // per suite instead of once per fixture × mode (the typed wave made
+    // that 3 × N cold builds ≈ 23 min; with the cache it is minutes). The
+    // crate src and classes are wiped before every regeneration so stale
+    // modules of a previous fixture cannot leak into this one's build.
+    // The single #[test] drives everything sequentially, so the shared
+    // target's fixed bin path is never raced between build and run.
+    let tmp = std::env::temp_dir().join(format!("j2r-cfg-equiv-{tag}"));
     std::fs::create_dir_all(&tmp).expect("tmp dir");
 
     let classes = tmp.join("classes");
+    let _ = std::fs::remove_dir_all(&classes);
     std::fs::create_dir_all(&classes).expect("classes dir");
+    let _ = std::fs::remove_dir_all(tmp.join("crate").join("src"));
     let jc = Command::new(javac_binary())
         .arg("-d")
         .arg(&classes)
@@ -93,23 +122,33 @@ fn build_and_run(fixture: &std::path::Path, emit_cfg: bool, tag: &str) -> Out {
         main_class: None,
         crate_name: "j2r-cfg-equiv".to_string(),
         out_dir: tmp.join("crate"),
-        emit_cfg,
+        emit_cfg: mode == Mode::Cfg,
+        emit_typed: mode == Mode::Typed,
     };
     let dir = j2r_codegen::compile_to_crate(&opts).expect("codegen");
+    // One shared target dir for the whole suite: per-mode crate dirs keep
+    // the vendored runtime path stable, and the runtime sources are
+    // identical for every fixture, so after the first build per mode the
+    // runtime artifact is a cache hit (content-idempotent vendoring in
+    // emit_crate keeps its mtimes valid).
+    let shared_target = std::env::temp_dir().join("j2r-cfg-equiv-target");
+    std::fs::create_dir_all(&shared_target).expect("shared target dir");
     let build = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
         .arg("build")
         .arg("--quiet")
         .arg("--manifest-path")
         .arg(dir.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", &shared_target)
         .output()
         .expect("spawn cargo");
     assert!(
         build.status.success(),
-        "cargo build failed (emit_cfg={emit_cfg}) for {}: {}",
+        "cargo build failed (mode={}) for {}: {}",
+        mode.flag_name(),
         fixture.display(),
         String::from_utf8_lossy(&build.stderr)
     );
-    let bin = dir.join("target").join("debug").join("j2r_cfg_equiv");
+    let bin = shared_target.join("debug").join("j2r_cfg_equiv");
     let run = Command::new(&bin).output().expect("run native binary");
     Out {
         code: run.status.code().unwrap_or(-1),
@@ -203,26 +242,32 @@ fn emit_cfg_output_equivalence_across_suite() {
     let mut failures = Vec::new();
     for fixture in &fixtures {
         let name = fixture.file_stem().unwrap().to_string_lossy().into_owned();
-        let base = build_and_run(fixture, false, "base");
-        let cfg = build_and_run(fixture, true, "cfg");
-        if base.code != cfg.code || base.stdout != cfg.stdout || base.stderr != cfg.stderr {
-            failures.push(format!(
-                "{name}: exit {} vs {}, stdout equal: {}, stderr equal: {}",
-                base.code,
-                cfg.code,
-                base.stdout == cfg.stdout,
-                base.stderr == cfg.stderr
-            ));
+        let base = build_and_run(fixture, Mode::Base, "base");
+        for (mode, run) in [
+            (Mode::Cfg, build_and_run(fixture, Mode::Cfg, "cfg")),
+            (Mode::Typed, build_and_run(fixture, Mode::Typed, "typed")),
+        ] {
+            if base.code != run.code
+                || base.stdout != run.stdout
+                || base.stderr != run.stderr
+            {
+                failures.push(format!(
+                    "{name} ({}): exit {} vs {}, stdout equal: {}, stderr equal: {}",
+                    mode.flag_name(),
+                    base.code,
+                    run.code,
+                    base.stdout == run.stdout,
+                    base.stderr == run.stderr
+                ));
+            }
         }
-        let _ = std::fs::remove_dir_all(
-            std::env::temp_dir().join(format!("j2r-cfg-equiv-base-{name}")),
-        );
-        let _ =
-            std::fs::remove_dir_all(std::env::temp_dir().join(format!("j2r-cfg-equiv-cfg-{name}")));
+        // The stable per-mode dirs are reused across fixtures (src and
+        // classes are wiped inside build_and_run), so there is nothing to
+        // remove here anymore.
     }
     assert!(
         failures.is_empty(),
-        "emit_cfg changed observable output for {} fixture(s):\n{}",
+        "an investigation mode changed observable output for {} fixture(s):\n{}",
         failures.len(),
         failures.join("\n")
     );

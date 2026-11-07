@@ -125,6 +125,7 @@ fn handcrafted_class_runs_natively() {
         crate_name: "j2r-e2e-app".to_string(),
         out_dir: dir.join("out"),
         emit_cfg: false,
+        emit_typed: false,
     };
     j2r_codegen::compile_to_crate(&opts).expect("codegen succeeds");
 

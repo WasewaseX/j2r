@@ -985,6 +985,66 @@ local full-gate sweep at the same tree).**
       (total 5 flattened); runtime 163/163. Suite 108 -> 109; guard
       107 -> 108; README counts synced (109 programs, 109/109
       cfg-identical). CI evidence: (this commit).
+- [x] **Corpus wave 4: java-string-similarity — LANDED (2026-11-07)** —
+      the fourth real-world corpus entry: tdebatty/java-string-similarity
+      v0.24 (Apache-2.0, 15 algorithm classes + 5 interfaces +
+      experimental/Sift4, ~2k LOC) — the SAME library the owner's
+      external report converted with cguz/java-to-rust into 27 broken
+      .rs files and 309 rustc errors. Through j2r it compiles clean and
+      runs OUTPUT-IDENTICAL vs Temurin 21.0.13 (driver
+      StringsSimCorpus, vendored corpus/stringsim/, merged by
+      scripts/build_corpus_stringsim.sh; corpus_suite 3 -> 4 entries,
+      70.9s local). The driver pins the report's silent-semantic rows
+      differentially: Levenshtein(emoji, "x") = 2.0 (UTF-16 code-unit
+      law), JaroWinkler's f32-fidelity bits 0.996666669845581 (the
+      report's B17), the NBSP-survives-whitespace-collapse profile
+      (B21/ASCII-\\s), entrySet-ordered profile prints (HashMap order
+      law), Sift4's method-local class + LinkedList, interface dispatch
+      through user impls, and the message-exact null/k<=0 error paths.
+      What the wave closed (each by a loud failure or the differential):
+      Map.entrySet + Map.Entry (the JDK's iterator hands out the
+      internal Node as Map.Entry; rows at the concrete AND interface
+      levels; the Node-implements-Map$Entry subtype law for the
+      enhanced-for's checkcast), Collections.unmodifiableMap (read-
+      forwarding wrapper, message-less UnsupportedOperationException on
+      put), Set/HashSet.addAll (Collection-dispatch iteration — and a
+      caught-in-the-act L3 violation: the first draft nested heap guards
+      and deadlocked at 0% CPU; flattened per the module lock law),
+      the java/util/Map interface-level entrySet row, and
+      java.util.regex LANDED NARROW — Pattern.compile("\\s+") +
+      Matcher.replaceAll with the ASCII-[ \\t\\n\\x0B\\f\\r] law hardcoded
+      (crates/j2r-runtime/src/regex.rs), the registered gap's landing
+      condition, NBSP pinned differentially, every other pattern loud.
+      Bench rows NOT taken this wave (correctness first; the JamaBench
+      steady-state protocol applies when they are). CI evidence: (this
+      commit).
+- [x] **Wave-4 verification + two defects closed (2026-11-08)** — the
+      landing session died before the suite battery ran; this session ran
+      it and the cfg_equiv harness caught a LIVE silent-semantic bug in
+      the new typed-operand backend: BigJson `Parser.skipWs()V` panicked
+      "expected int value, got Void" (exit 101) — the typed preamble read
+      EVERY entry-live local from the unmarshal Vec, but only incoming
+      argument slots hold values there; skipWs's loop-live `c` local is
+      not an argument, so `v1e0 = __loc_tmp[1].expect_int()` read Void.
+      Fix (typed.rs): arg-slot count computed from the descriptor
+      (parse_method_desc + type_slots, slot-widened, +1 for `this`) and
+      BOTH the Var::Cell and Var::Typed preamble branches now read
+      __loc_tmp only for j < arg_slots; non-arg locals take the JVM entry
+      default (verifier law: store before read). type_slots re-exported
+      from the runtime root. Second fix: the wave made cfg_equiv 3× the
+      work (base+cfg+typed) with per-fixture cold crate dirs → ~20 s per
+      fixture, ~23 min per suite (three 10-min tool windows died on it);
+      now stable per-mode crate dirs + ONE shared CARGO_TARGET_DIR +
+      content-idempotent runtime vendoring (emit.rs copy_file_idempotent:
+      copy only on content change, prune stale upstream files, mtimes —
+      hence cargo fingerprints — survive regeneration; self-healing on
+      partial writes). Measured: 19.5 s → 4.9 s per fixture warm,
+      shard ≈ 294 s. Full battery green: cfg_equiv 109 × {base,cfg,typed}
+      zero divergences (shards 0/2 293.6 s, 1/2 296.1 s), diff_suite
+      109 fixtures (368.4 s + 360.7 s), corpus_suite 4/4 vs Temurin
+      (69.9 s), runtime 163/163, codegen 98+12+1, jar 3, lambda 2,
+      soe 1. Shrink guard 108 = 109 on disk − 1; README counts
+      untouched (109 programs, 109/109). CI evidence: (this commit).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 

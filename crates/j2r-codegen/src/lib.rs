@@ -24,6 +24,7 @@ pub mod ir;
 pub mod lambda;
 pub mod readiness;
 pub mod specialize;
+pub mod typed;
 pub mod verify;
 
 /// Method plans + clinit fn name + indy sites (concat + lambda) for one class.
@@ -131,6 +132,11 @@ pub struct Options {
     /// to the approved pc-dispatch body per method otherwise. Default
     /// **off** — the dispatch emission is the approved default.
     pub emit_cfg: bool,
+    /// The registered typed-operand lever (docs/TYPED_REGISTER_READINESS.md
+    /// §5, step 2): emit per-epoch typed operand storage for methods the
+    /// readiness analysis plans, falling back per method otherwise. Default
+    /// **off**. Mutually exclusive with `emit_cfg`.
+    pub emit_typed: bool,
 }
 
 impl Options {
@@ -142,6 +148,7 @@ impl Options {
             crate_name: "j2r-app".to_string(),
             out_dir,
             emit_cfg: false,
+            emit_typed: false,
         }
     }
 }
@@ -312,6 +319,13 @@ fn builtin_is_instantiable(class: &str) -> bool {
             | "java/util/ArrayList"
             | "java/util/HashMap"
             | "java/util/HashSet"
+            // stringsim corpus wave (2026-11-07): entrySet views, the
+            // unmodifiableMap wrapper, and Sift4's LinkedList — slots
+            // owned by j2r-runtime/src/collections.rs
+            | "java/util/HashMap$EntrySet"
+            | "java/util/HashMap$EntryIterator"
+            | "java/util/Collections$UnmodifiableMap"
+            | "java/util/LinkedList"
             // corpus wave 1 (F3): java.io StringWriter/StringReader —
             // payloads managed by j2r-runtime/src/io.rs; the layout pass
             // skips builtins
