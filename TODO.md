@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-06.
+fix the board. Last updated: 2026-11-08.
 
 Project: J2R — Java → Rust compiler, 100% safe Rust (zero `unsafe`).
 North star: compile Minecraft Java Edition + mods (Fabric/Forge/NeoForge,
@@ -778,7 +778,20 @@ local full-gate sweep at the same tree).**
       the verifier lattice stays loud BY DESIGN (a registered limit with
       a precise error, not undone work — docs/CORPUS_WAVE.md §gaps);
       depth 4 was closed by the depth-4 verifier wave (see the entry in
-      §Corpus & quality).
+      §Corpus & quality). Closure design DECIDED (2026-11-08, owner asked
+      "this is still remaining huh?"): the depth-3/4 waves ENUMERATED
+      variants (RefPrimArray2/3 x Int/Long/Float/Double in ir.rs + the
+      match arms in verify.rs array_elem_kind/elem_vty); a depth-5 wave
+      would add four more variants and every future depth four more —
+      the registered closure instead REPLACES the enumeration with a
+      recursive descriptor (Nest(Box<ElemKind>) folded through
+      array_elem_kind/elem_vty and the heap's shape dispatch), one wave,
+      any depth. Deliberately NOT scheduled ahead of the typed-operand
+      unification: no corpus entry or fixture on disk uses depth >= 5,
+      the limit fails LOUD with the descriptor in the message (never a
+      silent miscompile), and the recursion touches the same
+      shape/verify seams the typed backend is currently moving through.
+      Trigger to pull forward: any real program needing 5+ nesting.
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script
@@ -1062,6 +1075,89 @@ local full-gate sweep at the same tree).**
       (docs/TYPED_REGISTER_READINESS.md §5). Harness extended with
       `--emit-typed` passthrough + `[typed]` CSV row suffix; full table +
       repro in docs/BENCHMARKS.md addendum 3. CI evidence: (this commit).
+- [x] **External report v1.1 audit (2026-11-08, owner directive: check
+      the claims)** — the owner's THIRD external conversion run ingested:
+      java-string-similarity v2.0.0 (info.debatty, 17 files / 1,970 LOC)
+      through cguz/java2rust — raw output 432 rustc errors on 18 files
+      (bugs_v1.1 B01-B20), hand-fixed port verified bit-exact on 14
+      workloads / ~1.6M calls (results_v1.1), improvement plan opt_v1.1
+      (O1-O17). Reconciliation against j2r — the report characterizes a
+      SOURCE-level transpiler emitting Java-shaped Rust; j2r compiles
+      .class BYTECODE through a typed IR + verifier, so the classes are
+      either unrepresentable here or already pinned differentially:
+      B01/B02 (bare null/throw emitted) + B12 (for-let-in hybrid) + B16
+      (token soup) = parse-model artifacts of a text-to-text pass, no
+      counterpart (typed IR, verifier store-before-read law); B03
+      (implements -> #[derive]) = j2r emits real impls (interface
+      dispatch through user impls pinned by corpus wave 4); B04
+      (Serializable supertrait) = marker interfaces resolve to no-ops or
+      loud unknown-class errors, never bare identifiers; B05/B13 (JDK
+      API passed through) = the stringsim corpus ITSELF compiles clean
+      through j2r (HashMap profiles, LinkedList, String API, entrySet —
+      wave-4 evidence); B06 (same-package use) = per-class modules from
+      bytecode references, pinned by every multi-class corpus; B07/B08
+      (inheritance erased, parent ctor dropped = SILENT k-uninitialized)
+      = <init> bytecode CONTAINS the super call — the silent class
+      cannot exist; vtable dispatch + ShingleBased subclasses pinned;
+      B09 (static prefix dropped) = invokestatic carries the class ref;
+      B10 (overload collision) = bytecode (name,descriptor) pairs are
+      distinct, distance(s1,s2) vs distance(s1,s2,int) coexist in the
+      corpus driver; B11 (new T[n] -> const-size array) = anewarray
+      carries a runtime length -> heap arrays (DeepArraysProbe pins
+      depth 3/4); B14 (int literal where f64) = typed IR makes E0308
+      unrepresentable (same finding as the v0.24 mapping); B15 (&String
+      vs &str) = generated-crate-internal ABI, ergonomics of hand-
+      written callers is a non-goal (NAIL); B17 (comment mojibake) = j2r
+      reads binary class files (modified UTF-8, JVMS 4.4.7, pinned by
+      Utf16Probe) — no source-charset round-trip exists (NAIL); B18
+      (CLI -o silently ignored) = checked on j2r itself: --out is
+      exercised by EVERY corpus build (build_corpus_*.sh + bench_suite
+      pass --out work/crate and consume the crate there) — flag honored
+      (NAIL with evidence); B19 (anonymous classes) = Enclosing$1 are
+      real classes at bytecode level with real implements; B20 (println
+      &f64) = println(Object) goes through runtime boxing +
+      String.valueOf (Fmt fixtures). Carries REGISTERED from opt_v1.1:
+      O14-O16 perf evidence (short-string per-call allocation vs
+      charAt; one-String-per-shingle vs borrow-slices; UNBOXED primitive
+      map values = the port's 2.34x W7b win) feeds the operand-stack
+      unification lever — collection VALUE boxing in j2r's generated
+      maps is a real question to measure once the typed backend lands
+      (added to docs/TYPED_REGISTER_READINESS.md scope); O17 numeric-
+      fidelity policy = already the house law (f32 stays f32,
+      bit-exactness pinned by FPProbe/HexFloat + wave-4 rows). The
+      14-workload table itself is the hand-port's evidence, not j2r's;
+      the j2r-side action it names — the missing StringsSimCorpus bench
+      row — is TAKEN this session (R5 entry + docs/BENCHMARKS.md
+      addendum 4).
+- [x] **AI-slop scanner audit (2026-11-08, owner directive "ai slop
+      scanner said these check the claims")** — every claim checked
+      against the tree; ONE true positive fixed, the rest verified as
+      corpus-by-design or upstream-verbatim:
+      * swallowed-exception x6 corpus/jzlib/{ZOutputStream,GZIPInputStream,
+        Deflate}.java — UPSTREAM-VERBATIM jzlib bodies (the vendored
+        library the differential pins: Deflate.clone's
+        catch(CloneNotSupportedException){}, GZIPInputStream's
+        read-swallow-then-break-on--1 are the upstream control flow);
+        "fixing" them would stop pinning the library they exist to pin.
+        NO ACTION (fidelity).
+      * swallowed-exception x3 corpus/JZlibCorpus.java:2051/2852/6703 —
+        the SAME upstream fragments inside the mechanically merged
+        driver (build_corpus_jzlib.sh must not hand-edit library
+        bodies). NO ACTION (fidelity).
+      * scripts/bench_suite.py:83 `except Exception: pass` — TRUE
+        POSITIVE, fixed: narrowed to `except OSError` (the only failure
+        mode of Path.read_text) with the rationale inline, so a
+        programming error in report metadata can no longer hide. (The
+        scanner's "bare except" wording was imprecise — it was
+        `except Exception` — the narrowing is right regardless.)
+      * function-too-long x8 + file-too-large + deep-nesting x4
+        (JZlibCorpus.java 7,259 lines, JamaBench.java 3,363 lines) —
+        corpus drivers + vendored upstream, NOT application code: the
+        self-contained single-file driver is the differential design
+        (mechanical merge of vendored library + deterministic
+        workloads), and upstream jzlib's own deflate() is famously
+        huge; an 80-line application limit misfires on every corpus
+        file by construction. NO ACTION (by-design).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 

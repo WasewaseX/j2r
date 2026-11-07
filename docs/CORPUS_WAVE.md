@@ -143,7 +143,14 @@ differential harnesses).
 * InputStream.skip(J) default (JZlib wave), UTF-16 charset family,
   Enum.valueOf — unchanged, loud. (The `[[[<prim>` verifier-depth item was
   closed by the deep-arrays wave for depth 3 and by the depth-4 wave for
-  `[[[[<prim>` — see below; depth >= 5 is the remaining registered limit.)
+  `[[[[<prim>` — see below; depth >= 5 is the remaining registered limit.
+  Closure design DECIDED 2026-11-08: replace the enumerated
+  RefPrimArray2/3 variant families with a recursive element descriptor
+  (`Nest(Box<ElemKind>)` through array_elem_kind/elem_vty and the heap
+  shape dispatch) — one wave, any depth — sequenced AFTER the
+  typed-operand unification (no on-disk program needs depth >= 5; the
+  limit fails loud with the exact descriptor; see TODO.md wave
+  residuals).)
 
 ## Wave order
 
@@ -302,7 +309,11 @@ because it is part of the reproduction command.
   site, shallow clone, arraycopy, null-row NPE, instanceof + getName
   shapes, the `[[[F`-into-`[[[I` ASE message) — byte-identical vs
   Temurin. **Depth >= 5 is the remaining registered limit** (loud Ref
-  collapse; verifier tests pin it).
+  collapse; verifier tests pin it). Closure design DECIDED 2026-11-08:
+  recursive element descriptor replacing the enumerated variant
+  families, one wave for any depth, sequenced after the typed-operand
+  unification — see TODO.md wave residuals for the full rationale and
+  the pull-forward trigger.
   AND the aastore ArrayStoreException message was fixed by
   corpus/AseProbe.java (5 shapes): Temurin prints the STORED object's
   external name ALONE (`java.lang.Object`, `AseProbe$Inner` binary with

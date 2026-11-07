@@ -343,3 +343,38 @@ Repro (2-core Xeon / 4 GB sandbox, Temurin 21.0.13+9):
         --main-class JamaBench --crate-name j2r_app
     cargo build --release --manifest-path /tmp/jb-typed/Cargo.toml
     time /tmp/jb-typed/target/release/j2r_app   # 355.9 s, byte-identical
+
+## 2026-11-08 addendum 4 — StringsSimCorpus bench row taken (the wave-4 deferral closed)
+
+Corpus wave 4 landed the java-string-similarity differential WITHOUT a
+bench row ("correctness first; the JamaBench steady-state protocol
+applies when they are"). Row taken this session, same protocol as the
+2026-11-06 corpus rows (median of 5, 1 warmup; the harness's fulljit
+channel raises the java-full warmups to 2 itself), 2-core Xeon / 4 GB
+sandbox, Temurin 21.0.13+9, release j2r at 485297f + this commit's tree:
+
+    fixture             javac(s) javaC1(ms) javaFull(ms) j2r-gen(s) native(ms) nat/C1 nat/full
+    StringsSimCorpus       1.119       68.7         70.5      15.91        4.0   0.058   0.057
+
+CSV: scripts/bench_results_fulljit.csv stamp 2026-11-07T20:41:42
+(native_reps=5, native_warmups=1). Reading, honestly and by the
+standing rule that neighboring rows must travel together: this driver
+run is STARTUP-DOMINATED (the algorithm battery runs once, ms-scale),
+so 0.058 sits on the same line as MinimalJsonCorpus 0.034 and
+JamaCorpus ~0.09 — native is ~17x ahead in wall time at this run
+length. It is NOT a steady-state claim and must never be quoted
+against the JamaBench steady-state row (nat/full 98.1x the other
+direction, docs above): different regimes, neither quotable without
+the other. j2r-gen 15.91 s = translation + offline release build of
+the generated crate (the compile-side cost, same shape as the other
+corpus rows). The owner's independent hand-port evidence
+(results_v1.1: 4/14 workloads to Rust, 1.8-2.3x on reuse-heavy,
+0.6-0.77x on short-string per-call) is a STEADY-STATE-REGIME data
+point for the typed-operand lever, not for this row — see
+docs/TYPED_REGISTER_READINESS.md §5 item 3 for the registered
+collection-boxing measurement it motivates.
+
+Repro:
+
+    export PATH="$HOME/.cargo/bin:$PATH"
+    python3 scripts/bench_suite.py StringsSimCorpus --reps 5 --warmups 1 --fulljit

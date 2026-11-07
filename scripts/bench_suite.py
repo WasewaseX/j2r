@@ -76,11 +76,14 @@ def have(tool: str) -> bool:
 
 
 def cpu_model() -> str:
+    # Best-effort report metadata only; read_text can only fail with an
+    # OSError (missing /proc, permissions) — narrowed per the ai-slop
+    # audit so a programming error here can no longer be swallowed.
     try:
         for line in Path("/proc/cpuinfo").read_text().splitlines():
             if line.startswith("model name"):
                 return line.split(":", 1)[1].strip()
-    except Exception:
+    except OSError:
         pass
     return platform.processor() or "unknown"
 

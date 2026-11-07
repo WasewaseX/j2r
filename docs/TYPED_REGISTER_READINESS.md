@@ -158,6 +158,14 @@ named lift-closure items are its prerequisites, not alternatives.
    the hot kernels (hqr2 28/33 clean positions) — a per-position hybrid
    (typed epochs where clean, `Value` where mixed) is a design option the
    typed wave should decide with this census as its baseline.
+3. **Collection VALUE boxing** (scope added 2026-11-08 from the owner's
+   opt_v1.1 evidence): the owner's hand-port measured HashMap<String,i32>
+   beating the JVM's boxed HashMap<String,Integer> 2.34x on the
+   profile-reuse workload (results_v1.1 W7b) — after the typed-operand
+   unification lands, measure whether j2r's generated `Map<String,Integer>`
+   still pays per-entry `Value` boxing (obj_get/obj_set vs a primitive
+   specialization path) on the stringsim profile workloads, and register
+   the honest number either way (docs/BENCHMARKS.md).
 
 ## 6. Reproduction
 
