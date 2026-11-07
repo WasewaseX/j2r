@@ -3,11 +3,18 @@
 //! F1 registered the writer/reader HIERARCHY; this module provides the
 //! BEHAVIOR the minimal-json corpus actually drives:
 //!
-//! * `StringWriter` — payload string in own slot 1 (slot 0 is Writer's
-//!   inherited `lock`), `write` appends, `toString` returns the payload,
-//!   `close` is a no-op exactly like the JDK. The payload is a `Value::Str`
-//!   held directly in the slot — appends are O(n) total via Rust string
-//!   growth, and no intermediate buffer object is allocated.
+//! * `StringWriter` — buffer string in own slot 1 (slot 0 is Writer's
+//!   inherited `lock`), `write` appends IN PLACE via `Arc::make_mut`
+//!   (O(1) amortized per append, linear total — the runtime-io wave of
+//!   2026-11-07 replaced the old clone-payload-per-append path, which
+//!   was quadratic exactly as the external org.json conversion report
+//!   predicted for naive StringWriter models), `toString` returns the
+//!   payload, `close`/`flush` are no-ops exactly like the JDK.
+//!   `write(I)V` keeps only the 16 low-order bits (JDK's `(char) c`
+//!   law — pinned by the StringIoSemantics fixture). A payload is a
+//!   Rust `String`, so LONE UTF-16 units written through `write(int)`
+//!   (surrogates) degrade to U+FFFD — documented limit, unchanged by
+//!   this wave; astral SCALARS truncated to units are now JDK-exact.
 //! * `java/io/Writer` rows for the abstract declarations the compile-time
 //!   surface walk must find (`write(I)V`, `write([CII)V`,
 //!   `write(String)V`, `write(String,II)V`). These are markers: every
@@ -15,17 +22,42 @@
 //!   classes like WritingBuffer in compiled code), so dispatching to a
 //!   marker means the object model was violated — fail loud.
 //!
-//! Writer's `flush` is NOT registered: nothing in the corpus dispatches
-//! it, and the honest surface rule is "register what is called". The
-//! corpus runner will name it loudly if that ever changes.
+//! Writer's `flush` is NOT registered on the abstract base: nothing in
+//! the corpus dispatches it, and the honest surface rule is "register
+//! what is called". The corpus runner will name it loudly if that ever
+//! changes.
+//!
+//! * `StringReader` — the runtime-io wave (2026-11-07) replaced the
+//!   remaining-string payload model (clone-per-read, quadratic drain —
+//!   org.json conversion-report finding #1) with the ByteArrayInputStream
+//!   cursor model: slot 0 = inherited `lock`, slot 1 = the FULL text
+//!   (`Value::Str`, immutable for the reader's lifetime), slot 2 = pos
+//!   (UTF-16 CODE-UNIT offset), slot 3 = mark, slot 4 = closed. reads
+//!   return UTF-16 code units (JDK's Reader.read() law: one 16-bit unit,
+//!   surrogate pairs as two reads) — replacing the old scalar convention
+//!   for supplementary-plane inputs, which was a documented divergence
+//!   from the JDK contract (org.json finding #3). The full JDK surface is
+//!   now modeled with the TEMURIN-21-EMPIRICAL laws (the probe caught the
+//!   Java-13-era CSR changes before they shipped): skip(negative)
+//!   returns 0 and does NOT throw; reset() before any mark() resets to
+//!   position 0 (mark initializes to 0 — the old "Mark invalid"
+//!   IOException is gone from the modern JDK); mark(readAheadLimit)
+//!   still rejects negative limits ("Read-ahead limit < 0"); close()
+//!   is idempotent and every subsequent op throws IOException "Stream
+//!   closed"; bulk reads range-check with the Objects.checkFromIndexRange
+//!   message ("Range [off, off + len) out of bounds for length n") BEFORE
+//!   the len==0 short-circuit. BMP behavior is unchanged from the old
+//!   model, so corpus goldens are unaffected; the astral contract is
+//!   pinned by the StringIoSemantics suite fixture.
 //!
 //! Range writes slice by Unicode scalar values (Rust `char`), which
 //! matches UTF-16 code units for the BMP — everything the corpus driver
 //! writes is ASCII. Supplementary-plane slicing by UTF-16 index is a
-//! documented limit until the string wave lands.
+//! documented limit until the string model can hold lone units.
 
 use crate::heap::{with_obj, with_obj_mut, JRef};
 use crate::{internal_error, throw_new, Dispatch, Throw, Value};
+use std::sync::Arc;
 
 const STRINGWRITER_PAYLOAD: usize = 1;
 
@@ -60,10 +92,19 @@ fn sw_payload(recv: Option<&JRef>, op: &str) -> Result<(JRef, String), Throw> {
 }
 
 fn sw_append(recv: Option<&JRef>, op: &str, add: &str) -> Result<Value, Throw> {
-    let (r, s) = sw_payload(recv, op)?;
-    let mut s = s;
-    s.push_str(add);
-    with_obj_mut(r, |o| o.slots[STRINGWRITER_PAYLOAD] = Value::Str(s.into()));
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing(op)),
+    };
+    // In-place growth: Arc::make_mut clones the buffer only if a snapshot
+    // is currently shared, else appends into the existing allocation.
+    // Linear total; the previous clone-payload-then-restore path was
+    // quadratic in the number of writes (the org.json report's StringWriter
+    // finding, reproduced here).
+    with_obj_mut(r, |o| match &mut o.slots[STRINGWRITER_PAYLOAD] {
+        Value::Str(s) => std::sync::Arc::make_mut(s).push_str(add),
+        other => panic!("j2r internal: StringWriter payload {other:?}"),
+    });
     Ok(Value::Void)
 }
 
@@ -80,7 +121,13 @@ pub fn n_sw_write_int(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Re
         Some(v) => v.expect_int(),
         None => return Err(missing("StringWriter.write")),
     };
-    let ch = char::from_u32(c as u32).unwrap_or('\u{fffd}');
+    // JDK Writer.write(int): only the 16 low-order bits are written —
+    // `write(0x1F340)` appends the single unit 0xF340, never the astral
+    // scalar. A lone surrogate unit degrades to U+FFFD (Rust String
+    // payload limit, documented in the module header); every BMP unit is
+    // exact.
+    let unit = (c as u32) & 0xFFFF;
+    let ch = char::from_u32(unit).unwrap_or('\u{fffd}');
     let mut buf = String::with_capacity(4);
     buf.push(ch);
     sw_append(recv, "StringWriter.write", &buf)
@@ -212,10 +259,53 @@ pub fn n_sw_flush(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resu
 
 // -- StringReader ----------------------------------------------------------
 //
-// The payload slot holds the REMAINING text as a `Value::Str`; reads consume
-// from the front, so the cursor is implicit in the remaining string. read()
-// returns a Unicode scalar value or -1 at EOF (the module-level scalar
-// convention applies to supplementary-plane inputs).
+// The runtime-io wave (2026-11-07) cursor model, following the
+// ByteArrayInputStream precedent: slot 0 = inherited `lock`, slot 1 = the
+// FULL text (Value::Str, immutable for the reader's lifetime), slot 2 =
+// pos (UTF-16 CODE-UNIT offset), slot 3 = mark, slot 4 = closed. Reads
+// return UTF-16 code units (the JDK Reader law: read() yields one 16-bit
+// unit, surrogate pairs as two reads) — the old scalar-value convention
+// diverged from the JDK contract on astral input (the external org.json
+// conversion report's finding #3). Draining is linear: no clone-per-read.
+
+const SR_TEXT: usize = 1;
+const SR_POS: usize = 2;
+const SR_MARK: usize = 3;
+const SR_CLOSED: usize = 4;
+
+/// The text's UTF-16 units + current pos, cloned out of the heap so the
+/// object lock is not held across read loops.
+fn sr_state(r: &JRef) -> (Arc<String>, i32) {
+    with_obj(*r, |o| {
+        let text = match &o.slots[SR_TEXT] {
+            Value::Str(s) => s.clone(),
+            other => panic!("j2r internal: StringReader text {other:?}"),
+        };
+        let pos = match &o.slots[SR_POS] {
+            Value::Int(v) => *v,
+            other => panic!("j2r internal: StringReader pos {other:?}"),
+        };
+        (text, pos)
+    })
+}
+
+fn sr_set_pos(r: &JRef, pos: i32) {
+    with_obj_mut(*r, |o| o.slots[SR_POS] = Value::Int(pos));
+}
+
+fn sr_state_int(r: &JRef, slot: usize) -> i32 {
+    with_obj(*r, |o| match &o.slots[slot] {
+        Value::Int(v) => *v,
+        other => panic!("j2r internal: StringReader slot {slot} is {other:?}"),
+    })
+}
+
+fn sr_ensure_open(r: &JRef) -> Result<(), Throw> {
+    if sr_state_int(r, SR_CLOSED) != 0 {
+        return Err(throw_new("java/io/IOException", Some("Stream closed")));
+    }
+    Ok(())
+}
 
 pub fn n_sr_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = match recv {
@@ -231,39 +321,38 @@ pub fn n_sr_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<
     };
     with_obj_mut(r, |o| {
         o.slots[0] = Value::Ref(Some(r));
-        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::sync::Arc::new(s));
+        o.slots[SR_TEXT] = Value::Str(std::sync::Arc::new(s));
+        o.slots[SR_POS] = Value::Int(0);
+        o.slots[SR_MARK] = Value::Int(0);
+        o.slots[SR_CLOSED] = Value::Int(0);
     });
     Ok(Value::Void)
 }
 
-/// `Reader.read()` — one character, -1 at EOF.
+/// `Reader.read()` — one UTF-16 code unit, -1 at EOF (JDK law: surrogate
+/// pairs arrive as two reads; the old scalar convention is retired).
 pub fn n_sr_read(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = match recv {
         Some(r) => *r,
         None => return Err(missing("StringReader.read")),
     };
-    let remaining = with_obj(r, |o| match &o.slots[STRINGWRITER_PAYLOAD] {
-        Value::Str(st) => st.to_string(),
-        other => panic!("j2r internal: StringReader payload {other:?}"),
-    });
-    let mut it = remaining.chars();
-    let head = match it.next() {
-        Some(c) => c,
-        None => return Ok(Value::Int(-1)),
-    };
-    let rest: String = it.collect();
-    with_obj_mut(r, |o| {
-        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::sync::Arc::new(rest))
-    });
-    Ok(Value::Int(head as i32))
+    sr_ensure_open(&r)?;
+    let (text, pos) = sr_state(&r);
+    let units: Vec<u16> = text.encode_utf16().collect();
+    if pos as usize >= units.len() {
+        return Ok(Value::Int(-1));
+    }
+    sr_set_pos(&r, pos + 1);
+    Ok(Value::Int(units[pos as usize] as i32))
 }
 
-/// `Reader.read(char[], off, len)` — bulk read, returns the count or -1.
+/// `Reader.read(char[], off, len)` — UTF-16 code units, count or -1.
 pub fn n_sr_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = match recv {
         Some(r) => *r,
         None => return Err(missing("StringReader.read")),
     };
+    sr_ensure_open(&r)?;
     let (cbuf, off, len) = match (args.first(), args.get(1), args.get(2)) {
         (Some(Value::Ref(Some(a))), Some(o), Some(l)) => (*a, o.expect_int(), l.expect_int()),
         (Some(Value::Ref(None)), _, _) => {
@@ -271,40 +360,131 @@ pub fn n_sr_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
         }
         _ => return Err(missing("StringReader.read")),
     };
+    // JDK: plain IndexOutOfBoundsException carrying the modern
+    // Objects.checkFromIndexRange message, checked BEFORE the len==0
+    // short-circuit (Temurin-21-empirical, pinned by StringIoSemantics).
+    let alen = crate::array::array_length(&cbuf)?;
+    if off < 0 || len < 0 || off > alen || off + len > alen || off + len < 0 {
+        return Err(throw_new(
+            "java/lang/IndexOutOfBoundsException",
+            Some(&format!(
+                "Range [{off}, {off} + {len}) out of bounds for length {alen}"
+            )),
+        ));
+    }
     if len == 0 {
         return Ok(Value::Int(0));
     }
-    let remaining = with_obj(r, |o| match &o.slots[STRINGWRITER_PAYLOAD] {
-        Value::Str(st) => st.to_string(),
-        other => panic!("j2r internal: StringReader payload {other:?}"),
-    });
-    let mut it = remaining.chars();
-    let mut n = 0i32;
-    let mut out: Vec<Value> = Vec::new();
-    while n < len {
-        match it.next() {
-            Some(c) => {
-                out.push(Value::Int(c as i32));
-                n += 1;
-            }
-            None => break,
-        }
-    }
-    if n == 0 {
+    let (text, pos) = sr_state(&r);
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let avail = units.len() as i32 - pos;
+    if avail <= 0 {
         return Ok(Value::Int(-1));
     }
-    let rest: String = it.collect();
-    with_obj_mut(r, |o| {
-        o.slots[STRINGWRITER_PAYLOAD] = Value::Str(std::sync::Arc::new(rest))
-    });
-    for (i, v) in out.into_iter().enumerate() {
-        crate::array::array_store(&cbuf, off + i as i32, v, ctx)?;
+    let n = len.min(avail);
+    for i in 0..n {
+        let v = units[(pos + i) as usize] as i32;
+        crate::array::array_store(&cbuf, off + i, Value::Int(v), ctx)?;
     }
+    sr_set_pos(&r, pos + n);
     Ok(Value::Int(n))
 }
 
-/// `StringReader.close()` has no effect on the JDK — same here.
-pub fn n_sr_close(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+/// `Reader.skip(long)` — UTF-16 units, clamped to the remaining count.
+/// Temurin-21-EMPIRICAL law (the probe caught it): a NEGATIVE n returns 0
+/// and does NOT throw — the old IllegalArgumentException("skip value is
+/// negative") is gone from the modern JDK (the Java-13-era CSR change).
+pub fn n_sr_skip(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("StringReader.skip")),
+    };
+    sr_ensure_open(&r)?;
+    let n = match args.first() {
+        Some(v) => v.expect_long(),
+        None => return Err(missing("StringReader.skip")),
+    };
+    if n <= 0 {
+        return Ok(Value::Long(0));
+    }
+    let (text, pos) = sr_state(&r);
+    let total = text.encode_utf16().count() as i64;
+    let moved = n.min(total - pos as i64);
+    sr_set_pos(&r, pos + moved as i32);
+    Ok(Value::Long(moved))
+}
+
+/// `Reader.ready()` — true unless closed.
+pub fn n_sr_ready(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("StringReader.ready")),
+    };
+    sr_ensure_open(&r)?;
+    Ok(Value::Int(1))
+}
+
+/// `Reader.markSupported()` — StringReader supports mark/reset. The modern
+/// JDK is a plain `return true` — NO ensureOpen (it declares no checked
+/// exception, so close() cannot affect it; pinned by the cms_closed row).
+pub fn n_sr_mark_supported(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let _ = match recv {
+        Some(r) => *r,
+        None => return Err(missing("StringReader.markSupported")),
+    };
+    Ok(Value::Int(1))
+}
+
+/// `Reader.mark(int)` — records the current unit offset; negative limits
+/// are rejected ("Read-ahead limit < 0" — still live on Temurin 21).
+pub fn n_sr_mark(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("StringReader.mark")),
+    };
+    sr_ensure_open(&r)?;
+    let limit = match args.first() {
+        Some(v) => v.expect_int(),
+        None => return Err(missing("StringReader.mark")),
+    };
+    if limit < 0 {
+        return Err(throw_new(
+            "java/lang/IllegalArgumentException",
+            Some("Read-ahead limit < 0"),
+        ));
+    }
+    let pos = sr_state_int(&r, SR_POS);
+    with_obj_mut(r, |o| o.slots[SR_MARK] = Value::Int(pos));
+    Ok(Value::Void)
+}
+
+/// `Reader.reset()` — restores the marked offset. Temurin-21-EMPIRICAL
+/// law (the probe caught it): mark initializes to 0, so reset() before
+/// any mark() resets to the BEGINNING and does NOT throw — the old
+/// IOException("Mark invalid") is gone from the modern JDK.
+pub fn n_sr_reset(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("StringReader.reset")),
+    };
+    sr_ensure_open(&r)?;
+    let mark = sr_state_int(&r, SR_MARK);
+    sr_set_pos(&r, mark);
+    Ok(Value::Void)
+}
+
+/// `StringReader.close()` — idempotent; every subsequent operation throws
+/// IOException("Stream closed") (the BufferedInputStream closed-flag law).
+pub fn n_sr_close(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = match recv {
+        Some(r) => *r,
+        None => return Err(missing("StringReader.close")),
+    };
+    with_obj_mut(r, |o| o.slots[SR_CLOSED] = Value::Int(1));
     Ok(Value::Void)
 }
 

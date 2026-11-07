@@ -126,9 +126,17 @@ fn differential_suite_matches_jvm() {
     // max(NaN,1.0) returns 1.0's bits on x86-64 while min returns the NaN
     // operand — deliberately not pinned), and abs's wrapping/signed-zero
     // laws: 108 on disk, guard one below that.
+    // The runtime-io wave (2026-11-07, org.json conversion-report
+    // findings #1-#3) added StringIoSemantics — StringReader.read()
+    // returns UTF-16 CODE UNITS (astral = two reads, unit-precise
+    // mark/reset), the full JDK surface (skip clamped + negative-returns-0
+    // Temurin-21-empirical, reset-to-beginning before any mark, the
+    // Objects.checkFromIndexRange bulk-range message, the close law) and
+    // StringWriter's write(int) 16-bit truncation law: 109 on disk, guard
+    // one below that.
     assert!(
-        fixtures.len() >= 107,
-        "differential suite shrank: {} fixtures (expected >= 107)",
+        fixtures.len() >= 108,
+        "differential suite shrank: {} fixtures (expected >= 108)",
         fixtures.len()
     );
 

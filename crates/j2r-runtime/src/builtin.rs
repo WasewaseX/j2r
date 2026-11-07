@@ -351,9 +351,12 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // Writer: slot 0 = the `lock` object ref (WritingBuffer passes it via
         // super(lock)); StringWriter/Reader/StringReader inherit it.
         "java/io/Writer" | "java/io/Reader" => 1,
-        // StringWriter: own slot = the accumulated buffer ref; StringReader:
-        // own slot = payload (string + cursor) held by the runtime.
-        "java/io/StringWriter" | "java/io/StringReader" => 1,
+        // StringWriter: own slot = the accumulated buffer ref (1 own slot
+        // after Writer's inherited lock). StringReader (runtime-io wave
+        // 2026-11-07, ByteArrayInputStream cursor model): text, pos,
+        // mark, closed — 4 own slots; 5 flattened with the lock.
+        "java/io/StringWriter" => 1,
+        "java/io/StringReader" => 4,
         // Real-world corpus wave 2 (JZlib): byte-stream layouts. The abstract
         // bases own nothing; the Filter* pair owns exactly one slot each —
         // the protected field user subclasses touch by name (see
@@ -472,11 +475,12 @@ mod tests {
             builtin_parent_of("java/io/StringReader"),
             Some("java/io/Reader")
         );
-        // Writer + Reader own the lock slot; StringWriter/StringReader own
-        // one payload slot on top of the inherited lock.
+        // Writer + Reader own the lock slot; StringWriter owns one payload
+        // slot on top of it. StringReader (runtime-io wave 2026-11-07)
+        // owns text/pos/mark/closed — 4 own + lock = 5 flattened.
         assert_eq!(builtin_total_slots("java/io/Writer"), Some(1));
         assert_eq!(builtin_total_slots("java/io/StringWriter"), Some(2));
-        assert_eq!(builtin_total_slots("java/io/StringReader"), Some(2));
+        assert_eq!(builtin_total_slots("java/io/StringReader"), Some(5));
         assert!(builtin_is_interface("java/io/Appendable"));
         assert!(builtin_is_interface("java/io/Closeable"));
         assert!(builtin_is_interface("java/io/Flushable"));

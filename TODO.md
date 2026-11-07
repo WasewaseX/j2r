@@ -939,6 +939,52 @@ local full-gate sweep at the same tree).**
       diff suite's standing policy (this wave is exactly that policy
       acting on external evidence, and it caught a real divergence the
       same day it was reported).
+- [x] **Runtime-io wave — LANDED (2026-11-07)** — the org.json conversion
+      report's three runtime findings, implemented as one wave:
+      **StringWriter quadratic -> linear** (report finding #2): the old
+      sw_append cloned the whole payload per append (clone -> push_str
+      -> re-store = O(n^2) over n writes); it now appends IN PLACE via
+      Arc::make_mut inside with_obj_mut — the same linear pattern
+      StringBuilder already used in the same crate. **StringReader
+      quadratic + scalar contract -> cursor model + UTF-16 units**
+      (findings #1 and #3): the remaining-string payload model cloned
+      the tail per read (O(n^2) drain) and read() returned Unicode
+      scalar values on astral input; replaced with the
+      ByteArrayInputStream precedent — own slots text/pos/mark/closed
+      (4 own, 5 flattened with the inherited lock) — and read() now
+      returns UTF-16 CODE UNITS: a supplementary-plane character
+      arrives as its surrogate pair over two reads, mark/reset is
+      unit-precise, retiring the module's scalar convention (a
+      documented divergence from the JDK reader contract). The full
+      JDK surface joined, with THREE post-Java-8 behavior changes the
+      probe caught empirically before the natives shipped: skip(n)
+      is clamped and a NEGATIVE n returns 0 WITHOUT throwing; reset()
+      before any mark() resets to the BEGINNING (mark initializes to
+      0 — the old IOException "Mark invalid" is gone from the modern
+      JDK); bulk-read range errors carry the modern
+      Objects.checkFromIndexRange message ("Range [off, off + len) out
+      of bounds for length n") and are checked BEFORE the len==0
+      short-circuit. Also: mark(readAheadLimit) still rejects negative
+      limits ("Read-ahead limit < 0"); close() is idempotent and every
+      subsequent op throws IOException "Stream closed" — except
+      markSupported(), a plain `return true` with no open check (its
+      JDK signature declares no checked exception; javac rejected the
+      throws-assumption mid-wave, which is exactly what the probe rows
+      are for). StringWriter.write(int) now keeps only the 16
+      low-order bits (the JDK's `(char) c` law — the old code turned
+      write(0x1F340) into the astral scalar instead of the single unit
+      0xF340); lone-surrogate writes degrade to U+FFFD (Rust-String
+      payload limit, documented in io.rs, deliberately unpinned).
+      New fixture **StringIoSemantics** — byte-identical vs Temurin
+      21.0.13 on the first full pass after the empirical-law
+      alignment; cfg-equivalent in all three emission modes. The real
+      StringReader consumers stayed byte-identical: corpus_suite
+      (minimal-json/JZlib/JAMA) green, Buffered/SkipDefault/Pushback/
+      Utf16 neighbors green; builtin.rs StringReader own-slot row
+      1 -> 4 with the corpus_wave1_io_hierarchy unit test co-updated
+      (total 5 flattened); runtime 163/163. Suite 108 -> 109; guard
+      107 -> 108; README counts synced (109 programs, 109/109
+      cfg-identical). CI evidence: (this commit).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 

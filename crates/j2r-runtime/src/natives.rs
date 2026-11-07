@@ -3332,6 +3332,16 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "([CII)I",
         io::n_sr_read_bulk,
     ),
+    ("java/io/StringReader", "skip", "(J)J", io::n_sr_skip),
+    ("java/io/StringReader", "ready", "()Z", io::n_sr_ready),
+    (
+        "java/io/StringReader",
+        "markSupported",
+        "()Z",
+        io::n_sr_mark_supported,
+    ),
+    ("java/io/StringReader", "mark", "(I)V", io::n_sr_mark),
+    ("java/io/StringReader", "reset", "()V", io::n_sr_reset),
     ("java/io/StringReader", "close", "()V", io::n_sr_close),
     // Reader abstract-declaration markers (compile-time surface walk):
     // every concrete Reader overrides read([CII)I and read()I
