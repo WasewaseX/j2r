@@ -860,6 +860,85 @@ local full-gate sweep at the same tree).**
       finding. CI evidence: run 42256131915 on 926b6ca fully green —
       27/27 check jobs success (incl. gate-3 107-fixture differential,
       gate-9 forced-GC solo leg, CodeQL / OSV / Scorecard).
+- [x] **Math-semantics wave — LANDED (2026-11-07)** — the owner's second
+      external conversion report (java-string-similarity, below) named
+      Math.round as a silent-divergence class ("Math.round = floor(x+0.5),
+      NOT f64::round" — its B18). The audit found the SAME class live in
+      j2r's own natives: `n_math_round_d/f` used literal
+      `floor(a + 0.5)` in binary FP, but every JDK since Java 7
+      (JDK-8010430) computes the MATHEMATICAL floor(a + 1/2) by a bit
+      trick. Temurin 21.0.13 ground truth first: round(0.49999999999999994)
+      = 0 and round(0.49999997f) = 0 (a + 0.5 rounds up to 1.0 in binary
+      FP, yet a is still below one half). New fixture **MathSemantics**
+      (60 rows): the round_d/round_f edge battery (just-below-half at both
+      arities, ties, the mathematical-integer cast branch above 2^52/2^23
+      — round(4503599627370497.0) must return ...497 through the (long)
+      cast, not ...498 via a tied a+0.5 — NaN -> 0, ±inf, Long/Int
+      saturation), the min/max signed-zero law (min(+0,-0) = -0,
+      max(-0,+0) = +0, bit-visible via doubleToLongBits), min/max
+      NaN-ness under the canonicalizing bit-conversion contract, and
+      abs's wrapping law (abs(Integer.MIN_VALUE) = MIN_VALUE,
+      abs(-0.0) = +0.0). TDD evidence: the fixture ran RED first with
+      EXACTLY the four predicted rows (rd_just_below_half 1 vs 0,
+      rd_just_above_2p52_int ...498 vs ...497, and both rf rows) — no
+      other row differed, which differentially CONFIRMS the rest of the
+      audited surface was already Temurin-exact (min/max signed zeros and
+      NaN-ness, abs, saturation). Fix: `n_math_round_d`/`n_math_round_f`
+      (langext.rs) port OpenJDK 21's algorithm — shift = 1074 -
+      biased_exp (double) / 149 - biased_exp (float); in [0, 63]/[0, 31]
+      the significand bit trick computes the exact mathematical
+      floor(a + 1/2); outside it Java's (long)/(int) cast applies, which
+      is also Rust's `as` cast contract (NaN -> 0, saturating). GREEN:
+      all 60 rows byte-identical vs Temurin. One documented non-goal:
+      the RAW payload of a NaN returned by Math.min/max is a HotSpot
+      C2-intrinsic artifact (measured on Temurin 21 x86-64:
+      max(NaN,1.0) returns 1.0's bits via maxsd while min returns the
+      NaN operand's bits — operand-order-dependent), so raw-payload
+      equality is deliberately not pinned; the Java spec only requires
+      NaN-ness, and our comparison contract (doubleToLongBits)
+      canonicalizes. Suite 107 -> 108; guard 106 -> 107; README counts
+      synced (108 programs, 108/108 cfg-identical; test count
+      re-measured unchanged at 327 — the fixture adds no Rust tests);
+      gate-11 green locally on a clean worktree at the commit state.
+      CI evidence: (this commit).
+- [x] **External converter-report ingestion — java-string-similarity
+      (2026-11-07, owner-supplied evidence)** — the owner converted
+      tdebatty/java-string-similarity v0.24 (2.5k-star, zero-dependency,
+      17 classes + 5 interfaces, ~2k LOC) with cguz/java-to-rust
+      (java2rust.jar, a regex-shaped SOURCE transpiler) and filed
+      bugs.md + opt.md: 24 bugs (B01-B24), 309 rustc errors on the raw
+      output, 7 silent-semantic classes (B16-B21) that only bit-level
+      differential testing against the JVM exposed, and a 4,074-case
+      doubleToLongBits corpus proving the manually fixed port bit-exact.
+      Positioning recorded (honest): j2r is architecturally immune to
+      the compile-blocker class (B01-B16-for) — JDK symbols resolve
+      through the runtime native table (no java.* leaks), overloads
+      resolve at source level before emission (no rename pass),
+      interfaces/inheritance are structural (vtable traits, real
+      hierarchies), arrays are runtime-allocated vec!s, the module tree
+      + Cargo crate are emitted, and unsupported builtins fail LOUDLY at
+      compile time (the documented JZlib/JAMA wave-gap pattern) instead
+      of emitting broken code silently. Corpus evidence: JZlib (7.2k
+      lines) and JAMA (3.3k lines) compile clean and run output-identical
+      vs Temurin. The report's real value — the silent-semantic classes —
+      mapped against pinned evidence: **B16** (UTF-16 code units, astral
+      chars) = Utf16 fixture + the UTF-16 charset family (already pinned
+      through the JZlib wave); **B17** (float must stay f32) = the
+      bit-exact literal laws (FPProbe/HexFloat) + typed IR carrying
+      Java's float/double distinction; **B18** (Math.round) = CLOSED by
+      this wave; **B19** (implicit widening) = typed-IR types make the
+      E0308 class unrepresentable; **B20** (HashMap iteration-order
+      float aggregation) = HashMapOrder fixture + the org.json suite's
+      order-emulation evidence; **B21** (regex \s ASCII-vs-Unicode) =
+      java.util.regex is NOT a j2r builtin yet — unknown builtins fail
+      loudly, and the ASCII-[ \t\n\x0B\f\r] law is REGISTERED to pin
+      differentially when Pattern/Matcher lands (new known-gap line in
+      this file). Adopted reaffirmations: bit-exact differential via
+      doubleToLongBits is already the house contract; the report's
+      "fixed-port corpus as permanent regression suite" is already the
+      diff suite's standing policy (this wave is exactly that policy
+      acting on external evidence, and it caught a real divergence the
+      same day it was reported).
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 

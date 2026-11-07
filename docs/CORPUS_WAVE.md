@@ -316,6 +316,16 @@ because it is part of the reproduction command.
   ByteArrayOutputStream builtins, byte-identical vs Temurin
   (wrap-deflate n=72, zstream n=72/72/79, gzip n=84, zskip=20 → 'j').
   BufferedInputStream stays the one missing stream builtin (loud).
+- `java.util.regex` (Pattern/Matcher) — REGISTERED (2026-11-07,
+  external-converter-report ingestion): not a builtin yet; any use fails
+  LOUDLY at compile time (the documented gap pattern). When it lands,
+  the first differential law to pin is the `\s` divergence the external
+  report's B21 caught in the wild: Java Pattern's default `\s` is the
+  ASCII class [ \t\n\x0B\f\r] while Rust regex's `\s` is Unicode-aware
+  (matches U+00A0, U+3000, ...) — a naive mapping silently changes
+  shingle/token profiles for Unicode-whitespace inputs. The same law
+  family applies to `\w`, `\d`, and the `(?U)` flag inversion. Evidence
+  trail: the owner's java-string-similarity bugs.md §B21 + opt.md §2.4.
 
 ## Wave 3 — JAMA (entry 3, landed 2026-11-06)
 

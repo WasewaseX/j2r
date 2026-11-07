@@ -834,46 +834,61 @@ pub fn n_math_floor_mod_j(
     Ok(Value::Long(m))
 }
 
-/// `Math.round(double)` — `floor(a + 0.5)` saturating to Long, NaN -> 0.
+/// `Math.round(double)` — OpenJDK 21's JDK-8010430 algorithm: the
+/// MATHEMATICAL floor(a + 1/2), not floor(a + 0.5) evaluated in binary FP.
+/// The naive form returns 1 for `0.49999999999999994` (a + 0.5 rounds up to
+/// 1.0, but a is still below one half) where every JDK since Java 7 returns
+/// 0, and ...498 for the mathematical integer 4503599627370497.0 (a + 0.5
+/// ties up to ...498) where the (long) cast branch must win. Pinned
+/// differentially by tests/suite/MathSemantics.java vs Temurin 21.
 pub fn n_math_round_d(
     _recv: Option<&JRef>,
     args: &[Value],
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let a = arg(args, 0, "Math.round").expect_double();
-    if a.is_nan() {
-        return Ok(Value::Long(0));
+    const SIGNIF_BITS: u64 = 0x000f_ffff_ffff_ffff; // Double.SIGNIF_BIT_MASK
+    let bits = a.to_bits();
+    let biased_exp = ((bits & 0x7ff0_0000_0000_0000) >> 52) as i64;
+    // OpenJDK's shift = (SIGNIFICAND_WIDTH - 2 + EXP_BIAS) - biased_exp
+    // = (53 - 2 + 1023) - biased_exp. In [0, 63] exactly when
+    // pow(2,-64) <= ulp(a) < 1: there the bit trick computes the exact
+    // mathematical floor(a + 1/2), including every just-below-a-half FP
+    // artifact. Outside it, a is NaN/±inf/a mathematical integer/tiny, and
+    // Java's (long) cast applies: NaN -> 0, saturating at the Long bounds —
+    // which is also Rust's `as` cast contract.
+    let shift = 1074i64 - biased_exp;
+    if (0..64).contains(&shift) {
+        let mut r = ((bits & SIGNIF_BITS) | (SIGNIF_BITS + 1)) as i64;
+        if bits >> 63 != 0 {
+            r = -r;
+        }
+        return Ok(Value::Long(((r >> (shift as u32)) + 1) >> 1));
     }
-    // Java: (long)Math.floor(d + 0.5d) with saturation at Long bounds
-    let shifted = a + 0.5;
-    let out = if shifted >= 9.223372036854776E18 {
-        i64::MAX
-    } else if shifted <= -9.223372036854776E18 {
-        i64::MIN
-    } else {
-        shifted.floor() as i64
-    };
-    Ok(Value::Long(out))
+    Ok(Value::Long(a as i64))
 }
 
+/// `Math.round(float)` — the same JDK-8010430 law at f32 precision
+/// (SIGNIFICAND_WIDTH 24, EXP_BIAS 127, 32-bit result saturating at the
+/// Int bounds). Pinned differentially by tests/suite/MathSemantics.java.
 pub fn n_math_round_f(
     _recv: Option<&JRef>,
     args: &[Value],
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let a = arg(args, 0, "Math.round").expect_float();
-    if a.is_nan() {
-        return Ok(Value::Int(0));
+    const SIGNIF_BITS: u32 = 0x007f_ffff; // Float.SIGNIF_BIT_MASK
+    let bits = a.to_bits();
+    let biased_exp = ((bits & 0x7f80_0000) >> 23) as i32;
+    let shift = 149i32 - biased_exp;
+    if (0..32).contains(&shift) {
+        let mut r = ((bits & SIGNIF_BITS) | (SIGNIF_BITS + 1)) as i32;
+        if bits >> 31 != 0 {
+            r = -r;
+        }
+        return Ok(Value::Int(((r >> (shift as u32)) + 1) >> 1));
     }
-    let shifted = a + 0.5;
-    let out = if shifted >= 2_147_483_648.0f32 {
-        i32::MAX
-    } else if shifted <= -2_147_483_648.0f32 {
-        i32::MIN
-    } else {
-        shifted.floor() as i32
-    };
-    Ok(Value::Int(out))
+    Ok(Value::Int(a as i32))
 }
 
 pub fn n_math_sqrt(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {

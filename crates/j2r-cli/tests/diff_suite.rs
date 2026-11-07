@@ -115,9 +115,20 @@ fn differential_suite_matches_jvm() {
     // JLS 4.10.3 array covariance pinned differentially ([[D flows into
     // Object[] parameters/assignments; the verifier's covariant pop_exact
     // rule and the runtime store checks are the JDK's own): 107 on disk.
+    // The Math-semantics wave (2026-11-07, evidence from the external
+    // java-to-rust conversion report's silent-semantic class) added
+    // MathSemantics — the JDK-8010430 round law (round(0.49999999999999994)
+    // = 0 and the mathematical-integer cast branch above each binade, both
+    // arities; the naive floor(x+0.5) native failed 4 rows before the fix),
+    // the min/max signed-zero law bit-visible via doubleToLongBits, NaN
+    // results pinned under the canonicalizing bit-conversion contract
+    // (raw NaN payloads from min/max are a HotSpot C2-intrinsic artifact —
+    // max(NaN,1.0) returns 1.0's bits on x86-64 while min returns the NaN
+    // operand — deliberately not pinned), and abs's wrapping/signed-zero
+    // laws: 108 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 106,
-        "differential suite shrank: {} fixtures (expected >= 106)",
+        fixtures.len() >= 107,
+        "differential suite shrank: {} fixtures (expected >= 107)",
         fixtures.len()
     );
 
