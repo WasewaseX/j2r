@@ -1125,3 +1125,19 @@ local full-gate sweep at the same tree).**
       extraction verdict (BENCHMARKS addendum 3) stands. Diagnostics:
       J2R_CFG_DEBUG=1 unresolved-join lines, =2 adds block/loop tables.
       CI evidence: (this commit).
+- [~] **Deferred-join mechanism (DESIGNED 2026-11-08, next layer)** — the
+      hqr2 refusal is join_via_label purity (meet=23, outside pred=21,
+      root=15; J2R_CFG_DEBUG join-purity line landed for diagnosis), and
+      tred2/orthes are the same class one level deeper: shared
+      continue-tails (`d[i]=...; i--; goto header`) with outside-diamond
+      predecessors. The designed fix: promote the stop lists from
+      call-threaded `&Stops` snapshots to a BUILDER-OWNED stack
+      (mechanical refactor of the region/diamond/emit_loop call sites —
+      the body_walk and stale-stop laws are preserved verbatim), then
+      register DEFERRED JOINS: a meet with outside preds and no
+      fall-through predecessor gets (meet, fresh-label) pushed on the
+      stop stack; every edge to it (arms AND later outside preds) breaks
+      to the label; the meet body emits ONCE at the enclosing loop-body
+      end (drain at the emit_loop mark, remainder at lift() end). This
+      unblocks tred2 (83.4%), orthes (86.5%), hqr2 (93.2% prim traffic)
+      — the three kernels that keep the typed payload flat.

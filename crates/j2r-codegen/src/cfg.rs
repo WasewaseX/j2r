@@ -1112,7 +1112,21 @@ impl<'a> Builder<'a> {
             if !arm_blocks.contains(&p) && p != root {
                 match &meet_loop_nodes {
                     Some(nodes) if nodes.contains(&p) => {}
-                    _ => return Err(Unsupported::ImpureJoin),
+                    _ => {
+                        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+                            eprintln!(
+                                "cfg-debug: join purity refused {}{} meet={} root={} \
+                                 outside_pred={} meet_loop={:?}",
+                                self.m.name,
+                                self.m.desc,
+                                meet,
+                                root,
+                                p,
+                                meet_loop_nodes.as_ref().map(|n| n.len())
+                            );
+                        }
+                        return Err(Unsupported::ImpureJoin);
+                    }
                 }
             }
         }
