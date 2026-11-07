@@ -272,7 +272,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 323 tests: unit + differential/forced-GC/SOE-e2e/cfg-equivalence/jar suites
+$ cargo test                       # 327 tests: unit + differential/forced-GC/SOE-e2e/cfg-equivalence/jar suites
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar

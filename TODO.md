@@ -564,6 +564,54 @@ local full-gate sweep at the same tree).**
       (the 107-fixture differential), gate-9 forced-GC solo leg, all four
       gate-13 concurrency seeds, CodeQL / OSV / Scorecard, and the
       gate-11 count-sync gate (tests 311 → 323).
+- [x] **Lift-closure wave — LANDED (2026-11-07)** — the readiness GO's
+      step 1 (docs/TYPED_REGISTER_READINESS.md §5): the two named lift
+      refusals closed, with two real generated-code bugs caught by
+      cfg_equiv on the way and fixed:
+      (1) exit edges grouped by TARGET BLOCK, not (from, to) pairs —
+      javac's `break`/`continue` inside `while`/`do-while` adds edges to
+      the SAME after-loop block, which the old comparison refused as
+      MultiExitLoop;
+      (2) terminator targets (early `return`/`athrow` blocks — excluded
+      from the natural-loop node set by the preds walk) are emitted
+      inline at the edge, not treated as open exits;
+      (3) goto-trampoline confluence: javac routes `break` through
+      single-goto blocks, so two edges reach the same continuation via
+      different blocks — stops now key on the RESOLVED chain end (chains
+      never walk through a loop header), with the coverage check
+      exempting skipped trampolines (their `goto` is structural);
+      (4) the shared-exit shape (an inner loop whose exit block is the
+      enclosing loop's continue-target — JaggedNew) routes through the
+      enclosing join label, and arm walks go THROUGH a fresh loop header
+      to its open exit;
+      (5) a structural safety net refuses any degenerate
+      `loop { continue <same label>; }` body.
+      cfg_equiv's catch #1: a back edge to a header that is also a stale
+      join-meet stop emitted `continue 'join_...` — illegal Rust (labeled
+      blocks cannot be continued); fixed by routing active-header edges
+      to the loop's OWN label before any stop lookup. cfg_equiv's catch
+      #2: an emit_loop body walk whose entry carries a stale stop entry
+      was hijacked into a tight self-continue loop (BigRpg.mergeSort hung
+      at 99.9% CPU); fixed by treating the body-walk ENTRY as emission
+      (a `body_walk` flag cleared for recursion) and by checking the
+      entry stop BEFORE loop construction (a fresh header that is a
+      pending meet is a transfer target — the loop is emitted by the
+      stop's owner). Census (cfg-report, doc basis): suite needs-lift
+      146 → **126**, JAMA 32 → **21**; ImpureLoopExit GONE (2 and 7 →
+      0); suite MultiExitLoop 24 → 2 (the two genuine labeled-break
+      methods: LabeledLoop, BigRpg.battle), JAMA 5 → 0 — **tql2 and
+      hqr2 now LIFT**. JamaBench --emit-cfg dispatchers 31 → **21**.
+      Steady-state control (docs/BENCHMARKS.md addendum 2): **273.9s,
+      output byte-identical** vs the 274.0s hand median — structuring
+      measured flat at a THIRD coverage extreme; the residual layer is
+      the registered next prerequisite (residual diamond-shape refusals
+      — suite 36 / JAMA 13 ImpureJoin, the diverging arm walks of
+      tred2/orthes/LU-ctor). Validation: codegen lib tests 86 → **87**
+      (README 326 → 327 synced, gate-11 green), cfg_equiv **107/107
+      both modes** (6 shards, 136-150s each), differential **107/107**
+      vs Temurin 21.0.13 (437.9s), corpus 3/3, jar/lambda/soe green,
+      fmt/clippy clean, gates 11/12/19/20 + path-filter selftest 17/17
+      green locally.
 - [x] **F3 java.io + collections behavior surface — was FIXED in corpus
       wave 1 (board was stale; the board loses, CORPUS_WAVE.md §F3 is the
       evidence)** — io.rs StringWriter/StringReader, Writer template

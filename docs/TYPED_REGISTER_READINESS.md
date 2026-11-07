@@ -136,6 +136,16 @@ named lift-closure items are its prerequisites, not alternatives.
 
 ## 5. Verdict: GO, sequenced
 
+> **Status (2026-11-07, same day): step 1 LANDED** — see TODO.md
+> "Lift-closure wave" and docs/BENCHMARKS.md addendum 2. Suite
+> needs-lift 146 → 126, JAMA 32 → 21, ImpureLoopExit gone, JAMA
+> MultiExitLoop 5 → 0 (tql2/hqr2 lift), JamaBench dispatchers 31 → 21;
+> steady state 273.9s (flat — structuring confirmed non-payload at a
+> third coverage point). Step 2 (typed-operand emission behind
+> `--emit-typed`) remains the registered lever, with the residual
+> diamond-shape refusals (suite 36 / JAMA 13 ImpureJoin) as its next
+> named prerequisite layer.
+
 1. **Lift closure** (small, named): `ImpureLoopExit` shared-exit lowering
    and `MultiExitLoop` labeled-break lowering — together they unblock
    tred2/orthes/hqr2/tql2/LU-ctor, the kernels that dominate JamaBench.

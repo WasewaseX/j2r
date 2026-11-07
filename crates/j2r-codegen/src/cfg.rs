@@ -11,9 +11,18 @@
 //! * no `tableswitch`/`lookupswitch` (switch lowering not lifted);
 //! * reducible control flow — every retreating edge targets a block that
 //!   dominates its source (checked, not assumed);
-//! * single-exit natural loops whose exit block has no outside predecessors;
+//! * natural loops whose OPEN exits (targets that do not themselves
+//!   terminate — early `return`/`throw` blocks are emitted inline at the
+//!   edge and need no post-loop region) share ONE target block: javac's
+//!   `break`/`continue` inside `while`/`do-while` loops always produce
+//!   extra edges to the SAME after-loop block, and an inner loop's exit
+//!   whose block is the enclosing loop's continue-target (the shared-exit
+//!   shape) routes through the enclosing join label — the multi-TARGET
+//!   case (Java labeled `break` to two different labels) still refuses;
 //! * if/else diamonds whose join block has exactly the two arm-end
-//!   predecessors;
+//!   predecessors (an arm walk that reaches a fresh loop header walks
+//!   THROUGH it to the loop's open exit, so the sibling shape
+//!   `if (c) { inner-loop } continue-to-its-exit` becomes a normal meet);
 //! * no branch into the middle of already-emitted code.
 //!
 //! Semantics are preserved by construction: the function preamble
@@ -305,16 +314,61 @@ fn intersect(idoms: &[Option<usize>], rpono: &[usize], mut a: usize, mut b: usiz
 #[derive(Debug)]
 struct Loop {
     header: usize,
-    /// The single exit edge (from-block, to-block).
-    exit: (usize, usize),
+    /// The single OPEN exit edge (from-block, to-block) — `None` when
+    /// every exit target terminates (early `return`/`throw` blocks are
+    /// emitted inline at the edge, so the loop needs no post-loop exit
+    /// region at all).
+    exit: Option<(usize, usize)>,
     /// Every block of the natural loop (header included) — used by the
     /// builder's join-purity check to recognise the loop's own back
-    /// edges at a loop-header meet.
+    /// edges at a loop-header meet, and by the arm walk to cover a
+    /// traversed loop's internal predecessors of a shared exit.
     nodes: HashSet<usize>,
 }
 
+/// Pure-`goto` trampoline blocks: a block of exactly one `goto t` whose
+/// target is a different block. javac chains scope exits through them
+/// (`break` → trampoline → after-loop), so two exit edges can reach the
+/// SAME continuation via different blocks — the readiness wave's
+/// multi-exit census measured exactly this (hdr_pc=99 → targets [126, 135]
+/// where block 126 is just `goto 135`). Stops key on the RESOLVED target;
+/// chains never walk through a loop header (edges to a header are the
+/// loop top, not whatever follows it) and never through a self-jump.
+fn trampoline_map(cfg: &Cfg, m: &MethodPlan, loops: &[Loop]) -> HashMap<usize, usize> {
+    let headers: HashSet<usize> = loops.iter().map(|l| l.header).collect();
+    let mut raw: HashMap<usize, usize> = HashMap::new();
+    for (i, b) in cfg.blocks.iter().enumerate() {
+        if b.end == b.start + 1 {
+            if let Instr::Goto(t) = &m.instrs[b.start].1 {
+                if let Some(ti) = m.instrs.iter().position(|(p, _)| *p == *t) {
+                    let tb = cfg.block_of(ti);
+                    if tb != i {
+                        raw.insert(i, tb);
+                    }
+                }
+            }
+        }
+    }
+    let mut out: HashMap<usize, usize> = HashMap::new();
+    for &from in raw.keys() {
+        let mut cur = from;
+        while let Some(&n) = raw.get(&cur) {
+            if headers.contains(&cur) {
+                break;
+            }
+            cur = n;
+        }
+        if !headers.contains(&from) {
+            out.insert(from, cur);
+        }
+    }
+    out
+}
+
 /// Analyse the CFG; `Err(reason)` means the method falls back to dispatch.
-fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<Vec<Loop>, Unsupported> {
+/// On success returns the loops plus the trampoline-resolution map (the
+/// builder keys every stop lookup on resolved targets).
+fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<(Vec<Loop>, HashMap<usize, usize>), Unsupported> {
     if m.instrs.is_empty() {
         return Err(Unsupported::EmptyBody);
     }
@@ -369,14 +423,38 @@ fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<Vec<Loop>, Unsupported> {
         }
     }
 
-    // Natural loops (unioned across all back edges of a header); single
-    // exit per loop, pure exit block.
+    // Natural loops (unioned across all back edges of a header). Exit
+    // handling (revised by the lift-closure wave, 2026-11-07):
+    //
+    // * Edges are grouped by TARGET BLOCK, not by (from, to) pair —
+    //   javac's `break` inside a `while`/`do-while` adds a second edge to
+    //   the SAME after-loop block, and the builder already routes every
+    //   body→exit edge through one `break` stop. Comparing (from, to)
+    //   pairs refused exactly those loops.
+    // * A target block whose terminator is `return`/`athrow` is NOT an
+    //   open exit: the natural-loop node set is built by walking
+    //   PREDECESSORS from the back edge, so early-return blocks inside
+    //   the loop body are excluded from `nodes` and their incoming edges
+    //   looked like exits with a second target. The builder emits such
+    //   blocks inline at the edge (the walk emits the return and that
+    //   path ends) — no post-loop region needed.
+    // * What remains must be ONE open exit target; a genuine multi-target
+    //   loop (Java labeled `break` to two different labels) still refuses
+    //   as MultiExitLoop.
+    // * The old "exit block has no outside predecessors" purity check is
+    //   GONE: the builder routes a shared exit through the enclosing
+    //   stop (the JaggedNew continue-target shape) or falls back loudly
+    //   (BranchIntoEmittedCode) on shapes it cannot structure — the
+    //   conservative direction is unchanged, nothing wrong can be
+    //   emitted (cfg_equiv is the proof obligation).
     let preds = cfg.preds();
     let mut back_edges: HashMap<usize, Vec<usize>> = HashMap::new();
     for &(from, header) in &retreating {
         back_edges.entry(header).or_default().push(from);
     }
-    let mut loops: Vec<Loop> = Vec::new();
+    // Pass 1: loop node sets (headers known afterwards — the trampoline
+    // map needs them: chains never walk through a loop top).
+    let mut bodies: Vec<(usize, HashSet<usize>)> = Vec::new();
     for (header, sources) in back_edges {
         let mut nodes: HashSet<usize> = HashSet::new();
         nodes.insert(header);
@@ -390,33 +468,56 @@ fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<Vec<Loop>, Unsupported> {
                 }
             }
         }
-        let mut exit: Option<(usize, usize)> = None;
+        bodies.push((header, nodes));
+    }
+    let tramp = trampoline_map(
+        cfg,
+        m,
+        &bodies
+            .iter()
+            .map(|(h, ns)| Loop {
+                header: *h,
+                exit: None,
+                nodes: ns.clone(),
+            })
+            .collect::<Vec<_>>(),
+    );
+    // Pass 2: exit classification per loop.
+    let mut loops: Vec<Loop> = Vec::new();
+    for (header, nodes) in bodies {
+        let mut open_exits: Vec<usize> = Vec::new();
         let node_list: Vec<usize> = nodes.iter().copied().collect();
         for &node in &node_list {
             for &s in &succs[node] {
-                if !nodes.contains(&s) {
-                    match exit {
-                        None => exit = Some((node, s)),
-                        Some(e) if e == (node, s) => {}
-                        Some(_) => return Err(Unsupported::MultiExitLoop),
-                    }
+                // Resolve goto trampolines first: javac routes `break`
+                // through single-goto blocks, so two edges can reach the
+                // same continuation via different blocks (confluence).
+                let mut t = s;
+                while let Some(&n) = tramp.get(&t) {
+                    t = n;
                 }
+                if nodes.contains(&t) || open_exits.contains(&t) {
+                    continue;
+                }
+                let last = cfg.blocks[t].end - 1;
+                if matches!(&m.instrs[last].1, Instr::Return(_) | Instr::AThrow) {
+                    continue; // emitted inline at the edge — not an open exit
+                }
+                open_exits.push(t);
             }
         }
-        let e = exit.ok_or(Unsupported::MultiExitLoop)?;
-        // purity: the exit block's predecessors must all be loop nodes
-        for &p in &preds[e.1] {
-            if !nodes.contains(&p) {
-                return Err(Unsupported::ImpureLoopExit);
-            }
-        }
+        let exit = match open_exits.len() {
+            0 => None,
+            1 => Some((header, open_exits[0])),
+            _ => return Err(Unsupported::MultiExitLoop),
+        };
         loops.push(Loop {
             header,
-            exit: e,
+            exit,
             nodes,
         });
     }
-    Ok(loops)
+    Ok((loops, tramp))
 }
 
 // ---------------------------------------------------------------- emission
@@ -430,10 +531,19 @@ struct Builder<'a> {
     m: &'a MethodPlan,
     cfg: &'a Cfg,
     loops: Vec<Loop>,
+    /// Pure-goto trampoline blocks → resolved target. Every stop lookup
+    /// keys on `resolve(block)` so an edge through a javac goto-chain
+    /// finds the stop pushed for the chain's end (and vice versa).
+    tramp: HashMap<usize, usize>,
     emit: EmitFn<'a>,
     emitted: HashSet<usize>,
     /// Active loop headers (innermost last): (block, label) — `continue`.
     active_loops: Vec<(usize, String)>,
+    /// Set by `emit_loop` around its body-walk `region` call: the entry
+    /// block is being EMITTED, not transferred to. `region` clears the
+    /// flag for its own recursion so only the immediate body-walk entry
+    /// is exempt from the stop check.
+    body_walk: bool,
     out: Vec<String>,
     label_counter: usize,
 }
@@ -445,17 +555,36 @@ type Res<T> = Result<T, Unsupported>;
 type EmitFn<'a> = Box<dyn FnMut(usize, &mut Vec<String>) + 'a>;
 
 impl<'a> Builder<'a> {
-    fn new(m: &'a MethodPlan, cfg: &'a Cfg, loops: Vec<Loop>, emit: EmitFn<'a>) -> Builder<'a> {
+    fn new(
+        m: &'a MethodPlan,
+        cfg: &'a Cfg,
+        loops: Vec<Loop>,
+        tramp: HashMap<usize, usize>,
+        emit: EmitFn<'a>,
+    ) -> Builder<'a> {
         Builder {
             m,
             cfg,
             loops,
+            tramp,
             emit,
             emitted: HashSet::new(),
             active_loops: Vec::new(),
+            body_walk: false,
             out: Vec::new(),
             label_counter: 0,
         }
+    }
+
+    /// The stop-key for a block: follow pure-goto trampolines to the
+    /// chain's end. Loop headers are never trampolines (excluded when the
+    /// map is built), so `continue` routing is untouched.
+    fn resolve(&self, b: usize) -> usize {
+        let mut cur = b;
+        while let Some(&n) = self.tramp.get(&cur) {
+            cur = n;
+        }
+        cur
     }
 
     fn fresh_label(&mut self, kind: &str, b: usize) -> String {
@@ -483,33 +612,48 @@ impl<'a> Builder<'a> {
             .expect("branch target is an instruction boundary")
     }
 
-    /// Emits the transfer to a reached stop target: `continue` when the
-    /// stop is an active loop header, `break` when it is a join.
+    /// Emits the transfer to a reached stop target: `continue` into the
+    /// active loop's own label, or `break` to the stop's label.
     fn stop_transfer(&mut self, cur: usize, stops: &Stops) -> Res<()> {
+        let cur = self.resolve(cur);
+        // The ACTIVE-LOOP check runs BEFORE the stop lookup and uses the
+        // loop's OWN label: a block can be both an active header and a
+        // stale stop entry (a join meet pushed while the header was still
+        // fresh, whose loop is now emitted inside the join's arm) — such
+        // an edge must `continue` the loop label, because
+        // `continue <block-label>` is illegal Rust (cfg_equiv caught it
+        // on BigJson$Parser). Only non-header targets take the stop's
+        // label as `break`, legal for both loop and block labels.
+        for (h, l) in self.active_loops.iter().rev() {
+            if *h == cur {
+                let l = l.clone();
+                self.out.push(format!("continue {l};"));
+                return Ok(());
+            }
+        }
         let (_, l) = stops
             .iter()
             .find(|(b, _)| *b == cur)
             .ok_or(Unsupported::ImpureJoin)?;
-        if self.active_loops.iter().any(|(h, _)| *h == cur) {
-            self.out.push(format!("continue {l};"));
-        } else {
-            self.out.push(format!("break {l};"));
-        }
+        self.out.push(format!("break {l};"));
         Ok(())
     }
 
-    /// Transfer of control to block `tb`: a stop transfer, a continue into
-    /// an active loop, or a fresh region.
+    /// Transfer of control to block `tb`: an active-loop continue, a stop
+    /// transfer, or a fresh region. `tb` is resolved through goto
+    /// trampolines first — the destination is the chain's end. The
+    /// active-loop check precedes the stop lookup (see stop_transfer).
     fn jump_to_block(&mut self, tb: usize, stops: &Stops) -> Res<()> {
-        if stops.iter().any(|(b, _)| *b == tb) {
-            return self.stop_transfer(tb, stops);
-        }
+        let tb = self.resolve(tb);
         for (h, l) in self.active_loops.iter().rev() {
             if *h == tb {
                 let l = l.clone();
                 self.out.push(format!("continue {l};"));
                 return Ok(());
             }
+        }
+        if stops.iter().any(|(b, _)| *b == tb) {
+            return self.stop_transfer(tb, stops);
         }
         if self.emitted.contains(&tb) {
             return Err(Unsupported::BranchIntoEmittedCode);
@@ -523,6 +667,16 @@ impl<'a> Builder<'a> {
     /// Emits a loop rooted at header block `hb`, then its exit region.
     /// Every edge from the body to the exit block becomes `break 'loop;`,
     /// so the exit code is emitted exactly once, after the loop.
+    ///
+    /// Two lift-closure refinements (2026-11-07): when the loop has NO
+    /// open exit (every exit target terminates — early returns emitted
+    /// inline), no exit stop is pushed and nothing follows the loop. When
+    /// the open exit block is ALREADY a stop of the enclosing walk (the
+    /// shared-exit shape: an inner loop's exit is the enclosing loop's
+    /// continue-target, or a diamond's join), the exit edges break the
+    /// ENCLOSING label and the exit region is emitted by whoever owns
+    /// that stop — emitting it here too would duplicate the block (the
+    /// outside predecessor would then hit BranchIntoEmittedCode).
     fn emit_loop(&mut self, hb: usize, stops: &Stops) -> Res<()> {
         let exit_block = self
             .loops
@@ -530,35 +684,75 @@ impl<'a> Builder<'a> {
             .find(|l| l.header == hb)
             .ok_or(Unsupported::Irreducible)?
             .exit
-            .1;
-        if self.emitted.contains(&exit_block) {
+            .map(|(_, t)| t);
+        if exit_block
+            .map(|x| self.emitted.contains(&x))
+            .unwrap_or(false)
+        {
             return Err(Unsupported::BranchIntoEmittedCode);
         }
+        // Delegated exit: the enclosing walk already owns this block.
+        let delegated = matches!(exit_block, Some(x) if stops.iter().any(|(s, _)| *s == x));
         let lbl = self.fresh_label("loop", hb);
         self.out.push(format!("{lbl}: loop {{"));
         self.active_loops.push((hb, lbl.clone()));
         let mut body_stops: Stops = stops.to_vec();
-        body_stops.push((exit_block, lbl.clone()));
-        self.region(hb, &body_stops)?;
+        if let (false, Some(x)) = (delegated, exit_block) {
+            body_stops.push((x, lbl.clone()));
+        }
+        // Mark the body walk so `region` treats its active-header entry as
+        // emission (see the field doc); restore afterwards — nested loops
+        // each mark their own walk.
+        let saved_body_walk = self.body_walk;
+        self.body_walk = true;
+        let body = self.region(hb, &body_stops);
+        self.body_walk = saved_body_walk;
+        body?;
         self.active_loops.pop();
         self.out.push("}".to_string());
-        if self.emitted.contains(&exit_block) {
-            return Err(Unsupported::BranchIntoEmittedCode);
+        if delegated {
+            return Ok(()); // the enclosing stop's owner emits the exit region
         }
-        self.region(exit_block, stops)
+        match exit_block {
+            None => Ok(()), // every exit terminated inline; the loop diverges
+            Some(x) => {
+                if self.emitted.contains(&x) {
+                    return Err(Unsupported::BranchIntoEmittedCode);
+                }
+                self.region(x, stops)
+            }
+        }
     }
 
     /// Emits blocks from `b` along the fall-through/goto chain, stopping at
     /// the first conditional (a diamond), terminator, stop target, loop
     /// header or already-emitted block.
     fn region(&mut self, b: usize, stops: &Stops) -> Res<()> {
+        // Only the IMMEDIATE emit_loop body walk treats an active-header
+        // entry as emission (a stale stop entry for it — the block doubling
+        // as an enclosing join's meet or an enclosing loop's exit — must
+        // not hijack the body into `continue <its own label>`, a tight
+        // infinite loop; cfg_equiv caught it on BigRpg.mergeSort). Any
+        // OTHER region call with a header entry is a TRANSFER to that
+        // header (a diamond arm reaching an active-header meet) and the
+        // stop check must fire.
+        let entry_is_body_walk = std::mem::take(&mut self.body_walk);
+        // ENTRY stop check comes BEFORE loop construction: a fresh header
+        // that is also a pending stop (a diamond's meet, an enclosing
+        // loop's exit target) is a TRANSFER target — the arms break to it
+        // and the loop construct is emitted by the stop's owner at the
+        // join's meet position. Emitting it inline here instead left the
+        // join's own trailing region(meet) hitting an emitted block.
+        if !entry_is_body_walk && stops.iter().any(|(s, _)| *s == self.resolve(b)) {
+            return self.stop_transfer(b, stops);
+        }
         // a fresh loop header is a loop construct, not a plain block
         if self.loop_at(b) && !self.active_loops.iter().any(|(h, _)| *h == b) {
             return self.emit_loop(b, stops);
         }
         let mut cur = b;
         loop {
-            if stops.iter().any(|(s, _)| *s == cur) {
+            if cur != b && stops.iter().any(|(s, _)| *s == self.resolve(cur)) {
                 self.stop_transfer(cur, stops)?;
                 return Ok(());
             }
@@ -614,10 +808,6 @@ impl<'a> Builder<'a> {
                 Instr::Goto(t) => {
                     let ti = self.instr_index(*t);
                     let tb = self.block_of(ti);
-                    if stops.iter().any(|(s, _)| *s == tb) {
-                        self.stop_transfer(tb, stops)?;
-                        return Ok(());
-                    }
                     self.jump_to_block(tb, stops)?;
                     return Ok(());
                 }
@@ -655,13 +845,56 @@ impl<'a> Builder<'a> {
     /// block (or `None` when the walk terminates) plus every block visited.
     fn walk_meet(&self, start: usize) -> (Option<usize>, HashSet<usize>) {
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut cur = Some(start);
+        // Record the resolved-from trampoline chain FIRST: the chain's
+        // edges belong to this arm (they will route through this arm's
+        // stop label), so the join-purity check must see them as arm
+        // blocks. The resolved end itself is inserted by the walk below.
+        let end = self.resolve(start);
+        let mut s = start;
+        while s != end {
+            visited.insert(s);
+            match self.tramp.get(&s) {
+                Some(&n) => s = n,
+                None => break,
+            }
+        }
+        let mut cur = Some(end);
         loop {
             let Some(b) = cur else { return (None, visited) };
             if !visited.insert(b) {
                 return (None, visited); // cycle through non-joins: bail
             }
-            if self.is_join(b) || self.loop_at(b) {
+            if self.loop_at(b) {
+                // An ACTIVE (or already-emitted) header is a genuine meet:
+                // the enclosing loop's top, re-entered by this arm. A FRESH
+                // header is not a meet — the arm will emit the WHOLE loop,
+                // and control continues at the loop's open exit: walk
+                // through (covering the loop's nodes so the join-purity
+                // check accepts its internal predecessors of the exit).
+                // This is the shared-exit sibling shape (JaggedNew: the
+                // outer `continue` target doubles as the inner loop's
+                // exit) — without the walk-through, the two arms' walks
+                // diverged (header vs join) and every such method fell
+                // back with ImpureJoin/ImpureLoopExit.
+                let active = self.active_loops.iter().any(|(h, _)| *h == b);
+                if !active && !self.emitted.contains(&b) {
+                    if let Some(l) = self.loops.iter().find(|l| l.header == b) {
+                        match l.exit {
+                            Some((_, exit_t)) if !l.nodes.contains(&exit_t) => {
+                                visited.insert(b);
+                                for &n in &l.nodes {
+                                    visited.insert(n);
+                                }
+                                cur = Some(exit_t);
+                                continue;
+                            }
+                            _ => return (Some(b), visited),
+                        }
+                    }
+                }
+                return (Some(b), visited);
+            }
+            if self.is_join(b) {
                 return (Some(b), visited);
             }
             let last = self.cfg.blocks[b].end - 1;
@@ -669,7 +902,7 @@ impl<'a> Builder<'a> {
                 Instr::Return(_) | Instr::AThrow => return (None, visited),
                 Instr::Goto(t) => {
                     let ti = self.instr_index(*t);
-                    cur = Some(self.block_of(ti));
+                    cur = Some(self.resolve(self.block_of(ti)));
                 }
                 Instr::IfZero(_, t)
                 | Instr::IfICmp(_, t)
@@ -700,7 +933,7 @@ impl<'a> Builder<'a> {
                     if last + 1 >= self.m.instrs.len() {
                         return (None, visited);
                     }
-                    cur = Some(self.block_of(last + 1));
+                    cur = Some(self.resolve(self.block_of(last + 1)));
                 }
             }
         }
@@ -885,14 +1118,39 @@ pub fn lift(
     emit_fn: impl FnMut(usize, &mut Vec<String>),
 ) -> Result<String, Unsupported> {
     let cfg = Cfg::build(m);
-    let loops = analyse(&cfg, m)?;
-    let mut b = Builder::new(m, &cfg, loops, Box::new(emit_fn));
+    let (loops, tramp) = analyse(&cfg, m)?;
+    let mut b = Builder::new(m, &cfg, loops, tramp.clone(), Box::new(emit_fn));
     let entry = cfg.entry;
     b.region(entry, &Vec::new())?;
-    if b.emitted.len() != cfg.blocks.len() {
+    // Every block must be emitted — EXCEPT goto trampolines whose edges
+    // were resolved to the chain's end (their single `goto` instruction is
+    // structural and is never passed to the emitter, so skipping the block
+    // loses no code).
+    if cfg
+        .blocks
+        .iter()
+        .enumerate()
+        .any(|(i, _)| !tramp.contains_key(&i) && !b.emitted.contains(&i))
+    {
         return Err(Unsupported::BranchIntoEmittedCode);
     }
-    Ok(b.out.join("\n"))
+    // Structural safety net: a loop whose body is exactly a self-continue
+    // can never terminate. That degenerate emission is the signature of a
+    // body walk hijacked by a stale stop entry (found by cfg_equiv on
+    // BigRpg.mergeSort when the lift-closure wave first unlocked these
+    // shapes) — refuse the method rather than emit a hang.
+    let out = b.out.join("\n");
+    let mut lines = out.lines().peekable();
+    while let Some(line) = lines.next() {
+        if let Some(lbl) = line.strip_suffix(": loop {") {
+            if let Some(next) = lines.peek() {
+                if next.trim() == format!("continue {lbl};") {
+                    return Err(Unsupported::BranchIntoEmittedCode);
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------- report
@@ -1008,7 +1266,9 @@ mod tests {
         // 4: IfZero(Eq, 0)    (back edge → continue)
         // 8: Goto 0
         // 16: Return
-        // Natural loop {0,4,8}, single exit → 16.
+        // Natural loop {0,4,8}, single exit → 16. The exit block TERMINATES
+        // (return), so the lift-closure wave emits it INLINE in the guard's
+        // true arm — the loop has no open exit and no `break` stop anymore.
         let m = method(vec![
             (0, Instr::IfZero(crate::ir::CmpOp::Ne, 16)),
             (4, Instr::IfZero(crate::ir::CmpOp::Eq, 0)),
@@ -1018,7 +1278,6 @@ mod tests {
         let out = lift(&m, |_, _| {}).unwrap();
         assert!(out.contains(": loop {"), "{out}");
         assert!(out.contains("continue 'loop_"), "{out}");
-        assert!(out.contains("break 'loop_"), "{out}");
     }
 
     #[test]
@@ -1067,7 +1326,146 @@ mod tests {
         let out = lift(&m, |_, _| {}).unwrap();
         assert!(out.contains(": loop {"), "{out}");
         assert!(out.contains("continue 'loop_"), "{out}");
-        assert!(out.contains("break 'loop_"), "{out}");
+    }
+
+    #[test]
+    fn early_return_in_loop_lifts() {
+        // The isFullRank shape (the MultiExitLoop the readiness census
+        // actually measured): an early `return` block inside the loop is
+        // EXCLUDED from the natural-loop node set (the node walk follows
+        // predecessors from the back edge), so its incoming edge looked
+        // like a second exit with a different target. The lift-closure
+        // wave classifies terminator targets (return/athrow) as non-exits
+        // — the builder emits them inline at the edge and that path ends.
+        //  0: Nop                  (init)
+        //  1: IfICmp(Ge, 11)       (guard → exit 11)
+        //  2: IfZero(Ne, 6)        (body: skip the early return?)
+        //  3: Return(Int)          (early return block — terminator target)
+        //  6: Nop; 7: Goto(1)      (increment + back edge)
+        // 11: Nop; 12: Return(Int) (after loop)
+        let m = method(vec![
+            (0, Instr::Nop),
+            (1, Instr::IfICmp(crate::ir::CmpOp::Ge, 11)),
+            (2, Instr::IfZero(crate::ir::CmpOp::Ne, 6)),
+            (3, Instr::Return(TypeDesc::Int)),
+            (6, Instr::Nop),
+            (7, Instr::Goto(1)),
+            (11, Instr::Nop),
+            (12, Instr::Return(TypeDesc::Int)),
+        ]);
+        let out = lift(&m, |_, _| {}).unwrap();
+        assert!(out.contains(": loop {"), "{out}");
+        // the whole method lifted — no dispatch fallback
+        assert!(!out.contains("match pc"), "{out}");
+    }
+
+    #[test]
+    fn shared_exit_continue_target_lifts() {
+        // The JaggedNew shape (the ImpureLoopExit the readiness census
+        // actually measured): an inner loop whose exit block is the
+        // ENCLOSING loop's continue-target. The inner loop's exit block
+        // has an outside predecessor (the outer `continue` edge) — the
+        // old purity check refused; the lift-closure wave routes the
+        // shared exit through the enclosing join label and walks the
+        // arm-walk THROUGH the fresh inner header to its exit.
+        //  0: Goto(2)           entry → outer header
+        //  2: IfICmp(Ge, 30)    outer guard → exit 30 (return — terminator)
+        //  5: IfNonNull(9)      if (row != null) → inner setup 9, else → 7
+        //  7: Goto(24)          outer `continue` → the shared increment block
+        //  9: IfICmp(Ge, 24)    inner guard → exit 24 (the SHARED block)
+        // 12: Nop; 13: Goto(9)  inner body + back edge
+        // 24: Nop; 25: Goto(2)  shared increment + outer back edge
+        // 30: Return
+        let m = method(vec![
+            (0, Instr::Goto(2)),
+            (2, Instr::IfICmp(crate::ir::CmpOp::Ge, 30)),
+            (5, Instr::IfNonNull(9)),
+            (7, Instr::Goto(24)),
+            (9, Instr::IfICmp(crate::ir::CmpOp::Ge, 24)),
+            (12, Instr::Nop),
+            (13, Instr::Goto(9)),
+            (24, Instr::Nop),
+            (25, Instr::Goto(2)),
+            (30, Instr::Return(TypeDesc::Void)),
+        ]);
+        let out = lift(&m, |_, _| {}).unwrap();
+        assert_eq!(out.matches(": loop {").count(), 2, "{out}");
+        assert!(out.contains("break 'join_"), "{out}");
+    }
+
+    #[test]
+    fn shared_exit_emits_every_block_exactly_once() {
+        // The once-only emission invariant over the shared-exit shape:
+        // every ordinary (non-branch) instruction reaches the emitter
+        // exactly once even though the exit block is reachable from both
+        // the inner loop's exit edge and the outer continue edge.
+        let m = method(vec![
+            (0, Instr::Goto(2)),
+            (2, Instr::IfICmp(crate::ir::CmpOp::Ge, 30)),
+            (5, Instr::IfNonNull(9)),
+            (7, Instr::Goto(24)),
+            (9, Instr::IfICmp(crate::ir::CmpOp::Ge, 24)),
+            (12, Instr::Nop),
+            (13, Instr::Goto(9)),
+            (24, Instr::Nop),
+            (25, Instr::Goto(2)),
+            (30, Instr::Return(TypeDesc::Void)),
+        ]);
+        use std::cell::RefCell;
+        let seen: RefCell<Vec<usize>> = RefCell::new(Vec::new());
+        let out = {
+            let seen = &seen;
+            lift(&m, |idx, _| seen.borrow_mut().push(idx)).unwrap()
+        };
+        assert!(out.contains(": loop {"), "{out}");
+        let seen = seen.borrow();
+        for idx in 0..m.instrs.len() {
+            let structural = matches!(
+                &m.instrs[idx].1,
+                Instr::IfZero(..)
+                    | Instr::IfICmp(..)
+                    | Instr::IfNull(..)
+                    | Instr::IfNonNull(..)
+                    | Instr::IfRefCmp { .. }
+                    | Instr::Goto(_)
+            );
+            let n = seen.iter().filter(|&&s| s == idx).count();
+            if structural {
+                assert_eq!(n, 0, "structural instr {idx} passed to emitter");
+            } else {
+                assert_eq!(n, 1, "instr {idx} emitted {n} times (want 1)");
+            }
+        }
+    }
+
+    #[test]
+    fn back_edge_uses_loop_label_not_stale_join_label() {
+        // cfg_equiv caught this on BigJson$Parser: a diamond whose meet is
+        // a FRESH loop header pushes (header, join-label) into the stops;
+        // the loop is then emitted at the meet, and the body's back edge
+        // to the header must `continue` the LOOP's own label — the old
+        // find-first stop lookup emitted `continue 'join_...`, which is
+        // illegal Rust (labeled blocks cannot be `continue`d). The
+        // active-loop check now precedes the stop lookup in both
+        // stop_transfer and jump_to_block.
+        // 0: IfZero(Eq, 8)      diamond: true arm → the loop header
+        // 4: Return             false arm terminates
+        // 8: IfICmp(Ge, 20)     loop guard → exit 20 (a return — the loop
+        //                       has NO open exit, so walk_meet returns the
+        //                       header itself as the meet)
+        // 12: Goto(8)           back edge
+        // 16: Nop               (unreached padding keeps pcs distinct)
+        // 20: Return
+        let m = method(vec![
+            (0, Instr::IfZero(crate::ir::CmpOp::Eq, 8)),
+            (4, Instr::Return(TypeDesc::Void)),
+            (8, Instr::IfICmp(crate::ir::CmpOp::Ge, 20)),
+            (12, Instr::Goto(8)),
+            (20, Instr::Return(TypeDesc::Void)),
+        ]);
+        let out = lift(&m, |_, _| {}).unwrap();
+        assert!(out.contains("continue 'loop_"), "{out}");
+        assert!(!out.contains("continue 'join_"), "{out}");
     }
 
     #[test]

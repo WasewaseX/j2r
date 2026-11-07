@@ -263,3 +263,34 @@ still-refused shapes (`ImpureLoopExit` / `MultiExitLoop`), and lifted
 bodies still run on the `Vec<Value>` operand model. The typed-operand
 model remains the registered lever; its named prerequisites and the
 GO sequencing are in docs/TYPED_REGISTER_READINESS.md §5.
+
+## 2026-11-07 addendum 2 — lift closure (ImpureLoopExit + MultiExitLoop) landed; structuring still flat at a third coverage point
+
+The readiness GO's step 1 (docs/TYPED_REGISTER_READINESS.md §5) is
+landed: exit edges grouped by TARGET block (javac `break`/`continue`
+inside `while`/`do-while` add edges to the SAME after-loop block),
+terminator targets (early `return`/`athrow` blocks) excluded from the
+open-exit set (emitted inline at the edge), goto-trampoline confluence
+resolution (javac routes `break` through single-goto blocks), the
+shared-exit shape routed through the enclosing join label, and a
+structural safety net refusing any degenerate self-continue loop.
+Two real generated-code bugs were caught by cfg_equiv ON THE WAY
+(both in shapes newly unlocked by the lowerings, both fixed):
+`continue <join-label>` (illegal Rust — labeled blocks cannot be
+`continue`d) and a body walk hijacked into a tight self-continue loop.
+
+Census (cfg-report, same measurement basis as the readiness wave):
+suite needs-lift 146 → **126**, JAMA 32 → **21**; `ImpureLoopExit` is
+GONE from both (2 and 7 → 0), suite `MultiExitLoop` 24 → 2 (the two
+genuine labeled-break methods), JAMA 5 → 0 — tql2 and hqr2 now LIFT.
+JamaBench `--emit-cfg` dispatchers 31 → **21** (Matrix 12 → 9, LU 4 → 2,
+QR 5 → 2, Cholesky 2 → 1, Eigen 6 → 5). Steady-state control run at
+this third coverage point: **273.9s, output byte-identical** (vs the
+274.0s hand median) — structuring STILL buys nothing, now measured at
+three coverage extremes. The residual refusals are the registered
+next layer: residual diamond-shape refusals (suite 36 / JAMA 13
+`ImpureJoin` — the arm walks of tred2/orthes/LU-ctor diverge to
+different joins), exception-table bodies (82/9), and switch lowering
+(7/1). The typed-operand model remains the lever; validation evidence:
+cfg_equiv 107/107 both modes (6 shards), differential 107/107 vs
+Temurin 21.0.13 (437.9s), codegen lib tests 87 green, corpus 3/3.
