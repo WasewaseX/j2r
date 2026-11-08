@@ -1387,11 +1387,17 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       13.23s, emit 7.98s, build 282.72s / **1.89 GB peak** (single-crate
       extrapolation ~21 GB — impossible here), run BYTE-IDENTICAL vs
       Temurin. CSV: scripts/m5_census_partitioned.csv.
-- [~] **T04** farm differential: BYTE-IDENTICAL vs Temurin at N=250
-      (k=100), N=1000 (k=500), N=5000 (k=300) — exit 0 + stdout
-      identical, stderr empty both sides. Remaining for [x]: pin a
-      partitioned farm row in CI (javac + --partition-classes in the
-      harness) so the partition seams are regression-guarded.
+- [x] **T04** partition differential LANDED (2026-11-08): the farm was
+      BYTE-IDENTICAL vs Temurin at N=250 (k=100), N=1000 (k=500), N=5000
+      (k=300) during T05; the seams are now REGRESSION-GUARDED in CI —
+      new tests/partition_suite.rs runs 6 multi-class fixtures
+      (Cycles, ForEachColl, LambdaInCollections, SingletonFactory,
+      CyclicInit, StringIoSemantics) through `j2r test
+      --partition-classes 2` (forced-tiny budget → every web spans 2+
+      crates: cross-partition direct calls, cross-partition <clinit>
+      fn pointers via tramp, the shared statics pool, the composite
+      Dispatch) with the same three-channel comparison as the
+      differential suite. 25.9s locally, green; doc counts 109/339.
 - [x] **T03** closure cache LANDED (2026-11-08): `ClassPlan.refs` — the
       referenced-user-class set extracted ONCE at parse time; the closure
       worklist walks the cached delta sets and the referer lookup reads

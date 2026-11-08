@@ -122,6 +122,11 @@ enum Cmd {
         /// Build the generated Rust crate in release mode.
         #[arg(long)]
         release: bool,
+        /// M5 T04: compile the program's classes into a partitioned
+        /// workspace with at most this many classes per crate before the
+        /// comparison (default OFF = single-crate emission).
+        #[arg(long)]
+        partition_classes: Option<usize>,
         /// Program arguments passed to both runs (after `--`).
         #[arg(last = true)]
         args: Vec<String>,
@@ -209,8 +214,9 @@ fn main() {
         Cmd::Test {
             file,
             release,
+            partition_classes,
             args,
-        } => cmd_test(&file, release, &args),
+        } => cmd_test(&file, release, partition_classes, &args),
         Cmd::CfgReport { inputs } => cmd_cfg_report(&inputs),
         Cmd::ShapeReport { inputs } => cmd_shape_report(&inputs),
         Cmd::ReadinessReport { inputs } => cmd_readiness_report(&inputs),
@@ -466,7 +472,7 @@ fn cmd_build(
     0
 }
 
-fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
+fn cmd_test(file: &Path, release: bool, partition: Option<usize>, args: &[String]) -> i32 {
     if !file.exists() {
         eprintln!("j2r: error: {} does not exist", file.display());
         return 2;
@@ -525,7 +531,7 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
             "j2r-test-app",
             false,
             false,
-            None,
+            partition,
         )?;
         // 3. cargo build
         let mut cmd = Command::new(cargo_binary());
