@@ -1327,11 +1327,55 @@ local full-gate sweep at the same tree).**
 
 ### M5 Minecraft readiness (was M4; no compatibility claim without evidence)
 
-- [ ] incremental compilation for 70k+ classes
-- [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design)
-- [ ] mixin application at the bytecode level before j2r (R1)
-- [ ] Mojang/intermediary mappings pipeline
-- [ ] inline caches for megamorphic call sites
+**STARTED 2026-11-08** — plan: docs/M5_PLAN.md rev 0 (§6 = 23-task
+register T01–T23; wave order: 0 census → 1 scale/incremental → 2 JNI →
+3 mappings → 4 mixins → 5 inline caches). Audit facts verified in
+M5_PLAN §1: closure worklist is quadratic (codegen lib.rs:492–580),
+whole-program = one crate (lib.rs:1308), rustc SIGKILLs the JZlib
+release mega-functions (BENCHMARKS.md), zero JNI / zero mappings surface.
+
+Wave 0 — measurement & baseline:
+- [x] **T01** scale census LANDED (2026-11-08, scripts/m5_farm_gen.py +
+      m5_census.sh + m5_census.csv; Temurin 21.0.13+9, stable rustc,
+      4 GB sandbox). Stage curve (wall s / peak RSS MB):
+      N=100 → javac 1.83/105, j2r compile **0.06/13**, cargo debug
+      11.99/655 · N=250 → 2.31/119, **0.09/18**, 26.29/1256 ·
+      N=500 → 3.71/162, **0.22/28**, 45.55/2106 · N=1000 → 4.67/188,
+      **0.40/49**, cargo **SIGKILL** (peak 3.66 GB, 48 s in).
+      Isolation probes: no-Main probe (giant 639 KB farm_Main stubbed
+      out) still SIGKILLs at 3.64 GB — the mega-function is NOT the
+      driver; metadata-only rustc on the full 1k-class lib exceeds
+      600 s / OOMs — the wall is the pre-LLVM metadata/MIR phase on
+      ~3 MB expanded source per class. **The named cliff: rustc burns
+      ~4.2 MB per emitted class (linear: +2.1 GB per 500 classes) — the
+      4 GB box caps ONE rustc process at ~900 classes; 70k classes
+      would need ~300 GB in a single process.** javac: 0.5 MB/class;
+      j2r translation: 0.4 ms + 48 KB/class, flat. Translation is not
+      the bottleneck — rustc's view of our emission is (M5_PLAN fact 4
+      confirmed with numbers). Census CSV: scripts/m5_census.csv.
+- [x] **T02** census-driven scale design note LANDED (docs/M5_SCALE.md):
+      crate-partitioned emission chosen (link-table partitioning, K=500
+      classes/crate — the measured 2.1 GB point; cross-partition calls
+      through a registration table so class-web cycles stop mattering;
+      same-partition calls stay direct paths). Order fixed by the curve:
+      T05 partitioning first (rustc wall), T03 closure cache second
+      (real but behind the wall: 0.40 s at 1k vs cargo death), T06/T07
+      manifest rides the partitioning. Rejected with reasons: tuned-down
+      single crate (measured: still 3.68 GB at 1k), reference-DAG
+      layering (the class web is one SCC — collapses to one crate).
+
+Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
+- [ ] incremental compilation for 70k+ classes (§2; closure cache T03,
+      build manifest T06/T07, emission shape T05)
+- [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
+      T08–T13, C-harness parity is the blocker's evidence bar)
+- [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
+      constant-pool remap stage before j2r)
+- [ ] mixin application at the bytecode level before j2r (R1; §4,
+      T17–T21; class-identity design answer T17 gates all rewrites;
+      acceptance = real Fabric mod, ≥3 mixins, identical both sides)
+- [ ] inline caches for megamorphic call sites (§5, T22–T23; composes
+      with the typed-register lever at 0.936)
 
 ### M6 mod ecosystem
 

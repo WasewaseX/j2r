@@ -1,6 +1,7 @@
-# J2R Roadmap — Java → Rust compiler, M1 → M5
+# J2R Roadmap — Java → Rust compiler, M1 → M6
 
-Updated 2026-11-01 · every commit CI-green (runs recorded for substantive commits below)
+Updated 2026-11-08 (milestone renumbering per M4_PLAN §0: M4 = threads &
+concurrency — DONE; M5 = Minecraft readiness — STARTED; M6 = mod ecosystem) · every commit CI-green (runs recorded for substantive commits below)
 M1 architecture review: **APPROVE** ("PARTIALLY COMPLETE / Promising Milestone 1")
 M2 plan: `docs/M2_PLAN.md` — Revision 2 (2026-11-01) answers the
 REQUEST CHANGES verdict on the original plan — all six blockers resolved in
@@ -31,7 +32,7 @@ register (T01–T07 planning done, T08+ pending).
 5. Unsupported features fail loudly at compile time — never silently miscompile.
 6. Every milestone ends with an external architecture review before the next
    milestone's coding begins.
-7. No Minecraft-compatibility claim of any kind until M4 produces evidence.
+7. No Minecraft-compatibility claim of any kind until M5 produces evidence.
 
 ---
 
@@ -81,14 +82,15 @@ e2e — `docs/M3_EVIDENCE.md` Wave 1). Zero `unsafe` is compiler-enforced
 | M1 | Core compiler | subset JVM: methods, objects, arrays, strings, inheritance, exceptions | all gates green + external review | **DONE — APPROVE** |
 | M2 | Generated-code quality | catchable `StackOverflowError`; tracing cycle-collecting GC; typed operand-stack specialization; CFG reconstruction investigation | plan review → waves 1–4 each green with evidence → completion review | **waves DONE** — completion package submitted `b4badea`, verdict pending |
 | M3 | JDK coverage | JAR/classpath, collections, lambdas/invokedynamic, reflection, `synchronized` | real JDK libraries load and pass differential tests | plan published (`docs/M3_PLAN.md`); waves proceeding in parallel with the pending M2 verdict per the owner's directive |
-| M4 | Minecraft readiness | JNI, Mixin transformations, mappings (SRG/MojMap), large-scale compilation | a nontrivial library jar compiles and runs differentially clean | gated on M3 review |
-| M5 | Mod ecosystem | Fabric / Forge / NeoForge loaders | a real mod boots in the M4 runtime | gated on M4 review |
+| M4 | Threads & concurrency (renumbered from "Minecraft readiness", M4_PLAN §0) | platform threads, monitors/wait-notify, interrupt + daemon shutdown, JMM-lite, stress | real thread-heavy programs differentially clean; stress battery green | **DONE — ACCEPTED** (owner directive 2026-11-04; docs/M4_EVIDENCE.md) |
+| M5 | Minecraft readiness (was "M4" before the renumbering) | incremental compilation for 70k+ classes; JNI (LWJGL/GLFW/OpenAL, R3); mixin application before j2r (R1); Mojang/intermediary mappings; inline caches | measured scale curve at 20k+ classes; JNI C-harness parity vs Temurin; a real Fabric mod with ≥3 mixins behaves identically both sides | **STARTED 2026-11-08** — plan `docs/M5_PLAN.md` rev 0; wave 0 (census) running |
+| M6 | Mod ecosystem (was "M5" before the renumbering) | Fabric / Forge / NeoForge loaders | a real mod boots in the M5 runtime | gated on M5 review |
 
-Scope inside a milestone is ordered by its own task register (§4 for M2,
-`M3_PLAN.md` §12 for M3). The standing process note for M3: the owner
+Scope inside a milestone is ordered by its own task register (`M5_PLAN.md`
+§6 for M5, `M4_PLAN.md` §6 for M4). Standing process note: the owner
 directed that waves proceed without waiting for review verdicts; every
-wave still ships evidence + green CI, and reviews can still force
-changes after the fact.
+wave still ships evidence + green CI, and reviews can still force changes
+after the fact.
 
 ---
 
@@ -270,9 +272,15 @@ skipped gate is impossible.
   lambdas/method refs (invokedynamic), reflection, `synchronized` — each
   with differential fixtures and its own task register published before
   coding starts.
-- **M4 Minecraft readiness**: JNI, Mixin transformation pipeline, mappings,
-  compiling a large library jar differentially clean.
-- **M5 mod ecosystem**: Fabric / Forge / NeoForge boot paths.
+- **M4 threads & concurrency — DONE**: platform threads, monitors +
+  wait/notify, interrupt + daemon shutdown, JMM-lite, stress battery
+  (docs/M4_PLAN.md, docs/M4_EVIDENCE.md).
+- **M5 Minecraft readiness — STARTED (docs/M5_PLAN.md)**: measured scale
+  curve (synthetic farm census), incremental compilation for 70k+ classes,
+  JNI bridge (safe-Rust JNIEnv vtable emulation), Mojang/intermediary
+  mappings pipeline, mixin application at the bytecode level before j2r,
+  inline caches for megamorphic call sites.
+- **M6 mod ecosystem**: Fabric / Forge / NeoForge boot paths.
 
 Discipline stays identical: plan → review → ordered waves → evidence →
 external review. Nothing sloppy, nothing untested, nothing claimed without
