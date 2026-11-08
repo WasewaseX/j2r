@@ -1340,23 +1340,102 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.out.push(format!("let __idx = {idx_expr};"));
             let arr_expr = ctx.try_ref_of(pc, vs[k - 2], &fault);
             ctx.out.push(format!("let __arr = {arr_expr};"));
-            let load = try_wrap(&fault, format!("{RT}::array::array_load(&__arr, __idx)"));
             let slot = vs[k - 2];
             let kind = elem_kind(instr);
             let target = ctx.refill_target(slot, pc, Some(kind));
-            ctx.push_result(slot, target, load, Src::Value, false, kind);
+            // Primitive element kinds take the RAW accessors — the typed
+            // payload hands the number out directly (no Value clone, no
+            // expect unwrap; the boxing-wave representation). Reference
+            // kinds keep the Value-returning path.
+            match kind {
+                Kind::Int => {
+                    let load =
+                        try_wrap(&fault, format!("{RT}::array::array_load_i(&__arr, __idx)"));
+                    ctx.push_result(slot, target, load, Src::Prim(Prim::I), false, Kind::Int);
+                }
+                Kind::Long => {
+                    let load =
+                        try_wrap(&fault, format!("{RT}::array::array_load_j(&__arr, __idx)"));
+                    ctx.push_result(slot, target, load, Src::Prim(Prim::L), false, Kind::Long);
+                }
+                Kind::Float => {
+                    let load =
+                        try_wrap(&fault, format!("{RT}::array::array_load_f(&__arr, __idx)"));
+                    ctx.push_result(slot, target, load, Src::Prim(Prim::F), false, Kind::Float);
+                }
+                Kind::Double => {
+                    let load =
+                        try_wrap(&fault, format!("{RT}::array::array_load_d(&__arr, __idx)"));
+                    ctx.push_result(slot, target, load, Src::Prim(Prim::D), false, Kind::Double);
+                }
+                _ => {
+                    let load = try_wrap(&fault, format!("{RT}::array::array_load(&__arr, __idx)"));
+                    ctx.push_result(slot, target, load, Src::Value, false, kind);
+                }
+            }
         }
         I::AStore(_) => {
-            let v_expr = ctx.wrap_s(pc, vs[k - 1]);
-            ctx.out.push(format!("let __v = {v_expr};"));
             let idx_expr = ctx.read_prim(pc, vs[k - 2], Prim::I);
-            ctx.out.push(format!("let __idx = {idx_expr};"));
             let arr_expr = ctx.try_ref_of(pc, vs[k - 3], &fault);
-            ctx.out.push(format!("let __arr = {arr_expr};"));
-            let store = try_wrap(
-                &fault,
-                format!("{RT}::array::array_store(&__arr, __idx, __v, crate::j2r_dispatch())"),
-            );
+            let store = match instr {
+                I::AStore(crate::ir::ElemKind::IntGroup) => {
+                    // The raw int-group store: the runtime narrows by the
+                    // array's own descriptor (the bastore/castore/sastore
+                    // law) — no Value construction at all.
+                    let v_expr = ctx.read_prim(pc, vs[k - 1], Prim::I);
+                    ctx.out.push(format!("let __idx = {idx_expr};"));
+                    ctx.out.push(format!("let __arr = {arr_expr};"));
+                    ctx.out.push(format!("let __sv = {v_expr};"));
+                    try_wrap(
+                        &fault,
+                        format!("{RT}::array::array_store_i_raw(&__arr, __idx, __sv)"),
+                    )
+                }
+                I::AStore(crate::ir::ElemKind::Long) => {
+                    let v_expr = ctx.read_prim(pc, vs[k - 1], Prim::L);
+                    ctx.out.push(format!("let __idx = {idx_expr};"));
+                    ctx.out.push(format!("let __arr = {arr_expr};"));
+                    ctx.out.push(format!("let __sv = {v_expr};"));
+                    try_wrap(
+                        &fault,
+                        format!("{RT}::array::array_store_j_raw(&__arr, __idx, __sv)"),
+                    )
+                }
+                I::AStore(crate::ir::ElemKind::Float) => {
+                    let v_expr = ctx.read_prim(pc, vs[k - 1], Prim::F);
+                    ctx.out.push(format!("let __idx = {idx_expr};"));
+                    ctx.out.push(format!("let __arr = {arr_expr};"));
+                    ctx.out.push(format!("let __sv = {v_expr};"));
+                    try_wrap(
+                        &fault,
+                        format!("{RT}::array::array_store_f_raw(&__arr, __idx, __sv)"),
+                    )
+                }
+                I::AStore(crate::ir::ElemKind::Double) => {
+                    let v_expr = ctx.read_prim(pc, vs[k - 1], Prim::D);
+                    ctx.out.push(format!("let __idx = {idx_expr};"));
+                    ctx.out.push(format!("let __arr = {arr_expr};"));
+                    ctx.out.push(format!("let __sv = {v_expr};"));
+                    try_wrap(
+                        &fault,
+                        format!("{RT}::array::array_store_d_raw(&__arr, __idx, __sv)"),
+                    )
+                }
+                _ => {
+                    // Reference stores keep the boxed path (the ASE check
+                    // needs the stored object's class).
+                    let v_expr = ctx.wrap_s(pc, vs[k - 1]);
+                    ctx.out.push(format!("let __idx = {idx_expr};"));
+                    ctx.out.push(format!("let __arr = {arr_expr};"));
+                    ctx.out.push(format!("let __v = {v_expr};"));
+                    try_wrap(
+                        &fault,
+                        format!(
+                            "{RT}::array::array_store(&__arr, __idx, __v, crate::j2r_dispatch())"
+                        ),
+                    )
+                }
+            };
             ctx.out.push(format!("{store};"));
         }
         I::ArrayLength => {

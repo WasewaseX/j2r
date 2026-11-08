@@ -51,6 +51,7 @@ pub fn make_closure(
     Ok(Value::Ref(Some(heap::alloc(JObj {
         jclass: Arc::from(interface),
         slots,
+        prim: None,
     }))))
 }
 

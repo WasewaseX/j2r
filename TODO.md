@@ -1284,6 +1284,35 @@ local full-gate sweep at the same tree).**
       boundary) and lands after the block-join/entry-var layer.
       docs/BENCHMARKS.md addendum 7 has the full table + protocol. CI
       evidence: (this commit).
+- [x] **Typed-payload array representation — the boxing wave LANDED
+      (2026-11-08, owner directive "continue never stop")** — addendum
+      7's census showed arrays pay the boxing disease HARDER than maps
+      (334 `array_load` unwraps in the typed JAMA crate; a `Value` enum
+      per element = clone + expect per access + ~2x memory). Primitive
+      arrays now carry a TYPED PAYLOAD: `JObj.prim: Option<PrimData>`
+      (I/J/F/D; the Int-group companions share the i32 payload),
+      `slots` holds exactly the length (array_length + the GC child
+      walk stay uniform; prim payloads have no ref children — the
+      collector scans less). New RAW accessors
+      (`array_load_i/j/f/d`, `array_store_*_raw`: NPE + bounds identical,
+      then the bare number — no `Value` construction); the generic
+      accessors dispatch (fresh wrap instead of a boxed-slot clone — the
+      DEFAULT emission benefits with zero emitter change); the
+      Int-group store narrows by the array's own descriptor (the JVMS
+      bastore/castore/sastore law, defensive — javac always pre-narrows,
+      the corpus cannot distinguish); `object_shallow_clone` carries the
+      payload; 26 JObj construction sites updated (mechanical,
+      compiler-guided). Typed-backend xXaload/xXastore call the raw
+      accessors (536 raw sites in the JAMA crate); reference stores keep
+      the ASE-checking boxed path. Proof: cfg_equiv 109 × 3 modes zero
+      divergences (361.7s), diff_suite 109 vs Temurin (473.3s),
+      corpus_suite 4/4, runtime 163 + codegen 98, fmt/clippy clean.
+      Measurement (addendum 8): default 274.1s vs typed+raw 256.5s =
+      **0.936 — 6.4% cumulative lever movement** (0.992 → 0.958 →
+      0.936); expect census 2,457 → 873. Remaining named prerequisite:
+      the block-join/entry-var layer at its MEASURED ceiling (~140
+      slot-var sites — small), then dispatch/obj-helper costs. CI
+      evidence: (this commit).
 
       * **Gate repairs found on the way in**: main was fmt-red
         (cargo fmt applied — zero-tolerance gate-1) and clippy-red

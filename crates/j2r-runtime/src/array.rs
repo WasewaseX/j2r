@@ -12,7 +12,7 @@
 //! non-null references.
 
 use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
-use crate::object::JObj;
+use crate::object::{JObj, PrimData};
 use crate::subtype::is_subtype;
 use crate::Value;
 use crate::{internal_error, throw_new, Dispatch, Throw};
@@ -26,16 +26,6 @@ pub const BYTE: &str = "[B";
 pub const SHORT: &str = "[S";
 pub const INT: &str = "[I";
 pub const LONG: &str = "[J";
-
-fn default_element(desc: &str) -> Value {
-    match desc {
-        FLOAT => Value::Float(0.0),
-        DOUBLE => Value::Double(0.0),
-        LONG => Value::Long(0),
-        BOOLEAN | CHAR | BYTE | SHORT | INT => Value::Int(0),
-        _ => Value::Ref(None),
-    }
-}
 
 fn check_array(r: &JRef) -> Result<(i32, Arc<str>), Throw> {
     // M4 Wave 1 lock law L3: no heap re-entry — the error object is built
@@ -90,15 +80,21 @@ pub fn array_new_prim(desc: &str, len: i32) -> Result<JRef, Throw> {
             Some(&len.to_string()),
         ));
     }
-    let mut slots = Vec::with_capacity(len as usize + 1);
-    slots.push(Value::Int(len));
-    let dflt = default_element(desc);
-    for _ in 0..len {
-        slots.push(dflt.clone());
-    }
+    // The typed payload: raw elements, no Value enum per slot (the
+    // boxing-wave representation). slots keeps exactly one entry — the
+    // length — so `array_length` and the GC child walk stay uniform.
+    let n = len as usize;
+    let prim = match desc {
+        INT | BOOLEAN | CHAR | BYTE | SHORT => PrimData::I(vec![0i32; n]),
+        LONG => PrimData::J(vec![0i64; n]),
+        FLOAT => PrimData::F(vec![0f32; n]),
+        DOUBLE => PrimData::D(vec![0f64; n]),
+        other => return Err(internal_error(&format!("array_new_prim {other}"))),
+    };
     Ok(alloc(JObj {
         jclass: Arc::from(desc),
-        slots,
+        slots: vec![Value::Int(len)],
+        prim: Some(prim),
     }))
 }
 
@@ -128,6 +124,7 @@ pub fn array_new_ref(elem_class: &str, len: i32) -> Result<JRef, Throw> {
     Ok(alloc(JObj {
         jclass: Arc::from(desc.as_str()),
         slots,
+        prim: None,
     }))
 }
 
@@ -194,6 +191,7 @@ fn build_level(desc: &str, dims: &[i32]) -> Result<JRef, Throw> {
         Ok(alloc(JObj {
             jclass: Arc::from(desc),
             slots,
+            prim: None,
         }))
     }
 }
@@ -441,7 +439,146 @@ fn java_elem_name(cls: &str) -> String {
 pub fn array_load(r: &JRef, idx: i32) -> Result<Value, Throw> {
     let (len, _cls) = check_array(r)?;
     bounds_ok(len, idx)?;
-    Ok(with_obj(*r, |o| o.slots[idx as usize + 1].clone()))
+    with_obj(*r, |o| match &o.prim {
+        // Primitive arrays: a fresh wrap of the raw payload — no Value
+        // clone of a boxed slot (the payload IS the number).
+        Some(PrimData::I(v)) => Ok(Value::Int(v[idx as usize])),
+        Some(PrimData::J(v)) => Ok(Value::Long(v[idx as usize])),
+        Some(PrimData::F(v)) => Ok(Value::Float(v[idx as usize])),
+        Some(PrimData::D(v)) => Ok(Value::Double(v[idx as usize])),
+        None => Ok(o.slots[idx as usize + 1].clone()),
+    })
+}
+
+/// The specialized primitive-array element readers (the typed backend's
+/// hot path): NPE + bounds checks identical to `array_load`, then the
+/// RAW number — no `Value` construction at all. The Int-group readers
+/// cover `[Z`/`[B`/`[C`/`[S`/`[I` (one payload, the verifier's
+/// Int-group law); the prim-variant mismatch is a loud internal error
+/// (a codegen/native contract drift, never a Java program error).
+fn prim_elem<T>(r: &JRef, idx: i32, kind: &str) -> Result<T, Throw>
+where
+    PrimData: PrimElem<T>,
+{
+    let (len, _cls) = check_array(r)?;
+    bounds_ok(len, idx)?;
+    Ok(with_obj(*r, |o| match o.prim.as_ref() {
+        Some(p) => p
+            .elem(idx as usize)
+            .unwrap_or_else(|| panic!("j2r internal: {kind} accessor on a non-{kind} prim array")),
+        None => panic!("j2r internal: {kind} accessor on a reference array"),
+    }))
+}
+
+pub fn array_load_i(r: &JRef, idx: i32) -> Result<i32, Throw> {
+    prim_elem::<i32>(r, idx, "int-group")
+}
+
+pub fn array_load_j(r: &JRef, idx: i32) -> Result<i64, Throw> {
+    prim_elem::<i64>(r, idx, "long")
+}
+
+pub fn array_load_f(r: &JRef, idx: i32) -> Result<f32, Throw> {
+    prim_elem::<f32>(r, idx, "float")
+}
+
+pub fn array_load_d(r: &JRef, idx: i32) -> Result<f64, Throw> {
+    prim_elem::<f64>(r, idx, "double")
+}
+
+/// The element-extraction law for each payload variant (returns `None`
+/// on a variant mismatch — the caller turns it into the loud internal
+/// panic; the static bytecode type decides which accessor runs).
+pub trait PrimElem<T> {
+    fn elem(&self, idx: usize) -> Option<T>;
+}
+
+impl PrimElem<i32> for PrimData {
+    fn elem(&self, idx: usize) -> Option<i32> {
+        match self {
+            PrimData::I(v) => Some(v[idx]),
+            _ => None,
+        }
+    }
+}
+
+impl PrimElem<i64> for PrimData {
+    fn elem(&self, idx: usize) -> Option<i64> {
+        match self {
+            PrimData::J(v) => Some(v[idx]),
+            _ => None,
+        }
+    }
+}
+
+impl PrimElem<f32> for PrimData {
+    fn elem(&self, idx: usize) -> Option<f32> {
+        match self {
+            PrimData::F(v) => Some(v[idx]),
+            _ => None,
+        }
+    }
+}
+
+impl PrimElem<f64> for PrimData {
+    fn elem(&self, idx: usize) -> Option<f64> {
+        match self {
+            PrimData::D(v) => Some(v[idx]),
+            _ => None,
+        }
+    }
+}
+
+/// The specialized primitive-array element writer. `narrow` applies the
+/// array-kind law for the Int-group companions (JVMS bastore/castore/
+/// sastore narrow BY THE INSTRUCTION; javac always pre-narrows with
+/// i2b/i2c/i2s so the corpus cannot distinguish — implemented here
+/// defensively, keyed on the array's own descriptor).
+pub fn array_store_i_raw(r: &JRef, idx: i32, v: i32) -> Result<(), Throw> {
+    let (len, cls) = check_array(r)?;
+    bounds_ok(len, idx)?;
+    let narrowed = match cls.as_ref() {
+        BOOLEAN => (v != 0) as i32,
+        BYTE => (v as i8) as i32,
+        CHAR => (v as u16) as i32,
+        SHORT => (v as i16) as i32,
+        _ => v,
+    };
+    with_obj_mut(*r, |o| match o.prim.as_mut() {
+        Some(PrimData::I(vv)) => vv[idx as usize] = narrowed,
+        _ => panic!("j2r internal: int-group store on a non-int-group array"),
+    });
+    Ok(())
+}
+
+pub fn array_store_j_raw(r: &JRef, idx: i32, v: i64) -> Result<(), Throw> {
+    let (len, _cls) = check_array(r)?;
+    bounds_ok(len, idx)?;
+    with_obj_mut(*r, |o| match o.prim.as_mut() {
+        Some(PrimData::J(vv)) => vv[idx as usize] = v,
+        _ => panic!("j2r internal: long store on a non-long array"),
+    });
+    Ok(())
+}
+
+pub fn array_store_f_raw(r: &JRef, idx: i32, v: f32) -> Result<(), Throw> {
+    let (len, _cls) = check_array(r)?;
+    bounds_ok(len, idx)?;
+    with_obj_mut(*r, |o| match o.prim.as_mut() {
+        Some(PrimData::F(vv)) => vv[idx as usize] = v,
+        _ => panic!("j2r internal: float store on a non-float array"),
+    });
+    Ok(())
+}
+
+pub fn array_store_d_raw(r: &JRef, idx: i32, v: f64) -> Result<(), Throw> {
+    let (len, _cls) = check_array(r)?;
+    bounds_ok(len, idx)?;
+    with_obj_mut(*r, |o| match o.prim.as_mut() {
+        Some(PrimData::D(vv)) => vv[idx as usize] = v,
+        _ => panic!("j2r internal: double store on a non-double array"),
+    });
+    Ok(())
 }
 
 pub fn array_store(r: &JRef, idx: i32, v: Value, ctx: Dispatch) -> Result<(), Throw> {
@@ -493,6 +630,20 @@ pub fn array_store(r: &JRef, idx: i32, v: Value, ctx: Dispatch) -> Result<(), Th
         if !kind_ok {
             return Err(internal_error(&format!("storing {v:?} into {cls}")));
         }
+    }
+    // Primitive arrays: unwrap the boxed value into the typed payload
+    // (the kind_ok check above already verified the variant matches the
+    // array's descriptor); reference arrays keep the slot write.
+    let is_prim = with_obj(*r, |o| o.prim.is_some());
+    if is_prim {
+        with_obj_mut(*r, |o| match (o.prim.as_mut().unwrap(), v) {
+            (PrimData::I(vv), Value::Int(x)) => vv[idx as usize] = x,
+            (PrimData::J(vv), Value::Long(x)) => vv[idx as usize] = x,
+            (PrimData::F(vv), Value::Float(x)) => vv[idx as usize] = x,
+            (PrimData::D(vv), Value::Double(x)) => vv[idx as usize] = x,
+            _ => unreachable!("j2r internal: prim store kind checked above"),
+        });
+        return Ok(());
     }
     with_obj_mut(*r, |o| o.slots[idx as usize + 1] = v);
     Ok(())

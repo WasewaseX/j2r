@@ -479,6 +479,7 @@ mod tests {
         let h = crate::heap::alloc(crate::object::JObj {
             jclass: std::sync::Arc::from("test/S"),
             slots: vec![],
+            prim: None,
         });
         {
             let g1 = FrameGuard::enter().unwrap();

@@ -25,7 +25,32 @@ pub struct JObj {
     pub jclass: Arc<str>,
     /// Flattened field slots. Slot semantics are owned by the code
     /// generator's layout; natives use fixed slots documented per class.
+    /// For PRIMITIVE arrays this holds exactly one slot — the length —
+    /// and the elements live in `prim` (the boxing-wave representation:
+    /// a `Value` enum per element cost a clone + an expect per access
+    /// and ~2x the memory; the typed payload hands raw numbers to the
+    /// accessors). Reference arrays keep their elements here and leave
+    /// `prim` empty.
     pub slots: Vec<Value>,
+    /// Typed element payload for primitive arrays (`[I`/`[J`/`[F`/`[D`
+    /// and the Int-group companions `[Z`/`[B`/`[C`/`[S`). `None` for
+    /// instances and reference arrays.
+    pub prim: Option<PrimData>,
+}
+
+/// Typed payload of a primitive array (see `JObj::prim`). The Int-group
+/// companions share the `i32` payload: the runtime represents boolean/
+/// byte/char/short elements as `Value::Int` (the verifier's Int-group
+/// law), so the payload does too — narrowing on store follows the array's
+/// own descriptor (JVMS bastore/castore/sastore narrow BY THE INSTRUCTION
+/// for non-javac bytecode; javac always pre-narrows with i2b/i2c/i2s, so
+/// the corpus cannot distinguish — the law is implemented defensively).
+#[derive(Clone, Debug, PartialEq)]
+pub enum PrimData {
+    I(Vec<i32>),
+    J(Vec<i64>),
+    F(Vec<f32>),
+    D(Vec<f64>),
 }
 
 /// Allocates a new object with `slots` default (Void) slots.
@@ -33,6 +58,7 @@ pub fn new_obj(class: &str, slots: usize) -> Result<JRef, Throw> {
     Ok(alloc(JObj {
         jclass: Arc::from(class),
         slots: vec![Value::Void; slots],
+        prim: None,
     }))
 }
 
@@ -55,7 +81,12 @@ pub fn new_builtin(class: &str) -> Result<JRef, Throw> {
 pub fn object_shallow_clone(src: &JRef) -> Result<JRef, Throw> {
     let cls = crate::heap::with_obj(*src, |o| o.jclass.clone());
     let slots = crate::heap::with_obj(*src, |o| o.slots.clone());
-    Ok(alloc(JObj { jclass: cls, slots }))
+    let prim = crate::heap::with_obj(*src, |o| o.prim.clone());
+    Ok(alloc(JObj {
+        jclass: cls,
+        slots,
+        prim,
+    }))
 }
 
 /// Reads a field slot (panics on out-of-range: a codegen bug, never a Java
@@ -104,6 +135,7 @@ pub fn new_string(s: &str) -> JRef {
     alloc(JObj {
         jclass: Arc::from("java/lang/String"),
         slots: vec![Value::Str(Arc::new(s.to_string()))],
+        prim: None,
     })
 }
 
@@ -114,6 +146,7 @@ pub fn string_from_rc(s: Arc<String>) -> JRef {
     alloc(JObj {
         jclass: Arc::from("java/lang/String"),
         slots: vec![Value::Str(s)],
+        prim: None,
     })
 }
 
@@ -166,6 +199,7 @@ pub fn new_string_array(items: &[String]) -> JRef {
     alloc(JObj {
         jclass: Arc::from("[Ljava/lang/String;"),
         slots,
+        prim: None,
     })
 }
 
@@ -194,6 +228,7 @@ pub fn locale_us_ref() -> JRef {
         *r = Some(alloc(JObj {
             jclass: Arc::from("java/util/Locale"),
             slots: vec![],
+            prim: None,
         }));
     }
     r.expect("just initialized")
@@ -203,6 +238,7 @@ fn native_stream(sink: i32) -> JRef {
     alloc(JObj {
         jclass: Arc::from("java/io/PrintStream"),
         slots: vec![Value::Int(sink)],
+        prim: None,
     })
 }
 

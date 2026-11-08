@@ -258,6 +258,7 @@ pub fn throw_new(class: &str, msg: Option<&str>) -> Throw {
     let obj = crate::heap::alloc(JObj {
         jclass: Arc::from(class),
         slots: vec![msg_val, Value::Ref(None), Value::Ref(None)],
+        prim: None,
     });
     Throw { obj }
 }

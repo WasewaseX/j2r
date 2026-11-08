@@ -944,6 +944,7 @@ pub fn n_al_sub_list(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Res
             Value::Int(to - from),
             Value::Int(mod_count),
         ],
+        prim: None,
     });
     Ok(Value::Ref(Some(view)))
 }
@@ -1202,6 +1203,7 @@ pub fn n_unmod_list(_recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Res
     let view = crate::heap::alloc(crate::object::JObj {
         jclass: Arc::from("java/util/Collections$UnmodifiableList"),
         slots: vec![Value::Ref(Some(list))],
+        prim: None,
     });
     Ok(Value::Ref(Some(view)))
 }

@@ -1196,6 +1196,7 @@ pub fn current_thread_object() -> JRef {
             Value::Int(i32::try_from(rec.reg_index).unwrap_or(i32::MAX)),
             Value::Int(0), // pendingInterrupt (T14)
         ],
+        prim: None,
     });
     *j = Some(obj);
     obj
@@ -1893,6 +1894,7 @@ mod tests {
                 Value::Int(-1),
                 Value::Int(0), // pendingInterrupt (T14)
             ],
+            prim: None,
         });
         let err = n_thread_set_daemon(Some(&r), &[Value::Int(1)]).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/IllegalThreadStateException");
@@ -1935,6 +1937,7 @@ mod tests {
                 Value::Int(tid as i32),
                 Value::Int(0),
             ],
+            prim: None,
         })
     }
 

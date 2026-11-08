@@ -82,6 +82,7 @@ pub fn class_ref(internal: &str) -> JRef {
     let r = crate::heap::alloc(crate::object::JObj {
         jclass: Arc::from("java/lang/Class"),
         slots: vec![Value::Str(Arc::new(internal.to_string()))],
+        prim: None,
     });
     let mut b = class_objects().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(existing) = b.get(internal) {
@@ -249,6 +250,7 @@ pub(crate) fn field_obj(
             Value::Int(instance_slot as i32),
             Value::Int(static_slot as i32),
         ],
+        prim: None,
     })
 }
 
@@ -265,6 +267,7 @@ pub(crate) fn method_obj(owner: &str, name: &str, desc: &str, is_static: bool) -
             Value::Str(Arc::new(desc.to_string())),
             Value::Int(is_static as i32),
         ],
+        prim: None,
     })
 }
 
@@ -702,6 +705,7 @@ fn wrap_in_ite(t: Throw) -> Throw {
     let obj = crate::heap::alloc(crate::object::JObj {
         jclass: Arc::from("java/lang/reflect/InvocationTargetException"),
         slots: vec![Value::Ref(None), Value::Ref(Some(t.obj)), Value::Ref(None)],
+        prim: None,
     });
     Throw { obj }
 }

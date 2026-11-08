@@ -189,6 +189,7 @@ fn alloc_array(cap: i32) -> JRef {
     alloc(crate::object::JObj {
         jclass: Arc::from("[Ljava/lang/Object;"),
         slots,
+        prim: None,
     })
 }
 
@@ -903,6 +904,7 @@ fn alloc_node_table(len: i32) -> JRef {
     alloc(crate::object::JObj {
         jclass: Arc::from("[Ljava/util/HashMap$Node;"),
         slots,
+        prim: None,
     })
 }
 

@@ -480,6 +480,7 @@ pub fn n_str_to_char_array(
     Ok(Value::Ref(Some(crate::heap::alloc(crate::object::JObj {
         jclass: Arc::from("[C"),
         slots,
+        prim: None,
     }))))
 }
 

@@ -569,3 +569,57 @@ Repro:
     #   == j2r_boxb == j2r_boxp, byte-identical
     python3 scripts/bench_suite.py BoxingBoxedBench BoxingPrimBench \
         --fulljit --reps 3 --warmups 1 --native-reps 3 --native-warmups 0
+
+## 2026-11-08 addendum 8 — the typed-payload array representation (the
+## boxing wave): typed+raw pair at 0.936 — 6.4% cumulative lever movement
+
+The boxing question's second half: the collection measurement (addendum
+7) showed the map tax; the CENSUS showed arrays pay the SAME disease
+harder — primitive arrays stored a `Value` enum per element
+(`o.slots[idx + 1]`), so every `daload` in JAMA paid clone + expect
+(334 `array_load` unwraps in the typed crate alone, ~2x the element
+memory). The boxing wave moves primitive arrays to a TYPED PAYLOAD:
+`JObj.prim: Option<PrimData>` (`I/J/F/D`; the Int-group companions
+`[Z`/`[B`/`[C`/`[S` share the i32 payload), `slots` keeps exactly one
+entry — the length — so `array_length` and the GC child walk stay
+uniform (prim payloads have no ref children — nothing to scan). New raw
+accessors (`array_load_i/j/f/d`, `array_store_i_raw/j_raw/f_raw/d_raw`:
+NPE + bounds checks identical, then the RAW number — no `Value`
+construction at all); the generic `array_load`/`array_store` dispatch on
+the payload (fresh wrap instead of a boxed-slot clone — the default
+emission benefits too without any emitter change); the Int-group store
+narrows by the array's own descriptor (the JVMS bastore/castore/sastore
+law — javac always pre-narrows, so the corpus cannot distinguish;
+defensive); `object_shallow_clone` carries the payload. The typed
+backend's `xXaload`/`xXastore` call the raw accessors (536 raw sites in
+the JAMA crate); reference stores keep the ASE-checking boxed path.
+
+Proof: cfg_equiv 109 × {base,cfg,typed} zero divergences (361.7s),
+diff_suite 109 vs Temurin (473.3s), corpus_suite 4/4 (47.7s), runtime
+163 + codegen 98 green, fmt/clippy clean.
+
+Same-session pair (the registered protocol, median of 2, output
+byte-identical to the JVM on all four runs):
+
+    emission        native      ratio
+    default         274.1 s     (1.000)
+    typed+raw       256.5 s     0.936
+
+Lever ledger (all same-session pairs, this register): structuring flat
+(three CFG addenda) → typed-locals 0.992 → unification 0.958 → typed
+payload 0.936 = **6.4% total**. Expect-site census on the JAMA crate:
+2,457 → 1,150 (unification) → 873 (raw accessors; the remaining sites
+are cell-local loads, invoke/obj_get result unwraps, and the ~140
+slot-var reads the block-join/entry-var layer targets — now the named
+next prerequisite at its measured ceiling). The full-tier JVM reference
+stays in the 3-5s band; the steady-state gap is now ~66x (256.5/3.89)
+down from ~70x at addendum 6.
+
+Repro:
+
+    export PATH="$HOME/.cargo/bin:/home/z/tools/jdk-21.0.13+9/bin:$PATH"
+    javac -d /tmp/jb corpus/JamaBench.java
+    ./target/debug/j2r compile /tmp/jb/*.class --main-class JamaBench \
+      --crate-name j2r_jb_typed --emit-typed -o /tmp/jb_typed
+    (cd /tmp/jb_typed && cargo build --release --offline)
+    # default twin minus --emit-typed; time both, compare vs java output

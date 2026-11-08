@@ -492,6 +492,7 @@ mod tests {
         alloc(JObj {
             jclass: Arc::from(class),
             slots,
+            prim: None,
         })
     }
 
