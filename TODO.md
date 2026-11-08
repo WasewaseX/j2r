@@ -1256,6 +1256,34 @@ local full-gate sweep at the same tree).**
       instead of slot indices) — register unchanged in
       docs/TYPED_REGISTER_READINESS.md §5; collection-VALUE-boxing
       measurement sequenced after it. CI evidence: (this commit).
+- [x] **Collection VALUE-boxing measurement — readiness §5 step 3 —
+      TAKEN (2026-11-08, owner directive "continue never stop")** — the
+      owner's opt_v1.1 evidence registered the question (their hand-
+      port's HashMap<String,i32> beat the JVM's boxed
+      HashMap<String,Integer> 2.34x on W7b); after the unification
+      slices landed, the honest number is now on the board. Instrument:
+      a corpus stem PAIR with identical arithmetic —
+      corpus/BoxingBoxedBench.java (Map<String,Double>, two boxed map
+      ops per iteration) vs corpus/BoxingPrimBench.java (a double[]
+      indexed by the loop id) — same xorshift64* stream, same order per
+      key, checksums in FIXED key order; **four-way differential:
+      byte-identical output on both stems on both channels** (a real
+      fixture pair, not just a bench pair). CSV rows (reps=3,
+      native-reps=3): boxed 7387.2 ms / prim 2657.1 ms native,
+      93.1 / 52.7 ms full-JIT → **j2r container tax 2.78x, JVM
+      container tax 1.77x** (the JIT scalar-replaces most boxes; j2r
+      has MORE to gain from a primitive-specialized map path than the
+      JVM does — 2.78x is the ceiling the specialization lever recovers
+      on this family); j2r/JVM 79.4x boxed vs 50.4x specialized (the
+      ABSOLUTE steady-state gap shrinks 36% from the container swap
+      alone — j2r's map ops are dispatch+boxing-heavy, its array ops
+      helper-light). Per-pair: j2r ≈ 1.82 µs/pair extra container cost
+      vs the JVM ≈ 16 ns — ~115x, the steady-state order. REGISTERED
+      (not scheduled): the primitive-specialized map path composes with
+      the operand/register lever (the unbox moves to the native
+      boundary) and lands after the block-join/entry-var layer.
+      docs/BENCHMARKS.md addendum 7 has the full table + protocol. CI
+      evidence: (this commit).
 
       * **Gate repairs found on the way in**: main was fmt-red
         (cargo fmt applied — zero-tolerance gate-1) and clippy-red

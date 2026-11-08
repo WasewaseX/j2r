@@ -499,3 +499,73 @@ Repro:
       --crate-name j2r_jb_typed --emit-typed -o /tmp/jb_typed
     (cd /tmp/jb_typed && cargo build --release --offline)
     # default twin with the same command minus --emit-typed, then time both
+
+## 2026-11-08 addendum 7 — the collection VALUE-boxing measurement
+## (readiness §5 step 3, registered from the owner's opt_v1.1 evidence)
+
+The register's step 3: the owner's hand-port measured HashMap<String,i32>
+beating the JVM's boxed HashMap<String,Integer> 2.34x on the profile-
+reuse workload (results_v1.1 W7b); after the typed-operand unification
+slices landed, measure whether j2r's generated map containers still pay
+per-entry Value boxing, and register the honest number either way.
+
+Instrument: a corpus stem PAIR with IDENTICAL arithmetic —
+corpus/BoxingBoxedBench.java (Map<String, Double>, two boxed map ops per
+iteration: get unwraps the Double, put rewraps it) and
+corpus/BoxingPrimBench.java (the same aggregation through a double[]
+indexed by the loop id). Same xorshift64* stream consumed in the same
+order, same key/index order, same addition order per key; checksums
+printed in FIXED key order (no hash-order dependence on the output
+path). FOUR-WAY DIFFERENTIAL: both stems on both channels print
+byte-identical output (wsum=1299.9431953077858, chk=1312.9431953077305)
+— the pair is a real differential fixture, not just a bench pair.
+Sizing: KEYS=26, ROUNDS=100_000 → 2.6M get+put pairs; rnd() is a static
+call per iteration SHARED by both paths, so the ratio isolates the
+container cost while both absolute numbers include the same call
+machinery.
+
+CSV rows (2-core Xeon / 4 GB, Temurin 21.0.13+9, 2026-11-08T08:53:00,
+reps=3 median, native-reps=3):
+
+    fixture            javaFull(ms) native(ms) nat/full
+    BoxingBoxedBench        93.1       7387.2     79.37
+    BoxingPrimBench         52.7       2657.1     50.43
+
+The registered numbers:
+* **j2r container tax: 2.78x** (7387.2 / 2657.1 ms) — the generated
+  Map<String,Double> pays per-entry Value boxing (obj_get/obj_set inside
+  the map natives) PLUS the invoke_virtual dispatch machinery per map
+  access, against an array path that still pays its own per-access
+  array_load/array_store helper calls (the default emission — both
+  paths carry helper overhead, so 2.78x is the container DELTA, a
+  lower bound on the full specialization win).
+* **JVM container tax: 1.77x** (93.1 / 52.7 ms) — the JIT's escape
+  analysis scalar-replaces most of the boxed Double in this tight loop;
+  the JVM has LESS to gain from a primitive-specialization path than
+  j2r does.
+* j2r/JVM: 79.4x on the boxed path, 50.4x on the specialized path —
+  the steady-state regime attribution carries over unchanged
+  (interpreter-shaped emission, not the container): the ABSOLUTE gap
+  shrinks by 36% just from the container swap, because j2r's map ops
+  are dispatch+boxing-heavy while its array ops are helper-light.
+
+Per-pair arithmetic (the same-session run): j2r's extra container cost
+≈ (7387.2 − 2657.1) ms / 2.6M pairs ≈ 1.82 µs/pair; the JVM's ≈
+(93.1 − 52.7) ms / 2.6M ≈ 16 ns/pair — ~115x per-op, the same order as
+the steady-state gap. Actionable conclusion for the register: a
+primitive-specialized map path (unboxed numeric values in the map
+natives) is worth MORE to j2r than to the JVM — 2.78x is the ceiling
+the specialization lever can recover on this workload family — and it
+composes with the operand/register lever (the unbox happens at the
+native boundary, not per access). REGISTERED, not scheduled: the
+specialization design lands after the block-join/entry-var layer
+(docs/TYPED_REGISTER_READINESS.md §5 order).
+
+Repro:
+
+    export PATH="$HOME/.cargo/bin:/home/z/tools/jdk-21.0.13+9/bin:$PATH"
+    javac -d /tmp/boxbb corpus/BoxingBoxedBench.java corpus/BoxingPrimBench.java
+    # four-way differential first: java BoxingBoxedBench == java BoxingPrimBench
+    #   == j2r_boxb == j2r_boxp, byte-identical
+    python3 scripts/bench_suite.py BoxingBoxedBench BoxingPrimBench \
+        --fulljit --reps 3 --warmups 1 --native-reps 3 --native-warmups 0

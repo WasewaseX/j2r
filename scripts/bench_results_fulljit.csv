@@ -5,3 +5,5 @@ date,cpu,cores,reps,warmups,fixture,javac_s,java_c1_ms,java_full_ms,j2r_gen_s,na
 2026-11-07T18:38:29,Intel(R) Xeon(R) Processor,2,3,2,JamaBench,1.908,1760.4,3657.3,75.25,358681.0,203.745,98.072,1,0
 2026-11-07T20:41:42,Intel(R) Xeon(R) Processor,2,5,2,StringsSimCorpus,1.119,68.7,70.5,15.91,4.0,0.058,0.057,5,1
 2026-11-07T21:08:25,Intel(R) Xeon(R) Processor,2,3,2,StringsSimBench,1.003,3848.6,2710.1,14.34,281325.1,73.099,103.806,1,0
+2026-11-08T08:53:00,Intel(R) Xeon(R) Processor,2,3,2,BoxingBoxedBench,0.594,104.7,93.1,8.97,7387.2,70.544,79.371,3,0
+2026-11-08T08:53:00,Intel(R) Xeon(R) Processor,2,3,2,BoxingPrimBench,0.563,49.4,52.7,8.30,2657.1,53.794,50.433,3,0
