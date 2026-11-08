@@ -136,15 +136,28 @@ named lift-closure items are its prerequisites, not alternatives.
 
 ## 5. Verdict: GO, sequenced
 
-> **Status (2026-11-07, same day): step 1 LANDED** — see TODO.md
-> "Lift-closure wave" and docs/BENCHMARKS.md addendum 2. Suite
-> needs-lift 146 → 126, JAMA 32 → 21, ImpureLoopExit gone, JAMA
-> MultiExitLoop 5 → 0 (tql2/hqr2 lift), JamaBench dispatchers 31 → 21;
-> steady state 273.9s (flat — structuring confirmed non-payload at a
-> third coverage point). Step 2 (typed-operand emission behind
-> `--emit-typed`) remains the registered lever, with the residual
-> diamond-shape refusals (suite 36 / JAMA 13 ImpureJoin) as its next
-> named prerequisite layer.
+> **Status (2026-11-08): step 1 LANDED + step 2's first two slices
+> measured.** Step 1 (lift closure) — TODO.md "Lift-closure wave",
+> addendum 2: suite needs-lift 146 → 126, JAMA 32 → 21,
+> ImpureLoopExit gone, steady state flat (structuring confirmed
+> non-payload at a third coverage point). Step 2 first slice (typed
+> LOCALS) — addendum 3: 0.992, flat (operand extraction, not local
+> boxing, is the residual). Step 2 second slice (**operand-stack/
+> register unification**) — addendum 6: within-block stack values keep
+> Rust expressions instead of slot round trips, GC-root parity by
+> construction, cfg_equiv 109 × {base,cfg,typed} zero divergences
+> after three real defects it caught (the `()[[D` last-byte kind
+> misclassification latent since the first typed slice; composed-string
+> binding shadowing; the load-snapshot law for javac's
+> `iload; iinc; use-old` lowering) — **0.958, the FIRST nonzero
+> steady-state movement** (273.8s → 262.4s same-session pair, output
+> byte-identical). The residual cost is cross-block/refresh-live
+> traffic still materializing through slot variables + per-access
+> obj_get/invoke helpers + per-block refreshes; the NEXT named
+> prerequisite layer is the block-join/entry-var model (branch-live
+> values carried in successor-entry variables instead of slot
+> indices), with the collection-VALUE-boxing measurement (step 3
+> below) sequenced after it.
 
 1. **Lift closure** (small, named): `ImpureLoopExit` shared-exit lowering
    and `MultiExitLoop` labeled-break lowering — together they unblock

@@ -36,6 +36,25 @@
 //!   slot (the last epoch opened at or before the pc), stack as the live
 //!   prefix `0..depth` — as slice literals; no runtime change beyond the
 //!   pure `stack::ref_of` law extraction.
+//! * Operand-stack/register unification (2026-11-08, the readiness §5
+//!   lever): within one block, a stack value whose target is a TYPED
+//!   slot variable need not be WRITTEN there — a pure def (constants,
+//!   local loads, non-trapping arithmetic, conversions, comparisons)
+//!   keeps its expression tree (composed through let-bindings, so trees
+//!   stay one level deep) and an impure def (array/field loads, calls,
+//!   trapping division) keeps the temp variable holding its
+//!   already-computed result, with the `expect_*` unwrap hoisted from
+//!   the slot write to the def site. The entry lands in its slot
+//!   variable — exactly where the old emitter wrote it, same target —
+//!   when a GC refresh, a shuffle (dup family), or the block handoff
+//!   needs the storage snapshot. Branch operands stay symbolic on
+//!   forward branches (the branch consumes them itself) and materialize
+//!   under the backward-branch refresh (the snapshot must hold them —
+//!   the default body refreshes before the branch pops). GC-root parity
+//!   is by construction: the refresh reads the same slot variables the
+//!   old emitter maintained, at the same sites, with the same values.
+//!   Reference positions keep the cell path unchanged (their slots are
+//!   always `Value` cells; the null/NPE/checkcast plumbing is untouched).
 
 use crate::emit::{
     arg_count, compute_leaders, f32_lit, f64_lit, is_terminator, next_pc_of, returns_void,
@@ -405,6 +424,36 @@ struct Ctx<'a> {
     /// the unified write law scans this.
     pcs: Vec<u32>,
     out: Vec<String>,
+    /// Symbolic stack entries keyed by SLOT INDEX — the unification
+    /// layer's pending defs (see `SymEntry`). Cleared at every block
+    /// start; materialized at refresh sites, shuffles, and the block
+    /// handoff. Typed targets only.
+    sym: std::collections::BTreeMap<usize, SymEntry>,
+    /// Counter for the unification layer's `__t{n}` temps (unique per
+    /// method; arm-scoped lets would suffice, unique names are simpler).
+    tmp_n: usize,
+    /// How many pushes the layer elided (the emitted header comment
+    /// reports it — the observability census for the lever).
+    sym_pushes: usize,
+}
+
+/// A stack value whose slot-variable write the emitter ELIDED. The
+/// value is carried as a Rust expression instead of storage: a pure def
+/// keeps its expression tree, an impure def keeps the name of the
+/// method-unique temp (`__t{n}`) holding its already-computed result —
+/// fresh temps because a pending def can live across a later def of the
+/// same helper binding (`__v`, `__r` shadowing). The entry lands in its
+/// slot variable — same target, same value, exactly where the old
+/// emitter wrote it — when the storage snapshot is needed.
+struct SymEntry {
+    /// The read expression. `Some(prim)` defs read as a prim-typed
+    /// expression; ref defs (`None`) read as a `Value`-typed expression.
+    read: String,
+    /// The def's verified kind — the read expression's type law.
+    prim: Option<Prim>,
+    /// The slot-variable target the materialization write uses — the
+    /// same target the old emitter computed at push time.
+    target: (String, Site),
 }
 
 impl<'a> Ctx<'a> {
@@ -452,8 +501,16 @@ impl<'a> Ctx<'a> {
             .map(|idx| (idx, epochs[idx].1))
     }
 
-    /// Read expression for stack `slot` at `pc` (typed var or cell clone).
+    /// Read expression for stack `slot` at `pc`. A symbolic ref entry
+    /// (`prim: None`) reads as a cloned `Value` expression; a symbolic
+    /// prim entry must never reach this method (its callers adapt via
+    /// `read_for`) — the plan's slot variables are the fallback.
     fn read_s(&self, pc: u32, slot: usize) -> String {
+        if let Some(e) = self.sym.get(&slot) {
+            if e.prim.is_none() {
+                return format!("{}.clone()", e.read);
+            }
+        }
         match self.stack_var(slot) {
             Var::Cell => format!("s{slot}.clone()"),
             Var::Typed(epochs) => {
@@ -474,8 +531,16 @@ impl<'a> Ctx<'a> {
     }
 
     /// The Value-typed expression for stack `slot`'s content at `pc`
-    /// (call arguments, refresh snapshots, returns).
+    /// (call arguments, refresh snapshots, returns). A symbolic prim
+    /// entry wraps its prim read in the def's ctor — the same Value the
+    /// slot variable would hold; a symbolic ref entry clones its temp.
     fn wrap_s(&self, pc: u32, slot: usize) -> String {
+        if let Some(e) = self.sym.get(&slot) {
+            return match e.prim {
+                Some(tp) => format!("{RT}::Value::{}({})", tp.value_ctor(), e.read),
+                None => format!("{}.clone()", e.read),
+            };
+        }
         match self.stack_var(slot) {
             Var::Cell => format!("s{slot}.clone()"),
             Var::Typed(epochs) => {
@@ -491,8 +556,17 @@ impl<'a> Ctx<'a> {
     }
 
     /// The `pop_ref` law (`stack::ref_of`) applied to a stack slot,
-    /// wrapped for `j2r_try!` exactly like the default body's pop.
+    /// wrapped for `j2r_try!` exactly like the default body's pop. A
+    /// symbolic ref entry borrows its temp instead of the slot variable.
     fn try_ref_of(&self, pc: u32, slot: usize, fault: &str) -> String {
+        if let Some(e) = self.sym.get(&slot) {
+            if e.prim.is_none() {
+                return format!(
+                    "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::stack::ref_of(&{}))",
+                    e.read
+                );
+            }
+        }
         let name = match self.stack_var(slot) {
             Var::Cell => format!("&s{slot}"),
             Var::Typed(epochs) => {
@@ -620,8 +694,11 @@ impl<'a> Ctx<'a> {
 
     /// The GC refresh at `pc`: the same root set as the default body —
     /// every local slot's latest value (the Vec's stale content) and the
-    /// live stack prefix `0..depth` — as slice literals.
+    /// live stack prefix `0..depth` — as slice literals. The unification
+    /// layer's pending entries land in their slot variables FIRST, so
+    /// the snapshot reads the same storage the old emitter maintained.
     fn refresh(&mut self, pc: u32) {
+        self.materialize_all();
         let mut locals_v = Vec::new();
         for j in 0..self.p.locals.len().max(self.shape(pc).locals.len()) {
             match self.local_var(j) {
@@ -661,8 +738,18 @@ impl<'a> Ctx<'a> {
         self.out.push(format!("{RT}::heap::gc_point();"));
     }
 
-    /// int/long read of an operand slot (typed var bare, or cell unwrap).
+    /// int/long/float/double read of an operand slot (symbolic entry,
+    /// typed var bare, or cell unwrap).
     fn read_prim(&self, pc: u32, slot: usize, prim: Prim) -> String {
+        if let Some(e) = self.sym.get(&slot) {
+            match e.prim {
+                Some(tp) => {
+                    assert_eq!(tp, prim, "j2r internal: symbolic operand kind");
+                    return e.read.clone();
+                }
+                None => unreachable!("j2r internal: ref entry read as prim"),
+            }
+        }
         match self.site_s(pc, slot) {
             Site::Typed(tp) => {
                 assert_eq!(tp, prim, "j2r internal: operand kind");
@@ -670,6 +757,145 @@ impl<'a> Ctx<'a> {
             }
             Site::Cell => format!("s{slot}.{}()", prim.expect_fn()),
         }
+    }
+
+    /// The (expression, Src) pair for a stack read that adapts to the
+    /// CONSUMER's needs: a symbolic prim entry yields its bare read (no
+    /// expect, no slot round trip); a symbolic ref entry clones its temp
+    /// (Value); no entry falls back to the site law. Used by consumers
+    /// that push the value onward (Store into locals).
+    fn read_for(&self, pc: u32, slot: usize) -> (String, Src) {
+        if let Some(e) = self.sym.get(&slot) {
+            return match e.prim {
+                Some(tp) => (e.read.clone(), Src::Prim(tp)),
+                None => (format!("{}.clone()", e.read), Src::Value),
+            };
+        }
+        let expr = match self.stack_var(slot) {
+            Var::Cell => format!("s{slot}.clone()"),
+            Var::Typed(epochs) => {
+                let (idx, _) = self.containing(epochs, pc);
+                self.p.stack_name(slot, idx)
+            }
+            Var::Dead => unreachable!("j2r internal: read of dead stack slot (plan sanity)"),
+        };
+        let src = match self.site_s(pc, slot) {
+            Site::Cell => Src::Value,
+            Site::Typed(sp) => Src::Prim(sp),
+        };
+        (expr, src)
+    }
+
+    /// The unified stack-push law (operand-stack/register unification).
+    /// Records a symbolic entry instead of writing the slot variable:
+    /// the def's VERIFIED kind (`kind`) decides the read law, the slot's
+    /// storage kind (Typed or Cell) only decides the materialization
+    /// write. Pure defs keep their expression tree (composed through
+    /// let-bindings, so trees stay one level deep); impure defs
+    /// materialize into a method-unique `__t{n}` temp at the def site
+    /// with the `expect_*` unwrap hoisted from the slot write to the
+    /// def. Dead targets drop the value exactly as the old emitter did.
+    fn push_result(
+        &mut self,
+        slot: usize,
+        target: Option<(String, Site)>,
+        expr: String,
+        src: Src,
+        pure: bool,
+        kind: Kind,
+    ) {
+        let Some((name, site)) = target else { return };
+        let prim = match kind {
+            Kind::Int => Some(Prim::I),
+            Kind::Long => Some(Prim::L),
+            Kind::Float => Some(Prim::F),
+            Kind::Double => Some(Prim::D),
+            Kind::Ref => None,
+        };
+        // The read expression's type must follow the DEF's kind.
+        let mut read = match (prim, src) {
+            (Some(_), Src::Prim(_)) => expr,
+            (Some(tp), Src::Value) => format!("{expr}.{}()", tp.expect_fn()),
+            (None, Src::Value) => expr,
+            (None, Src::Prim(_)) => unreachable!("j2r internal: prim expr for a ref def"),
+        };
+        if let (Some(tp), Some(sp)) = (
+            prim,
+            match src {
+                Src::Prim(sp) => Some(sp),
+                Src::Value => None,
+            },
+        ) {
+            assert_eq!(tp, sp, "j2r internal: push kind");
+        }
+        if !pure {
+            // Method-unique temps: a pending def can live across a later
+            // def of a shared helper binding (`__v`, `__r` shadowing —
+            // `foo(f(x)); g(y); use(x_result)`), so reuse is unsound.
+            let t = format!("__t{}", self.tmp_n);
+            self.tmp_n += 1;
+            let ty = match prim {
+                Some(tp) => tp.rust_ty().to_string(),
+                None => format!("{RT}::Value"),
+            };
+            self.out.push(format!("let {t}: {ty} = {read};"));
+            read = t;
+        }
+        self.sym.insert(
+            slot,
+            SymEntry {
+                read,
+                prim,
+                target: (name, site),
+            },
+        );
+        self.sym_pushes += 1;
+    }
+
+    /// Writes every pending symbolic entry into its slot variable and
+    /// clears the map — the storage snapshot a GC refresh, a shuffle, or
+    /// a block handoff needs. The write targets and values are exactly
+    /// the old emitter's push-time writes, so the snapshot content is
+    /// unchanged (GC-root parity by construction).
+    fn materialize_all(&mut self) {
+        let entries: Vec<SymEntry> = std::mem::take(&mut self.sym).into_values().collect();
+        for e in entries {
+            self.materialize_write(e);
+        }
+    }
+
+    /// Materializes only the entries BELOW `min_slot` — a branch's own
+    /// operands stay symbolic (a forward branch consumes them itself;
+    /// a backward branch's refresh materializes them into the snapshot).
+    fn materialize_below(&mut self, min_slot: usize) {
+        let keys: Vec<usize> = self.sym.range(..min_slot).map(|(k, _)| *k).collect();
+        for k in keys {
+            if let Some(e) = self.sym.remove(&k) {
+                self.materialize_write(e);
+            }
+        }
+    }
+
+    /// One materialization write, adapted to the entry's def kind and
+    /// the slot variable's storage kind: a prim def stores its bare read
+    /// into a typed slot, wraps in the ctor for a cell slot; a ref def
+    /// stores its (cloned) Value temp.
+    fn materialize_write(&mut self, e: SymEntry) {
+        let (name, site) = e.target;
+        let line = match (e.prim, site) {
+            (Some(tp), Site::Typed(tsp)) => {
+                assert_eq!(tp, tsp, "j2r internal: materialize kind");
+                format!("{name} = {};", e.read)
+            }
+            (Some(tp), Site::Cell) => {
+                format!("{name} = {RT}::Value::{}({});", tp.value_ctor(), e.read)
+            }
+            (None, Site::Cell) => format!("{name} = {}.clone();", e.read),
+            (None, Site::Typed(_)) => {
+                unreachable!("j2r internal: ref def into a typed slot")
+            }
+        };
+        self.out.push(line);
     }
 }
 
@@ -699,6 +925,9 @@ pub(crate) fn try_emit(
         shapes: &shapes,
         pcs: m.instrs.iter().map(|(pc, _)| *pc).collect(),
         out: Vec::new(),
+        sym: Default::default(),
+        tmp_n: 0,
+        sym_pushes: 0,
     };
     Ok(emit_body(ctx))
 }
@@ -938,6 +1167,11 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");
+    let _ = writeln!(
+        out,
+        "// j2r: operand/register unification — {} symbolic stack pushes elided",
+        ctx.sym_pushes
+    );
     out
 }
 
@@ -952,6 +1186,11 @@ fn emit_block_typed(ctx: &mut Ctx<'_>, leader: u32, next_leader: Option<u32>) ->
             }
         }
     };
+    // Each block starts from the slot-variable model: values live across
+    // the block boundary were materialized by the previous block's
+    // handoff (or the throw dispatch); the unification layer carries
+    // only intra-block defs.
+    ctx.sym.clear();
     let mut lines = Vec::new();
     let mut terminated = false;
     for (pc, instr) in &m.instrs[start..] {
@@ -963,6 +1202,12 @@ fn emit_block_typed(ctx: &mut Ctx<'_>, leader: u32, next_leader: Option<u32>) ->
             terminated = true;
             break;
         }
+    }
+    if !terminated {
+        // The block handoff: pending entries land in their slot variables
+        // before the pc transfer, so the successor block reads the same
+        // storage the old emitter maintained at its push sites.
+        ctx.materialize_all();
     }
     // Swap FIRST: the instruction lines live in ctx.out. Pushing the
     // fall-through before the swap would strand `pc = n` in ctx.out — it
@@ -990,13 +1235,16 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
     match instr {
         I::Nop => {}
         I::AConstNull => {
-            if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-                ctx.assign(
-                    t,
-                    format!("{RT}::Value::Ref(::core::option::Option::None)"),
-                    Src::Value,
-                );
-            }
+            let slot = ctx.shape(pc).stack.len();
+            let target = ctx.fresh_target(slot, pc);
+            ctx.push_result(
+                slot,
+                target,
+                format!("{RT}::Value::Ref(::core::option::Option::None)"),
+                Src::Value,
+                true,
+                Kind::Ref,
+            );
         }
         I::IConst(v) => {
             push_const(ctx, pc, &fault, Src::Prim(Prim::I), v.to_string());
@@ -1017,22 +1265,32 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             push_const(ctx, pc, &fault, Src::Prim(Prim::F), f32_lit(*v));
         }
         I::Ldc(Ldc::String(s)) => {
-            if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-                ctx.assign(
-                    t,
-                    format!("{RT}::Value::Ref(::core::option::Option::Some({RT}::intern_string({s:?})))"),
-                    Src::Value,
-                );
-            }
+            let slot = ctx.shape(pc).stack.len();
+            let target = ctx.fresh_target(slot, pc);
+            // intern_string is a side effect (the intern table) — the
+            // def materializes into a temp so it runs exactly once.
+            ctx.push_result(
+                slot,
+                target,
+                format!(
+                    "{RT}::Value::Ref(::core::option::Option::Some({RT}::intern_string({s:?})))"
+                ),
+                Src::Value,
+                false,
+                Kind::Ref,
+            );
         }
         I::Ldc(Ldc::Class(name)) => {
-            if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-                ctx.assign(
-                    t,
-                    format!("{RT}::reflect::class_value({name:?})"),
-                    Src::Value,
-                );
-            }
+            let slot = ctx.shape(pc).stack.len();
+            let target = ctx.fresh_target(slot, pc);
+            ctx.push_result(
+                slot,
+                target,
+                format!("{RT}::reflect::class_value({name:?})"),
+                Src::Value,
+                false,
+                Kind::Ref,
+            );
         }
         I::Ldc2W(Ldc2::Long(v)) => {
             push_const(ctx, pc, &fault, Src::Prim(Prim::L), format!("{v}i64"));
@@ -1042,21 +1300,35 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
         }
         I::Load(idx) => {
             let expr = ctx.read_v(pc, *idx as usize);
-            let src = match ctx.site_v(pc, *idx as usize) {
-                Site::Cell => Src::Value,
-                Site::Typed(sp) => Src::Prim(sp),
+            let (src, kind) = match ctx.site_v(pc, *idx as usize) {
+                Site::Cell => (
+                    Src::Value,
+                    Kind::of(ctx.shape(pc).locals[*idx as usize])
+                        .expect("j2r internal: loaded local has no verified kind"),
+                ),
+                Site::Typed(sp) => {
+                    let kind = match sp {
+                        Prim::I => Kind::Int,
+                        Prim::L => Kind::Long,
+                        Prim::F => Kind::Float,
+                        Prim::D => Kind::Double,
+                    };
+                    (Src::Prim(sp), kind)
+                }
             };
-            if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-                ctx.assign(t, expr, src);
-            }
+            let slot = ctx.shape(pc).stack.len();
+            let target = ctx.fresh_target(slot, pc);
+            // Loads SNAPSHOT even though the read is side-effect-free: a
+            // leaf read names the local's epoch variable, and a later
+            // IInc/Store in the same block MUTATES that variable before
+            // the pending entry is consumed (javac's post-increment
+            // lowering: iload 7; iinc 7,1; use-the-old-7 — the def-time
+            // temp is the value snapshot the slot write used to be).
+            ctx.push_result(slot, target, expr, src, false, kind);
         }
         I::Store(idx) => {
             let top = vs[k - 1];
-            let expr = ctx.read_s(pc, top);
-            let src = match ctx.site_s(pc, top) {
-                Site::Cell => Src::Value,
-                Site::Typed(sp) => Src::Prim(sp),
-            };
+            let (expr, src) = ctx.read_for(pc, top);
             if let Some(t) = ctx.store_target(*idx as usize, pc) {
                 ctx.assign(t, expr, src);
             }
@@ -1069,10 +1341,10 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let arr_expr = ctx.try_ref_of(pc, vs[k - 2], &fault);
             ctx.out.push(format!("let __arr = {arr_expr};"));
             let load = try_wrap(&fault, format!("{RT}::array::array_load(&__arr, __idx)"));
-            ctx.out.push(format!("let __v = {load};"));
-            if let Some(t) = ctx.refill_target(vs[k - 2], pc, Some(elem_kind(instr))) {
-                ctx.assign(t, "__v".to_string(), Src::Value);
-            }
+            let slot = vs[k - 2];
+            let kind = elem_kind(instr);
+            let target = ctx.refill_target(slot, pc, Some(kind));
+            ctx.push_result(slot, target, load, Src::Value, false, kind);
         }
         I::AStore(_) => {
             let v_expr = ctx.wrap_s(pc, vs[k - 1]);
@@ -1091,15 +1363,19 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let arr_expr = ctx.try_ref_of(pc, vs[k - 1], &fault);
             ctx.out.push(format!("let __arr = {arr_expr};"));
             let len = try_wrap(&fault, format!("{RT}::array::array_length(&__arr)"));
-            ctx.out.push(format!("let __len = {len};"));
-            if let Some(t) = ctx.refill_target(vs[k - 1], pc, Some(Kind::Int)) {
-                // __len is the raw i32 (try_wrap unwrapped the Result);
-                // Src::Prim lets a Cell target wrap it in Value::Int.
-                ctx.assign(t, "__len".to_string(), Src::Prim(Prim::I));
-            }
+            let slot = vs[k - 1];
+            let target = ctx.refill_target(slot, pc, Some(Kind::Int));
+            // __len is the raw i32 (try_wrap unwrapped the Result);
+            // Src::Prim lets a Cell target wrap it in Value::Int.
+            ctx.push_result(slot, target, len, Src::Prim(Prim::I), false, Kind::Int);
         }
         I::Pop | I::Pop2 => {}
         I::Dup | I::DupX1 | I::DupX2 | I::Dup2 | I::Dup2X1 | I::Dup2X2 | I::Swap => {
+            // A shuffle may consume a value TWICE (dup) — the one read
+            // the symbolic model guarantees per def. Materialize the
+            // whole prefix first; the shuffle then runs on the slot
+            // variables exactly as the old emitter did.
+            ctx.materialize_all();
             let writes = shuffle_slot_writes(instr, &ctx.shape(pc).stack)
                 .expect("j2r internal: shuffle map for a shuffle instruction");
             // Read every distinct source first (the runtime pops the
@@ -1179,6 +1455,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
         }
         I::Cmp(kind) => emit_cmp_typed(ctx, pc, *kind, &vs),
         I::IfZero(op, t) => {
+            ctx.materialize_below(vs[k - 1]);
             ctx.backward_poll(pc, &[*t]);
             let a = ctx.read_prim(pc, vs[k - 1], Prim::I);
             ctx.out.push(format!("let __a = {a};"));
@@ -1189,6 +1466,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ));
         }
         I::IfICmp(op, t) => {
+            ctx.materialize_below(vs[k - 2]);
             ctx.backward_poll(pc, &[*t]);
             let b = ctx.read_prim(pc, vs[k - 1], Prim::I);
             let a = ctx.read_prim(pc, vs[k - 2], Prim::I);
@@ -1200,6 +1478,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ));
         }
         I::IfRefCmp { eq, target } => {
+            ctx.materialize_below(vs[k - 2]);
             ctx.backward_poll(pc, &[*target]);
             let b = ctx.read_s(pc, vs[k - 1]);
             let a = ctx.read_s(pc, vs[k - 2]);
@@ -1215,6 +1494,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ));
         }
         I::IfNull(t) => {
+            ctx.materialize_below(vs[k - 1]);
             ctx.backward_poll(pc, &[*t]);
             let a = ctx.read_s(pc, vs[k - 1]);
             ctx.out.push(format!("let __a = {a};"));
@@ -1224,6 +1504,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ));
         }
         I::IfNonNull(t) => {
+            ctx.materialize_below(vs[k - 1]);
             ctx.backward_poll(pc, &[*t]);
             let a = ctx.read_s(pc, vs[k - 1]);
             ctx.out.push(format!("let __a = {a};"));
@@ -1233,6 +1514,9 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ));
         }
         I::Goto(t) => {
+            // A goto has no operands of its own — the whole prefix flows
+            // past the branch.
+            ctx.materialize_all();
             ctx.backward_poll(pc, &[*t]);
             ctx.out.push(format!("pc = {t}u32;"));
         }
@@ -1273,13 +1557,14 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.out.push(format!("let __r = {r};"));
             // obj_get returns a plain `Value` (the NPE is already raised
             // by ref_of above) — exactly the default body's law; no
-            // j2r_try wrap here.
-            ctx.out.push(format!(
-                "let __v = {RT}::object::obj_get(&__r, {slot}usize);"
-            ));
-            if let Some(t) = ctx.refill_target(vs[k - 1], pc, Some(desc_kind_of(&f.desc))) {
-                ctx.assign(t, "__v".to_string(), Src::Value);
-            }
+            // j2r_try wrap here. A typed target keeps the raw Value in
+            // the def-time temp (the expect hoists here); a cell target
+            // stores as before.
+            let get = format!("{RT}::object::obj_get(&__r, {slot}usize)");
+            let top = vs[k - 1];
+            let kind = desc_kind_of(&f.desc);
+            let target = ctx.refill_target(top, pc, Some(kind));
+            ctx.push_result(top, target, get, Src::Value, false, kind);
         }
         I::PutField { class, field, .. } => {
             let slot = crate::resolve_field_slot_pub(ctx.prog, class, field, false)
@@ -1307,8 +1592,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                     "{RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch())"
                 ),
             );
-            ctx.out.push(format!("let __v = {call};"));
-            write_invoke_result(ctx, pc, vs[k - n - 1], desc);
+            write_invoke_result(ctx, pc, vs[k - n - 1], desc, call);
         }
         I::InvokeSpecial { class, name, desc } => {
             ctx.refresh(pc);
@@ -1326,7 +1610,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                             "crate::classes::{module}::{fn_name}(::core::option::Option::Some(&__r), &__a)"
                         ),
                     );
-                    ctx.out.push(format!("let __v = {call};"));
+                    write_invoke_result(ctx, pc, vs[k - n - 1], desc, call);
                 }
                 crate::CallTarget::Native { class: ncls } => {
                     let call = try_wrap(
@@ -1335,10 +1619,9 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                             "{RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::Some(&__r), &__a, crate::j2r_dispatch())"
                         ),
                     );
-                    ctx.out.push(format!("let __v = {call};"));
+                    write_invoke_result(ctx, pc, vs[k - n - 1], desc, call);
                 }
             }
-            write_invoke_result(ctx, pc, vs[k - n - 1], desc);
         }
         I::InvokeStatic { class, name, desc } => {
             ctx.refresh(pc);
@@ -1358,7 +1641,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                             "crate::classes::{module}::{fn_name}(::core::option::Option::None, &__a)"
                         ),
                     );
-                    ctx.out.push(format!("let __v = {call};"));
+                    write_invoke_result_static(ctx, pc, &vs, k, n, desc, call);
                 }
                 crate::CallTarget::Native { class: ncls } => {
                     let call = try_wrap(
@@ -1367,20 +1650,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                             "{RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::None, &__a, crate::j2r_dispatch())"
                         ),
                     );
-                    ctx.out.push(format!("let __v = {call};"));
-                }
-            }
-            if !returns_void(desc) {
-                if n >= 1 {
-                    // The result replaces the first popped arg's slot.
-                    write_invoke_result(ctx, pc, vs[k - n], desc);
-                } else {
-                    // A no-arg non-void static call (System.nanoTime,
-                    // Math.random, ...) pushes onto a FRESH slot — there
-                    // is no popped slot to refill.
-                    if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-                        ctx.assign(t, "__v".to_string(), Src::Value);
-                    }
+                    write_invoke_result_static(ctx, pc, &vs, k, n, desc, call);
                 }
             }
         }
@@ -1401,13 +1671,16 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.refresh(pc);
             ctx.out.push(format!("{RT}::heap::gc_point();"));
             crate::emit::new_obj_lines(ctx.prog, class, &fault, &mut ctx.out);
-            if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-                ctx.assign(
-                    t,
-                    format!("{RT}::Value::Ref(::core::option::Option::Some(__nobj))"),
-                    Src::Value,
-                );
-            }
+            let slot = ctx.shape(pc).stack.len();
+            let target = ctx.fresh_target(slot, pc);
+            ctx.push_result(
+                slot,
+                target,
+                format!("{RT}::Value::Ref(::core::option::Option::Some(__nobj))"),
+                Src::Value,
+                false,
+                Kind::Ref,
+            );
         }
         I::NewArray(prim) => {
             ctx.refresh(pc);
@@ -1424,13 +1697,16 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             // value_effect law: array construction pushes in place) — a
             // fresh stack.len() target would be beyond the stack and the
             // write would be skipped entirely.
-            if let Some(t) = ctx.refill_target(vs[k - 1], pc, Some(Kind::Ref)) {
-                ctx.assign(
-                    t,
-                    format!("{RT}::Value::Ref(::core::option::Option::Some(__narr))"),
-                    Src::Value,
-                );
-            }
+            let slot = vs[k - 1];
+            let target = ctx.refill_target(slot, pc, Some(Kind::Ref));
+            ctx.push_result(
+                slot,
+                target,
+                format!("{RT}::Value::Ref(::core::option::Option::Some(__narr))"),
+                Src::Value,
+                false,
+                Kind::Ref,
+            );
         }
         I::ANewArray { elem } => {
             ctx.refresh(pc);
@@ -1443,13 +1719,16 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             );
             ctx.out.push(format!("let __narr = {new};"));
             // In-place refill of the popped length slot (see NewArray).
-            if let Some(t) = ctx.refill_target(vs[k - 1], pc, Some(Kind::Ref)) {
-                ctx.assign(
-                    t,
-                    format!("{RT}::Value::Ref(::core::option::Option::Some(__narr))"),
-                    Src::Value,
-                );
-            }
+            let slot = vs[k - 1];
+            let target = ctx.refill_target(slot, pc, Some(Kind::Ref));
+            ctx.push_result(
+                slot,
+                target,
+                format!("{RT}::Value::Ref(::core::option::Option::Some(__narr))"),
+                Src::Value,
+                false,
+                Kind::Ref,
+            );
         }
         I::MultiNewArray { desc, dims } => {
             ctx.refresh(pc);
@@ -1472,13 +1751,16 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.out.push(format!("let __narr = {new};"));
             // In-place refill of the FIRST popped dimension slot (the
             // deepest of the dims) — the result lands exactly there.
-            if let Some(t) = ctx.refill_target(vs[k - *dims as usize], pc, Some(Kind::Ref)) {
-                ctx.assign(
-                    t,
-                    format!("{RT}::Value::Ref(::core::option::Option::Some(__narr))"),
-                    Src::Value,
-                );
-            }
+            let slot = vs[k - *dims as usize];
+            let target = ctx.refill_target(slot, pc, Some(Kind::Ref));
+            ctx.push_result(
+                slot,
+                target,
+                format!("{RT}::Value::Ref(::core::option::Option::Some(__narr))"),
+                Src::Value,
+                false,
+                Kind::Ref,
+            );
         }
         I::AThrow => {
             let thr = ctx.try_ref_of(pc, vs[k - 1], &fault);
@@ -1495,19 +1777,18 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 &fault,
                 format!("{RT}::checkcast({v}, {class:?}, crate::j2r_dispatch())"),
             );
-            ctx.out.push(format!("let __v = {cc};"));
-            if let Some(t) = ctx.refill_target(vs[k - 1], pc, Some(Kind::Ref)) {
-                ctx.assign(t, "__v".to_string(), Src::Value);
-            }
+            let slot = vs[k - 1];
+            let target = ctx.refill_target(slot, pc, Some(Kind::Ref));
+            ctx.push_result(slot, target, cc, Src::Value, false, Kind::Ref);
         }
         I::InstanceOf { class } => {
             let v = ctx.read_s(pc, vs[k - 1]);
             ctx.out.push(format!("let __v = {v};"));
             let io =
                 format!("{RT}::j2r_instance_of(&__v, {class:?}, crate::j2r_dispatch()) as i32");
-            if let Some(t) = ctx.refill_target(vs[k - 1], pc, Some(Kind::Int)) {
-                ctx.assign(t, io, Src::Prim(Prim::I));
-            }
+            let slot = vs[k - 1];
+            let target = ctx.refill_target(slot, pc, Some(Kind::Int));
+            ctx.push_result(slot, target, io, Src::Prim(Prim::I), false, Kind::Int);
         }
         I::TableSwitch { .. } | I::LookupSwitch { .. } => {
             unreachable!("j2r internal: switch rejected by the typed plan")
@@ -1525,9 +1806,15 @@ fn kind_at(ctx: &Ctx<'_>, pc: u32, slot: usize) -> Option<Kind> {
 
 /// A pure push of a primitive constant (or a `Value`-typed one).
 fn push_const(ctx: &mut Ctx<'_>, pc: u32, _fault: &str, src: Src, lit: String) {
-    if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-        ctx.assign(t, lit, src);
-    }
+    let kind = match src {
+        Src::Prim(Prim::I) => Kind::Int,
+        Src::Prim(Prim::L) => Kind::Long,
+        Src::Prim(Prim::F) => Kind::Float,
+        _ => Kind::Double,
+    };
+    let slot = ctx.shape(pc).stack.len();
+    let target = ctx.fresh_target(slot, pc);
+    ctx.push_result(slot, target, lit, src, true, kind);
 }
 
 /// The element `Kind` of an `xXaload` instruction (the refill's kind).
@@ -1541,28 +1828,74 @@ fn elem_kind(instr: &Instr) -> Kind {
     }
 }
 
-/// The `Kind` of a field/call-result descriptor's type.
+/// The `Kind` of a field/call-result descriptor's type. The FIRST byte
+/// decides: field and return descriptors are single types, and `[[D`
+/// ends in 'D' while being a REFERENCE (the last-byte heuristic
+/// misclassified array-of-double fields and call results — latent in the
+/// slot-write law, where Cell targets carry no kind assert, and LOUD in
+/// the unification layer's def-time expect). B/C/S/Z all narrow to Int
+/// (the runtime represents them as Value::Int).
 fn desc_kind_of(desc: &str) -> Kind {
-    match desc.as_bytes().last() {
-        Some(b'I') | Some(b'B') | Some(b'C') | Some(b'S') | Some(b'Z') => Kind::Int,
+    match desc.as_bytes().first() {
+        Some(b'[') | Some(b'L') => Kind::Ref,
         Some(b'J') => Kind::Long,
         Some(b'F') => Kind::Float,
         Some(b'D') => Kind::Double,
-        _ => Kind::Ref,
+        _ => Kind::Int,
     }
 }
 
 /// The invoke result's refill write: lands on the slot the receiver (or,
 /// for statics, the deepest argument) occupied — the kind-change law of
-/// the analysis applies unchanged. Void returns write nothing.
-fn write_invoke_result(ctx: &mut Ctx<'_>, pc: u32, slot: usize, desc: &str) {
+/// the analysis applies unchanged. Void returns write nothing. A typed
+/// target keeps the result in the def-time temp (the expect hoists
+/// here); a cell target stores as before.
+/// The static-call result law: with arguments, the result replaces the
+/// deepest argument's slot; a no-arg call pushes onto a FRESH slot (no
+/// popped slot to refill — System.nanoTime, Math.random, ...). The call
+/// always executes here.
+fn write_invoke_result_static(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    vs: &[usize],
+    k: usize,
+    n: usize,
+    desc: &str,
+    call: String,
+) {
+    if n >= 1 {
+        write_invoke_result(ctx, pc, vs[k - n], desc, call);
+        return;
+    }
+    // Execute the call into `__v` first (no pending def ever reads __v —
+    // every symbolic def owns a method-unique temp), then record the
+    // symbolic result for the fresh slot from that binding.
+    ctx.out.push(format!("let __v = {call};"));
+    if !returns_void(desc) {
+        let slot = ctx.shape(pc).stack.len();
+        let target = ctx.fresh_target(slot, pc);
+        ctx.push_result(
+            slot,
+            target,
+            "__v".to_string(),
+            Src::Value,
+            false,
+            desc_kind_of(&return_desc(desc)),
+        );
+    }
+}
+
+fn write_invoke_result(ctx: &mut Ctx<'_>, pc: u32, slot: usize, desc: &str, call: String) {
     if returns_void(desc) {
+        // Void: the call executes into the shadowable `__v` binding —
+        // nothing pending ever reads it (every symbolic def owns a
+        // method-unique `__t{n}` temp).
+        ctx.out.push(format!("let __v = {call};"));
         return;
     }
     let k = desc_kind_of(&return_desc(desc));
-    if let Some(t) = ctx.refill_target(slot, pc, Some(k)) {
-        ctx.assign(t, "__v".to_string(), Src::Value);
-    }
+    let target = ctx.refill_target(slot, pc, Some(k));
+    ctx.push_result(slot, target, call, Src::Value, false, k);
 }
 
 /// The return-type descriptor of a method descriptor (`(II)D` → `D`).
@@ -1581,6 +1914,15 @@ fn emit_arith_typed(
 ) {
     use NumKind as NK;
     let k = vs.len();
+    // The unification layer's purity law: int/long division and remainder
+    // trap (ArithmeticException — the helper is j2r_try-wrapped), every
+    // other arithmetic form is side-effect-free and keeps its expression
+    // tree symbolic.
+    // Purity note: int/long division and remainder are the only trapping
+    // arithmetic (their helper is try-wrapped); every other form is
+    // side-effect-free. Every composed result materializes into its own
+    // temp regardless — the composed string binds the shared __a/__b
+    // names, so a pending entry must never carry it past this op.
     match kind {
         NK::Int | NK::Long => {
             let prim = if kind == NK::Long { Prim::L } else { Prim::I };
@@ -1603,12 +1945,24 @@ fn emit_arith_typed(
                 NK::Long => Kind::Long,
                 _ => Kind::Int,
             };
+            let ty = prim.rust_ty();
+            // Typed operand bindings: the composed reads may be bare
+            // literals or leaf reads — without the annotation, Rust
+            // inference hits ambiguous `{integer}`/`{float}` types, and
+            // the shared `__a`/`__b` names of a LATER op in the same arm
+            // would shadow an earlier entry's captured string.
             match op {
                 ArithOp::Neg => {
-                    ctx.out.push(format!("let __a = {a};"));
-                    if let Some(t) = ctx.refill_target(result_slot, pc, Some(new_kind)) {
-                        ctx.assign(t, "__a.wrapping_neg()".to_string(), Src::Prim(prim));
-                    }
+                    ctx.out.push(format!("let __a: {ty} = {a};"));
+                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+                    ctx.push_result(
+                        result_slot,
+                        target,
+                        "__a.wrapping_neg()".to_string(),
+                        Src::Prim(prim),
+                        false,
+                        new_kind,
+                    );
                 }
                 ArithOp::Add
                 | ArithOp::Sub
@@ -1624,15 +1978,15 @@ fn emit_arith_typed(
                         ArithOp::Or => "|",
                         _ => "^",
                     };
-                    ctx.out.push(format!("let __b = {b}; let __a = {a};"));
+                    ctx.out
+                        .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
                     let expr = if rust_op.starts_with("wrapping") {
                         format!("__a.{rust_op}(__b)")
                     } else {
                         format!("__a {rust_op} __b")
                     };
-                    if let Some(t) = ctx.refill_target(result_slot, pc, Some(new_kind)) {
-                        ctx.assign(t, expr, Src::Prim(prim));
-                    }
+                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+                    ctx.push_result(result_slot, target, expr, Src::Prim(prim), false, new_kind);
                 }
                 ArithOp::Div | ArithOp::Rem => {
                     let helper = match (op, kind) {
@@ -1641,12 +1995,14 @@ fn emit_arith_typed(
                         (ArithOp::Rem, NK::Long) => "long_rem",
                         _ => "int_rem",
                     };
-                    ctx.out.push(format!("let __b = {b}; let __a = {a};"));
+                    ctx.out
+                        .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
                     let div = try_wrap(fault, format!("{RT}::{helper}(__a, __b)"));
-                    ctx.out.push(format!("let __r = {div};"));
-                    if let Some(t) = ctx.refill_target(result_slot, pc, Some(new_kind)) {
-                        ctx.assign(t, "__r".to_string(), Src::Prim(prim));
-                    }
+                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+                    // The trapping divide materializes into the def-time
+                    // temp (a method-unique `__t{n}`) — a pending result
+                    // can live across a LATER divide's old `__r` binding.
+                    ctx.push_result(result_slot, target, div, Src::Prim(prim), false, new_kind);
                 }
                 ArithOp::Shl | ArithOp::Shr | ArithOp::UShr => {
                     let mask = if kind == NK::Long { 63 } else { 31 };
@@ -1655,7 +2011,10 @@ fn emit_arith_typed(
                     } else {
                         "wrapping_shr"
                     };
-                    ctx.out.push(format!("let __b = {b}; let __a = {a};"));
+                    // The shift amount is an INT even for long shifts —
+                    // the two bindings carry DIFFERENT types here.
+                    ctx.out
+                        .push(format!("let __b: i32 = {b}; let __a: {} = {a};", ty));
                     let expr = if op == ArithOp::UShr {
                         // logical shift on the unsigned reinterpretation
                         let uty = if kind == NK::Long { "u64" } else { "u32" };
@@ -1668,9 +2027,13 @@ fn emit_arith_typed(
                     } else {
                         format!("__a.{shift_fn}((__b & {mask}) as u32)")
                     };
-                    if let Some(t) = ctx.refill_target(result_slot, pc, Some(new_kind)) {
-                        ctx.assign(t, expr, Src::Prim(prim));
-                    }
+                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+                    // Shifts never trap, but the composed string binds the
+                    // shared __a/__b names — it materializes into its own
+                    // temp like every other composed op, or a LATER op's
+                    // rebinding of those names would re-evaluate this
+                    // entry's captured string against wrong values.
+                    ctx.push_result(result_slot, target, expr, Src::Prim(prim), false, new_kind);
                 }
             }
         }
@@ -1687,12 +2050,19 @@ fn emit_arith_typed(
             } else {
                 Kind::Double
             };
+            let ty = prim.rust_ty();
             let rust_op = match op {
                 ArithOp::Neg => {
-                    ctx.out.push(format!("let __a = {a};"));
-                    if let Some(t) = ctx.refill_target(result_slot, pc, Some(new_kind)) {
-                        ctx.assign(t, "-__a".to_string(), Src::Prim(prim));
-                    }
+                    ctx.out.push(format!("let __a: {ty} = {a};"));
+                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+                    ctx.push_result(
+                        result_slot,
+                        target,
+                        "-__a".to_string(),
+                        Src::Prim(prim),
+                        false,
+                        new_kind,
+                    );
                     return;
                 }
                 ArithOp::Add => "+",
@@ -1701,10 +2071,20 @@ fn emit_arith_typed(
                 ArithOp::Div => "/",
                 _ => "%",
             };
-            ctx.out.push(format!("let __b = {b}; let __a = {a};"));
-            if let Some(t) = ctx.refill_target(result_slot, pc, Some(new_kind)) {
-                ctx.assign(t, format!("__a {rust_op} __b"), Src::Prim(prim));
-            }
+            ctx.out
+                .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
+            let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+            // FP arithmetic never traps (JLS: no exceptions on div/rem),
+            // but the composed string binds shared names — the result
+            // materializes into its own temp like every other op.
+            ctx.push_result(
+                result_slot,
+                target,
+                format!("__a {rust_op} __b"),
+                Src::Prim(prim),
+                false,
+                new_kind,
+            );
         }
         _ => unreachable!("arith on narrow kind"),
     }
@@ -1752,7 +2132,8 @@ fn emit_convert_typed(ctx: &mut Ctx<'_>, pc: u32, conv: Conv, vs: &[usize]) {
     };
     let (result_slot, a_slot) = (vs[k - 1], vs[k - 1]);
     let a = ctx.read_prim(pc, a_slot, from_prim);
-    ctx.out.push(format!("let __a = {a};"));
+    ctx.out
+        .push(format!("let __a: {} = {a};", from_prim.rust_ty()));
     let new_kind = match conv.to {
         NK::Long => Kind::Long,
         NK::Float => Kind::Float,
@@ -1764,29 +2145,18 @@ fn emit_convert_typed(ctx: &mut Ctx<'_>, pc: u32, conv: Conv, vs: &[usize]) {
     let target = ctx.refill_target(result_slot, pc, Some(new_kind));
     if let Some((name, site)) = target {
         let expr = format!("__a{cast}");
-        let src = match (site, conv.to) {
-            (Site::Typed(_), NK::Byte)
-            | (Site::Typed(_), NK::Char)
-            | (Site::Typed(_), NK::Short) => Src::Prim(Prim::I),
-            (Site::Typed(_), NK::Long) => Src::Prim(Prim::L),
-            (Site::Typed(_), NK::Float) => Src::Prim(Prim::F),
-            (Site::Typed(_), NK::Double) => Src::Prim(Prim::D),
-            (Site::Typed(_), NK::Int) => Src::Prim(Prim::I),
-            (Site::Cell, _) => Src::Prim(Prim::I), // wrapped below by kind
+        // One unified path for both storage kinds: the def's kind (the
+        // DESCRIPTOR target) decides the read law and the Cell ctor at
+        // materialization — a Cell-target write bypass here would strand
+        // the operand's pending entry (LU.det's getfield-pivsign → i2d →
+        // dstore read a stale int through a double-typed local).
+        let src = match conv.to {
+            NK::Long => Src::Prim(Prim::L),
+            NK::Float => Src::Prim(Prim::F),
+            NK::Double => Src::Prim(Prim::D),
+            _ => Src::Prim(Prim::I),
         };
-        // For Cell targets the wrap kind must be the DESCRIPTOR kind.
-        if site == Site::Cell {
-            let ctor = match new_kind {
-                Kind::Long => "Long",
-                Kind::Float => "Float",
-                Kind::Double => "Double",
-                _ => "Int",
-            };
-            ctx.out
-                .push(format!("{name} = {RT}::Value::{ctor}({expr});"));
-        } else {
-            ctx.assign((name, site), expr, src);
-        }
+        ctx.push_result(result_slot, Some((name, site)), expr, src, false, new_kind);
     }
 }
 
@@ -1803,7 +2173,11 @@ fn emit_cmp_typed(ctx: &mut Ctx<'_>, pc: u32, kind: crate::ir::CmpKind, vs: &[us
     };
     let b = ctx.read_prim(pc, b_slot, prim);
     let a = ctx.read_prim(pc, a_slot, prim);
-    ctx.out.push(format!("let __b = {b}; let __a = {a};"));
+    ctx.out.push(format!(
+        "let __b: {} = {b}; let __a: {} = {a};",
+        prim.rust_ty(),
+        prim.rust_ty()
+    ));
     let expr = if kind == CK::LCmp {
         "match __a.cmp(&__b) { ::core::cmp::Ordering::Less => -1i32, ::core::cmp::Ordering::Greater => 1i32, ::core::cmp::Ordering::Equal => 0i32 }".to_string()
     } else {
@@ -1811,24 +2185,20 @@ fn emit_cmp_typed(ctx: &mut Ctx<'_>, pc: u32, kind: crate::ir::CmpKind, vs: &[us
             "if __a.is_nan() || __b.is_nan() {{ {nan_val}i32 }} else {{ match __a.partial_cmp(&__b) {{ ::core::option::Option::Some(::core::cmp::Ordering::Less) => -1i32, ::core::option::Option::Some(::core::cmp::Ordering::Greater) => 1i32, _ => 0i32 }} }}"
         )
     };
-    if let Some(t) = ctx.refill_target(a_slot, pc, Some(Kind::Int)) {
-        ctx.assign(t, expr, Src::Prim(Prim::I));
-    }
+    let target = ctx.refill_target(a_slot, pc, Some(Kind::Int));
+    ctx.push_result(a_slot, target, expr, Src::Prim(Prim::I), false, Kind::Int);
 }
 
 fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, _fault: &str, class: &str, field: &str) {
     fn push_value(ctx: &mut Ctx<'_>, pc: u32, expr: String) {
         // Every call site pushes a REF (System.out/err, Locale.US, TYPE,
-        // any ref-typed static): a ref epoch means the position is a Cell,
-        // so the target is a Cell and `Src::Value` stores the Value
-        // directly. A Typed target here would take `assign`'s
-        // `expect_fn` unwrap — unreachable for refs by the verifier.
-        if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-            match t.1 {
-                Site::Cell => ctx.assign(t, expr, Src::Value),
-                Site::Typed(_) => ctx.assign(t, expr, Src::Value),
-            }
-        }
+        // any ref-typed static): a ref epoch means the position is a Cell
+        // and the cell path stores directly. A Typed target here would
+        // take the def-time temp — unreachable for refs by the verifier,
+        // but the unified push law handles it uniformly.
+        let slot = ctx.shape(pc).stack.len();
+        let target = ctx.fresh_target(slot, pc);
+        ctx.push_result(slot, target, expr, Src::Value, false, Kind::Ref);
     }
     if class == "java/lang/System" && field == "out" {
         push_value(ctx, pc, format!("{RT}::natives::system_out()"));
@@ -1859,15 +2229,19 @@ fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, _fault: &str, class: &str, f
                 .push(format!("crate::statics::ensure({id}u32, {expr});"));
         }
         let kind = desc_kind_of(&f.desc);
-        if let Some(t) = ctx.fresh_target(ctx.shape(pc).stack.len(), pc) {
-            match t.1 {
-                Site::Cell => ctx.assign(t, format!("crate::statics::get({slot}u32)"), Src::Value),
-                Site::Typed(tp) => {
-                    assert_eq!(Some(tp), Prim::of(kind), "j2r internal: static kind");
-                    ctx.assign(t, format!("crate::statics::get({slot}u32)"), Src::Value);
-                }
-            }
+        let push_slot = ctx.shape(pc).stack.len();
+        let target = ctx.fresh_target(push_slot, pc);
+        if let Some((_, Site::Typed(tp))) = &target {
+            assert_eq!(Some(*tp), Prim::of(kind), "j2r internal: static kind");
         }
+        ctx.push_result(
+            push_slot,
+            target,
+            format!("crate::statics::get({slot}u32)"),
+            Src::Value,
+            false,
+            kind,
+        );
     }
 }
 

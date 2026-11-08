@@ -1208,6 +1208,55 @@ local full-gate sweep at the same tree).**
         interpreter-shaped emission model, not translation — the
         typed-operand unification lever's evidence base grows to two
         families.
+- [x] **Operand-stack/register unification — the registered lever's
+      second slice — LANDED (2026-11-08, owner directive "continue never
+      stop")** — the readiness §5 GO's step-2 continuation, behind the
+      same `--emit-typed` flag with per-method fallback unchanged. The
+      evidence that motivated it: the typed-locals slice measured flat
+      (0.992) because the STACK positions demote to Value cells almost
+      everywhere in the kernels — branch-merging unions kinds across the
+      loop span (LU/EVD: 1,855 expect sites on 1 typed stack var) — so
+      the payload had to decouple stack values from slot-index storage.
+      Model: within one block, a stack value keeps a Rust EXPRESSION
+      (the def's VERIFIED kind decides the read law; the slot's
+      Cell-or-Typed kind only decides the materialization write);
+      materialization at exactly three sites — GC refresh, a shuffle
+      (dup family; a def may be read twice), the block handoff — so
+      GC-root parity is by construction (the refresh reads the same slot
+      vars at the same sites with the same values). Census: 5,530
+      symbolic pushes elided in the JAMA crate, expect sites 2,457 →
+      1,596 (EVD 1,855 → 1,020). Measurement (the registered protocol,
+      same-session pair, byte-identical output on all runs): default
+      273.8s vs typed 262.4s = **0.958 — the FIRST nonzero steady-state
+      movement across five coverage points** (addendum 6). THREE real
+      defects the proof harness caught on the way, each the exact class
+      cfg_equiv exists for:
+      * `desc_kind_of` keyed on the descriptor's LAST byte — `()[[D`
+        typed as a DOUBLE not a reference; latent since the first typed
+        slice (Cell targets carry no kind assert), loud the moment the
+        unification hoisted the expect to the def (LU.getArray panicked
+        `expected double value, got Ref` at runtime). Fixed: first-byte
+        parse (B/C/S/Z → Int, J/F/D, `[`/`L` → Ref).
+      * composed results kept strings binding the shared `__a`/`__b` —
+        a pending entry that survives past the NEXT op's rebinding
+        re-evaluates against wrong values; every composed result now
+        materializes into a method-unique `__t{n}` temp (and `__v`/`__r`
+        reuse is banned: `foo(f(x)); g(y); use(x_result)`).
+      * the load-snapshot law: javac's post-increment lowering
+        (`iload 7; iinc 7,1; use-the-old-7`) mutates the local BEHIND a
+        leaf capture — loads snapshot into a def-time temp like every
+        other def.
+      Proof battery at this tree: cfg_equiv 109 × {base,cfg,typed}
+      zero divergences (345.6s + 380.2s clean-tree re-run), diff_suite
+      109 vs Temurin (463.7s), corpus_suite 4/4 (47.9s), runtime 163,
+      codegen 98, jar/lambda/soe green, fmt/clippy -D warnings clean.
+      Debug scaffolding (bisection env switches, store tracing) removed
+      before landing. Next named prerequisite layer: the block-join/
+      entry-var model (branch-live values in successor-entry variables
+      instead of slot indices) — register unchanged in
+      docs/TYPED_REGISTER_READINESS.md §5; collection-VALUE-boxing
+      measurement sequenced after it. CI evidence: (this commit).
+
       * **Gate repairs found on the way in**: main was fmt-red
         (cargo fmt applied — zero-tolerance gate-1) and clippy-red
         under -D warnings (4 sites: my unused binding + 3 pre-existing

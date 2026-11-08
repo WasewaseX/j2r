@@ -426,3 +426,76 @@ Repro:
     bash scripts/build_corpus_stringsimbench.sh
     python3 scripts/bench_suite.py StringsSimBench --fulljit \
         --reps 3 --warmups 1 --native-reps 1 --native-warmups 0
+
+## 2026-11-08 addendum 6 — operand-stack/register unification (the lever's
+## second slice) measured: the FIRST nonzero steady-state movement — 0.958
+
+The registered lever's second slice landed behind the same `--emit-typed`
+flag (docs/TYPED_REGISTER_READINESS.md §5, step 2 continued): within one
+block, a stack value no longer round-trips through its slot variable. A
+def's VERIFIED kind decides the read law (not the slot's Cell-or-Typed
+storage kind); pure leaf defs (constants, local loads — snapshotted into
+a def-time temp because a later IInc/Store in the same block mutates the
+local behind the leaf read, javac's post-increment lowering) and impure
+defs (array/field loads, calls, trapping division — the `expect_*` unwrap
+hoisted from the slot write to the def) keep a Rust expression; the entry
+lands in its slot variable ONLY at a GC refresh, a shuffle (dup family),
+or the block handoff. GC-root parity by construction: the refresh reads
+the same slot variables at the same sites with the same values.
+
+Three real defects the proof harness caught on the way (each exactly the
+class cfg_equiv exists for):
+* `desc_kind_of` classified by the descriptor's LAST byte — `()[[D`
+  ended in 'D' and was typed as a DOUBLE, not a REFERENCE. Latent for the
+  whole typed-wave life (Cell targets carry no kind assert — the slot
+  write silently held the wrong-typed Value), LOUD the moment the
+  unification layer hoisted the expect to the def (LU.getArray's result
+  panicked `expected double value, got Ref` at runtime). Fixed to
+  first-byte parse.
+* Shift results kept composed strings referencing the shared `__a`/`__b`
+  bindings; a pending entry that survives past the NEXT op's rebinding of
+  those names re-evaluates its string against wrong values. Every
+  composed result now materializes into its own method-unique `__t{n}`
+  temp at the def (the shadow hazard `foo(f(x)); g(y); use(x_result)` is
+  the reason reuse of `__v`/`__r` is banned too).
+* The Load-as-leaf capture: `iload 7; iinc 7,1; use-the-old-7` — the
+  leaf read names the local's epoch variable and the IInc mutates it
+  before the pending entry is consumed. Loads snapshot into a def-time
+  temp (the value snapshot the slot write used to be).
+
+Same-session controlled pair (2-core Xeon / 4 GB, Temurin 21.0.13+9,
+median of 2, native channel, output byte-identical to the JVM on all
+four runs):
+
+    emission        native      ratio
+    default         273.8 s     (1.000)
+    typed+unify     262.4 s     0.958  → 4.2% faster
+
+Elision census (emitted header comments): 5,530 symbolic stack pushes
+elided across the JAMA crate (EigenvalueDecomposition 3,271, Matrix
+1,141, QR 420, LU 410, Cholesky 226, SVD 62); the `expect_*` site count
+drops 2,457 → 1,596 on the same files (EigenvalueDecomposition 1,855 →
+1,020).
+
+Honest reading: the movement is REAL (the first non-1.000 steady-state
+ratio across five coverage points — three CFG addenda, typed-locals, now
+the unification slice) and SMALL. The residual cost is the cross-block
+and refresh-live traffic that still rounds through slot variables
+(values handed across branches or past a GC point materialize into
+Cell/epoch vars by the parity law), the per-access obj_get/invoke_virtual
+helpers, and the per-block safepoint refreshes. The block-join/entry-var
+model (values live ACROSS a branch carried in successor-entry variables
+instead of slot indices) is the next named prerequisite layer — same
+register, docs/TYPED_REGISTER_READINESS.md §5. Reference points, not
+quotable against the pair above: full-tier JVM median 3.89 s this session
+(the registered 3.18 s of 2026-11-06 drifted with machine state — the
+native pair is the controlled comparison).
+
+Repro:
+
+    export PATH="$HOME/.cargo/bin:/home/z/tools/jdk-21.0.13+9/bin:$PATH"
+    javac -d /tmp/jb corpus/JamaBench.java
+    ./target/debug/j2r compile /tmp/jb/*.class --main-class JamaBench \
+      --crate-name j2r_jb_typed --emit-typed -o /tmp/jb_typed
+    (cd /tmp/jb_typed && cargo build --release --offline)
+    # default twin with the same command minus --emit-typed, then time both
