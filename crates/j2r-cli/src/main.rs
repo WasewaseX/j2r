@@ -362,7 +362,7 @@ fn compile_crate(
     emit_cfg: bool,
     emit_typed: bool,
     partition: Option<usize>,
-) -> Result<PathBuf, String> {
+) -> Result<(PathBuf, j2r_codegen::manifest::EmitStats), String> {
     let opts = Options {
         inputs: inputs.to_vec(),
         classpath: classpath.to_vec(),
@@ -373,7 +373,7 @@ fn compile_crate(
         emit_typed,
         partition,
     };
-    j2r_codegen::compile_to_crate(&opts).map_err(|e| e.to_string())
+    j2r_codegen::compile_to_crate_stats(&opts).map_err(|e| e.to_string())
 }
 
 #[allow(clippy::too_many_arguments)] // 8 args: the compile surface, same precedent as cmd_build
@@ -397,8 +397,9 @@ fn cmd_compile(
         emit_typed,
         partition_classes,
     ) {
-        Ok(dir) => {
+        Ok((dir, stats)) => {
             println!("generated Rust crate: {}", dir.display());
+            println!("{}", stats.summary());
             println!(
                 "build it with: cargo build --manifest-path {}/Cargo.toml",
                 dir.display()
@@ -431,7 +432,7 @@ fn cmd_build(
     emit_typed: bool,
     partition_classes: Option<usize>,
 ) -> i32 {
-    let dir = match compile_crate(
+    let (dir, stats) = match compile_crate(
         inputs,
         out,
         classpath,
@@ -447,6 +448,7 @@ fn cmd_build(
             return 1;
         }
     };
+    eprintln!("{}", stats.summary());
     let mut cmd = Command::new(cargo_binary());
     cmd.arg("build")
         .arg("--manifest-path")
@@ -523,7 +525,7 @@ fn cmd_test(file: &Path, release: bool, partition: Option<usize>, args: &[String
             .borrow()
             .clone()
             .ok_or_else(|| "internal: main class not selected yet".to_string())?;
-        let dir = compile_crate(
+        let (dir, _stats) = compile_crate(
             &class_files,
             &out_dir,
             &[],

@@ -22,8 +22,10 @@ pub mod classpath;
 pub mod emit;
 pub mod ir;
 pub mod lambda;
+pub mod manifest;
 pub mod partition;
 pub mod readiness;
+pub mod sha256;
 pub mod specialize;
 pub mod typed;
 pub mod verify;
@@ -253,6 +255,11 @@ pub struct ClassPlan {
     /// quadratic term: codegen lib.rs closure loop, 0.40 s at 1k farm
     /// classes and growing with classes²).
     pub refs: std::collections::BTreeSet<String>,
+    /// SHA-256 of the `.class` bytes this plan was parsed from (M5 T06/T07
+    /// build manifest): the per-class input hash for the reuse gate.
+    /// Computed once here, so explicit-input and classpath-closure loads
+    /// are treated identically.
+    pub input_sha: String,
     cf: ClassFile,
 }
 
@@ -410,6 +417,7 @@ fn parse_and_add(
     static_slots: &mut u32,
     source: &str,
 ) -> Result<()> {
+    use crate::sha256::sha256_hex;
     let cf = ClassFile::parse(bytes).map_err(cf_err)?;
     let name = cf.this_class.clone();
     if classpath::is_jdk_namespace(&name) {
@@ -482,6 +490,7 @@ fn parse_and_add(
         lambdas: BTreeMap::new(),
         static_monitor: None,
         refs,
+        input_sha: sha256_hex(bytes),
         cf,
     });
     Ok(())
@@ -1329,9 +1338,17 @@ fn validate_instr(
 
 /// Full pipeline: compile + write the crate to `opts.out_dir`.
 pub fn compile_to_crate(opts: &Options) -> Result<PathBuf> {
+    compile_to_crate_stats(opts).map(|(dir, _stats)| dir)
+}
+
+/// Full pipeline with build-manifest statistics (M5 T06/T07): compiles,
+/// emits with per-class reuse + write-if-changed (single-crate or
+/// partitioned workspace — both paths maintain the manifest), and returns
+/// both the crate directory and what the emission actually did.
+pub fn compile_to_crate_stats(opts: &Options) -> Result<(PathBuf, crate::manifest::EmitStats)> {
     let prog = compile(opts)?;
-    emit::emit_crate(&prog, opts)?;
-    Ok(opts.out_dir.clone())
+    let stats = emit::emit_crate(&prog, opts)?;
+    Ok((opts.out_dir.clone(), stats))
 }
 
 /// Public wrappers used by the emitter (it needs the same resolution logic

@@ -1823,6 +1823,7 @@ mod tests {
             lambdas: BTreeMap::new(),
             static_monitor: None,
             refs: std::collections::BTreeSet::new(),
+            input_sha: String::new(),
             cf,
         };
         let prog = Program {

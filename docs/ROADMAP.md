@@ -280,6 +280,21 @@ skipped gate is impossible.
   JNI bridge (safe-Rust JNIEnv vtable emulation), Mojang/intermediary
   mappings pipeline, mixin application at the bytecode level before j2r,
   inline caches for megamorphic call sites.
+  **Wave-1 progress**: T05 crate-partitioned emission + T03 closure cache
+  landed earlier; **T06/T07 build manifest landed 2026-11-09** — the
+  per-class input-hash → emitted-hash map (`j2r-manifest.tsv`, gated by
+  emitter version, emission options, the global signature-surface hash and
+  the partition layout hash; write-if-changed everywhere; corrupt manifest
+  falls back to a full re-emit). Measured on the 401-class calibration
+  crate (2 cores, 4 GB): full `j2r build --release` 123.9 s → no-op
+  **0.46 s** (268×), binary re-verified correct; a body-only edit re-emits
+  exactly the edited class (400 reused / 1 re-emitted, 112 ms) and leaves
+  every other crate's files mtime-identical, so cargo rebuilds only the
+  affected partition. Independent re-measurement this session of the
+  registered rustc scaling wall (peak RSS ≈ 267 MB + 3.7 MB/class; 1,000
+  classes ≈ 4.0 GB, 70k ≈ 260 GB) reproduced the census numbers that
+  motivated T05. 10 manifest integration tests + 3 SHA-256 unit tests
+  (FIPS vectors) joined the battery.
 - **M6 mod ecosystem**: Fabric / Forge / NeoForge boot paths.
 
 Discipline stays identical: plan → review → ordered waves → evidence →

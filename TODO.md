@@ -1410,8 +1410,46 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       fmt/clippy clean, codegen lib 98/98, runtime 163/163,
       corpus_suite 49.9s green (the jar-classpath closure path
       end-to-end); full battery rides CI on push.
+- [x] **T06/T07 build manifest LANDED** (2026-11-09): `out/j2r-manifest.tsv`
+      — per-class input-hash → emitted-hash records under a global gate
+      (emitter version, emit_cfg, emit_typed, signature-surface hash,
+      partition layout hash). Soundness: a class's emission is a pure
+      function of its own bytecode + every class's resolution surface +
+      the global slot/link-table allocation + the options — never other
+      classes' method *bodies* — so a verified-current class is reused
+      byte-for-byte and its rendering skipped; every file (including the
+      vendored runtime and the workspace glue) is written only when its
+      bytes change, which keeps cargo's fingerprints valid and turns a
+      no-op rebuild into hash checks. Corrupt/hand-edited manifest falls
+      back to a full re-emit (loud, never stale). Single-crate AND
+      partitioned paths both maintain it. 10 manifest integration tests +
+      3 sha256 unit tests (FIPS vectors). Measured (401-class calibration
+      crate, this box): full `j2r build --release` 123.9 s → no-op
+      **0.46 s** (268×), binary re-verified correct; body-only edit of one
+      class re-emits exactly that class (400 reused / 1 re-emitted,
+      emission 112 ms) and — in partitioned mode — cargo then recompiles
+      only that class's part crate (the other parts' files keep their
+      mtimes). Also fixed on the way in: `emit_app` double-wrote
+      `app/Cargo.toml` (short placeholder via write_member_cargo, then the
+      full file) — every workspace re-emit churned that mtime, which would
+      have rebuilt the app crate on every no-op. Found and fixed during
+      the farm measurement: the reuse gate originally keyed on
+      `opts.inputs.len()` and broke for `--classpath` builds (empty input
+      list ⇒ gate refused every run); input hashes now live on
+      `ClassPlan.input_sha` (SHA-256 over the exact bytes `parse_and_add`
+      loaded — explicit inputs and classpath closure alike), so both load
+      paths are covered by one mechanism. **Farm measurement (1,003-class
+      M5 farm, k=200, 2 cores/4 GB):** full `j2r build --release` 357.5 s
+      → no-op **0.535 s (668×)** with all 1,003 classes reused and 0 files
+      written; a one-class body edit re-emits exactly that class and
+      rebuilds in **71.0 s** (5× — cargo recompiles only the edited
+      class's partition + app; the other partitions' files keep their
+      mtimes), output byte-identical to Temurin on all four printed
+      channels.
 - [~] incremental compilation for 70k+ classes (T05 partitioning +
-      T03 closure cache LANDED; NEXT: T06/T07 build manifest)
+      T03 closure cache + T06/T07 build manifest LANDED, measured at 1k
+      farm scale: no-op 357.5 s → 0.535 s, one-body-edit 5×; remaining:
+      20k census-jar confirmation of the same three numbers)
 - [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
       T08–T13, C-harness parity is the blocker's evidence bar)
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +

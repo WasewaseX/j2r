@@ -26,7 +26,9 @@ across GC churn, `System.err`,
 `java.util` collections with **byte-identical `HashMap` iteration order**,
 classpath/JAR loading, lambdas and method references, `synchronized`
 monitors, and a reflection subset (`X.class`, `Field.get/set`,
-`Method.invoke`) — all green, plus 228 unit and integration tests,
+`Method.invoke`) — all green, plus 241 unit and integration tests
+(incl. the build-manifest suite: per-class reuse, body-edit isolation,
+surface/layout invalidation, corrupt-manifest fallback),
 12 malformed-classfile tests and JDK-free end-to-end tests.
 
 A dedicated **hardening milestone** (post-audit) added:
@@ -180,6 +182,16 @@ A **JDK-coverage milestone** (M3, [docs/ROADMAP.md](ROADMAP.md)) landed on
 * Investigation tooling: `j2r shape-report` (typed-storage decisions) and
   `j2r cfg-report` / `--emit-cfg` (CFG lift prototype, default off —
   109/109 fixtures output-identical in both modes)
+* **Build manifest, incremental recompiles** (M5 wave 1, T06/T07):
+  `out/j2r-manifest.tsv` maps each class's input hash to its emitted-file
+  hash under a global gate (emitter version, emission options, the
+  signature-surface hash, the partition layout). Verified-current classes
+  are reused byte-for-byte and never rewritten, so an unchanged rebuild
+  does nothing but hash checks: at 1,003 farm classes, full
+  `j2r build --release` 357.5 s → no-op **0.535 s (668×)**; a one-class
+  body edit re-emits exactly that class and rebuilds in 71.0 s (5× — only
+  its partition + app recompile). Corrupt or hand-edited manifests fall
+  back to a full re-emit — the manifest is a cache, never authoritative.
 * Classpath & JAR loading (M3 Wave 1): `-p/--classpath` with directories
   and `.jar`/`.zip` archives, transitive closure loading from a
   `--main-class`, a zero-dependency zip/inflate/CRC-32 reader with a
@@ -272,7 +284,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 339 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites
+$ cargo test                       # 352 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar
