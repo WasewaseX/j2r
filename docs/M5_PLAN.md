@@ -221,9 +221,9 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
 
 ### Wave 1 — scale & incremental compilation
 
-- [ ] **T03** Closure cache: per-class referenced-name set at parse time;
-      worklist over deltas; referer from cache. Closure stage O(total
-      refs). Unit + farm timing deltas recorded. → §2.1
+- [x] **T03** Closure cache LANDED (2026-11-08): ClassPlan.refs cached
+      at parse time; worklist over deltas; referer from cache. Compile
+      stage 0.40→0.29s at 1k, 7.98→2.02s at 5k (−75%, near-linear). → §2.1
 - [~] **T04** Farm differential: BYTE-IDENTICAL vs Temurin at N=250/
       1000/5000 partitioned (exit 0, stdout identical, stderr empty).
       Remaining: CI pinning of a partitioned farm row.

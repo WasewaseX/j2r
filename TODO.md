@@ -1392,8 +1392,20 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       identical, stderr empty both sides. Remaining for [x]: pin a
       partitioned farm row in CI (javac + --partition-classes in the
       harness) so the partition seams are regression-guarded.
-- [ ] incremental compilation for 70k+ classes (§2; closure cache T03
-      — NEXT, build manifest T06/T07)
+- [x] **T03** closure cache LANDED (2026-11-08): `ClassPlan.refs` — the
+      referenced-user-class set extracted ONCE at parse time; the closure
+      worklist walks the cached delta sets and the referer lookup reads
+      the cache instead of re-walking every class's constant pool on
+      every round (the measured quadratic term). Emission order
+      unchanged (same BTreeSet, same class order — deterministic).
+      Measured compile-stage (closure+parse+emit) wall: N=1000
+      0.40s → **0.29s**, N=5000 7.98s → **2.02s (−75%)** — the stage is
+      near-linear now (5× classes → 7× time, was superlinear). Gates:
+      fmt/clippy clean, codegen lib 98/98, runtime 163/163,
+      corpus_suite 49.9s green (the jar-classpath closure path
+      end-to-end); full battery rides CI on push.
+- [~] incremental compilation for 70k+ classes (T05 partitioning +
+      T03 closure cache LANDED; NEXT: T06/T07 build manifest)
 - [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
       T08–T13, C-harness parity is the blocker's evidence bar)
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +

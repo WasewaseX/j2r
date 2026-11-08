@@ -246,6 +246,13 @@ pub struct ClassPlan {
     /// a synthetic per-class monitor object, allocated lazily and scanned
     /// as a static root).
     pub static_monitor: Option<u32>,
+    /// T03 closure cache (M5_SCALE.md §3.1): the user-namespace classes
+    /// this class references, extracted ONCE at parse time. The classpath
+    /// closure walks these cached delta sets instead of re-walking every
+    /// class's constant pool on every worklist round (the measured
+    /// quadratic term: codegen lib.rs closure loop, 0.40 s at 1k farm
+    /// classes and growing with classes²).
+    pub refs: std::collections::BTreeSet<String>,
     cf: ClassFile,
 }
 
@@ -419,6 +426,9 @@ fn parse_and_add(
         });
     }
     let module = sanitize_module(&name);
+    // T03 closure cache: extract the referenced-user-class set once, here,
+    // so the closure worklist never re-walks a constant pool.
+    let refs = classpath::referenced_user_classes(&cf);
     if classes.iter().any(|c| c.module == module) {
         return Err(CodegenError::Semantic {
             class: name.clone(),
@@ -471,6 +481,7 @@ fn parse_and_add(
         concats: BTreeMap::new(),
         lambdas: BTreeMap::new(),
         static_monitor: None,
+        refs,
         cf,
     });
     Ok(())
@@ -541,9 +552,10 @@ pub fn compile(opts: &Options) -> Result<Program> {
         loop {
             let mut wanted: BTreeSet<String> = BTreeSet::new();
             for c in &classes {
-                for name in classpath::referenced_user_classes(&c.cf) {
-                    if !user_index.contains_key(&name) {
-                        wanted.insert(name);
+                // T03: cached at parse time — no constant-pool re-walk here.
+                for name in &c.refs {
+                    if !user_index.contains_key(name) {
+                        wanted.insert(name.clone());
                     }
                 }
             }
@@ -553,7 +565,7 @@ pub fn compile(opts: &Options) -> Result<Program> {
             for name in wanted {
                 let referer = classes
                     .iter()
-                    .find(|c| classpath::referenced_user_classes(&c.cf).contains(&name))
+                    .find(|c| c.refs.contains(&name))
                     .map(|c| c.name.clone())
                     .unwrap_or_else(|| "<unknown>".to_string());
                 let src = cp.find(&name).ok_or_else(|| CodegenError::Semantic {

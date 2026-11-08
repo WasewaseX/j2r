@@ -1822,6 +1822,7 @@ mod tests {
             concats: BTreeMap::new(),
             lambdas: BTreeMap::new(),
             static_monitor: None,
+            refs: std::collections::BTreeSet::new(),
             cf,
         };
         let prog = Program {
