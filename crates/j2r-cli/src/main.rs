@@ -65,6 +65,14 @@ enum Cmd {
         /// exclusive with --emit-cfg.
         #[arg(long)]
         emit_typed: bool,
+        /// M5 T05 (docs/M5_SCALE.md §3, default OFF): emit a cargo
+        /// workspace with at most this many classes per crate (a shared
+        /// support crate holds the statics pool, the global link table and
+        /// the dispatch slot). Bounds one rustc process's memory; the farm
+        /// census showed ~4.2 MB/class makes a single crate die near 1000
+        /// classes on a 4 GB machine. Requires --main-class.
+        #[arg(long)]
+        partition_classes: Option<usize>,
     },
     /// Translate .class files and build a native binary with cargo.
     Build {
@@ -100,6 +108,11 @@ enum Cmd {
         /// exclusive with --emit-cfg.
         #[arg(long)]
         emit_typed: bool,
+        /// M5 T05 (docs/M5_SCALE.md §3, default OFF): emit a cargo
+        /// workspace with at most this many classes per crate. Requires
+        /// --main-class.
+        #[arg(long)]
+        partition_classes: Option<usize>,
     },
     /// Differential test: javac + java vs j2r + cargo, comparing stdout,
     /// stderr and exit code.
@@ -147,6 +160,7 @@ fn main() {
             crate_name,
             emit_cfg,
             emit_typed,
+            partition_classes,
         } => {
             if emit_cfg && emit_typed {
                 eprintln!("j2r: error: --emit-cfg and --emit-typed are mutually exclusive (the typed wave composes with the dispatch body only)");
@@ -160,6 +174,7 @@ fn main() {
                     &crate_name,
                     emit_cfg,
                     emit_typed,
+                    partition_classes,
                 )
             }
         }
@@ -172,6 +187,7 @@ fn main() {
             release,
             emit_cfg,
             emit_typed,
+            partition_classes,
         } => {
             if emit_cfg && emit_typed {
                 eprintln!("j2r: error: --emit-cfg and --emit-typed are mutually exclusive (the typed wave composes with the dispatch body only)");
@@ -186,6 +202,7 @@ fn main() {
                     release,
                     emit_cfg,
                     emit_typed,
+                    partition_classes,
                 )
             }
         }
@@ -212,6 +229,7 @@ fn cmd_cfg_report(inputs: &[PathBuf]) -> i32 {
         out_dir: std::env::temp_dir().join("j2r-cfg-report"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     };
     match j2r_codegen::compile(&opts) {
         Ok(prog) => {
@@ -246,6 +264,7 @@ fn cmd_shape_report(inputs: &[PathBuf]) -> i32 {
         out_dir: std::env::temp_dir().join("j2r-shape-report"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     };
     match j2r_codegen::compile(&opts) {
         Ok(prog) => {
@@ -289,6 +308,7 @@ fn cmd_readiness_report(inputs: &[PathBuf]) -> i32 {
         out_dir: std::env::temp_dir().join("j2r-readiness-report"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     };
     match j2r_codegen::compile(&opts) {
         Ok(prog) => {
@@ -326,6 +346,7 @@ fn cmd_readiness_report(inputs: &[PathBuf]) -> i32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // 8 args: the compile surface, same precedent as cmd_build
 fn compile_crate(
     inputs: &[PathBuf],
     out: &Path,
@@ -334,6 +355,7 @@ fn compile_crate(
     crate_name: &str,
     emit_cfg: bool,
     emit_typed: bool,
+    partition: Option<usize>,
 ) -> Result<PathBuf, String> {
     let opts = Options {
         inputs: inputs.to_vec(),
@@ -343,10 +365,12 @@ fn compile_crate(
         out_dir: out.to_path_buf(),
         emit_cfg,
         emit_typed,
+        partition,
     };
     j2r_codegen::compile_to_crate(&opts).map_err(|e| e.to_string())
 }
 
+#[allow(clippy::too_many_arguments)] // 8 args: the compile surface, same precedent as cmd_build
 fn cmd_compile(
     inputs: &[PathBuf],
     out: &Path,
@@ -355,9 +379,17 @@ fn cmd_compile(
     crate_name: &str,
     emit_cfg: bool,
     emit_typed: bool,
+    partition_classes: Option<usize>,
 ) -> i32 {
     match compile_crate(
-        inputs, out, classpath, main_class, crate_name, emit_cfg, emit_typed,
+        inputs,
+        out,
+        classpath,
+        main_class,
+        crate_name,
+        emit_cfg,
+        emit_typed,
+        partition_classes,
     ) {
         Ok(dir) => {
             println!("generated Rust crate: {}", dir.display());
@@ -391,9 +423,17 @@ fn cmd_build(
     release: bool,
     emit_cfg: bool,
     emit_typed: bool,
+    partition_classes: Option<usize>,
 ) -> i32 {
     let dir = match compile_crate(
-        inputs, out, classpath, main_class, crate_name, emit_cfg, emit_typed,
+        inputs,
+        out,
+        classpath,
+        main_class,
+        crate_name,
+        emit_cfg,
+        emit_typed,
+        partition_classes,
     ) {
         Ok(d) => d,
         Err(e) => {
@@ -485,6 +525,7 @@ fn cmd_test(file: &Path, release: bool, args: &[String]) -> i32 {
             "j2r-test-app",
             false,
             false,
+            None,
         )?;
         // 3. cargo build
         let mut cmd = Command::new(cargo_binary());

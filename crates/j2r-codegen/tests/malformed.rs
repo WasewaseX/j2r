@@ -45,6 +45,7 @@ fn compile_main(
         out_dir: dir.join("out"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     };
     j2r_codegen::compile_to_crate(&opts).map(|_| ())
 }
@@ -182,6 +183,7 @@ fn multianewarray_zero_dims_is_a_compile_error() {
         out_dir: dir.join("out"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     });
     let _ = std::fs::remove_dir_all(&dir);
     let msg = res
@@ -225,6 +227,7 @@ fn multianewarray_more_dims_than_descriptor_is_a_compile_error() {
         out_dir: dir.join("out"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     });
     let _ = std::fs::remove_dir_all(&dir);
     let msg = res
@@ -267,6 +270,7 @@ fn multianewarray_on_a_non_array_class_is_a_compile_error() {
         out_dir: dir.join("out"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     });
     let _ = std::fs::remove_dir_all(&dir);
     let msg = res
@@ -310,6 +314,7 @@ fn well_formed_multianewarray_still_compiles() {
         out_dir: dir.join("out"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     });
     let _ = std::fs::remove_dir_all(&dir);
     res.expect("well-formed multianewarray must compile");

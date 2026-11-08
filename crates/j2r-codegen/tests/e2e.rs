@@ -126,6 +126,7 @@ fn handcrafted_class_runs_natively() {
         out_dir: dir.join("out"),
         emit_cfg: false,
         emit_typed: false,
+        partition: None,
     };
     j2r_codegen::compile_to_crate(&opts).expect("codegen succeeds");
 

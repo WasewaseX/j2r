@@ -1365,8 +1365,35 @@ Wave 0 — measurement & baseline:
       layering (the class web is one SCC — collapses to one crate).
 
 Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
-- [ ] incremental compilation for 70k+ classes (§2; closure cache T03,
-      build manifest T06/T07, emission shape T05)
+- [x] **T05** crate-partitioned emission LANDED (2026-11-08, per
+      M5_SCALE.md §3). `--partition-classes K` on `j2r compile`/`build`
+      (default OFF — single-crate path byte-identical, proven by
+      cfg_equiv 109×3 modes zero divergences 371.6s + diff_suite 109
+      fixtures 488.3s + corpus_suite + unit batteries post-refactor).
+      Workspace: `support` crate (id-keyed statics pool verbatim +
+      global link table + dispatch slot), `p0..pN` (K name-sorted
+      classes each; same-partition calls keep the direct path;
+      cross-partition calls go through `support::link::call(GID,…)`
+      with deterministic global method ids; cross-partition clinit
+      fn pointers via const-generic `tramp::<GID>`), `app` (composite
+      Dispatch routed by PART_START partition_point + link registration
+      + install sequence before any Java code). **One deadlock found
+      and fixed on the way: the link table was a Mutex held across the
+      callee — a nested cross-partition call self-deadlocked (0 CPU,
+      sleeping); now a OnceLock, fn pointer copied out before the
+      call.** Evidence (4 GB box): N=1000 k=500 -j1 → build 101.99s /
+      **1.91 GB peak** (single-crate SIGKILLed at 3.66 GB on the same
+      input), run BYTE-IDENTICAL vs Temurin; N=5000 k=300 -j2 → javac
+      13.23s, emit 7.98s, build 282.72s / **1.89 GB peak** (single-crate
+      extrapolation ~21 GB — impossible here), run BYTE-IDENTICAL vs
+      Temurin. CSV: scripts/m5_census_partitioned.csv.
+- [~] **T04** farm differential: BYTE-IDENTICAL vs Temurin at N=250
+      (k=100), N=1000 (k=500), N=5000 (k=300) — exit 0 + stdout
+      identical, stderr empty both sides. Remaining for [x]: pin a
+      partitioned farm row in CI (javac + --partition-classes in the
+      harness) so the partition seams are regression-guarded.
+- [ ] incremental compilation for 70k+ classes (§2; closure cache T03
+      — NEXT, build manifest T06/T07)
 - [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
       T08–T13, C-harness parity is the blocker's evidence bar)
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +

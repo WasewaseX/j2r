@@ -22,6 +22,7 @@ pub mod classpath;
 pub mod emit;
 pub mod ir;
 pub mod lambda;
+pub mod partition;
 pub mod readiness;
 pub mod specialize;
 pub mod typed;
@@ -137,6 +138,15 @@ pub struct Options {
     /// readiness analysis plans, falling back per method otherwise. Default
     /// **off**. Mutually exclusive with `emit_cfg`.
     pub emit_typed: bool,
+    /// M5 T05 (docs/M5_SCALE.md §3): crate-partitioned emission. `Some(k)`
+    /// with more than `k` classes emits a cargo **workspace**: `k` classes
+    /// per `part-i` crate, a shared `support` crate (statics pool + global
+    /// link table + dispatch slot), and an `app` crate stitching the
+    /// composite `Dispatch`. Cross-partition direct calls go through the
+    /// link table so the class reference web may stay strongly connected
+    /// across crates. Default **None** — the single-crate emission is
+    /// byte-identical to the pre-M5 shape.
+    pub partition: Option<usize>,
 }
 
 impl Options {
@@ -149,6 +159,7 @@ impl Options {
             out_dir,
             emit_cfg: false,
             emit_typed: false,
+            partition: None,
         }
     }
 }

@@ -224,14 +224,17 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
 - [ ] **T03** Closure cache: per-class referenced-name set at parse time;
       worklist over deltas; referer from cache. Closure stage O(total
       refs). Unit + farm timing deltas recorded. → §2.1
-- [ ] **T04** Farm differential: the farm jar's Main output
-      byte-identical vs Temurin (the scale corpus becomes a real corpus
-      member, not just a timing rig).
-- [ ] **T05** Emission shape from the census: **re-aimed by T02 —
-      crate-partitioned emission first** (docs/M5_SCALE.md §3):
-      `--partition-classes K` workspace, link table for cross-partition
-      calls; acceptance = farm 1000 builds <4 GB, 5000 builds, curve
-      re-measured. Split-table/JZlib re-test after. → §2.3
+- [~] **T04** Farm differential: BYTE-IDENTICAL vs Temurin at N=250/
+      1000/5000 partitioned (exit 0, stdout identical, stderr empty).
+      Remaining: CI pinning of a partitioned farm row.
+- [x] **T05** Crate-partitioned emission LANDED (2026-11-08):
+      `--partition-classes K` workspace (support/p0..pN/app), link table
+      for cross-partition calls, composite Dispatch. Acceptance met:
+      farm 1000 builds 1.91 GB (<4 GB, was SIGKILL single-crate), 5000
+      builds 1.89 GB; BYTE-IDENTICAL vs Temurin at 250/1000/5000;
+      default path re-proven (cfg_equiv zero divergences, diff_suite
+      109, corpus_suite). Link-table Mutex→OnceLock deadlock fix
+      recorded in TODO.md §T05. Split-table/JZlib re-test next. → §2.3
 - [ ] **T06** Build manifest: per-class input-hash → emitted-hash, no-op
       rebuild measured cheaper. → §2.2
 - [ ] **T07** Global-digest invalidation: cross-class resolution changes

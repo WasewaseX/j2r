@@ -1,0 +1,3 @@
+n,k,jobs,javac_s,javac_kb,compile_s,compile_kb,cargo_s,cargo_kb,result
+1000,500,1,4.67,188136,0.46,49464,101.99,1909076,BYTE-IDENTICAL
+5000,300,2,13.23,618648,7.98,221624,282.72,1888504,BYTE-IDENTICAL

@@ -124,6 +124,7 @@ fn build_and_run(fixture: &std::path::Path, mode: Mode, tag: &str) -> Out {
         out_dir: tmp.join("crate"),
         emit_cfg: mode == Mode::Cfg,
         emit_typed: mode == Mode::Typed,
+        partition: None,
     };
     let dir = j2r_codegen::compile_to_crate(&opts).expect("codegen");
     // One shared target dir for the whole suite: per-mode crate dirs keep
