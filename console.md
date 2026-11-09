@@ -394,3 +394,44 @@ getrusage max single child, mistake-list #2).
   global-dispatch decision recorded in the T10 design notes).
 
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
+
+### [2026-11-10 ~10:00–11:30 UTC] session 4 — resets #4 AND #5 survived; baseline re-proven (388 green); T10 slice 2 next
+- Sandbox recycled twice inside one session (a mid-session tool outage,
+  then the restart) and the persistent layer came back reverted BOTH
+  times: `env.sh`, `tools/` (Temurin), `~/.cargo`/`~/.rustup` all wiped;
+  `work/j2r-fresh` and its `target/` (509 M) survived. The §9 protocol
+  was run each time: `git fetch origin && git reset --hard origin/main`
+  → HEAD `84734d6`, `git rev-parse HEAD == origin/main` verified.
+- **Lesson #12 near-miss, second occurrence, caught before any push
+  again:** a fresh-context assistant (this session's start) found the
+  local tree stale at `b4badea` (pre-M3) and — not having read the
+  boards first — re-created duplicate uppercase `CONSOLE.MD`/
+  `CONSOLE_SUMMARY.MD` from the stale view, including the superseded
+  "M4 = Minecraft readiness" naming (mistake #1 exactly), plus a
+  "T22 reconciliation" edit to the stale ROADMAP and a local-only
+  commit `c677b50`. The push was rejected (origin 115 ahead), the
+  divergence check exposed the staleness, and the §9 pin discarded all
+  of it. **Rule confirmed twice now: §9-pin FIRST, then read the
+  boards, then act. Nothing of the duplicates ever reached origin.**
+- Toolchain rebootstrap ×2 (same session-3 protocol): rustup stable =
+  rustc/cargo 1.99.1 + rustfmt 1.10.0 + clippy 0.1.99 (exact pins);
+  Temurin 21.0.13+9 → `/home/z/my-project/tools/jdk-21.0.13+9`;
+  `env.sh` recreated (J2R_JAVAC, JAVA_HOME, PATH, CARGO_PROFILE_DEV_
+  DEBUG=0). Rebootstrap download measured: rustup-init 21 MB, Temurin
+  tarball 199 MB (consistent with session 3's ≈ 230 MB rustup / 198 MB
+  JDK totals).
+- **Full local baseline re-proven BEFORE any T10 code (T05's law):
+  388 tests, 0 failures** — classfile 38 · runtime 192 · codegen 125
+  (lib 101 + e2e 1 + malformed 12 + manifest 10 + wide_ids 1) ·
+  j2r-jni-ffi 7 · cli bin 15 + soe 3 + lambda 2 + partition 1 + jar 1 +
+  corpus 1 + cfg_equiv 1 + diff_suite 2. Walls: cfg_equiv 324.27 s,
+  diff_suite 425.65 s (fresh javac compile of all fixtures),
+  corpus 36.75 s, partition 21.53 s, soe 17.02 s, jar 9.62 s,
+  lambda 1.20 s — zero divergences anywhere; fmt clean; clippy
+  `-D warnings` clean.
+- Next: **T10 slice 2** — wire the four string slots through the
+  generator's real-slot mechanism (slot_new_string_utf /
+  slot_new_string / slot_get_string_utf_length /
+  slot_get_string_utf_chars + slot_release_string_utf_chars from
+  slice 1's `jni::strings`), then slice 3 (GetObjectClass/FindClass/
+  field IDs/arrays) on the recorded global-dispatch decision.

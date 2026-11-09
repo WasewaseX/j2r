@@ -1,8 +1,9 @@
 # j2r console summary — the state board
 
-Updated 2026-11-09 (session 3, after sandbox reset #3 — see console.md
-~14:45 UTC entry and §9). Raw log: `console.md`. **Read this file before
-acting**; if a memory disagrees with this board, the board wins.
+Updated 2026-11-10 (session 4 — resets #4/#5 survived, baseline re-proven
+388 green; see console.md session-4 entry and §9). Raw log: `console.md`.
+**Read this file before acting**; if a memory disagrees with this board,
+the board wins.
 
 ## 1. What the project is
 
@@ -87,16 +88,17 @@ M4 completion package still awaits owner review in parallel.
    law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 →
    `/home/z/my-project/tools/jdk-21.0.13+9` (session 3 moved the JDK to
    the persistent layer; /tmp is not trusted), `source
-   /home/z/my-project/env.sh`. Status: **DONE (session 3; was session
-   2)** — exact pinned versions restored; measured rebootstrap cost
-   ≈ 430 MB download / ~960 MB disk (console.md session-3 entry).
+   /home/z/my-project/env.sh`. Status: **DONE (session 4; was session
+   3)** — exact pinned versions restored twice in one session (resets
+   #4/#5 both reverted the persistent layer); rebootstrap download
+   measured: rustup-init 21 MB + Temurin tarball 199 MB.
 2. **Full local baseline green before the first T08 commit**: unit tests
    across all four crates + `diff_suite` (three-channel vs Temurin) +
    corpus suite; test counts re-synced per gate-11. Status: **DONE
-   (session 2; re-proven session 3)** — post-T08 total 359 (classfile
-   38, runtime 170, codegen 125, cli 26); session 3 re-proved all 359
-   green before T09 (cfg_equiv 340–347 s, diff_suite 340–412 s, zero
-   divergences), fmt clean, clippy 0 warnings.
+   (session 4, re-proven again at 84734d6 before T10 slice 2)** —
+   **388 tests, 0 failures** (classfile 38, runtime 192, codegen 125,
+   jni-ffi 7, cli 26 incl. cfg_equiv 324 s + diff_suite 426 s, zero
+   divergences; fmt clean, clippy `-D warnings` clean).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -262,6 +264,10 @@ by the per-crate budget K.
   slots via the generator's real-slot mechanism; slice 3 —
   GetObjectClass/FindClass/field IDs/arrays (needs the global-dispatch
   registration decision).
+- [ops] Session 4 (2026-11-10): resets #4/#5 survived via §9; baseline
+  re-proven 388 green at 84734d6; second lesson-#12 near-miss (duplicate
+  uppercase CONSOLE files from a stale tree) caught before push — rule
+  re-confirmed: §9-pin FIRST, then read the boards, then act.
 - [hygiene] Two open dependabot PRs: #1 `actions/checkout` 4.4.0→7.0.1,
   #2 `actions/setup-java` 4.9.1→6.1.0 (2026-11-05) — review after the
   baseline is re-proven; 21 open code-scanning alerts (zizmor
