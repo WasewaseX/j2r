@@ -1,7 +1,8 @@
 # j2r console summary — the state board
 
-Updated 2026-11-09 (this session). Raw log: `console.md`. **Read this file
-before acting**; if a memory disagrees with this board, the board wins.
+Updated 2026-11-09 (session 2, after sandbox reset #2 — see console.md
+~11:00 UTC entry and §9). Raw log: `console.md`. **Read this file before
+acting**; if a memory disagrees with this board, the board wins.
 
 ## 1. What the project is
 
@@ -74,6 +75,31 @@ blocker; safe-Rust design in M5_PLAN §3) · T14–T16 mappings pipeline ·
 T17–T21 mixin applier · T22–T23 inline caches. Wave-2 entry gate now
 satisfied (wave 1 closed + evidence recorded); the M4 completion package
 still awaits owner review in parallel.
+
+### 3.1 T08 preconditions — the wave-2 entry checklist (all must be green before T08 code)
+
+1. **Toolchain re-proven after every reset** (environments rot — T05's
+   law): rustup → rustc/cargo, Temurin 21.0.13 → `/tmp/jdk21`,
+   `source /home/z/my-project/env.sh`. Status: IN PROGRESS this session.
+2. **Full local baseline green before the first T08 commit**: unit tests
+   across all four crates + `diff_suite` (three-channel vs Temurin) +
+   corpus suite; test counts re-synced per gate-11. Never assume green
+   from the last session's claims.
+3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
+   tables, object-model bridge, v1 surface, C-harness evidence) +
+   STRATEGIC_GAPS §R3. No new design debate unless a measured fact
+   forces one.
+4. **Standing constraints carried into T08**: `j2r-runtime` keeps zero
+   external dependencies; zero `unsafe` (`#![forbid(unsafe_code)]` +
+   gate-10); the `extern "system"` fn pointers point at safe Rust fns —
+   callers' FFI is theirs, our side stays safe; index-for-index layout
+   vs `jni.h` pinned by a const-evaluated assertion table (drift =
+   compile error, not a segfault).
+5. **Evidence bar known up front** (M5_PLAN §3 acceptance): a
+   C-compiled harness `.so` exercising every v1 function, run against
+   Temurin and the j2r binary with identical observable results,
+   three-channel; `RegisterNatives` round-trip demonstrated; JNI suite
+   pinned in CI (T13).
 
 ## 4. Cross-module correctness — the six constraints, mapped to landed mechanisms
 
@@ -164,8 +190,12 @@ by the per-crate budget K.
    when a previous session left it there).
 5. **env.sh paths** must point at /home/z/my-project/tools (a stale /tmp
    pointer silently breaks every cargo/javac call).
-6. **Stale trees:** work/j2r, work/j2r-wt, work/j2r-fresh are old
-   snapshots — work in work/j2r-gh (cloned from the authoritative repo).
+6. **Stale trees / reset recovery:** after any sandbox reset, no local
+   tree is trusted — pin it: `git fetch origin && git reset --hard
+   origin/main`, verify `git rev-parse HEAD` == `origin/main`. Since
+   reset #2 the working tree is `work/j2r-fresh` (the old "work only in
+   work/j2r-gh" rule died with that tree; the invariant is HEAD ==
+   origin/main, not the directory name).
 7. **Never claim done without runnable evidence; never claim Minecraft
    compatibility without milestone evidence** (standing law).
 8. **Background processes are reaped when a tool call ends** (nohup and
@@ -180,7 +210,8 @@ by the per-crate budget K.
 
 ## 8. Open items (live)
 
-- [x] 20k census-jar confirmation — LANDED this session, wave 1 closed.
+- [x] 20k census-jar confirmation — LANDED (session 1), wave 1 closed;
+  state survived sandbox reset #2 via these boards (session 2, §9).
 - [F1] emit-stage super-linearity at 20k — needs a profile (34.12 s vs
   T03's near-linear 2.02 s @ 5k).
 - [F2] no-op emit SHA-256-rehash-bound (~38 s @ 20k) — (mtime,size) fast
@@ -189,7 +220,43 @@ by the per-crate budget K.
   split-table emission registered (same follow-up family as the JZlib
   mega-functions).
 - [F4] release-profile 20k trio — registered (disk-guarded).
-- [next] M5 wave 2 (JNI T08–T13) — wave-1 gate satisfied; start per the
-  plan's rules (task register + design note first, evidence always).
+- [next] **T08** (JNI, wave 2) — gate satisfied; preconditions checklist
+  in §3.1; T09–T13 follow in M5_PLAN §6 order.
+- [hygiene] Two open dependabot PRs: #1 `actions/checkout` 4.4.0→7.0.1,
+  #2 `actions/setup-java` 4.9.1→6.1.0 (2026-11-05) — review after the
+  baseline is re-proven; 21 open code-scanning alerts (zizmor
+  ref-version-mismatch ×3, dependabot-cooldown ×2, j2r/stdout-print
+  ×14+) — tracked, not wave-2 blockers.
 - [pending] M4 completion-package owner review (M4 stays open until then).
 - [candidate] Minicraft → corpus wave 2 (see §6).
+
+## 9. Sandbox-reset survival protocol (proven 2026-11-09, reset #2)
+
+Why these boards exist: the sandbox recycles and the persistent layer
+can come back reverted to an old snapshot. Everything of record lives
+in the authoritative repo, so recovery is always possible from GitHub.
+
+What survived reset #2 (pushed before the reset): all decisions,
+measurements (transcribed), findings F1–F5, the M5 plan/evidence, CI
+state, the two open PRs, the mistake list. What died with the sandbox:
+the installed toolchain (rustup, Temurin), `env.sh`, `tools/`, raw
+measurement files under `work/m5invest/`, and the `work/j2r-gh` tree.
+
+The recovery recipe (one command + verification):
+
+```bash
+cd /home/z/my-project/work/j2r-fresh   # or clone fresh if missing
+git fetch origin && git reset --hard origin/main
+git rev-parse HEAD   # must equal origin/main — then the board is the truth
+```
+
+Then: rebootstrap the toolchain (console_summary.md §3.1 item 1),
+re-prove the baseline green (item 2), and only then continue the task
+named in §8 [next]. Session rule: **append to console.md and push
+BEFORE ending any session, and again after every landed commit** — the
+boards only protect what has been pushed.
+
+Raw-evidence lesson (#11, added 2026-11-09): the farm20k raw `.time`
+files died with the sandbox; only their transcribed values survived in
+console.md. From now on, raw measurement files are committed under
+`scripts/evidence/` in the same commit as the claim they support.

@@ -13,7 +13,9 @@ file disagrees with memory, this file wins.
 
 - **Project:** j2r — Java → Rust compiler, zero `unsafe`. Repo:
   `github.com/WasewaseX/j2r` (authoritative). Local working tree:
-  `/home/z/my-project/work/j2r-gh`.
+  `/home/z/my-project/work/j2r-fresh` (reset to `origin/main` after
+  sandbox reset #2; `work/j2r-gh` was lost in that reset — the tree name
+  does not matter, `HEAD == origin/main` does).
 - **Milestone ladder — CORRECT NAMES, do not renumber:**
   M1 core compiler ✅ · M1.5 hardening ✅ · M2 generated-code quality ✅ ·
   M3 JDK coverage ✅ · M3.5 audit response ✅ · M3.6 strategic gaps ✅ ·
@@ -23,13 +25,15 @@ file disagrees with memory, this file wins.
   M6 = mod ecosystem (future).
   ⚠ M5 is Minecraft readiness, NOT M4. An old ROADMAP draft said "M4" —
   superseded; see mistake #1.
-- **M5 wave 1 (scale & incremental):** T01 census ✅ · T02 design note ✅ ·
-  T03 closure cache ✅ · T04 partition differential ✅ · T05
-  crate-partitioned emission ✅ · T06/T07 build manifest ✅ (owner review:
-  **APPROVE WITH FOLLOW-UP REQUIREMENTS** 2026-11-09; follow-up item =
-  large-scale-compilation evidence). Open wave-1 item: **20k census-jar
-  confirmation** (launched this session, see log).
-- **M5 waves 2–5 (next):** T08–T13 JNI bridge · T14–T16 mappings ·
+- **M5 wave 1 (scale & incremental): CLOSED 2026-11-09.** T01 census ✅ ·
+  T02 design note ✅ · T03 closure cache ✅ · T04 partition differential ✅ ·
+  T05 crate-partitioned emission ✅ · T06/T07 build manifest ✅ (owner
+  review: **APPROVE WITH FOLLOW-UP REQUIREMENTS** 2026-11-09; follow-up =
+  large-scale-compilation evidence — delivered by the 20k run) ·
+  **20k census-jar confirmation LANDED** (cold ≈ 17.1 min, no-op 38.8 s,
+  one-edit 55.3 s, parity PASS; findings F1–F5 in the log below).
+- **M5 waves 2–5 (next):** T08–T13 JNI bridge (gate satisfied — T08
+  preconditions checklist in console_summary.md §3.1) · T14–T16 mappings ·
   T17–T21 mixins · T22–T23 inline caches.
 - **Toolchain:** `source /home/z/my-project/env.sh` → rustc/cargo 1.99.1,
   Temurin javac 21.0.13 (the pinned CI versions). Sandbox: 2 vCPU,
@@ -155,5 +159,41 @@ getrusage max single child, mistake-list #2).
     debuginfo build filled the box; debug=0 binary is already 1.01 GiB).
   - **F5** binaries at this scale: emitted source 854 MB (48 KB→43 KB/
     class here), binary ≈ 1.01 GiB — record for the download-size story.
+
+### [2026-11-09 ~11:00 UTC] session 2 — sandbox reset #2 SURVIVED by the boards (this file is the proof they work)
+- The sandbox was recycled between 09:25 and ~11:00 UTC. The persistent
+  layer came back REVERTED to the 2026-11-01 snapshot: `work/j2r-gh` (the
+  tree session 1 worked in), `work/m5invest/farm20k` raw `.time` files,
+  `env.sh`, `tools/` and the installed toolchain are all gone locally;
+  `work/j2r-fresh` and `work/j2r-audit` remained only as stale Nov-1
+  snapshots.
+- **Recovery took one command**: `git fetch origin && git reset --hard
+  origin/main` in `work/j2r-fresh` → HEAD `cb70af5` (the
+  20k-confirmation commit), all three workflows green on it (CI /
+  CodeQL / OSV, runs 42593128330 / 42593128239 / 42593128937). NOTHING
+  of record was lost: every number, decision and finding of the dead
+  session lives in console.md, console_summary.md, TODO.md and the docs
+  on GitHub — because session 1 pushed them. The raw farm20k `.time`
+  files are the only non-recoverable artifacts; their values are
+  transcribed in the 08:34–09:25 log entry above (new lesson #11:
+  commit raw measurement files, not just their summaries).
+- Working-tree rule updated (supersedes old mistake #6): after any
+  reset, pin ANY local tree with `git fetch origin && git reset --hard
+  origin/main`; verify `git rev-parse HEAD` equals `origin/main` before
+  working. This session works in `work/j2r-fresh`.
+- Registered while recovering (not yet acted on): two open dependabot
+  PRs — #1 `actions/checkout` 4.4.0→7.0.1, #2 `actions/setup-java`
+  4.9.1→6.1.0 (opened 2026-11-05, CI verdict pending rebootstrap) — and
+  21 open code-scanning alerts (zizmor ref-version-mismatch ×3,
+  dependabot-cooldown ×2, j2r/stdout-print ×14+; known, tracked, not
+  wave-2 blockers).
+- Toolchain rebootstrap next (protocol: console_summary.md §9):
+  rustup/cargo, Temurin 21 → `/tmp/jdk21`, `env.sh`, `tools/` — then the
+  full local baseline is re-proven before any T08 code (never assume
+  green: T05's law, environments rot).
+- Then M5 wave 2 (gate satisfied): T08 preconditions checklist in
+  console_summary.md §3.1 → T08 `j2r-runtime::jni` JNIEnv/
+  InvokeInterface static tables + compile-time index assertions
+  (M5_PLAN §3.1).
 
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

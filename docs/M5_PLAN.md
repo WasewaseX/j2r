@@ -236,11 +236,18 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       default path re-proven (cfg_equiv zero divergences, diff_suite
       109, corpus_suite). Link-table Mutex→OnceLock deadlock fix
       recorded in TODO.md §T05. Split-table/JZlib re-test next. → §2.3
-- [ ] **T06** Build manifest: per-class input-hash → emitted-hash, no-op
-      rebuild measured cheaper. → §2.2
-- [ ] **T07** Global-digest invalidation: cross-class resolution changes
-      invalidate dependents conservatively; correctness pinned by
-      dirty-rebuild fixtures. → §2.2
+- [x] **T06/T07** Build manifest LANDED (2026-11-09, commit `6f79a10`;
+      owner review: APPROVE WITH FOLLOW-UP REQUIREMENTS — follow-up =
+      large-scale evidence, delivered by the 20k confirmation below):
+      `out/j2r-manifest.tsv` per-class input-hash → emitted-hash under a
+      global gate (emitter version, options, signature-surface hash,
+      partition layout); write-if-changed everywhere; corrupt/tampered
+      manifest falls back to full re-emit. 1k farm release: cold 357.5 s
+      → no-op 0.535 s (668×) → one-body-edit 71.0 s (5×),
+      byte-identical. **Wave 1 CLOSED 2026-11-09** by the 20k
+      census-jar confirmation (N=20000, k=250: cold ≈ 17.1 min, no-op
+      38.8 s, one-edit 55.3 s, parity PASS, findings F1–F5 in
+      console.md). → §2.2
 
 ### Wave 2 — JNI (the blocker)
 
