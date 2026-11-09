@@ -435,3 +435,48 @@ getrusage max single child, mistake-list #2).
   slot_get_string_utf_chars + slot_release_string_utf_chars from
   slice 1's `jni::strings`), then slice 3 (GetObjectClass/FindClass/
   field IDs/arrays) on the recorded global-dispatch decision.
+
+### [2026-11-10 ~21:30 UTC] session 4 (cont.) — T10 slice 2 LANDED: the five string slots wired through the generator's real-slot registry
+- Generator (`scripts/gen_jni_env_table.py`): `REAL_SLOTS` registry
+  (NewString 163, NewStringUTF 167, GetStringUTFLength 168,
+  GetStringUTFChars 169, ReleaseStringUTFChars 170) + `WRAPPER_BODIES`
+  emitted verbatim; the registry is verified against the parsed jni.h
+  (renamed/removed slot → loud FATAL) and every entry must have a body.
+  Slot-resolution law unchanged: semantics live in
+  `j2r-runtime::jni::strings` (slice 1), raw-pointer moments go through
+  the audited `j2r-jni-ffi` primitives.
+- `j2r-jni-ffi` amendment (gate-10, same-commit law): primitive 7
+  `write_u8_out(slot: *mut u8, value: u8)` — primitive 3 writes a full
+  pointer word and would overrun the 1-byte `jboolean` out-slot
+  (GetStringUTFChars's `isCopy`). Actual unsafe occurrences 5 → 6, pin
+  stays ≤ 12 with headroom; M5_JNI_FFI.md §3/§4 amended in the same
+  change-set.
+- Wrapper shapes (v1 gaps registered for the T13 harness): null input /
+  negative length / malformed mUTF-8 → JNI null (NPE shapes pending the
+  exception machinery); `isCopy` always JNI_TRUE via primitive 7 when
+  the caller asks; a release registry miss is a loud panic → across the
+  extern "system" boundary the process aborts.
+- **The abort shape is now pinned, not just claimed**: new child-process
+  test `release_string_utf_chars_registry_miss_aborts_loudly`
+  (jni/mod.rs, the GetEnv pattern): a foreign pointer (never handed
+  out) through ENV_TABLE.ReleaseStringUTFChars → SIGABRT, abort message
+  names the slot family. Clippy lesson: `1 as *const c_char` trips
+  `manual_dangling_ptr` — `std::ptr::dangling()` is the blessed
+  non-null-never-handed-out shape.
+- **Lesson #5 fixed in the generator**: the default jni.h path was
+  `/tmp/jdk21/...` (dead after every reset) — now
+  `$JAVA_HOME/include/jni.h` with the persistent-layer literal
+  fallback; the argv[1] override is kept. Reproducibility re-proven:
+  regenerate + `cargo fmt` reproduces the working tree **byte-for-byte**
+  (md5 0cce6c8c…; the evidence file is stable).
+- Evidence — **the full battery run NOW, beyond the standing rule**
+  (the recorded rule defers diff_suite/cfg_equiv to T10 completion;
+  both re-run anyway, zero divergences): fmt clean; clippy
+  `-D warnings` clean; **390 tests, 0 failures** — jni-ffi 8 (+1
+  write_u8_out), runtime 193 (+1 abort pin), classfile 38, codegen 125,
+  cli bin 15 + soe 1 + lambda 2 + jar 3 + partition 1 + corpus 1 +
+  cfg_equiv 1 (346.83 s) + diff_suite 2 (430.36 s, 109 fixtures vs
+  Temurin 21.0.13). Doc-count gate in sync (README 388 → 390);
+  M5_PLAN register: T10 slice 2 recorded.
+- Next: **T10 slice 3** — GetObjectClass/FindClass/field IDs/arrays on
+  the recorded global-dispatch decision (M5_PLAN §3.3).

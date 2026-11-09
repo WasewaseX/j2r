@@ -1,7 +1,7 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 4 — resets #4/#5 survived, baseline re-proven
-388 green; see console.md session-4 entry and §9). Raw log: `console.md`.
+Updated 2026-11-10 (session 4 cont. — **T10 slice 2 landed, 390 green**;
+see console.md session-4 entries and §9). Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
 
@@ -76,8 +76,15 @@ FFI crate `j2r-jni-ffi` (6 primitives, **5 actual `unsafe` occurrences,
 pin ≤ 12, gate-10 amended in the same commit**) + the safe handle-table
 bridge (`jobject` = generation-pinned table tag, local/global refs,
 Push/PopLocalFrame, critical registry, GC root source 5); 379 tests
-green, diff_suite + cfg_equiv zero divergences after landing. Remaining
-wave 2: T10 (v1 surface) · T11 (Call*Method + arity note) · T12
+green, diff_suite + cfg_equiv zero divergences after landing. Wave 2
+now: **T10 slice 2 ✅ LANDED (session 4 cont.)** — the five string slots
+(NewString/NewStringUTF/GetStringUTFLength/GetStringUTFChars/
+ReleaseStringUTFChars) wired through the generator `REAL_SLOTS`
+registry; audited FFI surface 6 → 7 (`write_u8_out`, the 1-byte
+`isCopy` out-slot); the release-miss abort shape pinned by a
+child-process test; 390 green, diff_suite + cfg_equiv re-run anyway —
+zero divergences. Remaining wave 2: T10 slice 3 (classes/fields/arrays
+on the global-dispatch decision) · T11 (Call*Method + arity note) · T12
 (RegisterNatives) · T13 (C harness + attach lifecycle). Then T14–T16
 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
 M4 completion package still awaits owner review in parallel.
@@ -98,7 +105,9 @@ M4 completion package still awaits owner review in parallel.
    (session 4, re-proven again at 84734d6 before T10 slice 2)** —
    **388 tests, 0 failures** (classfile 38, runtime 192, codegen 125,
    jni-ffi 7, cli 26 incl. cfg_equiv 324 s + diff_suite 426 s, zero
-   divergences; fmt clean, clippy `-D warnings` clean).
+   divergences; fmt clean, clippy `-D warnings` clean). Re-proven at
+   **390** after T10 slice 2 (runtime 193, jni-ffi 8, cli 26;
+   cfg_equiv 347 s + diff_suite 430 s, zero divergences).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -260,10 +269,14 @@ by the per-crate budget K.
   379 green. Evidence: console.md session-3 T09 entry; M5_PLAN §6.
 - [~] **T10** v1 surface — IN PROGRESS. Slice 1 LANDED (session 3):
   `jni::strings` modified-UTF-8 marshal + string-family slot bodies +
-  9 tests (workspace 388 green). Next: slice 2 — wire the four string
-  slots via the generator's real-slot mechanism; slice 3 —
-  GetObjectClass/FindClass/field IDs/arrays (needs the global-dispatch
-  registration decision).
+  9 tests (workspace 388 green). Slice 2 LANDED (session 4 cont.):
+  generator `REAL_SLOTS` registry wires the five string slots;
+  generator default path pinned to `$JAVA_HOME` (lesson #5);
+  regenerate+fmt idempotent byte-for-byte; audited FFI 6 → 7
+  primitives; abort shape pinned by a child-process test; full battery
+  re-run incl. diff_suite/cfg_equiv — 390 green, zero divergences.
+  Next: slice 3 — GetObjectClass/FindClass/field IDs/arrays (the
+  global-dispatch registration decision first).
 - [ops] Session 4 (2026-11-10): resets #4/#5 survived via §9; baseline
   re-proven 388 green at 84734d6; second lesson-#12 near-miss (duplicate
   uppercase CONSOLE files from a stale tree) caught before push — rule
