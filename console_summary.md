@@ -1,0 +1,164 @@
+# j2r console summary — the state board
+
+Updated 2026-11-09 (this session). Raw log: `console.md`. **Read this file
+before acting**; if a memory disagrees with this board, the board wins.
+
+## 1. What the project is
+
+j2r: a Java → Rust compiler written in safe Rust (zero `unsafe`,
+compiler-enforced). Input is compiled Java `.class` bytecode (not Java
+source); output is Rust source that is compiled by rustc into a native
+binary. Correctness law: three-channel differential testing (stdout /
+stderr / exit) against Temurin 21 — never "similar behavior", byte-identical
+output. North star: compile Minecraft Java Edition (~70,000 classes) and
+its mod ecosystem.
+
+## 2. Milestone ladder (correct names)
+
+| M | Name | Status |
+| --- | --- | --- |
+| M1 | Core compiler | ✅ done, externally reviewed |
+| M1.5 | Engineering hardening | ✅ done |
+| M2 | Generated-code quality (GC, catchable SOE, CFG) | ✅ done |
+| M3 | JDK coverage | ✅ done (suite 106 → 109 fixtures) |
+| M3.5 | Audit response A1–A8 | ✅ done |
+| M3.6 | Strategic gap register | ✅ registered |
+| M3.7 | Real-world corpus wave | in progress (minimal-json, JZlib, java-string-similarity, Jama waves) |
+| M4 | Threads & concurrency | all 4 waves landed, CI-verified — **owner review pending** |
+| **M5** | **Minecraft readiness** | **STARTED 2026-11-08** — wave 1 nearly closed |
+| M6 | Mod ecosystem | future |
+
+## 3. M5 register — where it stands
+
+Wave 1 (scale & incremental compilation) — **all tasks landed**:
+- T01 census: rustc cliff measured — **~4.2 MB peak RSS per emitted class,
+  one process, fresh build**; ~900-class ceiling on this 4 GiB box; 70k in
+  ONE process ≈ ~300 GB. javac 0.5 MB/class; j2r translation flat
+  (0.4 ms + 48 KB/class). Isolations: the mega-function is NOT the driver;
+  metadata-only rustc OOMs pre-LLVM → the wall is the pre-codegen
+  metadata/MIR phase.
+- T02 design note (docs/M5_SCALE.md): **link-table crate partitioning**
+  chosen. SCC/DAG layering rejected with a measured reason (the class web
+  is one strongly connected component — exactly the Minecraft shape).
+  Options (a) tuned-down single crate (measured: still dies) and
+  (d) thinner emission (constant-factor only, kept as follow-up lever)
+  also rejected with reasons. This is the bottleneck analysis + plan the
+  owner required before coding — T05 implemented exactly it.
+- T03 closure cache: quadratic worklist fixed; compile stage −75 % at 5k.
+- T04 partition differential: 6 fixtures × forced k=2, CI-pinned.
+- T05 partitioned emission (`--partition-classes K`): support crate
+  (statics pool + global link table + dispatch slot) + p0..pN crates +
+  app crate; cross-partition calls via deterministic global method ids;
+  1k @ 1.91 GB / 5k @ 1.89 GB peak (single-crate SIGKILLed at 3.66 GB);
+  byte-identical vs Temurin; default path re-proven unchanged.
+- T06/T07 build manifest (owner: **APPROVED**, 2026-11-09): SHA-256
+  input→emitted tracking, global gate, write-if-changed, tamper/corruption
+  fallback; 1k farm release: cold 357.5 s → no-op 0.535 s (668×) →
+  one-body-edit 71.0 s (5×); byte-identical.
+- **Open (in flight this session):** the 20k census-jar confirmation
+  (`scripts/m5_20k_confirm.sh`, N=20000, k=250) — cold/no-op/one-edit +
+  parity. Result lands in console.md.
+
+Waves 2–5 (next, gated on wave-1 closure): T08–T13 JNI bridge (the
+registered LWJGL/GLFW/OpenAL blocker; safe-Rust design in M5_PLAN §3) ·
+T14–T16 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches.
+
+## 4. Cross-module correctness — the six constraints, mapped to landed mechanisms
+
+The owner required the cross-module design before the next wave. The T05
+architecture answers each constraint; evidence = partition differential
+suite (T04) + byte-identical farm runs:
+
+| Constraint (Java behavior) | Landed mechanism |
+| --- | --- |
+| static fields globally consistent | shared `support` crate: one id-keyed statics pool every partition links against |
+| object identity across batches | heap handles + identity caches live in the runtime/support, never per-crate |
+| virtual dispatch across crate boundaries | composite Dispatch in `app` routed by global method ids; link table holds the same fn pointers — semantics identical to direct calls (proven by byte-identical runs) |
+| GC sees references from every batch | collector scans the runtime-owned registries (M2/M4 design), which partitions never duplicate |
+| exceptions propagate across modules | throw/catch machinery is runtime code; partition boundaries are plain Rust calls — no new boundary semantics (pinned by partition fixtures incl. Cycles) |
+| reflection sees global class metadata | registry/statics live in `support`; the static reflection subset reads the same tables (M3 surface) |
+
+The cycle problem (Java A→B→C→A across crate edges): **solved by the link
+table** — nothing references across crates by path, so Cargo never sees a
+cycle; SCC grouping was evaluated and rejected as the primary mechanism
+because one giant SCC (the real Minecraft shape) collapses layering to a
+single crate (M5_SCALE.md §2b, with the measured reason). Inline caches
+(T23) may later cache hot cross-partition targets.
+
+## 5. The numbers that matter (all measured on this box)
+
+| Claim | Number | Where |
+| --- | --- | --- |
+| rustc single-process cost | ~4.2 MB peak RSS / emitted class | T01 census CSV |
+| single-process ceiling (4 GiB) | ~900 classes | T01 |
+| 70k in one process | ~300 GB (transient build memory) | T01 derivation |
+| emitted source size | ~48 KB / class → 70k ≈ **3.2 GiB source**, binary smaller | T01 + manifest |
+| partitioned peak RSS | 1.91 GB @ 1k k=500; 1.89 GB @ 5k k=300 | T05 |
+| no-op rebuild | 357.5 s → 0.535 s (668×), 1k release | T06/T07 |
+| one-body-edit rebuild | 71.0 s (5×), only its partition + app recompile | T06/T07 |
+| closure-cache effect | compile stage 7.98 → 2.02 s @ 5k (−75 %) | T03 |
+
+**Download-size answer (owner question, 2026-11-09):** No — nobody
+downloads hundreds of GB. The 105–273 GiB / ~300 GB figures are the peak
+resident memory (VmHWM of the largest single process, measured via
+getrusage of reaped children) of ONE rustc process during a cold build.
+The deliverable is ~3.2 GiB of generated Rust source (or a smaller
+compiled binary). With partitioning, even the build-time peak is bounded
+by the per-crate budget K.
+
+## 6. External-tool v1.2 Minicraft test — digest (full: docs/EXTERNAL_V12_MINICRAFT_ANALYSIS.md)
+
+- The owner tested a **source-level** converter (cguz/java2rust) on
+  Minicraft: 76 files → 1,438 raw rustc errors, zero files compile; the
+  deepest defects are silent (static-init blocks dropped → empty crafting;
+  java.util.Random / fdlibm trig unmapped → wrong-but-compiling worlds;
+  octal literals whose obvious fix changes colors).
+- **Why most of the catalog cannot reproduce in OUR j2r:** we compile
+  verified bytecode, not source — syntax-level bugs (instanceof/null
+  emission, octal tokens, struct-field syntax, overload collisions,
+  anonymous-class syntax) are structurally impossible; anonymous classes
+  are real .class files; try/catch is exception tables + CFG; overloads
+  are distinct methods by descriptor. The semantic classes are already
+  covered and pinned: static blocks (JLS 12.4.2 clinit state machine +
+  CyclicInit/SingletonFactory fixtures), exact Random + fdlibm (runtime
+  natives + MathNatives fixtures), inheritance resolution (whole-Program
+  resolution + partition differential), statics (statics pool).
+- **What we genuinely adopt:** (1) Minicraft is an excellent corpus-wave
+  candidate — a real 76-class web with deep Entity→Mob→… hierarchies,
+  instanceof-heavy code, statics, and a bit-exact checksum harness design
+  we can reuse for differential proof; (2) the GUI-boundary lesson (their
+  M17) is our wave-2 JNI discipline: name the boundary, stub it loudly,
+  list it in the port README; (3) their Rust-vs-Java performance table
+  (2.8–8.7× faster, 8.8× less peak RSS) is the expectation-setter for our
+  steady-state lever and M6.
+
+## 7. Never-repeat mistake list (the "check every time" list)
+
+1. **Milestone names:** M4 = threads & concurrency; **M5 = Minecraft
+   readiness**; M6 = mod ecosystem. The old "M4 = Minecraft readiness"
+   wording from a stale ROADMAP draft caused a naming mistake — the
+   GitHub ROADMAP/TODO are authoritative.
+2. **Measurement semantics:** every "peak RSS" number in this project =
+   getrusage(RUSAGE_CHILDREN).ru_maxrss after a reaped `-j 1` build — the
+   max single-process resident peak, NOT a parallel sum, NOT virtual
+   memory. Say so wherever the number appears.
+3. **Compile memory ≠ artifact size** — never let "~300 GB" imply a
+   download size; source is ~48 KB/class, binary smaller.
+4. **/tmp does not survive** sandbox recycles; persistent state belongs
+   under /home/z/my-project (and is mirrored from /tmp at session start
+   when a previous session left it there).
+5. **env.sh paths** must point at /home/z/my-project/tools (a stale /tmp
+   pointer silently breaks every cargo/javac call).
+6. **Stale trees:** work/j2r, work/j2r-wt, work/j2r-fresh are old
+   snapshots — work in work/j2r-gh (cloned from the authoritative repo).
+7. **Never claim done without runnable evidence; never claim Minecraft
+   compatibility without milestone evidence** (standing law).
+
+## 8. Open items (live)
+
+- [in flight] 20k census-jar confirmation → closes M5 wave 1.
+- [registered] release-profile 20k trio (disk-guarded follow-up).
+- [registered] T05 follow-up: split-table emission for JZlib mega-functions.
+- [next] M5 wave 2 (JNI T08–T13) once wave 1 closes + owner green-light.
+- [pending] M4 completion-package owner review (M4 stays open until then).
+- [candidate] Minicraft → corpus wave 2 (see §6).
