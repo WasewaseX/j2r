@@ -273,8 +273,26 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       suite caught: runtime VENDORING was a flat file copy — directory
       modules never reached the vendored crate (e2e regression); copy is
       recursive now (copy/stale-sweep/manifest all walk subdirs). → §3.1
-- [ ] **T09** Handle-table bridge: jobject ↔ GC handles, local/global
-      refs, Push/PopLocalFrame, Critical pinning note. → §3.2
+- [x] **T09** LANDED (2026-11-09): handle-table bridge + the audited FFI
+      crate, per docs/M5_JNI_FFI.md (design of record). `j2r-jni-ffi`
+      (new workspace member, zero deps): the 6-primitive audited surface,
+      **5 actual `unsafe` occurrences** (pin ≤ 12, gate-10 amended in the
+      SAME commit — exception file pinned, count asserted, other crates
+      still fail on any unsafe), each total (null/zero-len guards) with a
+      SAFETY comment. Safe bridge `j2r-runtime::jni::bridge` under
+      forbid(unsafe_code): jobject = generation-pinned table tag (slot
+      + per-slot gen — stale tags PANIC, silent aliasing impossible),
+      per-thread local-ref frame stacks + Push/PopLocalFrame (promote +
+      full-frame sweep), global refs, direct-critical registry
+      (address-keyed, loud miss), detach hook for T13; scan_roots is
+      heap::collect root source 5 (locals of every thread + globals +
+      criticals). 20 tests (13 bridge + 7 ffi); workspace 379 green
+      (diff_suite 434 s, cfg_equiv 348 s, zero divergences); vendoring
+      generalized to ship both crates into generated projects (e2e
+      proves it). v1 notes: frame capacity is a hint (unbounded growth),
+      weak global refs stay loud stubs, cross-thread local-resolve not
+      policed (HotSpot-debug-style; delete IS owner-checked) — all
+      registered for the T13 attach lifecycle. → §3.2
 - [ ] **T10** v1 surface: GetObjectClass/FindClass/field
       accessors/arrays/modified-UTF-8 strings. → §3.3
 - [ ] **T11** Arity-shim trade-off note (variadic `Call*Method` ABI, the

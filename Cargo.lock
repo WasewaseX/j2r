@@ -133,8 +133,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "j2r-jni-ffi"
+version = "0.1.0"
+
+[[package]]
 name = "j2r-runtime"
 version = "0.1.0"
+dependencies = [
+ "j2r-jni-ffi",
+]
 
 [[package]]
 name = "once_cell_polyfill"

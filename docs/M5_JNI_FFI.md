@@ -111,14 +111,32 @@ keys), and all 196 slots that never touch foreign memory.
 ## 5. Evidence bar (how this note stops being prose)
 
 - T09 lands the crate + bridge with unit tests per primitive (null
-  rejection, registry-miss loudness, round-trips).
+  rejection, registry-miss loudness, round-trips). — **LANDED (T09,
+  2026-11-09, session 3): `j2r-jni-ffi` 7 unit tests; the safe bridge
+  `j2r-runtime::jni::bridge` 13 unit tests (handle round-trips, stale-
+  tag loudness, wrong-kind delete loudness, frame push/pop + promote +
+  sweep, detach, GC survival, critical registry round-trip + loud miss,
+  root-scan coverage); 379 tests workspace-wide, 0 failures; fmt/
+  clippy(`-D warnings`)/doc-counts green; cfg_equiv + diff_suite zero
+  divergences; the codegen e2e proves the two-crate vendoring (the
+  runtime's internal path dep is vendored alongside it).**
 - The gate-10 amendment lands in the SAME commit as the first unsafe
   occurrence (the gate and its exception ship together — the
-  gate-upgrade discipline from the 3b202f8/7bb7a8d lessons).
+  gate-upgrade discipline from the 3b202f8/7bb7a8d lessons). — **DONE,
+  same commit.**
 - The T13 C harness remains the end-to-end judge: every v1 function
   exercised from real C against Temurin vs j2r, three channels.
 - The `unsafe` occurrence count appears in the T09 evidence record with
-  its final number; the gate pins it from then on.
+  its final number; the gate pins it from then on. — **Final count: 5
+  (one per primitive 1–5; primitive 6 needs no unsafe — address
+  arithmetic is safe). Pin ≤ 12; the count is also asserted by an
+  in-crate test that mirrors the gate's grep, so drift fails locally
+  before CI.**
+- Signature refinement registered (vs §4's first draft):
+  `read_caller_str` returns the raw bytes up to NUL (`Option<Vec<u8>>`)
+  rather than a `String` — modified UTF-8 is not always valid UTF-8, and
+  the mUTF-8 decode belongs safe-side in `j2r-runtime` (which owns the
+  classfile decoder). The note already required the decode be safe-side.
 
 ## 6. Slot inventory (which of the 231 need the primitives)
 

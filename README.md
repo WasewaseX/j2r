@@ -284,7 +284,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 359 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the T08 JNI-table tests
+$ cargo test                       # 379 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar

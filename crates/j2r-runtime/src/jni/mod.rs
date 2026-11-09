@@ -28,17 +28,18 @@
 //!
 //! ## Registered wave-2 findings (owned by T09/T11, not hidden)
 //!
-//! **F-J1 — pointer-out slots vs zero-`unsafe`.** JNI functions that must
-//! write through a caller-supplied pointer (`GetEnv` on success,
-//! `AttachCurrentThread`/`AttachCurrentThreadAsDaemon`, the
+//! **F-J1 — pointer-out slots vs zero-`unsafe`. RESOLVED (T09).** JNI
+//! functions that must write through a caller-supplied pointer (`GetEnv`
+//! on success, `AttachCurrentThread`/`AttachCurrentThreadAsDaemon`, the
 //! `Get<Prim>ArrayRegion`/`GetStringRegion` families writing into caller
 //! buffers) cannot be implemented in a crate with
-//! `#![forbid(unsafe_code)]`: writing through a raw pointer is
-//! definitionally `unsafe`. The resolution is a dedicated, dependency-free
-//! FFI crate whose entire (tiny) `unsafe` surface is written, audited and
-//! clippy-`-D warnings` in one reviewable place, with the safe half living
-//! here. Registered at T08 because it shapes T09's handle-bridge design;
-//! final wording lands with the T09 design note.
+//! `#![forbid(unsafe_code)]`. The resolution, per the design of record in
+//! `docs/M5_JNI_FFI.md`, is the dedicated dependency-free crate
+//! `j2r-jni-ffi` (this workspace's single scoped `unsafe` exception, its
+//! occurrence count pinned by gate-10); its primitives are reachable only
+//! from here, and the SAFE half of the bridge lives in [`bridge`] — the
+//! handle table, local/global refs, frames and the critical registry, all
+//! under this crate's `forbid(unsafe_code)`.
 //!
 //! **F-J2 — variadic call slots.** The C-varargs `NewObject` and
 //! `Call*Method` slot variants are typed at their A-form arity (args
@@ -59,8 +60,14 @@
 //!   M2 arena never moves objects — a documented design advantage, restated
 //!   in the T09 note.
 
+pub mod bridge;
 pub mod tables;
 
+pub use bridge::{
+    critical_register, critical_release, delete_global, delete_local, detach_thread,
+    jobject_to_tag, new_global, new_local, pop_local_frame, push_local_frame, resolve,
+    tag_to_jobject,
+};
 pub use tables::{
     java_vm, jni_env, JNIEnv, JNIEnv_, JNIInvokeInterface_, JNINativeInterface_, JObjectOpaque,
     JavaVM, JavaVM_,

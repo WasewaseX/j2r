@@ -70,11 +70,16 @@ Wave 1 (scale & incremental compilation) — **all tasks landed**:
   near-wall at 20k (F3 — fix is the already-registered split-table
   emission).
 
-Waves 2–5 (next): T08–T13 JNI bridge (the registered LWJGL/GLFW/OpenAL
-blocker; safe-Rust design in M5_PLAN §3) · T14–T16 mappings pipeline ·
-T17–T21 mixin applier · T22–T23 inline caches. Wave-2 entry gate now
-satisfied (wave 1 closed + evidence recorded); the M4 completion package
-still awaits owner review in parallel.
+Waves 2–5 (next): T08 ✅ · **T09 ✅ LANDED (session 3)** — the audited
+FFI crate `j2r-jni-ffi` (6 primitives, **5 actual `unsafe` occurrences,
+pin ≤ 12, gate-10 amended in the same commit**) + the safe handle-table
+bridge (`jobject` = generation-pinned table tag, local/global refs,
+Push/PopLocalFrame, critical registry, GC root source 5); 379 tests
+green, diff_suite + cfg_equiv zero divergences after landing. Remaining
+wave 2: T10 (v1 surface) · T11 (Call*Method + arity note) · T12
+(RegisterNatives) · T13 (C harness + attach lifecycle). Then T14–T16
+mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
+M4 completion package still awaits owner review in parallel.
 
 ### 3.1 T08 preconditions — the wave-2 entry checklist (all must be green before T08 code)
 
@@ -244,12 +249,16 @@ by the per-crate budget K.
 - [x] **F-J1 design note** — docs/M5_JNI_FFI.md is T09's design of
   record: scoped FFI crate `j2r-jni-ffi`, exact law-amendment wording,
   6 audited primitives, 35-slot inventory (mechanically verified).
-- [next] **T09** handle-table bridge (jobject ↔ GC handles, local/global
-  refs, Push/PopLocalFrame) — implement per M5_JNI_FFI.md: crate +
-  primitives + safe bridge + gate-10 amendment in the SAME commit,
-  then T10–T13 in M5_PLAN §6 order. **In progress, session 3** (after
-  the reset-#3 recovery + 359-test baseline re-proof — console.md
-  session-3 entry).
+- [x] **T09** LANDED (session 3): audited FFI crate + handle-table
+  bridge per M5_JNI_FFI.md — jobject tags generation-pinned (stale use
+  PANICS, never aliases), per-thread local frames + Push/PopLocalFrame,
+  global refs, critical registry, GC root source 5; 20 new tests
+  (13 bridge + 7 ffi); gate-10 amended in the same commit (5 unsafe
+  occurrences, pin ≤ 12); vendoring ships both crates (e2e-proven);
+  379 green. Evidence: console.md session-3 T09 entry; M5_PLAN §6.
+- [next] **T10** v1 surface: GetObjectClass/FindClass/field
+  accessors/arrays/modified-UTF-8 strings (M5_PLAN §3.3), on top of the
+  T09 bridge.
 - [hygiene] Two open dependabot PRs: #1 `actions/checkout` 4.4.0→7.0.1,
   #2 `actions/setup-java` 4.9.1→6.1.0 (2026-11-05) — review after the
   baseline is re-proven; 21 open code-scanning alerts (zizmor

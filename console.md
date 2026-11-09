@@ -264,8 +264,6 @@ getrusage max single child, mistake-list #2).
   three from-memory drafts were wrong and got corrected by the file).
   M5_PLAN §3 now links the note as T09's design of record.
 
-<!-- APPEND NEW ENTRIES BELOW THIS LINE -->
-
 ### [2026-11-09 ~14:45–15:40 UTC] session 3 — sandbox reset #3 recovered; baseline re-proven (359 green); boards near-miss registered
 - Sandbox recycled again after session 2. Recovery per the boards'
   protocol (§9): `git fetch origin && git reset --hard origin/main` in
@@ -312,3 +310,54 @@ getrusage max single child, mistake-list #2).
   (jobject ↔ GC handles, local/global refs, Push/PopLocalFrame) per
   docs/M5_JNI_FFI.md (design of record); crate + primitives + safe
   bridge + gate-10 amendment must land in the SAME commit.
+
+### [2026-11-09 ~15:40–16:50 UTC] session 3 (cont.) — T09 LANDED: audited FFI crate + handle-table bridge, 379 green
+- **T09 (M5 wave 2) landed per docs/M5_JNI_FFI.md**, the design of
+  record: new workspace member `crates/j2r-jni-ffi` (zero deps, no
+  forbid — THE one audited exception) + safe bridge
+  `j2r-runtime::jni::bridge` under the runtime's forbid(unsafe_code).
+- **The audited surface: 6 primitives, 5 actual `unsafe` occurrences**
+  (pin ≤ 12): copy_from_caller / copy_to_caller / write_ptr_out /
+  read_caller_str / copy_back_elements (one unsafe block each, every
+  one a TOTAL function — null/zero-len degrades to no-op, never UB) +
+  direct_buffer_ok (zero unsafe — address arithmetic is safe). Signature
+  refinement registered in the note: read_caller_str returns raw bytes
+  (`Option<Vec<u8>>`), mUTF-8 decode stays safe-side in the runtime.
+  An in-crate test mirrors the gate's grep and pins the count, so drift
+  fails locally before CI.
+- **gate-10 amended in the SAME commit** (the gate-and-exception-ship-
+  together discipline): rg over crates/ EXCLUDING ffi.rs (any hit
+  fails) + the exception file's presence asserted + its count asserted
+  ≤ 12. Verified locally: no unsafe outside, count = 5.
+- **The safe bridge:** jobject = integer tag = (per-slot gen)<<32 |
+  (slot+1) into ONE process-global handle table (tag 0 = JNI null; the
+  int→ptr cast at the ABI boundary is safe — foreign code never
+  dereferences our tags). Local refs = per-thread frame stacks
+  (Push/PopLocalFrame with promote + full-frame sweep — the sweep bug
+  was caught by the tests before landing, the law pays), global refs,
+  DeleteLocal/DeleteGlobal owner-checked (cross-thread/wrong-kind =
+  loud), resolve() loud on stale/foreign tags (generation mismatch —
+  silent aliasing structurally impossible), detach hook for T13,
+  direct-critical registry (address-keyed, loud miss; the pinning note:
+  the arena never moves and array payloads never reallocate, so
+  Critical pinning is free — the registry makes the root explicit and
+  release verified). scan_roots = heap::collect root source 5 (all
+  locals of every thread + globals + criticals), pointer-free protocol.
+  Lock laws L-J1/L-J2/L-J3 documented (frames→table order; no heap, no
+  safepoint, no Java dispatch under bridge locks).
+- **Vendoring generalized**: copy_runtime now ships BOTH crates
+  (`runtime/` + `j2r-jni-ffi/`) into generated projects — the runtime's
+  internal path dep (`../j2r-jni-ffi`) resolves in both layouts; the
+  codegen e2e ("generated crate must build") proves the two-crate
+  layout. Cargo.lock updated (committed, CI runs --locked).
+- **Evidence: 379 tests, 0 failures** — classfile 38, runtime 183
+  (+13 bridge), codegen 125, j2r-jni-ffi 7, cli 26; fmt clean; clippy
+  `-D warnings` clean; doc-counts in sync (gate-11); diff_suite 434.0 s
+  (109 fixtures, three-channel vs Temurin 21.0.13) and cfg_equiv
+  348.2 s (zero divergences) re-run AFTER the landing. README census
+  359 → 379.
+- M5_PLAN register: T09 → [x] with the evidence summary. Next: **T10**
+  — the v1 surface (GetObjectClass/FindClass/field accessors/arrays/
+  modified-UTF-8 strings) per M5_PLAN §3.3.
+
+<!-- APPEND NEW ENTRIES BELOW THIS LINE -->

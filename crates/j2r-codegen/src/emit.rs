@@ -808,29 +808,37 @@ pub(crate) fn bin_name_pub(crate_name: &str) -> String {
 
 pub(crate) fn copy_runtime(out: &Path) -> crate::Result<()> {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let source = Path::new(manifest).join("../j2r-runtime");
-    let dest = out.join("runtime");
-    // Idempotent vendoring: a file is copied only when its CONTENT differs
-    // from what is already at the destination, and stale files that no
-    // longer exist upstream are removed. An unchanged runtime therefore
-    // keeps its mtimes, so cargo's fingerprints stay valid across repeated
-    // emit_crate calls into the same out dir — the cfg-equiv harness
-    // regenerates per fixture, and without this the vendored runtime (the
-    // expensive compile unit) rebuilt 3 × fixtures times. A stale or
-    // partially-written file fails the content compare and is re-copied:
-    // self-healing. The walk is recursive since T08 (the runtime has
-    // directory modules — `jni/`).
-    std::fs::create_dir_all(&dest)?;
-    copy_file_idempotent(&source.join("Cargo.toml"), &dest.join("Cargo.toml"))?;
-    std::fs::create_dir_all(dest.join("src"))?;
-    let mut upstream: Vec<std::path::PathBuf> = Vec::new();
-    copy_dir_recursive(
-        &source.join("src"),
-        &dest.join("src"),
-        Path::new(""),
-        &mut upstream,
-    )?;
-    remove_stale_files(&dest.join("src"), &dest.join("src"), &upstream)?;
+    let crates_root = Path::new(manifest).join("..");
+    // T09: the runtime gained an internal path dependency on the audited
+    // FFI crate (j2r-jni-ffi, docs/M5_JNI_FFI.md) — a generated project
+    // vendors BOTH crates, and the runtime manifest's `../j2r-jni-ffi`
+    // path resolves inside the generated layout because the vendored
+    // directory names mirror the workspace-relative names.
+    for (crate_dir, vendored) in [("j2r-runtime", "runtime"), ("j2r-jni-ffi", "j2r-jni-ffi")] {
+        let source = crates_root.join(crate_dir);
+        let dest = out.join(vendored);
+        // Idempotent vendoring: a file is copied only when its CONTENT differs
+        // from what is already at the destination, and stale files that no
+        // longer exist upstream are removed. An unchanged runtime therefore
+        // keeps its mtimes, so cargo's fingerprints stay valid across repeated
+        // emit_crate calls into the same out dir — the cfg-equiv harness
+        // regenerates per fixture, and without this the vendored runtime (the
+        // expensive compile unit) rebuilt 3 × fixtures times. A stale or
+        // partially-written file fails the content compare and is re-copied:
+        // self-healing. The walk is recursive since T08 (the runtime has
+        // directory modules — `jni/`).
+        std::fs::create_dir_all(&dest)?;
+        copy_file_idempotent(&source.join("Cargo.toml"), &dest.join("Cargo.toml"))?;
+        std::fs::create_dir_all(dest.join("src"))?;
+        let mut upstream: Vec<std::path::PathBuf> = Vec::new();
+        copy_dir_recursive(
+            &source.join("src"),
+            &dest.join("src"),
+            Path::new(""),
+            &mut upstream,
+        )?;
+        remove_stale_files(&dest.join("src"), &dest.join("src"), &upstream)?;
+    }
     Ok(())
 }
 

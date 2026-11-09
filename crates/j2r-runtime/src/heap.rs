@@ -399,6 +399,10 @@ fn collect() {
     crate::reflect::scan_roots(&mut roots);
     // 4. the thread registry (T07/T08): every record's Java Thread object
     crate::thread::scan_registry_roots(&mut roots);
+    // 5. the JNI handle bridge (T09): local-ref frames of every thread,
+    //    global refs, and registered direct-critical regions — all GC
+    //    roots for as long as the JNI contract keeps them alive
+    crate::jni::bridge::scan_roots(&mut roots);
 
     {
         let heap = &mut *heap().lock().unwrap_or_else(|e| e.into_inner());

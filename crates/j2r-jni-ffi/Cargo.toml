@@ -1,0 +1,9 @@
+[package]
+name = "j2r-jni-ffi"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Audited FFI memory primitives for the J2R JNI bridge — the workspace's single scoped unsafe exception"
+repository = "https://github.com/WasewaseX/j2r"
+
+[dependencies]

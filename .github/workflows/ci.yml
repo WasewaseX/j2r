@@ -366,15 +366,25 @@ jobs:
         with:
           toolchain: 1.99.1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-      - name: No unsafe code anywhere (compiler-enforced forbid + grep evidence)
+      - name: No unsafe outside the audited FFI core (forbid + grep evidence)
         run: |
           cargo build --workspace --locked
-          # The forbid(unsafe_code) attribute in every crate root makes any
-          # unsafe item a compile error; the grep documents the evidence.
-          if rg -n 'unsafe\s*(fn|impl|trait|\{)' crates/; then
-            echo "unsafe code found"; exit 1
+          # forbid(unsafe_code) in every crate root except j2r-jni-ffi makes
+          # any unsafe item a compile error; the grep documents the evidence.
+          # THE ONE EXCEPTION (docs/M5_JNI_FFI.md §3, T09): the audited FFI
+          # primitive core `crates/j2r-jni-ffi/src/ffi.rs`. Its unsafe
+          # occurrence count is PINNED below — drift fails loudly, the gate
+          # FAILS if the exception file disappears (an explicit allowlist
+          # entry, never a blind spot), and any other crate gaining so much
+          # as one unsafe fails.
+          if rg -n 'unsafe\s*(fn|impl|trait|\{)' crates/ -g '!crates/j2r-jni-ffi/src/ffi.rs'; then
+            echo "unsafe code outside the audited FFI core"; exit 1
           fi
-          echo "zero unsafe: confirmed"
+          test -f crates/j2r-jni-ffi/src/ffi.rs || { echo "audited FFI core missing — allowlist entry is explicit"; exit 1; }
+          count=$(rg -o 'unsafe\s*(fn|impl|trait|\{)' crates/j2r-jni-ffi/src/ffi.rs | wc -l)
+          echo "audited unsafe occurrences in j2r-jni-ffi/src/ffi.rs: $count (pin: <= 12)"
+          [ "$count" -le 12 ] || { echo "unsafe count exceeds the audited pin (M5_JNI_FFI.md §3)"; exit 1; }
+          echo "zero unsafe outside the audited FFI core: confirmed"
 
   doc-counts:
     name: gate-11-doc-counts
