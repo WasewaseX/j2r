@@ -6,6 +6,12 @@
 //! Every non-reserved slot holds a real function or a loud stub — never
 //! a null slot a foreign library could segfault on. Layout is pinned by
 //! the const assertion table at the bottom (offset_of! per slot).
+//!
+//! T10 slice 2: the five string slots (NewString, NewStringUTF,
+//! GetStringUTFLength, GetStringUTFChars, ReleaseStringUTFChars) are
+//! wired to real wrappers through the generator's REAL_SLOTS registry;
+//! their bodies live in j2r-runtime::jni::strings (slice 1) and the
+//! raw-pointer moments go through the audited j2r-jni-ffi primitives.
 #![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]
 
 use std::os::raw::{c_char, c_void};
@@ -587,14 +593,14 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     SetStaticLongField: stub_SetStaticLongField,
     SetStaticFloatField: stub_SetStaticFloatField,
     SetStaticDoubleField: stub_SetStaticDoubleField,
-    NewString: stub_NewString,
+    NewString: jni_new_string,
     GetStringLength: stub_GetStringLength,
     GetStringChars: stub_GetStringChars,
     ReleaseStringChars: stub_ReleaseStringChars,
-    NewStringUTF: stub_NewStringUTF,
-    GetStringUTFLength: stub_GetStringUTFLength,
-    GetStringUTFChars: stub_GetStringUTFChars,
-    ReleaseStringUTFChars: stub_ReleaseStringUTFChars,
+    NewStringUTF: jni_new_string_utf,
+    GetStringUTFLength: jni_get_string_utf_length,
+    GetStringUTFChars: jni_get_string_utf_chars,
+    ReleaseStringUTFChars: jni_release_string_utf_chars,
     GetArrayLength: stub_GetArrayLength,
     NewObjectArray: stub_NewObjectArray,
     GetObjectArrayElement: stub_GetObjectArrayElement,
@@ -2702,13 +2708,6 @@ extern "system" fn stub_SetStaticDoubleField(
 ) {
     unimplemented_slot(162, "SetStaticDoubleField")
 }
-extern "system" fn stub_NewString(
-    _env: *mut JNIEnv_,
-    _unicode: *const jchar,
-    _len: jsize,
-) -> jobject {
-    unimplemented_slot(163, "NewString")
-}
 extern "system" fn stub_GetStringLength(_env: *mut JNIEnv_, _str: jobject) -> jsize {
     unimplemented_slot(164, "GetStringLength")
 }
@@ -2725,26 +2724,6 @@ extern "system" fn stub_ReleaseStringChars(
     _chars: *const jchar,
 ) {
     unimplemented_slot(166, "ReleaseStringChars")
-}
-extern "system" fn stub_NewStringUTF(_env: *mut JNIEnv_, _utf: *const c_char) -> jobject {
-    unimplemented_slot(167, "NewStringUTF")
-}
-extern "system" fn stub_GetStringUTFLength(_env: *mut JNIEnv_, _str: jobject) -> jsize {
-    unimplemented_slot(168, "GetStringUTFLength")
-}
-extern "system" fn stub_GetStringUTFChars(
-    _env: *mut JNIEnv_,
-    _str: jobject,
-    _isCopy: *mut jboolean,
-) -> *const c_char {
-    unimplemented_slot(169, "GetStringUTFChars")
-}
-extern "system" fn stub_ReleaseStringUTFChars(
-    _env: *mut JNIEnv_,
-    _str: jobject,
-    _chars: *const c_char,
-) {
-    unimplemented_slot(170, "ReleaseStringUTFChars")
 }
 extern "system" fn stub_GetArrayLength(_env: *mut JNIEnv_, _array: jobject) -> jsize {
     unimplemented_slot(171, "GetArrayLength")
@@ -3157,4 +3136,97 @@ extern "system" fn stub_GetModule(_env: *mut JNIEnv_, _clazz: jobject) -> jobjec
 }
 extern "system" fn stub_IsVirtualThread(_env: *mut JNIEnv_, _obj: jobject) -> jboolean {
     unimplemented_slot(234, "IsVirtualThread")
+}
+
+// ---- T10 slice 2: real string-family slot wrappers. The REAL_SLOTS
+// registry above points the five string slots at these; the loud-stub
+// default still covers every not-yet-wired slot. ----
+
+/// `NewString` (slot 163): UTF-16 code units (native-endian — the
+/// ABI's own shape) → a rooted local-ref `jstring` (T10 slice 2).
+/// Null units or negative length → JNI null (spec NPE shape pending the
+/// exception machinery — documented v1 gap, T13-registered). Unpaired
+/// surrogates normalize to U+FFFD — the pinned lossy law. A zero
+/// length with non-null units is the valid empty string.
+extern "system" fn jni_new_string(_env: JNIEnv, units: *const jchar, len: jsize) -> jobject {
+    if units.is_null() || len < 0 {
+        return std::ptr::null_mut();
+    }
+    let bytes = j2r_jni_ffi::ffi::copy_from_caller(units as *const u8, (len as usize) * 2);
+    let mut packed = vec![0u16; len as usize];
+    for (slot16, pair) in packed.iter_mut().zip(bytes.as_chunks::<2>().0) {
+        *slot16 = u16::from_ne_bytes(*pair);
+    }
+    crate::jni::bridge::tag_to_jobject(crate::jni::strings::slot_new_string(&packed))
+}
+
+/// `NewStringUTF` (slot 167): NUL-terminated modified UTF-8 → a
+/// rooted local-ref `jstring` (T10 slice 2). Null input or malformed
+/// mUTF-8 → JNI null (the spec's NPE/NoSuchElementError shapes need the
+/// exception machinery — v1 returns null; registered for the T13
+/// harness, which judges against Temurin three-channel). The bytes
+/// cross through the audited `read_caller_str` primitive; the decode
+/// is the slice-1 classfile-mirror law.
+extern "system" fn jni_new_string_utf(_env: JNIEnv, utf: *const c_char) -> jobject {
+    let Some(bytes) = j2r_jni_ffi::ffi::read_caller_str(utf) else {
+        return std::ptr::null_mut();
+    };
+    match crate::jni::strings::slot_new_string_utf(&bytes) {
+        Some(tag) => crate::jni::bridge::tag_to_jobject(tag),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// `GetStringUTFLength` (slot 168): the modified-UTF-8 byte count,
+/// terminator excluded (the JNI spec's own definition) — T10 slice 2.
+/// Null jstring → 0 (v1 gap: the spec's NPE shape needs the exception
+/// machinery; registered for the T13 harness). A non-String handle
+/// panics at resolve — the T09 loud law.
+extern "system" fn jni_get_string_utf_length(_env: JNIEnv, string: jobject) -> jsize {
+    let tag = crate::jni::bridge::jobject_to_tag(string);
+    if tag == 0 {
+        return 0;
+    }
+    crate::jni::strings::slot_get_string_utf_length(tag) as jsize
+}
+
+/// `GetStringUTFChars` (slot 169): hands the caller a NUL-terminated
+/// modified-UTF-8 copy, registry-pinned until `ReleaseStringUTFChars`
+/// (a double release or foreign pointer is a LOUD registry miss —
+/// across this boundary, a process abort). T10 slice 2. `isCopy`,
+/// when the caller asks, is written JNI_TRUE through the audited
+/// `write_u8_out` primitive (M5_JNI_FFI.md §4 entry 7 — this slice's
+/// amendment: one byte, never the pointer-word primitive). Null
+/// jstring → NULL, isCopy untouched (v1 gap, T13-registered).
+extern "system" fn jni_get_string_utf_chars(
+    _env: JNIEnv,
+    string: jobject,
+    is_copy: *mut jboolean,
+) -> *const c_char {
+    let tag = crate::jni::bridge::jobject_to_tag(string);
+    if tag == 0 {
+        return std::ptr::null();
+    }
+    let addr = crate::jni::strings::slot_get_string_utf_chars(tag, None);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy here
+    }
+    addr as *const c_char
+}
+
+/// `ReleaseStringUTFChars` (slot 170): frees the registry-pinned
+/// buffer — T10 slice 2. Null string or null chars pointer → no-op
+/// (the slice-1 law). Anything else MUST be a pointer this slot
+/// handed out; a miss panics loudly, which across the extern boundary
+/// is the process-abort loudness shape (pinned by a child-process
+/// test in jni/mod.rs).
+extern "system" fn jni_release_string_utf_chars(
+    _env: JNIEnv,
+    string: jobject,
+    chars: *const c_char,
+) {
+    if crate::jni::bridge::jobject_to_tag(string) == 0 || chars.is_null() {
+        return;
+    }
+    crate::jni::strings::slot_release_string_utf_chars(chars as usize);
 }

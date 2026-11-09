@@ -1,4 +1,4 @@
-# JNI slot list — extracted from /tmp/jdk21/include/jni.h
+# JNI slot list — extracted from /home/z/my-project/tools/jdk-21.0.13+9/include/jni.h
 # 235 slots: 4 reserved + 231 functions
   0  reserved0: NULL
   1  reserved1: NULL

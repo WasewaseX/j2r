@@ -27,6 +27,7 @@ pre-flags two of them):
   * Reserved slots are NULL (*const ()), exactly like the reference table.
 """
 
+import os
 import pathlib
 import re
 import subprocess
@@ -36,7 +37,16 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "crates/j2r-runtime/src/jni/tables.rs"
 EVIDENCE = ROOT / "scripts/evidence/jni_slot_list.txt"
 
-jni_h = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/jdk21/include/jni.h")
+# Default to the JDK of record at its persistent-layer home (env.sh pins
+# JAVA_HOME there). argv[1] still overrides for one-off cross-JDK runs.
+# Lesson #5: never default to /tmp — a sandbox reset wipes it and the
+# generator would silently lose its reproducibility anchor.
+_DEFAULT_JNI_H = (
+    pathlib.Path(os.environ.get("JAVA_HOME", "/home/z/my-project/tools/jdk-21.0.13+9"))
+    / "include"
+    / "jni.h"
+)
+jni_h = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else _DEFAULT_JNI_H)
 if not jni_h.exists():
     sys.exit(f"FATAL: jni.h not found at {jni_h} (pass the path as argv[1])")
 header = jni_h.read_text()
@@ -222,6 +232,133 @@ def rust_stub(ret_c: str, args_c: str, name: str, index: int) -> tuple[str, str]
     )
 
 
+# ---------------------------------------------------------------- T10 slice 2: the real-slot registry
+# Slot name -> wrapper fn name. Every entry MUST also have a body in
+# WRAPPER_BODIES below, and must name a slot parsed from jni.h (verified
+# after parsing — a renamed slot fails the generator loudly).
+# Semantics live in j2r-runtime::jni::strings (slice 1); the raw-pointer
+# moments go through the audited j2r-jni-ffi primitives (F-J1 resolution,
+# M5_JNI_FFI.md §4 — primitive 7 `write_u8_out` was added by this slice).
+REAL_SLOTS = {
+    "NewString": "jni_new_string",
+    "NewStringUTF": "jni_new_string_utf",
+    "GetStringUTFLength": "jni_get_string_utf_length",
+    "GetStringUTFChars": "jni_get_string_utf_chars",
+    "ReleaseStringUTFChars": "jni_release_string_utf_chars",
+}
+
+# Wrapper bodies, emitted verbatim (doc comment + fn) after the stubs.
+# Indentation: top level, 4-space body indent.
+WRAPPER_BODIES: dict[str, list[str]] = {
+    "NewStringUTF": [
+        "/// `NewStringUTF` (slot 167): NUL-terminated modified UTF-8 → a",
+        "/// rooted local-ref `jstring` (T10 slice 2). Null input or malformed",
+        "/// mUTF-8 → JNI null (the spec's NPE/NoSuchElementError shapes need the",
+        "/// exception machinery — v1 returns null; registered for the T13",
+        "/// harness, which judges against Temurin three-channel). The bytes",
+        "/// cross through the audited `read_caller_str` primitive; the decode",
+        "/// is the slice-1 classfile-mirror law.",
+        'extern "system" fn jni_new_string_utf(_env: JNIEnv, utf: *const c_char) -> jobject {',
+        "    let Some(bytes) = j2r_jni_ffi::ffi::read_caller_str(utf) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    match crate::jni::strings::slot_new_string_utf(&bytes) {",
+        "        Some(tag) => crate::jni::bridge::tag_to_jobject(tag),",
+        "        None => std::ptr::null_mut(),",
+        "    }",
+        "}",
+    ],
+    "NewString": [
+        "/// `NewString` (slot 163): UTF-16 code units (native-endian — the",
+        "/// ABI's own shape) → a rooted local-ref `jstring` (T10 slice 2).",
+        "/// Null units or negative length → JNI null (spec NPE shape pending the",
+        "/// exception machinery — documented v1 gap, T13-registered). Unpaired",
+        "/// surrogates normalize to U+FFFD — the pinned lossy law. A zero",
+        "/// length with non-null units is the valid empty string.",
+        'extern "system" fn jni_new_string(_env: JNIEnv, units: *const jchar, len: jsize) -> jobject {',
+        "    if units.is_null() || len < 0 {",
+        "        return std::ptr::null_mut();",
+        "    }",
+        "    let bytes = j2r_jni_ffi::ffi::copy_from_caller(units as *const u8, (len as usize) * 2);",
+        "    let mut packed = vec![0u16; len as usize];",
+        "    for (slot16, pair) in packed.iter_mut().zip(bytes.as_chunks::<2>().0) {",
+        "        *slot16 = u16::from_ne_bytes(*pair);",
+        "    }",
+        "    crate::jni::bridge::tag_to_jobject(crate::jni::strings::slot_new_string(&packed))",
+        "}",
+    ],
+    "GetStringUTFLength": [
+        "/// `GetStringUTFLength` (slot 168): the modified-UTF-8 byte count,",
+        "/// terminator excluded (the JNI spec's own definition) — T10 slice 2.",
+        "/// Null jstring → 0 (v1 gap: the spec's NPE shape needs the exception",
+        "/// machinery; registered for the T13 harness). A non-String handle",
+        "/// panics at resolve — the T09 loud law.",
+        'extern "system" fn jni_get_string_utf_length(_env: JNIEnv, string: jobject) -> jsize {',
+        "    let tag = crate::jni::bridge::jobject_to_tag(string);",
+        "    if tag == 0 {",
+        "        return 0;",
+        "    }",
+        "    crate::jni::strings::slot_get_string_utf_length(tag) as jsize",
+        "}",
+    ],
+    "GetStringUTFChars": [
+        "/// `GetStringUTFChars` (slot 169): hands the caller a NUL-terminated",
+        "/// modified-UTF-8 copy, registry-pinned until `ReleaseStringUTFChars`",
+        "/// (a double release or foreign pointer is a LOUD registry miss —",
+        "/// across this boundary, a process abort). T10 slice 2. `isCopy`,",
+        "/// when the caller asks, is written JNI_TRUE through the audited",
+        "/// `write_u8_out` primitive (M5_JNI_FFI.md §4 entry 7 — this slice's",
+        "/// amendment: one byte, never the pointer-word primitive). Null",
+        "/// jstring → NULL, isCopy untouched (v1 gap, T13-registered).",
+        'extern "system" fn jni_get_string_utf_chars(',
+        "    _env: JNIEnv,",
+        "    string: jobject,",
+        "    is_copy: *mut jboolean,",
+        ") -> *const c_char {",
+        "    let tag = crate::jni::bridge::jobject_to_tag(string);",
+        "    if tag == 0 {",
+        "        return std::ptr::null();",
+        "    }",
+        "    let addr = crate::jni::strings::slot_get_string_utf_chars(tag, None);",
+        "    if !is_copy.is_null() {",
+        "        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy here",
+        "    }",
+        "    addr as *const c_char",
+        "}",
+    ],
+    "ReleaseStringUTFChars": [
+        "/// `ReleaseStringUTFChars` (slot 170): frees the registry-pinned",
+        "/// buffer — T10 slice 2. Null string or null chars pointer → no-op",
+        "/// (the slice-1 law). Anything else MUST be a pointer this slot",
+        "/// handed out; a miss panics loudly, which across the extern boundary",
+        "/// is the process-abort loudness shape (pinned by a child-process",
+        "/// test in jni/mod.rs).",
+        'extern "system" fn jni_release_string_utf_chars(_env: JNIEnv, string: jobject, chars: *const c_char) {',
+        "    if crate::jni::bridge::jobject_to_tag(string) == 0 || chars.is_null() {",
+        "        return;",
+        "    }",
+        "    crate::jni::strings::slot_release_string_utf_chars(chars as usize);",
+        "}",
+    ],
+}
+
+
+# ---------------------------------------------------------------- T10 slice 2: real-slot registry verification
+# The registry must name slots that jni.h actually defines (a renamed/
+# removed slot fails the generator loudly — same discipline as the
+# typedef verification above) and every entry needs a body.
+slot_names = {name for (_i, kind, name, _r, _a) in slots if kind == "func"}
+for name in REAL_SLOTS:
+    if name not in slot_names:
+        sys.exit(f"FATAL: REAL_SLOTS names slot {name!r}, which jni.h does not define")
+    if name not in WRAPPER_BODIES:
+        sys.exit(f"FATAL: REAL_SLOTS entry {name!r} has no WRAPPER_BODIES body")
+for name in WRAPPER_BODIES:
+    if name not in REAL_SLOTS:
+        sys.exit(f"FATAL: WRAPPER_BODIES entry {name!r} is not in REAL_SLOTS")
+print(f"real slots wired: {len(REAL_SLOTS)} ({', '.join(sorted(REAL_SLOTS))})")
+
+
 # ---------------------------------------------------------------- emit
 L: list[str] = []
 A = L.append
@@ -233,6 +370,12 @@ A("//! tables, index-for-index identical to the Temurin 21 jni.h of record.")
 A("//! Every non-reserved slot holds a real function or a loud stub — never")
 A("//! a null slot a foreign library could segfault on. Layout is pinned by")
 A("//! the const assertion table at the bottom (offset_of! per slot).")
+A("//!")
+A("//! T10 slice 2: the five string slots (NewString, NewStringUTF,")
+A("//! GetStringUTFLength, GetStringUTFChars, ReleaseStringUTFChars) are")
+A("//! wired to real wrappers through the generator's REAL_SLOTS registry;")
+A("//! their bodies live in j2r-runtime::jni::strings (slice 1) and the")
+A("//! raw-pointer moments go through the audited j2r-jni-ffi primitives.")
 A("#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]")
 A("")
 A("use std::os::raw::{c_char, c_void};")
@@ -287,6 +430,8 @@ for index, kind, name, ret_c, args_c in slots:
     env_fields.append(f"    pub {name}: {field_ty}, // slot {index}")
     if name == "GetVersion":
         env_inits.append(f"        {name}: jni_get_version,")
+    elif name in REAL_SLOTS:
+        env_inits.append(f"        {name}: {REAL_SLOTS[name]},")
     else:
         s, _ = rust_stub(ret_c, args_c, name, index)
         stub_defs.append(s)
@@ -383,6 +528,17 @@ A("}")
 A("")
 
 L.extend(stub_defs)
+
+# T10 slice 2: the real-slot wrappers, emitted after the stubs (each with
+# its doc comment; the registry verified them against the parsed header).
+A("")
+A("// ---- T10 slice 2: real string-family slot wrappers. The REAL_SLOTS")
+A("// registry above points the five string slots at these; the loud-stub")
+A("// default still covers every not-yet-wired slot. ----")
+for name in REAL_SLOTS:
+    A("")
+    for line in WRAPPER_BODIES[name]:
+        A(line)
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text("\n".join(L) + "\n")

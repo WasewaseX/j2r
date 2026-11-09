@@ -96,7 +96,7 @@ pub const JNI_VERSION_10: i32 = 0x000a_0000;
 mod tests {
     use super::*;
     use crate::jni::tables::{env_slot_addrs, java_vm, jni_env, ENV_TABLE, VM_TABLE};
-    use std::os::raw::c_void;
+    use std::os::raw::{c_char, c_void};
     use std::ptr;
 
     #[test]
@@ -187,6 +187,53 @@ mod tests {
         assert!(
             stderr.contains("GetEnv"),
             "the abort message must name the slot, got: {stderr}"
+        );
+    }
+
+    #[test]
+    fn release_string_utf_chars_registry_miss_aborts_loudly() {
+        // T10 slice 2: a pointer that GetStringUTFChars never handed out is
+        // a registry miss (the T09 loud law). The panic starts inside
+        // j2r-runtime::jni::strings and must cross the extern "system"
+        // boundary of the generated wrapper, where unwinding is impossible:
+        // the process aborts. Pinned the soe_e2e way: a child process.
+        if std::env::var("J2R_JNI_RELEASE_ABORT_CHILD").is_ok() {
+            let release: extern "system" fn(JNIEnv, tables::jobject, *const c_char) =
+                ENV_TABLE.ReleaseStringUTFChars;
+            let bogus_string: tables::jobject = 1 as tables::jobject; // non-null: passes the wrapper's null guard
+                                                                      // Non-null, aligned, never handed out by GetStringUTFChars —
+                                                                      // exactly the foreign-pointer shape the loud law condemns.
+            let foreign_chars: *const c_char = std::ptr::dangling::<c_char>();
+            release(jni_env(), bogus_string, foreign_chars);
+            return; // unreachable: the call above aborts
+        }
+        let exe = std::env::current_exe().expect("current_exe");
+        let out = std::process::Command::new(exe)
+            .args([
+                "jni::tests::release_string_utf_chars_registry_miss_aborts_loudly",
+                "--exact",
+                "--nocapture",
+            ])
+            .env("J2R_JNI_RELEASE_ABORT_CHILD", "1")
+            .output()
+            .expect("spawn child test process");
+        assert!(
+            !out.status.success(),
+            "a foreign-pointer release must abort, got {out:?}"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            assert_eq!(
+                out.status.signal(),
+                Some(6), // SIGABRT
+                "abort is the loud failure shape, got {out:?}"
+            );
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("ReleaseStringUTFChars"),
+            "the abort message must name the slot family, got: {stderr}"
         );
     }
 

@@ -62,8 +62,11 @@ The standing law "zero `unsafe` in the workspace" becomes:
 
 > Zero `unsafe` in every crate EXCEPT `j2r-jni-ffi`, where every
 > `unsafe` occurrence (a) carries a `// SAFETY:` comment naming the JNI
-> contract that justifies it, (b) is inside one of the ≤ 6 audited
-> primitive functions listed in §4, and (c) is counted and pinned by
+> contract that justifies it, (b) is inside one of the ≤ 7 audited
+> primitive functions listed in §4 (T09: six; T10 slice 2 amended to
+> seven with `write_u8_out` — see §4 entry 7 — the audited-surface
+> growth is registered for the M5 completion review alongside the
+> original amendment), and (c) is counted and pinned by
 > gate-10, which is amended from "grep finds no unsafe in crates/" to:
 > grep finds no unsafe in crates/ EXCEPT `crates/j2r-jni-ffi/src/ffi.rs`,
 > whose `unsafe` occurrence count is asserted ≤ 12 (the count lives in
@@ -102,6 +105,15 @@ null handling in a safe wrapper in `j2r-runtime::jni`:
    NewDirectByteBuffer/GetDirectBufferAddress bookkeeping (the pointers
    themselves are created safe-side; this only normalizes the stored
    form). SAFETY: no dereference — address arithmetic only.
+7. `write_u8_out(slot: *mut u8, value: u8)` — **added by the T10
+   slice-2 amendment**: write one `jboolean` out-param
+   (`GetStringUTFChars`'s `isCopy`; later the `Get<Prim>ArrayElements`
+   family's `isCopy`). The amendment exists because primitive 3 writes
+   a full pointer word and would overrun the 1-byte `jboolean` slot —
+   the honest options were this one-byte primitive or silently skipping
+   a required write, and the latter is a wrong answer by definition.
+   SAFETY: caller guarantees one writable `jboolean` out-slot per the
+   JNI spec; total (null slot = no-op, the spec's "caller doesn't ask").
 
 Everything else in the bridge stays in `j2r-runtime::jni` under
 `#![forbid(unsafe_code)]`: handle tags, local/global/pinned-ref tables,

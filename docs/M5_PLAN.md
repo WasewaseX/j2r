@@ -296,9 +296,12 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
 - [~] **T10** v1 surface: GetObjectClass/FindClass/field
       accessors/arrays/modified-UTF-8 strings. → §3.3 — IN PROGRESS:
       slice 1 landed (jni::strings modified-UTF-8 marshal + string
-      slot bodies, 9 tests, workspace 388 green); slice 2 = string-slot
-      wiring (generator real-slot registry); slice 3 = classes/fields/
-      arrays (global-dispatch registration decision first).
+      slot bodies, 9 tests, workspace 388 green); slice 2 landed
+      (generator REAL_SLOTS registry wires the five string slots;
+      audited FFI surface 6 → 7 with `write_u8_out`; child-process
+      abort pin for the release registry miss; workspace 390 green);
+      slice 3 = classes/fields/arrays (global-dispatch registration
+      decision first).
 - [ ] **T11** Arity-shim trade-off note (variadic `Call*Method` ABI, the
       flagged-open question) + the `Call*Method`/`CallStatic*Method`
       families. → §3

@@ -144,9 +144,35 @@ pub fn direct_buffer_ok(ptr: *mut c_void) -> usize {
     ptr as usize
 }
 
+/// 7. Write one byte out-param (`GetStringUTFChars`'s `isCopy`, and later
+///    the `Get<Prim>ArrayElements` family's `isCopy`). Added by the T10
+///    slice-2 amendment of M5_JNI_FFI.md §3/§4: primitive 3 writes a full
+///    pointer word and would overrun the 1-byte `jboolean` out-slot, so
+///    the audited surface grows 6 → 7 primitives; the occurrence pin
+///    (≤ 12) is unchanged and still holds with headroom.
+///
+/// Total: null `slot` is a no-op (the JNI spec: a null out-param means the
+/// caller does not ask — the wrapper skips the write entirely).
+///
+/// # SAFETY (the one `unsafe` below)
+/// Caller contract (JNI spec): `slot` points to one writable `jboolean`
+/// out-slot for the duration of the call; this is its single specified
+/// write.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // deliberate: total fn, null guarded
+pub fn write_u8_out(slot: *mut u8, value: u8) {
+    if slot.is_null() {
+        return;
+    }
+    // SAFETY: per the JNI caller contract above, `slot` is one valid
+    // writable byte out-slot; this is its single specified write.
+    unsafe {
+        *slot = value;
+    }
+}
+
 /// The number of `unsafe` occurrences in this file. Asserted by a test
 /// below (source-scanned, so drift fails locally before gate-10 does).
-pub const ACTUAL_UNSAFE_OCCURRENCES: u32 = 5;
+pub const ACTUAL_UNSAFE_OCCURRENCES: u32 = 6;
 
 #[cfg(test)]
 mod tests {
@@ -232,6 +258,17 @@ mod tests {
         let p = backing.as_ptr() as *mut c_void;
         assert_eq!(direct_buffer_ok(p), p as usize);
         assert_eq!(direct_buffer_ok(std::ptr::null_mut()), 0);
+    }
+
+    #[test]
+    fn write_u8_out_writes_one_byte_and_guards_null() {
+        let mut flag: u8 = 0;
+        write_u8_out(&mut flag, 1); // JNI_TRUE
+        assert_eq!(flag, 1);
+        write_u8_out(&mut flag, 0);
+        assert_eq!(flag, 0);
+        // total: null slot is a no-op, never a dereference
+        write_u8_out(std::ptr::null_mut(), 1);
     }
 
     #[test]
