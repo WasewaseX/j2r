@@ -244,4 +244,24 @@ getrusage max single child, mistake-list #2).
   twice this session: the abort test and the doc bullet).
 - Boards updated; M5_PLAN/TODO registers now mark T08 landed.
 
+### [2026-11-09 ~13:30–14:30 UTC] session 2 (cont.) — T08 CI GREEN, wave-2 F-J1 design note of record
+- **CI green on T08 commit 69eee72**: main CI run 42616529578 completed
+  SUCCESS (all 21 gates — incl. gate-3 differential, gate-5 standalone,
+  gate-10 no-unsafe, gate-11 doc-counts — plus CodeQL 42616529566, OSV
+  42616530150, Scorecard 42616529573, all success). T08 is LANDED with
+  full evidence, not just local.
+- **F-J1 resolution design note published: docs/M5_JNI_FFI.md** (T09's
+  gate): the scoped FFI crate `j2r-jni-ffi` chosen (option (a)); the
+  zero-unsafe law amendment written exactly (exception = one audited
+  crate, ≤ 6 primitive fns, ≤ 12 pinned unsafe occurrences, gate-10
+  exception list + count assertion shipping in the same commit as the
+  first unsafe line); the safe handle-tag trick documented (jobject =
+  integer tag, `ptr as usize` is safe, table lookup is safe — no deref
+  of foreign memory on the hot path); option (b) (35 slots abort
+  forever) registered as the fallback if the owner rejects the
+  amendment. Slot inventory mechanically verified against the T08
+  evidence file (indices read off jni_slot_list.txt, not recalled —
+  three from-memory drafts were wrong and got corrected by the file).
+  M5_PLAN §3 now links the note as T09's design of record.
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

@@ -119,7 +119,11 @@ differential battery stays green at every step.
 
 ## §3 Design — JNI bridge (wave 2, the registered blocker)
 
-STRATEGIC_GAPS §R3 is the design of record; wave 2 implements it:
+STRATEGIC_GAPS §R3 is the design of record; wave 2 implements it.
+T08's implementation registered finding F-J1 (pointer-out slots vs
+forbid(unsafe_code)); its resolution — the scoped FFI crate
+`j2r-jni-ffi`, the gate-10 amendment and the 35-slot inventory — is the
+design of record in `docs/M5_JNI_FFI.md` and gates T09:
 
 1. **`j2r-runtime::jni`**: `JNIEnv` + `JNI_InvokeInterface` as static
    tables of `extern "system"` fn pointers, index-for-index identical to

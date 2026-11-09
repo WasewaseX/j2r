@@ -224,13 +224,18 @@ by the per-crate budget K.
   split-table emission registered (same follow-up family as the JZlib
   mega-functions).
 - [F4] release-profile 20k trio — registered (disk-guarded).
-- [x] **T08** (JNI, wave 2) — LANDED session 2 (see console.md log):
-  generated static tables, const assertions, loud-abort stubs, 7 unit
-  tests; findings F-J1/F-J2 registered.
+- [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
+  (run 42616529578, all 21 gates + CodeQL/OSV/Scorecard success):
+  generated static tables, const offset_of! assertions, loud-abort
+  stubs, 7 unit tests; findings F-J1/F-J2 registered; suite-caught
+  vendoring fix (recursive runtime copy).
+- [x] **F-J1 design note** — docs/M5_JNI_FFI.md is T09's design of
+  record: scoped FFI crate `j2r-jni-ffi`, exact law-amendment wording,
+  6 audited primitives, 35-slot inventory (mechanically verified).
 - [next] **T09** handle-table bridge (jobject ↔ GC handles, local/global
-  refs, Push/PopLocalFrame) — starts from the F-J1 resolution design
-  note (scoped FFI crate for pointer-out slots), then T10–T13 in
-  M5_PLAN §6 order.
+  refs, Push/PopLocalFrame) — implement per M5_JNI_FFI.md: crate +
+  primitives + safe bridge + gate-10 amendment in the SAME commit,
+  then T10–T13 in M5_PLAN §6 order.
 - [hygiene] Two open dependabot PRs: #1 `actions/checkout` 4.4.0→7.0.1,
   #2 `actions/setup-java` 4.9.1→6.1.0 (2026-11-05) — review after the
   baseline is re-proven; 21 open code-scanning alerts (zizmor
