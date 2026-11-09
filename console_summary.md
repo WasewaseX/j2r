@@ -1,7 +1,7 @@
 # j2r console summary — the state board
 
-Updated 2026-11-09 (session 2, after sandbox reset #2 — see console.md
-~11:00 UTC entry and §9). Raw log: `console.md`. **Read this file before
+Updated 2026-11-09 (session 3, after sandbox reset #3 — see console.md
+~14:45 UTC entry and §9). Raw log: `console.md`. **Read this file before
 acting**; if a memory disagrees with this board, the board wins.
 
 ## 1. What the project is
@@ -79,15 +79,19 @@ still awaits owner review in parallel.
 ### 3.1 T08 preconditions — the wave-2 entry checklist (all must be green before T08 code)
 
 1. **Toolchain re-proven after every reset** (environments rot — T05's
-   law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 → `/tmp/jdk21`,
-   `source /home/z/my-project/env.sh`. Status: **DONE (session 2)** —
-   exact pinned versions restored.
+   law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 →
+   `/home/z/my-project/tools/jdk-21.0.13+9` (session 3 moved the JDK to
+   the persistent layer; /tmp is not trusted), `source
+   /home/z/my-project/env.sh`. Status: **DONE (session 3; was session
+   2)** — exact pinned versions restored; measured rebootstrap cost
+   ≈ 430 MB download / ~960 MB disk (console.md session-3 entry).
 2. **Full local baseline green before the first T08 commit**: unit tests
    across all four crates + `diff_suite` (three-channel vs Temurin) +
    corpus suite; test counts re-synced per gate-11. Status: **DONE
-   (session 2)** — 352 tests pre-T08 (cfg_equiv 303 s zero divergences,
-   diff_suite 320 s), all suites re-run green again after T08's
-   vendoring fix; post-T08 total 359.
+   (session 2; re-proven session 3)** — post-T08 total 359 (classfile
+   38, runtime 170, codegen 125, cli 26); session 3 re-proved all 359
+   green before T09 (cfg_equiv 340–347 s, diff_suite 340–412 s, zero
+   divergences), fmt clean, clippy 0 warnings.
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -211,6 +215,14 @@ by the per-crate budget K.
 10. **Debuginfo fills small disks:** a 20k-class debug build hit 100 %
    disk (ld SIGBUS); use `CARGO_PROFILE_DEV_DEBUG=0` on this box and
    record the deviation.
+11. **Commit raw measurement files** (`scripts/evidence/`, same commit
+   as the claim) — the farm20k `.time` files died with a sandbox; only
+   transcribed values survived.
+12. **The boards are singular:** `console.md` + `console_summary.md`
+   (lowercase, repo root) are the ONLY state files. A fresh session
+   that finds a stale local tree must §9-recover, never create
+   parallel/duplicate boards (the reset-#3 uppercase-CONSOLE near-miss;
+   details in console.md session-3 entry).
 
 ## 8. Open items (live)
 
@@ -235,7 +247,9 @@ by the per-crate budget K.
 - [next] **T09** handle-table bridge (jobject ↔ GC handles, local/global
   refs, Push/PopLocalFrame) — implement per M5_JNI_FFI.md: crate +
   primitives + safe bridge + gate-10 amendment in the SAME commit,
-  then T10–T13 in M5_PLAN §6 order.
+  then T10–T13 in M5_PLAN §6 order. **In progress, session 3** (after
+  the reset-#3 recovery + 359-test baseline re-proof — console.md
+  session-3 entry).
 - [hygiene] Two open dependabot PRs: #1 `actions/checkout` 4.4.0→7.0.1,
   #2 `actions/setup-java` 4.9.1→6.1.0 (2026-11-05) — review after the
   baseline is re-proven; 21 open code-scanning alerts (zizmor

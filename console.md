@@ -265,3 +265,50 @@ getrusage max single child, mistake-list #2).
   M5_PLAN §3 now links the note as T09's design of record.
 
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
+
+### [2026-11-09 ~14:45–15:40 UTC] session 3 — sandbox reset #3 recovered; baseline re-proven (359 green); boards near-miss registered
+- Sandbox recycled again after session 2. Recovery per the boards'
+  protocol (§9): `git fetch origin && git reset --hard origin/main` in
+  `work/j2r-fresh` → HEAD `a2576c1`, clean, == origin/main. This is the
+  first recovery where the fresh assistant ALSO found the local tree
+  three milestones stale (b4badea, pre-M3) — the boards + remote are the
+  only truth; the protocol caught it in one command.
+- **Near-miss registered (lesson #12):** the fresh assistant, not yet
+  aware the boards existed (the local tree predated them), created
+  duplicate `CONSOLE.MD`/`CONSOLE_SUMMARY.MD` (uppercase) at the repo
+  root from the stale local view — containing the superseded "M4 =
+  Minecraft readiness" naming (mistake #1 exactly). Caught by checking
+  origin before pushing; the duplicates were discarded via the §9 pin
+  protocol. **Rule: the boards are `console.md` + `console_summary.md`
+  (lowercase, repo root) — NEVER create duplicate/parallel state files;
+  if a local tree is stale, §9 recovers, don't rewrite.**
+- Toolchain rebootstrap (§3.1 item 1), with one improvement: Temurin now
+  lives in the PERSISTENT layer, not /tmp — `/home/z/my-project/tools/
+  jdk-21.0.13+9` (javac 21.0.13 verified, `J2R_JAVAC` + JAVA_HOME +
+  PATH exported by a recreated `/home/z/my-project/env.sh`; env.sh also
+  sets `CARGO_PROFILE_DEV_DEBUG=0` per mistake #10). rustup pinned
+  toolchain 1.99.1 (+ rustfmt 1.10.0, clippy 0.1.99) reinstalled to
+  `~/.cargo`+`~/.rustup`. **Measured rebootstrap download, for the
+  standing download-size answer: rustup minimal profile ≈ 230 MB
+  downloaded / 614 MB installed; Temurin 21.0.13 JDK ≈ 198 MB
+  downloaded / 346 MB installed; workspace crate deps ≈ 2–3 MB
+  (clap tree only). Full environment ≈ 430 MB download, ~960 MB disk.**
+- **Full local baseline re-proven BEFORE any T09 code (T05's law):**
+  359 tests, 0 failures — classfile 38, runtime 170, codegen 125
+  (lib 101 + e2e 1 + malformed 12 + manifest 10 + wide_ids 1), cli 26
+  (main 15 + cfg_equiv 1 + corpus 1 + diff_suite 2 + jar 1 + lambda 2 +
+  partition 1 + soe 3). Long-suite walls this session: diff_suite
+  412.47 s (fresh javac compile of all 109 fixtures) then 340.24 s,
+  cfg_equiv 346.63 s / 340.24 s, corpus 38.31 / 36.71 s — zero
+  divergences anywhere. fmt clean, clippy workspace 0 warnings.
+- Standing owner questions — all answered on the boards, do not redo:
+  M4/M-scale (§2 + mistake #1: M4 = threads & concurrency, M5 =
+  Minecraft readiness; "large-scale compilation" is M5 wave-1 scope,
+  CLOSED with the 20k evidence), download size (§5 + this entry's
+  measured rebootstrap numbers; ~300 GB figures are single-process
+  build memory, never artifact size), T08 prerequisites (§3.1 —
+  satisfied; T08 itself landed with CI run 42616529578).
+- **Next: T09** — `j2r-jni-ffi` scoped FFI crate + handle-table bridge
+  (jobject ↔ GC handles, local/global refs, Push/PopLocalFrame) per
+  docs/M5_JNI_FFI.md (design of record); crate + primitives + safe
+  bridge + gate-10 amendment must land in the SAME commit.
