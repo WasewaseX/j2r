@@ -55,13 +55,25 @@ Wave 1 (scale & incremental compilation) — **all tasks landed**:
   input→emitted tracking, global gate, write-if-changed, tamper/corruption
   fallback; 1k farm release: cold 357.5 s → no-op 0.535 s (668×) →
   one-body-edit 71.0 s (5×); byte-identical.
-- **Open (in flight this session):** the 20k census-jar confirmation
-  (`scripts/m5_20k_confirm.sh`, N=20000, k=250) — cold/no-op/one-edit +
-  parity. Result lands in console.md.
+- **20k census-jar confirmation LANDED (2026-11-09, this session) — wave 1
+  CLOSED.** N=20000, k=250 (80 part crates + support + app), cargo -j2,
+  dev profile with debug=0 (disk-forced, recorded). Cold end-to-end
+  ≈ 17.1 min (javac 26.15 s / 1.55 GB; emit 34.12 s / 858 MB; cargo
+  ≈ 967 s, peak rustc **3.49 GB** in the app-bin compile); no-op rebuild
+  **38.8 s** (20,003 reused / 0 written + cargo 0.28 s); one-body-edit
+  **55.3 s** (20,002 reused / 1 re-emitted + only its partition + app
+  rebuilt); **parity PASS** (stdout/stderr/exit identical, 0 == 0);
+  binary ≈ 1.01 GiB. Findings F1–F5 registered in console.md — the two
+  that matter: no-op emit is SHA-256-rehash-bound (F2, mtime/size fast
+  path is the fix) and the app/Dispatch composite is the new rustc
+  near-wall at 20k (F3 — fix is the already-registered split-table
+  emission).
 
-Waves 2–5 (next, gated on wave-1 closure): T08–T13 JNI bridge (the
-registered LWJGL/GLFW/OpenAL blocker; safe-Rust design in M5_PLAN §3) ·
-T14–T16 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches.
+Waves 2–5 (next): T08–T13 JNI bridge (the registered LWJGL/GLFW/OpenAL
+blocker; safe-Rust design in M5_PLAN §3) · T14–T16 mappings pipeline ·
+T17–T21 mixin applier · T22–T23 inline caches. Wave-2 entry gate now
+satisfied (wave 1 closed + evidence recorded); the M4 completion package
+still awaits owner review in parallel.
 
 ## 4. Cross-module correctness — the six constraints, mapped to landed mechanisms
 
@@ -97,6 +109,9 @@ single crate (M5_SCALE.md §2b, with the measured reason). Inline caches
 | no-op rebuild | 357.5 s → 0.535 s (668×), 1k release | T06/T07 |
 | one-body-edit rebuild | 71.0 s (5×), only its partition + app recompile | T06/T07 |
 | closure-cache effect | compile stage 7.98 → 2.02 s @ 5k (−75 %) | T03 |
+| **20k end-to-end (this session)** | cold ≈ **17.1 min**; no-op **38.8 s** (~26×); one-edit **55.3 s**; parity PASS | farm20k/*.time |
+| 20k peak rustc | 3.49 GB — the app/Dispatch composite (F3 follow-up) | farm20k |
+| 20k artifacts | emitted source 854 MB; binary ≈ 1.01 GiB (debug=0) | farm20k |
 
 **Download-size answer (owner question, 2026-11-09):** No — nobody
 downloads hundreds of GB. The 105–273 GiB / ~300 GB figures are the peak
@@ -153,12 +168,28 @@ by the per-crate budget K.
    snapshots — work in work/j2r-gh (cloned from the authoritative repo).
 7. **Never claim done without runnable evidence; never claim Minecraft
    compatibility without milestone evidence** (standing law).
+8. **Background processes are reaped when a tool call ends** (nohup and
+   setsid both die) — long builds run as foreground calls ≤10 min,
+   resuming via cargo fingerprints; sum the chunk walls honestly.
+9. **Farm-classpath trap:** jar the classes dir (farm_src/classes), not
+   the source tree — a source-jar makes j2r fail with "main class not
+   found". The classes dir works directly as `--classpath`.
+10. **Debuginfo fills small disks:** a 20k-class debug build hit 100 %
+   disk (ld SIGBUS); use `CARGO_PROFILE_DEV_DEBUG=0` on this box and
+   record the deviation.
 
 ## 8. Open items (live)
 
-- [in flight] 20k census-jar confirmation → closes M5 wave 1.
-- [registered] release-profile 20k trio (disk-guarded follow-up).
-- [registered] T05 follow-up: split-table emission for JZlib mega-functions.
-- [next] M5 wave 2 (JNI T08–T13) once wave 1 closes + owner green-light.
+- [x] 20k census-jar confirmation — LANDED this session, wave 1 closed.
+- [F1] emit-stage super-linearity at 20k — needs a profile (34.12 s vs
+  T03's near-linear 2.02 s @ 5k).
+- [F2] no-op emit SHA-256-rehash-bound (~38 s @ 20k) — (mtime,size) fast
+  path registered.
+- [F3] app/Dispatch composite = rustc near-wall at 20k (3.49 GB) —
+  split-table emission registered (same follow-up family as the JZlib
+  mega-functions).
+- [F4] release-profile 20k trio — registered (disk-guarded).
+- [next] M5 wave 2 (JNI T08–T13) — wave-1 gate satisfied; start per the
+  plan's rules (task register + design note first, evidence always).
 - [pending] M4 completion-package owner review (M4 stays open until then).
 - [candidate] Minicraft → corpus wave 2 (see §6).

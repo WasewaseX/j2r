@@ -1446,10 +1446,24 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       class's partition + app; the other partitions' files keep their
       mtimes), output byte-identical to Temurin on all four printed
       channels.
-- [~] incremental compilation for 70k+ classes (T05 partitioning +
-      T03 closure cache + T06/T07 build manifest LANDED, measured at 1k
-      farm scale: no-op 357.5 s → 0.535 s, one-body-edit 5×; remaining:
-      20k census-jar confirmation of the same three numbers)
+- [x] **incremental compilation for 70k+ classes — wave 1 CLOSED**
+      (2026-11-09): T05 partitioning + T03 closure cache + T06/T07 build
+      manifest, now confirmed at the 20k census jar (N=20000, k=250, 80
+      part crates + support + app, cargo -j2, dev/debug=0 — disk-forced,
+      recorded): cold end-to-end ≈ 17.1 min (javac 26.15 s / 1.55 GB;
+      emit 34.12 s / 858 MB; cargo ≈ 967 s; peak rustc 3.49 GB = the
+      app-bin Dispatch composite); no-op rebuild 38.8 s with manifest
+      20,003 reused / 0 written + cargo 0.28 s; one-body-edit 55.3 s
+      with 20,002 reused / 1 re-emitted / 1 written (only its partition
+      + app rebuilt); **parity PASS — stdout/stderr/exit identical,
+      0 == 0** vs Temurin; binary ≈ 1.01 GiB. Findings registered
+      (console.md F1–F5): F1 emit-stage super-linearity at 20k (needs
+      profile), F2 no-op emit is SHA-256-rehash-bound (mtime/size fast
+      path), F3 app/Dispatch composite = rustc near-wall (split-table
+      emission, already-registered follow-up family), F4 release-20k
+      trio, F5 artifact sizes for the download-size story. Evidence:
+      work farm20k run, scripts/m5_20k_confirm.sh, console.md
+      §2026-11-09 08:34–09:25.
 - [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
       T08–T13, C-harness parity is the blocker's evidence bar)
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +

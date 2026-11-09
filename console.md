@@ -98,5 +98,62 @@ file disagrees with memory, this file wins.
   rebuild, one-body-edit rebuild, three-channel parity vs Temurin.
   Log: `work/m5invest/farm20k/confirm.log`. (Disk guard: no release leg
   on this 6.6 GB box; release-20k trio stays registered follow-up.)
+- **Sandbox lesson (never-repeat #9): background processes are reaped
+  when a tool call ends** — both `nohup` and `setsid nohup … & disown`
+  died between calls. Long builds must run as foreground calls ≤10 min,
+  resuming via cargo fingerprints (cargo resumes cleanly; wall time is
+  summed across chunks and recorded honestly).
+- Execution hiccups recorded for honesty: first jar packed the SOURCE
+  tree (farm/*.java) not the classes → j2r "main class not found";
+  fixed by using the classes dir as classpath throughout. First cargo
+  pass (default debuginfo) filled the disk (100%, ld SIGBUS at the
+  final link) → rebuilt with `CARGO_PROFILE_DEV_DEBUG=0` (deviation
+  recorded) and freed caches + stale artifacts.
+
+### [2026-11-09 08:34–09:25 UTC] 20k census-jar confirmation — COMPLETE, wave 1 CLOSED
+
+Run: `work/m5invest/farm20k/` (N=20000, k=250 → 80 part crates + support
++ app; cargo `-j 2`; `CARGO_INCREMENTAL=0`; profile dev with
+`debug=0` — disk-constrained deviation). Raw time/peak files:
+`work/m5invest/farm20k/*.time` (format WALL_S PEAK_RSS_KB, semantics =
+getrusage max single child, mistake-list #2).
+
+| stage | wall | peak RSS (single largest process) |
+| --- | ---: | ---: |
+| javac 20,003 classes | 26.15 s | 1.55 GB |
+| j2r emit (cold, manifest created) | 34.12 s | 858 MB |
+| cargo debug=0 (3 chunks: ~578s killed + 388.81 s + 0.47 s link) | ≈ 967 s | **3.49 GB** (app-bin rustc) |
+| **cold end-to-end** | **≈ 17.1 min** | — |
+| no-op rebuild: emit + cargo | 38.55 s + 0.28 s = **38.8 s** | 858 MB + 37 MB |
+| one-body-edit rebuild (C00042): emit + cargo | 27.16 s + 28.16 s = **55.3 s** | — |
+| run: native binary vs Temurin | 0.11 s vs 0.63 s | 252 MB vs 61 MB |
+
+- **Manifest correctness at 20k: no-op = 20,003 reused / 0 written;
+  one-body-edit = 20,002 reused / 1 re-emitted / 1 written** — exactly
+  the T06/T07 soundness contract, now demonstrated 20× beyond the 1k
+  farm evidence.
+- **PARITY: PASS — stdout (84 B) + stderr + exit identical, 0 == 0**,
+  native binary vs Temurin 21.0.13. Binary size 1,084,126,264 B
+  (≈ 1.01 GiB, debug=0).
+- Acceptance bars (M5_PLAN §2): end-to-end at 20k ✅ recorded; no-change
+  rebuild measurably cheaper ✅ (≈ 26× at this scale); parity ✅. The
+  "super-linear nowhere" bar has ONE honest hit, in the EMIT stage, not
+  cargo: 5k 2.02 s → 20k 34.12 s (per-class 0.40 ms → 1.71 ms) — F1 below.
+- New findings registered (each a follow-up, none blocking wave 2):
+  - **F1** emit-stage super-linearity at 20k (closure cache fixed the
+    worklist; something else grows — support-crate table build and/or
+    per-file hashing; needs a profile).
+  - **F2** no-op emit cost is SHA-256-rehash-bound (~900 MB of emitted
+    sources → 38.55 s; ≈ 22 MB/s). An (mtime, size) fast path before
+    hashing makes no-ops sub-second and restores the big ratios.
+  - **F3** the app/Dispatch composite is the new rustc near-wall at 20k
+    (3.49 GB peak, < 0.5 GB under this box's ceiling) — the same disease
+    as fact 4's mega-functions, now in dispatch-table form. Fix is the
+    already-registered split-table emission: per-partition route tables
+    + GID-range binary search, never one giant match.
+  - **F4** release-profile 20k trio still registered (disk: the
+    debuginfo build filled the box; debug=0 binary is already 1.01 GiB).
+  - **F5** binaries at this scale: emitted source 854 MB (48 KB→43 KB/
+    class here), binary ≈ 1.01 GiB — record for the download-size story.
 
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
