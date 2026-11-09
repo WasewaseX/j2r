@@ -146,7 +146,15 @@ def rust_base(c: str) -> str:
         return PRIM[c]
     if c in JOBJECT_ALIASES or c == "jarray":
         return "jobject"
-    if c in ("jmethodID", "jfieldID", "jvalue"):
+    if c in ("jmethodID", "jfieldID"):
+        # T10 slice 3 amendment (M5_JNI_CLASSES.md §3): these ARE opaque
+        # struct-POINTER typedefs in jni.h (verified above), so the
+        # ABI-faithful Rust form is the pointer alias — the T08 bare-
+        # c_void stand-in made those slots uninhabited and the real
+        # wrappers impossible (the same shape F-J1 called out for
+        # pointer-out slots).
+        return c
+    if c == "jvalue":
         # jvalue* (A-form args) is a pointer-width pass-through for T08;
         # decoding arrives with the T11 arity shims. See jni/mod.rs.
         return "c_void"
@@ -245,6 +253,10 @@ REAL_SLOTS = {
     "GetStringUTFLength": "jni_get_string_utf_length",
     "GetStringUTFChars": "jni_get_string_utf_chars",
     "ReleaseStringUTFChars": "jni_release_string_utf_chars",
+    "FindClass": "jni_find_class",
+    "GetObjectClass": "jni_get_object_class",
+    "GetFieldID": "jni_get_field_id",
+    "GetStaticFieldID": "jni_get_static_field_id",
 }
 
 # Wrapper bodies, emitted verbatim (doc comment + fn) after the stubs.
@@ -340,10 +352,238 @@ WRAPPER_BODIES: dict[str, list[str]] = {
         "    crate::jni::strings::slot_release_string_utf_chars(chars as usize);",
         "}",
     ],
+    "FindClass": [
+        "/// `FindClass` (slot 6): a JNI-form name (internal `a/b/C`, array",
+        '/// descriptor) -> the interned `java/lang/Class` mirror as a fresh',
+        "/// local ref (T10 slice 3, M5_JNI_CLASSES.md section 2). The class",
+        "/// must EXIST (compiled via the host dispatch, or the builtin",
+        "/// tables) BEFORE interning — no garbage name ever enters the Class",
+        "/// table; a miss -> JNI null (the spec's NoClassDefFoundError shape",
+        "/// — v1 gap, T13-registered). Bare primitive names are not classes.",
+        'extern "system" fn jni_find_class(_env: JNIEnv, name: *const c_char) -> jclass {',
+        "    let Some(bytes) = j2r_jni_ffi::ffi::read_caller_str(name) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    match String::from_utf8(bytes) {",
+        "        Ok(s) => match crate::jni::classes::slot_find_class(&s) {",
+        "            Some(tag) => crate::jni::bridge::tag_to_jobject(tag),",
+        "            None => std::ptr::null_mut(),",
+        "        },",
+        "        Err(_) => std::ptr::null_mut(),",
+        "    }",
+        "}",
+    ],
+    "GetObjectClass": [
+        "/// `GetObjectClass` (slot 31): the receiver's runtime class (arrays",
+        "/// included — an array's class IS its descriptor) as the interned",
+        "/// `java/lang/Class` mirror, fresh local ref (T10 slice 3,",
+        "/// M5_JNI_CLASSES.md section 2). Null -> JNI null (v1 gap,",
+        "/// T13-registered).",
+        'extern "system" fn jni_get_object_class(_env: JNIEnv, obj: jobject) -> jclass {',
+        "    match crate::jni::classes::slot_get_object_class(crate::jni::bridge::jobject_to_tag(obj)) {",
+        "        Some(tag) => crate::jni::bridge::tag_to_jobject(tag),",
+        "        None => std::ptr::null_mut(),",
+        "    }",
+        "}",
+    ],
+    "GetFieldID": [
+        "/// `GetFieldID` (slot 94): resolve an INSTANCE field by `(name, sig)`",
+        "/// on the class — the superclass walk included (JNI searches",
+        "/// inherited fields) — deduplicated into a permanent field-ID tag",
+        "/// (T10 slice 3, M5_JNI_CLASSES.md section 3). Miss -> NULL (the",
+        "/// spec's NoSuchFieldError shape — v1 gap, T13-registered); builtin",
+        "/// classes have no field facts in v1 -> NULL (registered gap).",
+        'extern "system" fn jni_get_field_id(',
+        "    _env: JNIEnv,",
+        "    clazz: jclass,",
+        "    name: *const c_char,",
+        "    sig: *const c_char,",
+        ") -> jfieldID {",
+        "    let (Some(name_bytes), Some(sig_bytes)) = (",
+        "        j2r_jni_ffi::ffi::read_caller_str(name),",
+        "        j2r_jni_ffi::ffi::read_caller_str(sig),",
+        "    ) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    let (Ok(name), Ok(sig)) = (String::from_utf8(name_bytes), String::from_utf8(sig_bytes)) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    match crate::jni::classes::slot_get_field_id(",
+        "        crate::jni::bridge::jobject_to_tag(clazz),",
+        "        &name,",
+        "        &sig,",
+        "        false,",
+        "    ) {",
+        "        Some(id) => crate::jni::classes::field_id_to_ptr(id),",
+        "        None => std::ptr::null_mut(),",
+        "    }",
+        "}",
+    ],
+    "GetStaticFieldID": [
+        "/// `GetStaticFieldID` (slot 144): the STATIC twin of `GetFieldID` —",
+        "/// same walk, same permanence and dedup; only fields whose own",
+        "/// declaration says `static` match (T10 slice 3, M5_JNI_CLASSES.md",
+        "/// section 3). Miss -> NULL (v1 gap, T13-registered).",
+        'extern "system" fn jni_get_static_field_id(',
+        "    _env: JNIEnv,",
+        "    clazz: jclass,",
+        "    name: *const c_char,",
+        "    sig: *const c_char,",
+        ") -> jfieldID {",
+        "    let (Some(name_bytes), Some(sig_bytes)) = (",
+        "        j2r_jni_ffi::ffi::read_caller_str(name),",
+        "        j2r_jni_ffi::ffi::read_caller_str(sig),",
+        "    ) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    let (Ok(name), Ok(sig)) = (String::from_utf8(name_bytes), String::from_utf8(sig_bytes)) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    match crate::jni::classes::slot_get_field_id(",
+        "        crate::jni::bridge::jobject_to_tag(clazz),",
+        "        &name,",
+        "        &sig,",
+        "        true,",
+        "    ) {",
+        "        Some(id) => crate::jni::classes::field_id_to_ptr(id),",
+        "        None => std::ptr::null_mut(),",
+        "    }",
+        "}",
+    ],
 }
 
 
-# ---------------------------------------------------------------- T10 slice 2: real-slot registry verification
+# ---------------------------------------------------------------- T10 slice 3: the field-accessor families (programmatic)
+# The 36 accessor slots (instance 95-112, static 145-162) share ONE
+# shape; the per-primitive differences are the C type and the Value<->C
+# arm. Each wrapper asserts the value shape against ITS OWN slot
+# descriptor — a mismatch is a foreign-side bug: loud abort (Temurin:
+# UB). Semantics live in jni::classes; these are thin casts, exactly
+# like the string family. Built here (AFTER the jni.h parse) so every
+# doc comment can carry the true slot number.
+_idx_of = {name: i for (i, kind, name, r, a) in slots if kind == "func"}
+
+FIELD_PRIMS = [
+    # (Suffix, C type, Value variant, get match arm, set Value ctor)
+    ("Object", "jobject", "Ref", None, None),  # special-cased bodies
+    ("Boolean", "jboolean", "Int", "(i != 0) as jboolean",
+     "crate::Value::Int((value != 0) as i32)"),
+    ("Byte", "jbyte", "Int", "i as jbyte", "crate::Value::Int(value as i32)"),
+    ("Char", "jchar", "Int", "i as jchar", "crate::Value::Int(value as i32)"),
+    ("Short", "jshort", "Int", "i as jshort", "crate::Value::Int(value as i32)"),
+    ("Int", "jint", "Int", "i", "crate::Value::Int(value)"),
+    ("Long", "jlong", "Long", "l", "crate::Value::Long(value)"),
+    ("Float", "jfloat", "Float", "f", "crate::Value::Float(value)"),
+    ("Double", "jdouble", "Double", "d", "crate::Value::Double(value)"),
+]
+
+
+_GET_VAR = {"Int": "i", "Long": "l", "Float": "f", "Double": "d"}
+
+
+def _field_docs(slot_name, slot_no, is_static, suffix):
+    kind = "static" if is_static else "instance"
+    lines = [
+        f"/// `{slot_name}` (slot {slot_no}): {kind} access through the",
+        "/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The",
+        "/// value must carry the slot's own descriptor shape — a mismatch",
+        "/// is a foreign-side bug: loud abort (Temurin: UB).",
+    ]
+    if not is_static and suffix != "Object":
+        lines.append("/// Null receiver -> 0/null (v1 gap, T13-registered).")
+    if is_static:
+        lines.append("/// The ID is the sole authority; the jclass argument is not")
+        lines.append("/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).")
+    if suffix == "Object":
+        lines.append("/// Object values come back as fresh local refs; a JNI-null")
+        lines.append("/// field reads back as JNI null.")
+    return lines
+
+
+for (_suffix, _cty, _variant, _arm, _ctor) in FIELD_PRIMS:
+    for _is_static in (False, True):
+        _sname = f"Get{'Static' if _is_static else ''}{_suffix}Field"
+        _fname = "jni_" + _sname.lower()
+        REAL_SLOTS[_sname] = _fname
+        _lines = _field_docs(_sname, _idx_of[_sname], _is_static, _suffix)
+        _lines.append(f'extern "system" fn {_fname}(')
+        _lines.append("    _env: JNIEnv,")
+        _lines.append("    _clazz: jclass," if _is_static else "    obj: jobject,")
+        _lines.append("    fid: jfieldID")
+        _lines.append(f") -> {_cty} {{")
+        if _is_static:
+            _lines.append("    match crate::jni::classes::slot_get_static_field(")
+            _lines.append("        crate::jni::classes::field_id_from_ptr(fid),")
+            _lines.append("    ) {")
+        else:
+            _lines.append("    match crate::jni::classes::slot_get_instance_field(")
+            _lines.append("        crate::jni::bridge::jobject_to_tag(obj),")
+            _lines.append("        crate::jni::classes::field_id_from_ptr(fid),")
+            _lines.append("    ) {")
+        if _suffix == "Object":
+            _lines += [
+                "        Some(crate::Value::Ref(Some(r))) => {",
+                "            crate::jni::tag_to_jobject(crate::jni::new_local(r))",
+                "        }",
+                "        Some(crate::Value::Ref(None)) => std::ptr::null_mut(),",
+                f'        Some(other) => crate::jni::classes::loud_field_mismatch("{_sname}", &other),',
+                "        None => std::ptr::null_mut(),",
+            ]
+        else:
+            _v = _GET_VAR[_variant]
+            _none = {"jfloat": "0 as jfloat", "jdouble": "0 as jdouble"}.get(_cty, "0")
+            _lines += [
+                f"        Some(crate::Value::{_variant}({_v})) => {_arm},",
+                f'        Some(other) => crate::jni::classes::loud_field_mismatch("{_sname}", &other),',
+                f"        None => {_none},",
+            ]
+        _lines.append("    }")
+        _lines.append("}")
+        WRAPPER_BODIES[_sname] = _lines
+
+for (_suffix, _cty, _variant, _arm, _ctor) in FIELD_PRIMS:
+    for _is_static in (False, True):
+        _sname = f"Set{'Static' if _is_static else ''}{_suffix}Field"
+        _fname = "jni_" + _sname.lower()
+        REAL_SLOTS[_sname] = _fname
+        _lines = _field_docs(_sname, _idx_of[_sname], _is_static, _suffix)
+        _lines.append(f'extern "system" fn {_fname}(')
+        _lines.append("    _env: JNIEnv,")
+        _lines.append("    _clazz: jclass," if _is_static else "    obj: jobject,")
+        _lines.append("    fid: jfieldID,")
+        _lines.append(f"    value: {_cty},")
+        _lines.append(") {")
+        if _suffix == "Object":
+            _lines += [
+                "    let tag = crate::jni::bridge::jobject_to_tag(value);",
+                "    let v = crate::Value::Ref(if tag == 0 {",
+                "        None",
+                "    } else {",
+                "        Some(crate::jni::resolve(tag))",
+                "    });",
+            ]
+        else:
+            _lines.append(f"    let v = {_ctor};")
+        if _is_static:
+            _lines += [
+                "    crate::jni::classes::slot_set_static_field(",
+                "        crate::jni::classes::field_id_from_ptr(fid),",
+                "        v,",
+                "    );",
+            ]
+        else:
+            _lines += [
+                "    crate::jni::classes::slot_set_instance_field(",
+                "        crate::jni::bridge::jobject_to_tag(obj),",
+                "        crate::jni::classes::field_id_from_ptr(fid),",
+                "        v,",
+                "    );",
+            ]
+        _lines.append("}")
+        WRAPPER_BODIES[_sname] = _lines
+
+
+# ---------------------------------------------------------------- T10 slice 2/3: real-slot registry verification
 # The registry must name slots that jni.h actually defines (a renamed/
 # removed slot fails the generator loudly — same discipline as the
 # typedef verification above) and every entry needs a body.
@@ -371,11 +611,14 @@ A("//! Every non-reserved slot holds a real function or a loud stub — never")
 A("//! a null slot a foreign library could segfault on. Layout is pinned by")
 A("//! the const assertion table at the bottom (offset_of! per slot).")
 A("//!")
-A("//! T10 slice 2: the five string slots (NewString, NewStringUTF,")
-A("//! GetStringUTFLength, GetStringUTFChars, ReleaseStringUTFChars) are")
-A("//! wired to real wrappers through the generator's REAL_SLOTS registry;")
-A("//! their bodies live in j2r-runtime::jni::strings (slice 1) and the")
-A("//! raw-pointer moments go through the audited j2r-jni-ffi primitives.")
+A("//! T10 slices 2-3: 45 slots are wired to real wrappers through the")
+A("//! generator's REAL_SLOTS registry — the five string slots (NewString,")
+A("//! NewStringUTF, GetStringUTFLength, GetStringUTFChars,")
+A("//! ReleaseStringUTFChars; bodies in jni::strings, slice 1), the four")
+A("//! class/field-ID slots (FindClass, GetObjectClass, GetFieldID,")
+A("//! GetStaticFieldID) and the 36 field accessors (bodies in")
+A("//! jni::classes, slice 3); raw-pointer moments go through the audited")
+A("//! j2r-jni-ffi primitives.")
 A("#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]")
 A("")
 A("use std::os::raw::{c_char, c_void};")
@@ -532,9 +775,10 @@ L.extend(stub_defs)
 # T10 slice 2: the real-slot wrappers, emitted after the stubs (each with
 # its doc comment; the registry verified them against the parsed header).
 A("")
-A("// ---- T10 slice 2: real string-family slot wrappers. The REAL_SLOTS")
-A("// registry above points the five string slots at these; the loud-stub")
-A("// default still covers every not-yet-wired slot. ----")
+A("// ---- T10 slices 2-3: real slot wrappers (string family + the")
+A("// class/field surface). The REAL_SLOTS registry above points these")
+A("// slots at them; the loud-stub default still covers every")
+A("// not-yet-wired slot. ----")
 for name in REAL_SLOTS:
     A("")
     for line in WRAPPER_BODIES[name]:

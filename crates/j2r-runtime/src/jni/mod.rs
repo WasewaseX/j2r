@@ -54,13 +54,19 @@
 //!   `jobject` aliases — exactly the header's own aliasing (verified
 //!   mechanically by the generator, which fails loudly on any mismatch).
 //! * `jmethodID`/`jfieldID` are opaque pointer-width handles (the header
-//!   uses opaque struct pointers; identical ABI). The T09 handle-bridge
-//!   gives them their meaning.
+//!   uses opaque struct pointers; identical ABI). T08 initially mapped
+//!   them to bare `c_void` in the table signatures — a stand-in that
+//!   made those slots uninhabited; the T10 slice-3 amendment restored
+//!   the ABI-faithful pointer form (verified against the header's own
+//!   `typedef struct _jfieldID *jfieldID;` by the generator). The
+//!   handle-bridge gives them their meaning: a `jfieldID` is a marked
+//!   tag into `jni::classes`'s field-ID registry.
 //! * `GetPrimitiveArrayCritical` (slot 213) pins trivially because the
 //!   M2 arena never moves objects — a documented design advantage, restated
 //!   in the T09 note.
 
 pub mod bridge;
+pub mod classes;
 pub mod strings;
 pub mod tables;
 
@@ -73,6 +79,42 @@ pub use tables::{
     java_vm, jni_env, JNIEnv, JNIEnv_, JNIInvokeInterface_, JNINativeInterface_, JObjectOpaque,
     JavaVM, JavaVM_,
 };
+
+// ---------------------------------------------------------------------------
+// The host dispatch slot (T10 slice 3 — design of record:
+// docs/M5_JNI_CLASSES.md §1). The env-table slots are `extern "system"`
+// fn(JNIEnv, ...) — the jni.h ABI fixes the signatures, so no context
+// parameter can be threaded to a slot body, and `NativeFn`'s
+// `ctx: Dispatch` never reaches FFI entries. The generated program
+// therefore installs its composed Dispatch here at startup (one emission
+// in `main_run`, next to the statics init — both the single-crate and the
+// partitioned layouts install before any Java code runs; in partitioned
+// builds the installed value is the composed dispatch, so the JNI surface
+// sees every partition's classes).
+// ---------------------------------------------------------------------------
+
+/// The installed program dispatch, `None` until
+/// [`install_host_dispatch`] runs.
+static HOST_DISPATCH: std::sync::Mutex<Option<crate::Dispatch>> = std::sync::Mutex::new(None);
+
+/// Installs the generated program's [`crate::Dispatch`] as the JNI
+/// surface's dispatch context. Called once by the emitted `main_run`
+/// before any Java code runs (M5_JNI_CLASSES.md §1).
+pub fn install_host_dispatch(d: crate::Dispatch) {
+    *HOST_DISPATCH.lock().unwrap_or_else(|e| e.into_inner()) = Some(d);
+}
+
+/// The installed dispatch, or the all-`None` default before install
+/// (slots that need compiled-program facts then fail their existence
+/// checks loudly/honestly instead of guessing). Every JNI class/field/
+/// array slot reads through here; never held across heap work (lock law
+/// L-J2).
+pub(crate) fn host_dispatch() -> crate::Dispatch {
+    HOST_DISPATCH
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_default()
+}
 
 // Values verified against the pinned Temurin 21 jni.h (lines 160-166,
 // 1986-1995). The unit tests below re-assert the ones this module uses.

@@ -7,11 +7,14 @@
 //! a null slot a foreign library could segfault on. Layout is pinned by
 //! the const assertion table at the bottom (offset_of! per slot).
 //!
-//! T10 slice 2: the five string slots (NewString, NewStringUTF,
-//! GetStringUTFLength, GetStringUTFChars, ReleaseStringUTFChars) are
-//! wired to real wrappers through the generator's REAL_SLOTS registry;
-//! their bodies live in j2r-runtime::jni::strings (slice 1) and the
-//! raw-pointer moments go through the audited j2r-jni-ffi primitives.
+//! T10 slices 2-3: 45 slots are wired to real wrappers through the
+//! generator's REAL_SLOTS registry — the five string slots (NewString,
+//! NewStringUTF, GetStringUTFLength, GetStringUTFChars,
+//! ReleaseStringUTFChars; bodies in jni::strings, slice 1), the four
+//! class/field-ID slots (FindClass, GetObjectClass, GetFieldID,
+//! GetStaticFieldID) and the 36 field accessors (bodies in
+//! jni::classes, slice 3); raw-pointer moments go through the audited
+//! j2r-jni-ffi primitives.
 #![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]
 
 use std::os::raw::{c_char, c_void};
@@ -79,12 +82,13 @@ pub struct JNINativeInterface_ {
     pub DefineClass:
         extern "system" fn(*mut JNIEnv_, *const c_char, jobject, *const jbyte, jsize) -> jobject, // slot 5
     pub FindClass: extern "system" fn(*mut JNIEnv_, *const c_char) -> jobject, // slot 6
-    pub FromReflectedMethod: extern "system" fn(*mut JNIEnv_, jobject) -> c_void, // slot 7
-    pub FromReflectedField: extern "system" fn(*mut JNIEnv_, jobject) -> c_void, // slot 8
-    pub ToReflectedMethod: extern "system" fn(*mut JNIEnv_, jobject, c_void, jboolean) -> jobject, // slot 9
-    pub GetSuperclass: extern "system" fn(*mut JNIEnv_, jobject) -> jobject, // slot 10
+    pub FromReflectedMethod: extern "system" fn(*mut JNIEnv_, jobject) -> jmethodID, // slot 7
+    pub FromReflectedField: extern "system" fn(*mut JNIEnv_, jobject) -> jfieldID, // slot 8
+    pub ToReflectedMethod:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, jboolean) -> jobject, // slot 9
+    pub GetSuperclass: extern "system" fn(*mut JNIEnv_, jobject) -> jobject,   // slot 10
     pub IsAssignableFrom: extern "system" fn(*mut JNIEnv_, jobject, jobject) -> jboolean, // slot 11
-    pub ToReflectedField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jboolean) -> jobject, // slot 12
+    pub ToReflectedField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jboolean) -> jobject, // slot 12
     pub Throw: extern "system" fn(*mut JNIEnv_, jobject) -> jint, // slot 13
     pub ThrowNew: extern "system" fn(*mut JNIEnv_, jobject, *const c_char) -> jint, // slot 14
     pub ExceptionOccurred: extern "system" fn(*mut JNIEnv_) -> jobject, // slot 15
@@ -101,218 +105,262 @@ pub struct JNINativeInterface_ {
     pub EnsureLocalCapacity: extern "system" fn(*mut JNIEnv_, jint) -> jint, // slot 26
     pub AllocObject: extern "system" fn(*mut JNIEnv_, jobject) -> jobject, // slot 27
     pub NewObject:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jobject, // slot 28
-    pub NewObjectV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jobject, // slot 29
-    pub NewObjectA: extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jobject, // slot 30
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jobject, // slot 28
+    pub NewObjectV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jobject, // slot 29
+    pub NewObjectA: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jobject, // slot 30
     pub GetObjectClass: extern "system" fn(*mut JNIEnv_, jobject) -> jobject, // slot 31
     pub IsInstanceOf: extern "system" fn(*mut JNIEnv_, jobject, jobject) -> jboolean, // slot 32
     pub GetMethodID:
-        extern "system" fn(*mut JNIEnv_, jobject, *const c_char, *const c_char) -> c_void, // slot 33
+        extern "system" fn(*mut JNIEnv_, jobject, *const c_char, *const c_char) -> jmethodID, // slot 33
     pub CallObjectMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jobject, // slot 34
-    pub CallObjectMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jobject, // slot 35
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jobject, // slot 34
+    pub CallObjectMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jobject, // slot 35
     pub CallObjectMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jobject, // slot 36
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jobject, // slot 36
     pub CallBooleanMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jboolean, // slot 37
-    pub CallBooleanMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jboolean, // slot 38
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jboolean, // slot 37
+    pub CallBooleanMethodV:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jboolean, // slot 38
     pub CallBooleanMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jboolean, // slot 39
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jboolean, // slot 39
     pub CallByteMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jbyte, // slot 40
-    pub CallByteMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jbyte, // slot 41
-    pub CallByteMethodA: extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jbyte, // slot 42
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jbyte, // slot 40
+    pub CallByteMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jbyte, // slot 41
+    pub CallByteMethodA:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jbyte, // slot 42
     pub CallCharMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jchar, // slot 43
-    pub CallCharMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jchar, // slot 44
-    pub CallCharMethodA: extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jchar, // slot 45
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jchar, // slot 43
+    pub CallCharMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jchar, // slot 44
+    pub CallCharMethodA:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jchar, // slot 45
     pub CallShortMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jshort, // slot 46
-    pub CallShortMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jshort, // slot 47
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jshort, // slot 46
+    pub CallShortMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jshort, // slot 47
     pub CallShortMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jshort, // slot 48
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jshort, // slot 48
     pub CallIntMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jint, // slot 49
-    pub CallIntMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jint, // slot 50
-    pub CallIntMethodA: extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jint, // slot 51
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jint, // slot 49
+    pub CallIntMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jint, // slot 50
+    pub CallIntMethodA: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jint, // slot 51
     pub CallLongMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jlong, // slot 52
-    pub CallLongMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jlong, // slot 53
-    pub CallLongMethodA: extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jlong, // slot 54
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jlong, // slot 52
+    pub CallLongMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jlong, // slot 53
+    pub CallLongMethodA:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jlong, // slot 54
     pub CallFloatMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jfloat, // slot 55
-    pub CallFloatMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jfloat, // slot 56
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jfloat, // slot 55
+    pub CallFloatMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jfloat, // slot 56
     pub CallFloatMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jfloat, // slot 57
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jfloat, // slot 57
     pub CallDoubleMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jdouble, // slot 58
-    pub CallDoubleMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jdouble, // slot 59
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jdouble, // slot 58
+    pub CallDoubleMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jdouble, // slot 59
     pub CallDoubleMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jdouble, // slot 60
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jdouble, // slot 60
     pub CallVoidMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> (), // slot 61
-    pub CallVoidMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> (), // slot 62
-    pub CallVoidMethodA: extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> (), // slot 63
-    pub CallNonvirtualObjectMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> jobject, // slot 64
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> (), // slot 61
+    pub CallVoidMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> (), // slot 62
+    pub CallVoidMethodA: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> (), // slot 63
+    pub CallNonvirtualObjectMethod: extern "system" fn(
+        *mut JNIEnv_,
+        jobject,
+        jobject,
+        jmethodID,
+        _args: *const c_void,
+    ) -> jobject, // slot 64
     pub CallNonvirtualObjectMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jobject, // slot 65
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jobject, // slot 65
     pub CallNonvirtualObjectMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jobject, // slot 66
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jobject, // slot 66
     pub CallNonvirtualBooleanMethod: extern "system" fn(
         *mut JNIEnv_,
         jobject,
         jobject,
-        c_void,
+        jmethodID,
         _args: *const c_void,
     ) -> jboolean, // slot 67
     pub CallNonvirtualBooleanMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jboolean, // slot 68
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jboolean, // slot 68
     pub CallNonvirtualBooleanMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jboolean, // slot 69
-    pub CallNonvirtualByteMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> jbyte, // slot 70
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jboolean, // slot 69
+    pub CallNonvirtualByteMethod: extern "system" fn(
+        *mut JNIEnv_,
+        jobject,
+        jobject,
+        jmethodID,
+        _args: *const c_void,
+    ) -> jbyte, // slot 70
     pub CallNonvirtualByteMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jbyte, // slot 71
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jbyte, // slot 71
     pub CallNonvirtualByteMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jbyte, // slot 72
-    pub CallNonvirtualCharMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> jchar, // slot 73
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jbyte, // slot 72
+    pub CallNonvirtualCharMethod: extern "system" fn(
+        *mut JNIEnv_,
+        jobject,
+        jobject,
+        jmethodID,
+        _args: *const c_void,
+    ) -> jchar, // slot 73
     pub CallNonvirtualCharMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jchar, // slot 74
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jchar, // slot 74
     pub CallNonvirtualCharMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jchar, // slot 75
-    pub CallNonvirtualShortMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> jshort, // slot 76
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jchar, // slot 75
+    pub CallNonvirtualShortMethod: extern "system" fn(
+        *mut JNIEnv_,
+        jobject,
+        jobject,
+        jmethodID,
+        _args: *const c_void,
+    ) -> jshort, // slot 76
     pub CallNonvirtualShortMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jshort, // slot 77
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jshort, // slot 77
     pub CallNonvirtualShortMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jshort, // slot 78
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jshort, // slot 78
     pub CallNonvirtualIntMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> jint, // slot 79
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, _args: *const c_void) -> jint, // slot 79
     pub CallNonvirtualIntMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jint, // slot 80
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jint, // slot 80
     pub CallNonvirtualIntMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jint, // slot 81
-    pub CallNonvirtualLongMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> jlong, // slot 82
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jint, // slot 81
+    pub CallNonvirtualLongMethod: extern "system" fn(
+        *mut JNIEnv_,
+        jobject,
+        jobject,
+        jmethodID,
+        _args: *const c_void,
+    ) -> jlong, // slot 82
     pub CallNonvirtualLongMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jlong, // slot 83
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jlong, // slot 83
     pub CallNonvirtualLongMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jlong, // slot 84
-    pub CallNonvirtualFloatMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> jfloat, // slot 85
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jlong, // slot 84
+    pub CallNonvirtualFloatMethod: extern "system" fn(
+        *mut JNIEnv_,
+        jobject,
+        jobject,
+        jmethodID,
+        _args: *const c_void,
+    ) -> jfloat, // slot 85
     pub CallNonvirtualFloatMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jfloat, // slot 86
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jfloat, // slot 86
     pub CallNonvirtualFloatMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jfloat, // slot 87
-    pub CallNonvirtualDoubleMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> jdouble, // slot 88
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jfloat, // slot 87
+    pub CallNonvirtualDoubleMethod: extern "system" fn(
+        *mut JNIEnv_,
+        jobject,
+        jobject,
+        jmethodID,
+        _args: *const c_void,
+    ) -> jdouble, // slot 88
     pub CallNonvirtualDoubleMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> jdouble, // slot 89
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> jdouble, // slot 89
     pub CallNonvirtualDoubleMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> jdouble, // slot 90
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> jdouble, // slot 90
     pub CallNonvirtualVoidMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, _args: *const c_void) -> (), // slot 91
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, _args: *const c_void) -> (), // slot 91
     pub CallNonvirtualVoidMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, VaList) -> (), // slot 92
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, VaList) -> (), // slot 92
     pub CallNonvirtualVoidMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, jobject, c_void, *const c_void) -> (), // slot 93
+        extern "system" fn(*mut JNIEnv_, jobject, jobject, jmethodID, *const c_void) -> (), // slot 93
     pub GetFieldID:
-        extern "system" fn(*mut JNIEnv_, jobject, *const c_char, *const c_char) -> c_void, // slot 94
-    pub GetObjectField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jobject, // slot 95
-    pub GetBooleanField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jboolean, // slot 96
-    pub GetByteField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jbyte,     // slot 97
-    pub GetCharField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jchar,     // slot 98
-    pub GetShortField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jshort,   // slot 99
-    pub GetIntField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jint,       // slot 100
-    pub GetLongField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jlong,     // slot 101
-    pub GetFloatField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jfloat,   // slot 102
-    pub GetDoubleField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jdouble, // slot 103
-    pub SetObjectField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jobject) -> (), // slot 104
-    pub SetBooleanField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jboolean) -> (), // slot 105
-    pub SetByteField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jbyte) -> (), // slot 106
-    pub SetCharField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jchar) -> (), // slot 107
-    pub SetShortField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jshort) -> (), // slot 108
-    pub SetIntField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jint) -> (),   // slot 109
-    pub SetLongField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jlong) -> (), // slot 110
-    pub SetFloatField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jfloat) -> (), // slot 111
-    pub SetDoubleField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jdouble) -> (), // slot 112
+        extern "system" fn(*mut JNIEnv_, jobject, *const c_char, *const c_char) -> jfieldID, // slot 94
+    pub GetObjectField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jobject, // slot 95
+    pub GetBooleanField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jboolean, // slot 96
+    pub GetByteField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jbyte,     // slot 97
+    pub GetCharField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jchar,     // slot 98
+    pub GetShortField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jshort,   // slot 99
+    pub GetIntField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jint,       // slot 100
+    pub GetLongField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jlong,     // slot 101
+    pub GetFloatField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jfloat,   // slot 102
+    pub GetDoubleField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jdouble, // slot 103
+    pub SetObjectField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jobject) -> (), // slot 104
+    pub SetBooleanField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jboolean) -> (), // slot 105
+    pub SetByteField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jbyte) -> (), // slot 106
+    pub SetCharField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jchar) -> (), // slot 107
+    pub SetShortField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jshort) -> (), // slot 108
+    pub SetIntField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jint) -> (), // slot 109
+    pub SetLongField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jlong) -> (), // slot 110
+    pub SetFloatField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jfloat) -> (), // slot 111
+    pub SetDoubleField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jdouble) -> (), // slot 112
     pub GetStaticMethodID:
-        extern "system" fn(*mut JNIEnv_, jobject, *const c_char, *const c_char) -> c_void, // slot 113
+        extern "system" fn(*mut JNIEnv_, jobject, *const c_char, *const c_char) -> jmethodID, // slot 113
     pub CallStaticObjectMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jobject, // slot 114
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jobject, // slot 114
     pub CallStaticObjectMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jobject, // slot 115
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jobject, // slot 115
     pub CallStaticObjectMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jobject, // slot 116
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jobject, // slot 116
     pub CallStaticBooleanMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jboolean, // slot 117
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jboolean, // slot 117
     pub CallStaticBooleanMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jboolean, // slot 118
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jboolean, // slot 118
     pub CallStaticBooleanMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jboolean, // slot 119
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jboolean, // slot 119
     pub CallStaticByteMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jbyte, // slot 120
-    pub CallStaticByteMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jbyte, // slot 121
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jbyte, // slot 120
+    pub CallStaticByteMethodV:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jbyte, // slot 121
     pub CallStaticByteMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jbyte, // slot 122
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jbyte, // slot 122
     pub CallStaticCharMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jchar, // slot 123
-    pub CallStaticCharMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jchar, // slot 124
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jchar, // slot 123
+    pub CallStaticCharMethodV:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jchar, // slot 124
     pub CallStaticCharMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jchar, // slot 125
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jchar, // slot 125
     pub CallStaticShortMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jshort, // slot 126
-    pub CallStaticShortMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jshort, // slot 127
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jshort, // slot 126
+    pub CallStaticShortMethodV:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jshort, // slot 127
     pub CallStaticShortMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jshort, // slot 128
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jshort, // slot 128
     pub CallStaticIntMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jint, // slot 129
-    pub CallStaticIntMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jint, // slot 130
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jint, // slot 129
+    pub CallStaticIntMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jint, // slot 130
     pub CallStaticIntMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jint, // slot 131
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jint, // slot 131
     pub CallStaticLongMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jlong, // slot 132
-    pub CallStaticLongMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jlong, // slot 133
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jlong, // slot 132
+    pub CallStaticLongMethodV:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jlong, // slot 133
     pub CallStaticLongMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jlong, // slot 134
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jlong, // slot 134
     pub CallStaticFloatMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jfloat, // slot 135
-    pub CallStaticFloatMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jfloat, // slot 136
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jfloat, // slot 135
+    pub CallStaticFloatMethodV:
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jfloat, // slot 136
     pub CallStaticFloatMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jfloat, // slot 137
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jfloat, // slot 137
     pub CallStaticDoubleMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> jdouble, // slot 138
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> jdouble, // slot 138
     pub CallStaticDoubleMethodV:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> jdouble, // slot 139
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> jdouble, // slot 139
     pub CallStaticDoubleMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> jdouble, // slot 140
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> jdouble, // slot 140
     pub CallStaticVoidMethod:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, _args: *const c_void) -> (), // slot 141
-    pub CallStaticVoidMethodV: extern "system" fn(*mut JNIEnv_, jobject, c_void, VaList) -> (), // slot 142
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, _args: *const c_void) -> (), // slot 141
+    pub CallStaticVoidMethodV: extern "system" fn(*mut JNIEnv_, jobject, jmethodID, VaList) -> (), // slot 142
     pub CallStaticVoidMethodA:
-        extern "system" fn(*mut JNIEnv_, jobject, c_void, *const c_void) -> (), // slot 143
+        extern "system" fn(*mut JNIEnv_, jobject, jmethodID, *const c_void) -> (), // slot 143
     pub GetStaticFieldID:
-        extern "system" fn(*mut JNIEnv_, jobject, *const c_char, *const c_char) -> c_void, // slot 144
-    pub GetStaticObjectField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jobject, // slot 145
-    pub GetStaticBooleanField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jboolean, // slot 146
-    pub GetStaticByteField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jbyte, // slot 147
-    pub GetStaticCharField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jchar, // slot 148
-    pub GetStaticShortField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jshort, // slot 149
-    pub GetStaticIntField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jint, // slot 150
-    pub GetStaticLongField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jlong, // slot 151
-    pub GetStaticFloatField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jfloat, // slot 152
-    pub GetStaticDoubleField: extern "system" fn(*mut JNIEnv_, jobject, c_void) -> jdouble, // slot 153
-    pub SetStaticObjectField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jobject) -> (), // slot 154
-    pub SetStaticBooleanField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jboolean) -> (), // slot 155
-    pub SetStaticByteField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jbyte) -> (), // slot 156
-    pub SetStaticCharField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jchar) -> (), // slot 157
-    pub SetStaticShortField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jshort) -> (), // slot 158
-    pub SetStaticIntField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jint) -> (), // slot 159
-    pub SetStaticLongField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jlong) -> (), // slot 160
-    pub SetStaticFloatField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jfloat) -> (), // slot 161
-    pub SetStaticDoubleField: extern "system" fn(*mut JNIEnv_, jobject, c_void, jdouble) -> (), // slot 162
+        extern "system" fn(*mut JNIEnv_, jobject, *const c_char, *const c_char) -> jfieldID, // slot 144
+    pub GetStaticObjectField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jobject, // slot 145
+    pub GetStaticBooleanField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jboolean, // slot 146
+    pub GetStaticByteField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jbyte, // slot 147
+    pub GetStaticCharField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jchar, // slot 148
+    pub GetStaticShortField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jshort, // slot 149
+    pub GetStaticIntField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jint, // slot 150
+    pub GetStaticLongField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jlong, // slot 151
+    pub GetStaticFloatField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jfloat, // slot 152
+    pub GetStaticDoubleField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID) -> jdouble, // slot 153
+    pub SetStaticObjectField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jobject) -> (), // slot 154
+    pub SetStaticBooleanField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jboolean) -> (), // slot 155
+    pub SetStaticByteField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jbyte) -> (), // slot 156
+    pub SetStaticCharField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jchar) -> (), // slot 157
+    pub SetStaticShortField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jshort) -> (), // slot 158
+    pub SetStaticIntField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jint) -> (), // slot 159
+    pub SetStaticLongField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jlong) -> (), // slot 160
+    pub SetStaticFloatField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jfloat) -> (), // slot 161
+    pub SetStaticDoubleField: extern "system" fn(*mut JNIEnv_, jobject, jfieldID, jdouble) -> (), // slot 162
     pub NewString: extern "system" fn(*mut JNIEnv_, *const jchar, jsize) -> jobject, // slot 163
     pub GetStringLength: extern "system" fn(*mut JNIEnv_, jobject) -> jsize,         // slot 164
     pub GetStringChars: extern "system" fn(*mut JNIEnv_, jobject, *mut jboolean) -> *const jchar, // slot 165
@@ -436,7 +484,7 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     reserved3: None,
     GetVersion: jni_get_version,
     DefineClass: stub_DefineClass,
-    FindClass: stub_FindClass,
+    FindClass: jni_find_class,
     FromReflectedMethod: stub_FromReflectedMethod,
     FromReflectedField: stub_FromReflectedField,
     ToReflectedMethod: stub_ToReflectedMethod,
@@ -461,7 +509,7 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     NewObject: stub_NewObject,
     NewObjectV: stub_NewObjectV,
     NewObjectA: stub_NewObjectA,
-    GetObjectClass: stub_GetObjectClass,
+    GetObjectClass: jni_get_object_class,
     IsInstanceOf: stub_IsInstanceOf,
     GetMethodID: stub_GetMethodID,
     CallObjectMethod: stub_CallObjectMethod,
@@ -524,25 +572,25 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     CallNonvirtualVoidMethod: stub_CallNonvirtualVoidMethod,
     CallNonvirtualVoidMethodV: stub_CallNonvirtualVoidMethodV,
     CallNonvirtualVoidMethodA: stub_CallNonvirtualVoidMethodA,
-    GetFieldID: stub_GetFieldID,
-    GetObjectField: stub_GetObjectField,
-    GetBooleanField: stub_GetBooleanField,
-    GetByteField: stub_GetByteField,
-    GetCharField: stub_GetCharField,
-    GetShortField: stub_GetShortField,
-    GetIntField: stub_GetIntField,
-    GetLongField: stub_GetLongField,
-    GetFloatField: stub_GetFloatField,
-    GetDoubleField: stub_GetDoubleField,
-    SetObjectField: stub_SetObjectField,
-    SetBooleanField: stub_SetBooleanField,
-    SetByteField: stub_SetByteField,
-    SetCharField: stub_SetCharField,
-    SetShortField: stub_SetShortField,
-    SetIntField: stub_SetIntField,
-    SetLongField: stub_SetLongField,
-    SetFloatField: stub_SetFloatField,
-    SetDoubleField: stub_SetDoubleField,
+    GetFieldID: jni_get_field_id,
+    GetObjectField: jni_getobjectfield,
+    GetBooleanField: jni_getbooleanfield,
+    GetByteField: jni_getbytefield,
+    GetCharField: jni_getcharfield,
+    GetShortField: jni_getshortfield,
+    GetIntField: jni_getintfield,
+    GetLongField: jni_getlongfield,
+    GetFloatField: jni_getfloatfield,
+    GetDoubleField: jni_getdoublefield,
+    SetObjectField: jni_setobjectfield,
+    SetBooleanField: jni_setbooleanfield,
+    SetByteField: jni_setbytefield,
+    SetCharField: jni_setcharfield,
+    SetShortField: jni_setshortfield,
+    SetIntField: jni_setintfield,
+    SetLongField: jni_setlongfield,
+    SetFloatField: jni_setfloatfield,
+    SetDoubleField: jni_setdoublefield,
     GetStaticMethodID: stub_GetStaticMethodID,
     CallStaticObjectMethod: stub_CallStaticObjectMethod,
     CallStaticObjectMethodV: stub_CallStaticObjectMethodV,
@@ -574,25 +622,25 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     CallStaticVoidMethod: stub_CallStaticVoidMethod,
     CallStaticVoidMethodV: stub_CallStaticVoidMethodV,
     CallStaticVoidMethodA: stub_CallStaticVoidMethodA,
-    GetStaticFieldID: stub_GetStaticFieldID,
-    GetStaticObjectField: stub_GetStaticObjectField,
-    GetStaticBooleanField: stub_GetStaticBooleanField,
-    GetStaticByteField: stub_GetStaticByteField,
-    GetStaticCharField: stub_GetStaticCharField,
-    GetStaticShortField: stub_GetStaticShortField,
-    GetStaticIntField: stub_GetStaticIntField,
-    GetStaticLongField: stub_GetStaticLongField,
-    GetStaticFloatField: stub_GetStaticFloatField,
-    GetStaticDoubleField: stub_GetStaticDoubleField,
-    SetStaticObjectField: stub_SetStaticObjectField,
-    SetStaticBooleanField: stub_SetStaticBooleanField,
-    SetStaticByteField: stub_SetStaticByteField,
-    SetStaticCharField: stub_SetStaticCharField,
-    SetStaticShortField: stub_SetStaticShortField,
-    SetStaticIntField: stub_SetStaticIntField,
-    SetStaticLongField: stub_SetStaticLongField,
-    SetStaticFloatField: stub_SetStaticFloatField,
-    SetStaticDoubleField: stub_SetStaticDoubleField,
+    GetStaticFieldID: jni_get_static_field_id,
+    GetStaticObjectField: jni_getstaticobjectfield,
+    GetStaticBooleanField: jni_getstaticbooleanfield,
+    GetStaticByteField: jni_getstaticbytefield,
+    GetStaticCharField: jni_getstaticcharfield,
+    GetStaticShortField: jni_getstaticshortfield,
+    GetStaticIntField: jni_getstaticintfield,
+    GetStaticLongField: jni_getstaticlongfield,
+    GetStaticFloatField: jni_getstaticfloatfield,
+    GetStaticDoubleField: jni_getstaticdoublefield,
+    SetStaticObjectField: jni_setstaticobjectfield,
+    SetStaticBooleanField: jni_setstaticbooleanfield,
+    SetStaticByteField: jni_setstaticbytefield,
+    SetStaticCharField: jni_setstaticcharfield,
+    SetStaticShortField: jni_setstaticshortfield,
+    SetStaticIntField: jni_setstaticintfield,
+    SetStaticLongField: jni_setstaticlongfield,
+    SetStaticFloatField: jni_setstaticfloatfield,
+    SetStaticDoubleField: jni_setstaticdoublefield,
     NewString: jni_new_string,
     GetStringLength: stub_GetStringLength,
     GetStringChars: stub_GetStringChars,
@@ -1554,19 +1602,16 @@ extern "system" fn stub_DefineClass(
 ) -> jobject {
     unimplemented_slot(5, "DefineClass")
 }
-extern "system" fn stub_FindClass(_env: *mut JNIEnv_, _name: *const c_char) -> jobject {
-    unimplemented_slot(6, "FindClass")
-}
-extern "system" fn stub_FromReflectedMethod(_env: *mut JNIEnv_, _method: jobject) -> c_void {
+extern "system" fn stub_FromReflectedMethod(_env: *mut JNIEnv_, _method: jobject) -> jmethodID {
     unimplemented_slot(7, "FromReflectedMethod")
 }
-extern "system" fn stub_FromReflectedField(_env: *mut JNIEnv_, _field: jobject) -> c_void {
+extern "system" fn stub_FromReflectedField(_env: *mut JNIEnv_, _field: jobject) -> jfieldID {
     unimplemented_slot(8, "FromReflectedField")
 }
 extern "system" fn stub_ToReflectedMethod(
     _env: *mut JNIEnv_,
     _cls: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _isStatic: jboolean,
 ) -> jobject {
     unimplemented_slot(9, "ToReflectedMethod")
@@ -1584,7 +1629,7 @@ extern "system" fn stub_IsAssignableFrom(
 extern "system" fn stub_ToReflectedField(
     _env: *mut JNIEnv_,
     _cls: jobject,
-    _fieldID: c_void,
+    _fieldID: jfieldID,
     _isStatic: jboolean,
 ) -> jobject {
     unimplemented_slot(12, "ToReflectedField")
@@ -1641,7 +1686,7 @@ extern "system" fn stub_AllocObject(_env: *mut JNIEnv_, _clazz: jobject) -> jobj
 extern "system" fn stub_NewObject(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jobject {
     unimplemented_slot(28, "NewObject")
@@ -1649,7 +1694,7 @@ extern "system" fn stub_NewObject(
 extern "system" fn stub_NewObjectV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jobject {
     unimplemented_slot(29, "NewObjectV")
@@ -1657,13 +1702,10 @@ extern "system" fn stub_NewObjectV(
 extern "system" fn stub_NewObjectA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jobject {
     unimplemented_slot(30, "NewObjectA")
-}
-extern "system" fn stub_GetObjectClass(_env: *mut JNIEnv_, _obj: jobject) -> jobject {
-    unimplemented_slot(31, "GetObjectClass")
 }
 extern "system" fn stub_IsInstanceOf(
     _env: *mut JNIEnv_,
@@ -1677,13 +1719,13 @@ extern "system" fn stub_GetMethodID(
     _clazz: jobject,
     _name: *const c_char,
     _sig: *const c_char,
-) -> c_void {
+) -> jmethodID {
     unimplemented_slot(33, "GetMethodID")
 }
 extern "system" fn stub_CallObjectMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jobject {
     unimplemented_slot(34, "CallObjectMethod")
@@ -1691,7 +1733,7 @@ extern "system" fn stub_CallObjectMethod(
 extern "system" fn stub_CallObjectMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jobject {
     unimplemented_slot(35, "CallObjectMethodV")
@@ -1699,7 +1741,7 @@ extern "system" fn stub_CallObjectMethodV(
 extern "system" fn stub_CallObjectMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jobject {
     unimplemented_slot(36, "CallObjectMethodA")
@@ -1707,7 +1749,7 @@ extern "system" fn stub_CallObjectMethodA(
 extern "system" fn stub_CallBooleanMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jboolean {
     unimplemented_slot(37, "CallBooleanMethod")
@@ -1715,7 +1757,7 @@ extern "system" fn stub_CallBooleanMethod(
 extern "system" fn stub_CallBooleanMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jboolean {
     unimplemented_slot(38, "CallBooleanMethodV")
@@ -1723,7 +1765,7 @@ extern "system" fn stub_CallBooleanMethodV(
 extern "system" fn stub_CallBooleanMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jboolean {
     unimplemented_slot(39, "CallBooleanMethodA")
@@ -1731,7 +1773,7 @@ extern "system" fn stub_CallBooleanMethodA(
 extern "system" fn stub_CallByteMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jbyte {
     unimplemented_slot(40, "CallByteMethod")
@@ -1739,7 +1781,7 @@ extern "system" fn stub_CallByteMethod(
 extern "system" fn stub_CallByteMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jbyte {
     unimplemented_slot(41, "CallByteMethodV")
@@ -1747,7 +1789,7 @@ extern "system" fn stub_CallByteMethodV(
 extern "system" fn stub_CallByteMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jbyte {
     unimplemented_slot(42, "CallByteMethodA")
@@ -1755,7 +1797,7 @@ extern "system" fn stub_CallByteMethodA(
 extern "system" fn stub_CallCharMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jchar {
     unimplemented_slot(43, "CallCharMethod")
@@ -1763,7 +1805,7 @@ extern "system" fn stub_CallCharMethod(
 extern "system" fn stub_CallCharMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jchar {
     unimplemented_slot(44, "CallCharMethodV")
@@ -1771,7 +1813,7 @@ extern "system" fn stub_CallCharMethodV(
 extern "system" fn stub_CallCharMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jchar {
     unimplemented_slot(45, "CallCharMethodA")
@@ -1779,7 +1821,7 @@ extern "system" fn stub_CallCharMethodA(
 extern "system" fn stub_CallShortMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jshort {
     unimplemented_slot(46, "CallShortMethod")
@@ -1787,7 +1829,7 @@ extern "system" fn stub_CallShortMethod(
 extern "system" fn stub_CallShortMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jshort {
     unimplemented_slot(47, "CallShortMethodV")
@@ -1795,7 +1837,7 @@ extern "system" fn stub_CallShortMethodV(
 extern "system" fn stub_CallShortMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jshort {
     unimplemented_slot(48, "CallShortMethodA")
@@ -1803,7 +1845,7 @@ extern "system" fn stub_CallShortMethodA(
 extern "system" fn stub_CallIntMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jint {
     unimplemented_slot(49, "CallIntMethod")
@@ -1811,7 +1853,7 @@ extern "system" fn stub_CallIntMethod(
 extern "system" fn stub_CallIntMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jint {
     unimplemented_slot(50, "CallIntMethodV")
@@ -1819,7 +1861,7 @@ extern "system" fn stub_CallIntMethodV(
 extern "system" fn stub_CallIntMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jint {
     unimplemented_slot(51, "CallIntMethodA")
@@ -1827,7 +1869,7 @@ extern "system" fn stub_CallIntMethodA(
 extern "system" fn stub_CallLongMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jlong {
     unimplemented_slot(52, "CallLongMethod")
@@ -1835,7 +1877,7 @@ extern "system" fn stub_CallLongMethod(
 extern "system" fn stub_CallLongMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jlong {
     unimplemented_slot(53, "CallLongMethodV")
@@ -1843,7 +1885,7 @@ extern "system" fn stub_CallLongMethodV(
 extern "system" fn stub_CallLongMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jlong {
     unimplemented_slot(54, "CallLongMethodA")
@@ -1851,7 +1893,7 @@ extern "system" fn stub_CallLongMethodA(
 extern "system" fn stub_CallFloatMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jfloat {
     unimplemented_slot(55, "CallFloatMethod")
@@ -1859,7 +1901,7 @@ extern "system" fn stub_CallFloatMethod(
 extern "system" fn stub_CallFloatMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jfloat {
     unimplemented_slot(56, "CallFloatMethodV")
@@ -1867,7 +1909,7 @@ extern "system" fn stub_CallFloatMethodV(
 extern "system" fn stub_CallFloatMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jfloat {
     unimplemented_slot(57, "CallFloatMethodA")
@@ -1875,7 +1917,7 @@ extern "system" fn stub_CallFloatMethodA(
 extern "system" fn stub_CallDoubleMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jdouble {
     unimplemented_slot(58, "CallDoubleMethod")
@@ -1883,7 +1925,7 @@ extern "system" fn stub_CallDoubleMethod(
 extern "system" fn stub_CallDoubleMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jdouble {
     unimplemented_slot(59, "CallDoubleMethodV")
@@ -1891,7 +1933,7 @@ extern "system" fn stub_CallDoubleMethodV(
 extern "system" fn stub_CallDoubleMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jdouble {
     unimplemented_slot(60, "CallDoubleMethodA")
@@ -1899,7 +1941,7 @@ extern "system" fn stub_CallDoubleMethodA(
 extern "system" fn stub_CallVoidMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) {
     unimplemented_slot(61, "CallVoidMethod")
@@ -1907,7 +1949,7 @@ extern "system" fn stub_CallVoidMethod(
 extern "system" fn stub_CallVoidMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) {
     unimplemented_slot(62, "CallVoidMethodV")
@@ -1915,7 +1957,7 @@ extern "system" fn stub_CallVoidMethodV(
 extern "system" fn stub_CallVoidMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) {
     unimplemented_slot(63, "CallVoidMethodA")
@@ -1924,7 +1966,7 @@ extern "system" fn stub_CallNonvirtualObjectMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jobject {
     unimplemented_slot(64, "CallNonvirtualObjectMethod")
@@ -1933,7 +1975,7 @@ extern "system" fn stub_CallNonvirtualObjectMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jobject {
     unimplemented_slot(65, "CallNonvirtualObjectMethodV")
@@ -1942,7 +1984,7 @@ extern "system" fn stub_CallNonvirtualObjectMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jobject {
     unimplemented_slot(66, "CallNonvirtualObjectMethodA")
@@ -1951,7 +1993,7 @@ extern "system" fn stub_CallNonvirtualBooleanMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jboolean {
     unimplemented_slot(67, "CallNonvirtualBooleanMethod")
@@ -1960,7 +2002,7 @@ extern "system" fn stub_CallNonvirtualBooleanMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jboolean {
     unimplemented_slot(68, "CallNonvirtualBooleanMethodV")
@@ -1969,7 +2011,7 @@ extern "system" fn stub_CallNonvirtualBooleanMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jboolean {
     unimplemented_slot(69, "CallNonvirtualBooleanMethodA")
@@ -1978,7 +2020,7 @@ extern "system" fn stub_CallNonvirtualByteMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jbyte {
     unimplemented_slot(70, "CallNonvirtualByteMethod")
@@ -1987,7 +2029,7 @@ extern "system" fn stub_CallNonvirtualByteMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jbyte {
     unimplemented_slot(71, "CallNonvirtualByteMethodV")
@@ -1996,7 +2038,7 @@ extern "system" fn stub_CallNonvirtualByteMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jbyte {
     unimplemented_slot(72, "CallNonvirtualByteMethodA")
@@ -2005,7 +2047,7 @@ extern "system" fn stub_CallNonvirtualCharMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jchar {
     unimplemented_slot(73, "CallNonvirtualCharMethod")
@@ -2014,7 +2056,7 @@ extern "system" fn stub_CallNonvirtualCharMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jchar {
     unimplemented_slot(74, "CallNonvirtualCharMethodV")
@@ -2023,7 +2065,7 @@ extern "system" fn stub_CallNonvirtualCharMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jchar {
     unimplemented_slot(75, "CallNonvirtualCharMethodA")
@@ -2032,7 +2074,7 @@ extern "system" fn stub_CallNonvirtualShortMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jshort {
     unimplemented_slot(76, "CallNonvirtualShortMethod")
@@ -2041,7 +2083,7 @@ extern "system" fn stub_CallNonvirtualShortMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jshort {
     unimplemented_slot(77, "CallNonvirtualShortMethodV")
@@ -2050,7 +2092,7 @@ extern "system" fn stub_CallNonvirtualShortMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jshort {
     unimplemented_slot(78, "CallNonvirtualShortMethodA")
@@ -2059,7 +2101,7 @@ extern "system" fn stub_CallNonvirtualIntMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jint {
     unimplemented_slot(79, "CallNonvirtualIntMethod")
@@ -2068,7 +2110,7 @@ extern "system" fn stub_CallNonvirtualIntMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jint {
     unimplemented_slot(80, "CallNonvirtualIntMethodV")
@@ -2077,7 +2119,7 @@ extern "system" fn stub_CallNonvirtualIntMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jint {
     unimplemented_slot(81, "CallNonvirtualIntMethodA")
@@ -2086,7 +2128,7 @@ extern "system" fn stub_CallNonvirtualLongMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jlong {
     unimplemented_slot(82, "CallNonvirtualLongMethod")
@@ -2095,7 +2137,7 @@ extern "system" fn stub_CallNonvirtualLongMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jlong {
     unimplemented_slot(83, "CallNonvirtualLongMethodV")
@@ -2104,7 +2146,7 @@ extern "system" fn stub_CallNonvirtualLongMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jlong {
     unimplemented_slot(84, "CallNonvirtualLongMethodA")
@@ -2113,7 +2155,7 @@ extern "system" fn stub_CallNonvirtualFloatMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jfloat {
     unimplemented_slot(85, "CallNonvirtualFloatMethod")
@@ -2122,7 +2164,7 @@ extern "system" fn stub_CallNonvirtualFloatMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jfloat {
     unimplemented_slot(86, "CallNonvirtualFloatMethodV")
@@ -2131,7 +2173,7 @@ extern "system" fn stub_CallNonvirtualFloatMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jfloat {
     unimplemented_slot(87, "CallNonvirtualFloatMethodA")
@@ -2140,7 +2182,7 @@ extern "system" fn stub_CallNonvirtualDoubleMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jdouble {
     unimplemented_slot(88, "CallNonvirtualDoubleMethod")
@@ -2149,7 +2191,7 @@ extern "system" fn stub_CallNonvirtualDoubleMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jdouble {
     unimplemented_slot(89, "CallNonvirtualDoubleMethodV")
@@ -2158,7 +2200,7 @@ extern "system" fn stub_CallNonvirtualDoubleMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jdouble {
     unimplemented_slot(90, "CallNonvirtualDoubleMethodA")
@@ -2167,7 +2209,7 @@ extern "system" fn stub_CallNonvirtualVoidMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) {
     unimplemented_slot(91, "CallNonvirtualVoidMethod")
@@ -2176,7 +2218,7 @@ extern "system" fn stub_CallNonvirtualVoidMethodV(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) {
     unimplemented_slot(92, "CallNonvirtualVoidMethodV")
@@ -2185,150 +2227,23 @@ extern "system" fn stub_CallNonvirtualVoidMethodA(
     _env: *mut JNIEnv_,
     _obj: jobject,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) {
     unimplemented_slot(93, "CallNonvirtualVoidMethodA")
-}
-extern "system" fn stub_GetFieldID(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _name: *const c_char,
-    _sig: *const c_char,
-) -> c_void {
-    unimplemented_slot(94, "GetFieldID")
-}
-extern "system" fn stub_GetObjectField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-) -> jobject {
-    unimplemented_slot(95, "GetObjectField")
-}
-extern "system" fn stub_GetBooleanField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-) -> jboolean {
-    unimplemented_slot(96, "GetBooleanField")
-}
-extern "system" fn stub_GetByteField(_env: *mut JNIEnv_, _obj: jobject, _fieldID: c_void) -> jbyte {
-    unimplemented_slot(97, "GetByteField")
-}
-extern "system" fn stub_GetCharField(_env: *mut JNIEnv_, _obj: jobject, _fieldID: c_void) -> jchar {
-    unimplemented_slot(98, "GetCharField")
-}
-extern "system" fn stub_GetShortField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-) -> jshort {
-    unimplemented_slot(99, "GetShortField")
-}
-extern "system" fn stub_GetIntField(_env: *mut JNIEnv_, _obj: jobject, _fieldID: c_void) -> jint {
-    unimplemented_slot(100, "GetIntField")
-}
-extern "system" fn stub_GetLongField(_env: *mut JNIEnv_, _obj: jobject, _fieldID: c_void) -> jlong {
-    unimplemented_slot(101, "GetLongField")
-}
-extern "system" fn stub_GetFloatField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-) -> jfloat {
-    unimplemented_slot(102, "GetFloatField")
-}
-extern "system" fn stub_GetDoubleField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-) -> jdouble {
-    unimplemented_slot(103, "GetDoubleField")
-}
-extern "system" fn stub_SetObjectField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jobject,
-) {
-    unimplemented_slot(104, "SetObjectField")
-}
-extern "system" fn stub_SetBooleanField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jboolean,
-) {
-    unimplemented_slot(105, "SetBooleanField")
-}
-extern "system" fn stub_SetByteField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jbyte,
-) {
-    unimplemented_slot(106, "SetByteField")
-}
-extern "system" fn stub_SetCharField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jchar,
-) {
-    unimplemented_slot(107, "SetCharField")
-}
-extern "system" fn stub_SetShortField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jshort,
-) {
-    unimplemented_slot(108, "SetShortField")
-}
-extern "system" fn stub_SetIntField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jint,
-) {
-    unimplemented_slot(109, "SetIntField")
-}
-extern "system" fn stub_SetLongField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jlong,
-) {
-    unimplemented_slot(110, "SetLongField")
-}
-extern "system" fn stub_SetFloatField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jfloat,
-) {
-    unimplemented_slot(111, "SetFloatField")
-}
-extern "system" fn stub_SetDoubleField(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _fieldID: c_void,
-    _val: jdouble,
-) {
-    unimplemented_slot(112, "SetDoubleField")
 }
 extern "system" fn stub_GetStaticMethodID(
     _env: *mut JNIEnv_,
     _clazz: jobject,
     _name: *const c_char,
     _sig: *const c_char,
-) -> c_void {
+) -> jmethodID {
     unimplemented_slot(113, "GetStaticMethodID")
 }
 extern "system" fn stub_CallStaticObjectMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jobject {
     unimplemented_slot(114, "CallStaticObjectMethod")
@@ -2336,7 +2251,7 @@ extern "system" fn stub_CallStaticObjectMethod(
 extern "system" fn stub_CallStaticObjectMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jobject {
     unimplemented_slot(115, "CallStaticObjectMethodV")
@@ -2344,7 +2259,7 @@ extern "system" fn stub_CallStaticObjectMethodV(
 extern "system" fn stub_CallStaticObjectMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jobject {
     unimplemented_slot(116, "CallStaticObjectMethodA")
@@ -2352,7 +2267,7 @@ extern "system" fn stub_CallStaticObjectMethodA(
 extern "system" fn stub_CallStaticBooleanMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jboolean {
     unimplemented_slot(117, "CallStaticBooleanMethod")
@@ -2360,7 +2275,7 @@ extern "system" fn stub_CallStaticBooleanMethod(
 extern "system" fn stub_CallStaticBooleanMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jboolean {
     unimplemented_slot(118, "CallStaticBooleanMethodV")
@@ -2368,7 +2283,7 @@ extern "system" fn stub_CallStaticBooleanMethodV(
 extern "system" fn stub_CallStaticBooleanMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jboolean {
     unimplemented_slot(119, "CallStaticBooleanMethodA")
@@ -2376,7 +2291,7 @@ extern "system" fn stub_CallStaticBooleanMethodA(
 extern "system" fn stub_CallStaticByteMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jbyte {
     unimplemented_slot(120, "CallStaticByteMethod")
@@ -2384,7 +2299,7 @@ extern "system" fn stub_CallStaticByteMethod(
 extern "system" fn stub_CallStaticByteMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jbyte {
     unimplemented_slot(121, "CallStaticByteMethodV")
@@ -2392,7 +2307,7 @@ extern "system" fn stub_CallStaticByteMethodV(
 extern "system" fn stub_CallStaticByteMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jbyte {
     unimplemented_slot(122, "CallStaticByteMethodA")
@@ -2400,7 +2315,7 @@ extern "system" fn stub_CallStaticByteMethodA(
 extern "system" fn stub_CallStaticCharMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jchar {
     unimplemented_slot(123, "CallStaticCharMethod")
@@ -2408,7 +2323,7 @@ extern "system" fn stub_CallStaticCharMethod(
 extern "system" fn stub_CallStaticCharMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jchar {
     unimplemented_slot(124, "CallStaticCharMethodV")
@@ -2416,7 +2331,7 @@ extern "system" fn stub_CallStaticCharMethodV(
 extern "system" fn stub_CallStaticCharMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jchar {
     unimplemented_slot(125, "CallStaticCharMethodA")
@@ -2424,7 +2339,7 @@ extern "system" fn stub_CallStaticCharMethodA(
 extern "system" fn stub_CallStaticShortMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jshort {
     unimplemented_slot(126, "CallStaticShortMethod")
@@ -2432,7 +2347,7 @@ extern "system" fn stub_CallStaticShortMethod(
 extern "system" fn stub_CallStaticShortMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jshort {
     unimplemented_slot(127, "CallStaticShortMethodV")
@@ -2440,7 +2355,7 @@ extern "system" fn stub_CallStaticShortMethodV(
 extern "system" fn stub_CallStaticShortMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jshort {
     unimplemented_slot(128, "CallStaticShortMethodA")
@@ -2448,7 +2363,7 @@ extern "system" fn stub_CallStaticShortMethodA(
 extern "system" fn stub_CallStaticIntMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jint {
     unimplemented_slot(129, "CallStaticIntMethod")
@@ -2456,7 +2371,7 @@ extern "system" fn stub_CallStaticIntMethod(
 extern "system" fn stub_CallStaticIntMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jint {
     unimplemented_slot(130, "CallStaticIntMethodV")
@@ -2464,7 +2379,7 @@ extern "system" fn stub_CallStaticIntMethodV(
 extern "system" fn stub_CallStaticIntMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jint {
     unimplemented_slot(131, "CallStaticIntMethodA")
@@ -2472,7 +2387,7 @@ extern "system" fn stub_CallStaticIntMethodA(
 extern "system" fn stub_CallStaticLongMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jlong {
     unimplemented_slot(132, "CallStaticLongMethod")
@@ -2480,7 +2395,7 @@ extern "system" fn stub_CallStaticLongMethod(
 extern "system" fn stub_CallStaticLongMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jlong {
     unimplemented_slot(133, "CallStaticLongMethodV")
@@ -2488,7 +2403,7 @@ extern "system" fn stub_CallStaticLongMethodV(
 extern "system" fn stub_CallStaticLongMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jlong {
     unimplemented_slot(134, "CallStaticLongMethodA")
@@ -2496,7 +2411,7 @@ extern "system" fn stub_CallStaticLongMethodA(
 extern "system" fn stub_CallStaticFloatMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jfloat {
     unimplemented_slot(135, "CallStaticFloatMethod")
@@ -2504,7 +2419,7 @@ extern "system" fn stub_CallStaticFloatMethod(
 extern "system" fn stub_CallStaticFloatMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jfloat {
     unimplemented_slot(136, "CallStaticFloatMethodV")
@@ -2512,7 +2427,7 @@ extern "system" fn stub_CallStaticFloatMethodV(
 extern "system" fn stub_CallStaticFloatMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jfloat {
     unimplemented_slot(137, "CallStaticFloatMethodA")
@@ -2520,7 +2435,7 @@ extern "system" fn stub_CallStaticFloatMethodA(
 extern "system" fn stub_CallStaticDoubleMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jdouble {
     unimplemented_slot(138, "CallStaticDoubleMethod")
@@ -2528,7 +2443,7 @@ extern "system" fn stub_CallStaticDoubleMethod(
 extern "system" fn stub_CallStaticDoubleMethodV(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) -> jdouble {
     unimplemented_slot(139, "CallStaticDoubleMethodV")
@@ -2536,7 +2451,7 @@ extern "system" fn stub_CallStaticDoubleMethodV(
 extern "system" fn stub_CallStaticDoubleMethodA(
     _env: *mut JNIEnv_,
     _clazz: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) -> jdouble {
     unimplemented_slot(140, "CallStaticDoubleMethodA")
@@ -2544,7 +2459,7 @@ extern "system" fn stub_CallStaticDoubleMethodA(
 extern "system" fn stub_CallStaticVoidMethod(
     _env: *mut JNIEnv_,
     _cls: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) {
     unimplemented_slot(141, "CallStaticVoidMethod")
@@ -2552,7 +2467,7 @@ extern "system" fn stub_CallStaticVoidMethod(
 extern "system" fn stub_CallStaticVoidMethodV(
     _env: *mut JNIEnv_,
     _cls: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: VaList,
 ) {
     unimplemented_slot(142, "CallStaticVoidMethodV")
@@ -2560,153 +2475,10 @@ extern "system" fn stub_CallStaticVoidMethodV(
 extern "system" fn stub_CallStaticVoidMethodA(
     _env: *mut JNIEnv_,
     _cls: jobject,
-    _methodID: c_void,
+    _methodID: jmethodID,
     _args: *const c_void,
 ) {
     unimplemented_slot(143, "CallStaticVoidMethodA")
-}
-extern "system" fn stub_GetStaticFieldID(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _name: *const c_char,
-    _sig: *const c_char,
-) -> c_void {
-    unimplemented_slot(144, "GetStaticFieldID")
-}
-extern "system" fn stub_GetStaticObjectField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jobject {
-    unimplemented_slot(145, "GetStaticObjectField")
-}
-extern "system" fn stub_GetStaticBooleanField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jboolean {
-    unimplemented_slot(146, "GetStaticBooleanField")
-}
-extern "system" fn stub_GetStaticByteField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jbyte {
-    unimplemented_slot(147, "GetStaticByteField")
-}
-extern "system" fn stub_GetStaticCharField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jchar {
-    unimplemented_slot(148, "GetStaticCharField")
-}
-extern "system" fn stub_GetStaticShortField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jshort {
-    unimplemented_slot(149, "GetStaticShortField")
-}
-extern "system" fn stub_GetStaticIntField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jint {
-    unimplemented_slot(150, "GetStaticIntField")
-}
-extern "system" fn stub_GetStaticLongField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jlong {
-    unimplemented_slot(151, "GetStaticLongField")
-}
-extern "system" fn stub_GetStaticFloatField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jfloat {
-    unimplemented_slot(152, "GetStaticFloatField")
-}
-extern "system" fn stub_GetStaticDoubleField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-) -> jdouble {
-    unimplemented_slot(153, "GetStaticDoubleField")
-}
-extern "system" fn stub_SetStaticObjectField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jobject,
-) {
-    unimplemented_slot(154, "SetStaticObjectField")
-}
-extern "system" fn stub_SetStaticBooleanField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jboolean,
-) {
-    unimplemented_slot(155, "SetStaticBooleanField")
-}
-extern "system" fn stub_SetStaticByteField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jbyte,
-) {
-    unimplemented_slot(156, "SetStaticByteField")
-}
-extern "system" fn stub_SetStaticCharField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jchar,
-) {
-    unimplemented_slot(157, "SetStaticCharField")
-}
-extern "system" fn stub_SetStaticShortField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jshort,
-) {
-    unimplemented_slot(158, "SetStaticShortField")
-}
-extern "system" fn stub_SetStaticIntField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jint,
-) {
-    unimplemented_slot(159, "SetStaticIntField")
-}
-extern "system" fn stub_SetStaticLongField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jlong,
-) {
-    unimplemented_slot(160, "SetStaticLongField")
-}
-extern "system" fn stub_SetStaticFloatField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jfloat,
-) {
-    unimplemented_slot(161, "SetStaticFloatField")
-}
-extern "system" fn stub_SetStaticDoubleField(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _fieldID: c_void,
-    _value: jdouble,
-) {
-    unimplemented_slot(162, "SetStaticDoubleField")
 }
 extern "system" fn stub_GetStringLength(_env: *mut JNIEnv_, _str: jobject) -> jsize {
     unimplemented_slot(164, "GetStringLength")
@@ -3138,9 +2910,10 @@ extern "system" fn stub_IsVirtualThread(_env: *mut JNIEnv_, _obj: jobject) -> jb
     unimplemented_slot(234, "IsVirtualThread")
 }
 
-// ---- T10 slice 2: real string-family slot wrappers. The REAL_SLOTS
-// registry above points the five string slots at these; the loud-stub
-// default still covers every not-yet-wired slot. ----
+// ---- T10 slices 2-3: real slot wrappers (string family + the
+// class/field surface). The REAL_SLOTS registry above points these
+// slots at them; the loud-stub default still covers every
+// not-yet-wired slot. ----
 
 /// `NewString` (slot 163): UTF-16 code units (native-endian — the
 /// ABI's own shape) → a rooted local-ref `jstring` (T10 slice 2).
@@ -3229,4 +3002,663 @@ extern "system" fn jni_release_string_utf_chars(
         return;
     }
     crate::jni::strings::slot_release_string_utf_chars(chars as usize);
+}
+
+/// `FindClass` (slot 6): a JNI-form name (internal `a/b/C`, array
+/// descriptor) -> the interned `java/lang/Class` mirror as a fresh
+/// local ref (T10 slice 3, M5_JNI_CLASSES.md section 2). The class
+/// must EXIST (compiled via the host dispatch, or the builtin
+/// tables) BEFORE interning — no garbage name ever enters the Class
+/// table; a miss -> JNI null (the spec's NoClassDefFoundError shape
+/// — v1 gap, T13-registered). Bare primitive names are not classes.
+extern "system" fn jni_find_class(_env: JNIEnv, name: *const c_char) -> jclass {
+    let Some(bytes) = j2r_jni_ffi::ffi::read_caller_str(name) else {
+        return std::ptr::null_mut();
+    };
+    match String::from_utf8(bytes) {
+        Ok(s) => match crate::jni::classes::slot_find_class(&s) {
+            Some(tag) => crate::jni::bridge::tag_to_jobject(tag),
+            None => std::ptr::null_mut(),
+        },
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// `GetObjectClass` (slot 31): the receiver's runtime class (arrays
+/// included — an array's class IS its descriptor) as the interned
+/// `java/lang/Class` mirror, fresh local ref (T10 slice 3,
+/// M5_JNI_CLASSES.md section 2). Null -> JNI null (v1 gap,
+/// T13-registered).
+extern "system" fn jni_get_object_class(_env: JNIEnv, obj: jobject) -> jclass {
+    match crate::jni::classes::slot_get_object_class(crate::jni::bridge::jobject_to_tag(obj)) {
+        Some(tag) => crate::jni::bridge::tag_to_jobject(tag),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// `GetFieldID` (slot 94): resolve an INSTANCE field by `(name, sig)`
+/// on the class — the superclass walk included (JNI searches
+/// inherited fields) — deduplicated into a permanent field-ID tag
+/// (T10 slice 3, M5_JNI_CLASSES.md section 3). Miss -> NULL (the
+/// spec's NoSuchFieldError shape — v1 gap, T13-registered); builtin
+/// classes have no field facts in v1 -> NULL (registered gap).
+extern "system" fn jni_get_field_id(
+    _env: JNIEnv,
+    clazz: jclass,
+    name: *const c_char,
+    sig: *const c_char,
+) -> jfieldID {
+    let (Some(name_bytes), Some(sig_bytes)) = (
+        j2r_jni_ffi::ffi::read_caller_str(name),
+        j2r_jni_ffi::ffi::read_caller_str(sig),
+    ) else {
+        return std::ptr::null_mut();
+    };
+    let (Ok(name), Ok(sig)) = (String::from_utf8(name_bytes), String::from_utf8(sig_bytes)) else {
+        return std::ptr::null_mut();
+    };
+    match crate::jni::classes::slot_get_field_id(
+        crate::jni::bridge::jobject_to_tag(clazz),
+        &name,
+        &sig,
+        false,
+    ) {
+        Some(id) => crate::jni::classes::field_id_to_ptr(id),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// `GetStaticFieldID` (slot 144): the STATIC twin of `GetFieldID` —
+/// same walk, same permanence and dedup; only fields whose own
+/// declaration says `static` match (T10 slice 3, M5_JNI_CLASSES.md
+/// section 3). Miss -> NULL (v1 gap, T13-registered).
+extern "system" fn jni_get_static_field_id(
+    _env: JNIEnv,
+    clazz: jclass,
+    name: *const c_char,
+    sig: *const c_char,
+) -> jfieldID {
+    let (Some(name_bytes), Some(sig_bytes)) = (
+        j2r_jni_ffi::ffi::read_caller_str(name),
+        j2r_jni_ffi::ffi::read_caller_str(sig),
+    ) else {
+        return std::ptr::null_mut();
+    };
+    let (Ok(name), Ok(sig)) = (String::from_utf8(name_bytes), String::from_utf8(sig_bytes)) else {
+        return std::ptr::null_mut();
+    };
+    match crate::jni::classes::slot_get_field_id(
+        crate::jni::bridge::jobject_to_tag(clazz),
+        &name,
+        &sig,
+        true,
+    ) {
+        Some(id) => crate::jni::classes::field_id_to_ptr(id),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// `GetObjectField` (slot 95): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Object values come back as fresh local refs; a JNI-null
+/// field reads back as JNI null.
+extern "system" fn jni_getobjectfield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jobject {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Ref(Some(r))) => crate::jni::tag_to_jobject(crate::jni::new_local(r)),
+        Some(crate::Value::Ref(None)) => std::ptr::null_mut(),
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetObjectField", &other),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// `GetStaticObjectField` (slot 145): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+/// Object values come back as fresh local refs; a JNI-null
+/// field reads back as JNI null.
+extern "system" fn jni_getstaticobjectfield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+) -> jobject {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Ref(Some(r))) => crate::jni::tag_to_jobject(crate::jni::new_local(r)),
+        Some(crate::Value::Ref(None)) => std::ptr::null_mut(),
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticObjectField", &other),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// `GetBooleanField` (slot 96): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_getbooleanfield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jboolean {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Int(i)) => (i != 0) as jboolean,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetBooleanField", &other),
+        None => 0,
+    }
+}
+
+/// `GetStaticBooleanField` (slot 146): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_getstaticbooleanfield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+) -> jboolean {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Int(i)) => (i != 0) as jboolean,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticBooleanField", &other),
+        None => 0,
+    }
+}
+
+/// `GetByteField` (slot 97): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_getbytefield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jbyte {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Int(i)) => i as jbyte,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetByteField", &other),
+        None => 0,
+    }
+}
+
+/// `GetStaticByteField` (slot 147): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_getstaticbytefield(_env: JNIEnv, _clazz: jclass, fid: jfieldID) -> jbyte {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Int(i)) => i as jbyte,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticByteField", &other),
+        None => 0,
+    }
+}
+
+/// `GetCharField` (slot 98): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_getcharfield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jchar {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Int(i)) => i as jchar,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetCharField", &other),
+        None => 0,
+    }
+}
+
+/// `GetStaticCharField` (slot 148): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_getstaticcharfield(_env: JNIEnv, _clazz: jclass, fid: jfieldID) -> jchar {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Int(i)) => i as jchar,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticCharField", &other),
+        None => 0,
+    }
+}
+
+/// `GetShortField` (slot 99): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_getshortfield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jshort {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Int(i)) => i as jshort,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetShortField", &other),
+        None => 0,
+    }
+}
+
+/// `GetStaticShortField` (slot 149): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_getstaticshortfield(_env: JNIEnv, _clazz: jclass, fid: jfieldID) -> jshort {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Int(i)) => i as jshort,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticShortField", &other),
+        None => 0,
+    }
+}
+
+/// `GetIntField` (slot 100): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_getintfield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jint {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Int(i)) => i,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetIntField", &other),
+        None => 0,
+    }
+}
+
+/// `GetStaticIntField` (slot 150): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_getstaticintfield(_env: JNIEnv, _clazz: jclass, fid: jfieldID) -> jint {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Int(i)) => i,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticIntField", &other),
+        None => 0,
+    }
+}
+
+/// `GetLongField` (slot 101): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_getlongfield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jlong {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Long(l)) => l,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetLongField", &other),
+        None => 0,
+    }
+}
+
+/// `GetStaticLongField` (slot 151): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_getstaticlongfield(_env: JNIEnv, _clazz: jclass, fid: jfieldID) -> jlong {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Long(l)) => l,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticLongField", &other),
+        None => 0,
+    }
+}
+
+/// `GetFloatField` (slot 102): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_getfloatfield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jfloat {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Float(f)) => f,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetFloatField", &other),
+        None => 0 as jfloat,
+    }
+}
+
+/// `GetStaticFloatField` (slot 152): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_getstaticfloatfield(_env: JNIEnv, _clazz: jclass, fid: jfieldID) -> jfloat {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Float(f)) => f,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticFloatField", &other),
+        None => 0 as jfloat,
+    }
+}
+
+/// `GetDoubleField` (slot 103): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_getdoublefield(_env: JNIEnv, obj: jobject, fid: jfieldID) -> jdouble {
+    match crate::jni::classes::slot_get_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+    ) {
+        Some(crate::Value::Double(d)) => d,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetDoubleField", &other),
+        None => 0 as jdouble,
+    }
+}
+
+/// `GetStaticDoubleField` (slot 153): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_getstaticdoublefield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+) -> jdouble {
+    match crate::jni::classes::slot_get_static_field(crate::jni::classes::field_id_from_ptr(fid)) {
+        Some(crate::Value::Double(d)) => d,
+        Some(other) => crate::jni::classes::loud_field_mismatch("GetStaticDoubleField", &other),
+        None => 0 as jdouble,
+    }
+}
+
+/// `SetObjectField` (slot 104): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Object values come back as fresh local refs; a JNI-null
+/// field reads back as JNI null.
+extern "system" fn jni_setobjectfield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jobject) {
+    let tag = crate::jni::bridge::jobject_to_tag(value);
+    let v = crate::Value::Ref(if tag == 0 {
+        None
+    } else {
+        Some(crate::jni::resolve(tag))
+    });
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticObjectField` (slot 154): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+/// Object values come back as fresh local refs; a JNI-null
+/// field reads back as JNI null.
+extern "system" fn jni_setstaticobjectfield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+    value: jobject,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(value);
+    let v = crate::Value::Ref(if tag == 0 {
+        None
+    } else {
+        Some(crate::jni::resolve(tag))
+    });
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
+}
+
+/// `SetBooleanField` (slot 105): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_setbooleanfield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jboolean) {
+    let v = crate::Value::Int((value != 0) as i32);
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticBooleanField` (slot 155): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_setstaticbooleanfield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+    value: jboolean,
+) {
+    let v = crate::Value::Int((value != 0) as i32);
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
+}
+
+/// `SetByteField` (slot 106): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_setbytefield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jbyte) {
+    let v = crate::Value::Int(value as i32);
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticByteField` (slot 156): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_setstaticbytefield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+    value: jbyte,
+) {
+    let v = crate::Value::Int(value as i32);
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
+}
+
+/// `SetCharField` (slot 107): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_setcharfield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jchar) {
+    let v = crate::Value::Int(value as i32);
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticCharField` (slot 157): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_setstaticcharfield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+    value: jchar,
+) {
+    let v = crate::Value::Int(value as i32);
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
+}
+
+/// `SetShortField` (slot 108): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_setshortfield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jshort) {
+    let v = crate::Value::Int(value as i32);
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticShortField` (slot 158): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_setstaticshortfield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+    value: jshort,
+) {
+    let v = crate::Value::Int(value as i32);
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
+}
+
+/// `SetIntField` (slot 109): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_setintfield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jint) {
+    let v = crate::Value::Int(value);
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticIntField` (slot 159): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_setstaticintfield(_env: JNIEnv, _clazz: jclass, fid: jfieldID, value: jint) {
+    let v = crate::Value::Int(value);
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
+}
+
+/// `SetLongField` (slot 110): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_setlongfield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jlong) {
+    let v = crate::Value::Long(value);
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticLongField` (slot 160): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_setstaticlongfield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+    value: jlong,
+) {
+    let v = crate::Value::Long(value);
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
+}
+
+/// `SetFloatField` (slot 111): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_setfloatfield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jfloat) {
+    let v = crate::Value::Float(value);
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticFloatField` (slot 161): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_setstaticfloatfield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+    value: jfloat,
+) {
+    let v = crate::Value::Float(value);
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
+}
+
+/// `SetDoubleField` (slot 112): instance access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// Null receiver -> 0/null (v1 gap, T13-registered).
+extern "system" fn jni_setdoublefield(_env: JNIEnv, obj: jobject, fid: jfieldID, value: jdouble) {
+    let v = crate::Value::Double(value);
+    crate::jni::classes::slot_set_instance_field(
+        crate::jni::bridge::jobject_to_tag(obj),
+        crate::jni::classes::field_id_from_ptr(fid),
+        v,
+    );
+}
+
+/// `SetStaticDoubleField` (slot 162): static access through the
+/// field-ID table (T10 slice 3, M5_JNI_CLASSES.md section 4). The
+/// value must carry the slot's own descriptor shape — a mismatch
+/// is a foreign-side bug: loud abort (Temurin: UB).
+/// The ID is the sole authority; the jclass argument is not
+/// re-validated in v1 (registered note, M5_JNI_CLASSES.md §4).
+extern "system" fn jni_setstaticdoublefield(
+    _env: JNIEnv,
+    _clazz: jclass,
+    fid: jfieldID,
+    value: jdouble,
+) {
+    let v = crate::Value::Double(value);
+    crate::jni::classes::slot_set_static_field(crate::jni::classes::field_id_from_ptr(fid), v);
 }

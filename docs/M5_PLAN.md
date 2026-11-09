@@ -300,8 +300,13 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       (generator REAL_SLOTS registry wires the five string slots;
       audited FFI surface 6 → 7 with `write_u8_out`; child-process
       abort pin for the release registry miss; workspace 390 green);
-      slice 3 = classes/fields/arrays (global-dispatch registration
-      decision first).
+      slice 3a landed (docs/M5_JNI_CLASSES.md: host-dispatch slot +
+      codegen install emission both layouts; jclass = interned Class
+      mirror; jfieldID registry + inherited-field walk + 36 accessors;
+      the T08 bare-c_void jfieldID stand-in amended to the ABI-faithful
+      pointer; 8 classes tests, workspace 398 green, full battery incl.
+      partition + diff_suite + cfg_equiv zero divergences);
+      slice 3b = array families (171–218) per M5_JNI_CLASSES.md §5.
 - [ ] **T11** Arity-shim trade-off note (variadic `Call*Method` ABI, the
       flagged-open question) + the `Call*Method`/`CallStatic*Method`
       families. → §3

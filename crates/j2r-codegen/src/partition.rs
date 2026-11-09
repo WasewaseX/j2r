@@ -789,6 +789,10 @@ fn main_run() -> i32 {{
     // code runs — the cross-partition seams are dead without them.
     support::link::install({lib_crate}::build_link());
     support::dispatch_slot::install({lib_crate}::j2r_dispatch());
+    // T10 slice 3 (docs/M5_JNI_CLASSES.md §1): the JNI surface reads the
+    // COMPOSED dispatch through the runtime's process-global host slot —
+    // installed here, after the composite exists, before any Java code.
+    ::j2r_runtime::jni::install_host_dispatch(support::dispatch_slot::dispatch());
     support::statics::init_pool({statics}usize, {classes}usize);
     support::statics::apply_defaults({defaults});
     support::statics::set_constants({constants});

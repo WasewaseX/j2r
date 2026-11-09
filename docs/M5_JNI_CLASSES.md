@@ -91,6 +91,17 @@ int→ptr law as `jobject` (a foreign library never dereferences our
 tags). A wrong/foreign ID is a LOUD registry miss (panics → abort
 across the boundary), never silent misinterpretation.
 
+**Generator amendment (same-commit law).** T08 had mapped `jfieldID`/
+`jmethodID` positions in the table signatures to BARE `c_void` — a
+stand-in that made those slots uninhabited and every real wrapper
+impossible (the same shape F-J1 called out for pointer-out slots).
+Slice 3 restores the ABI-faithful pointer alias (`*mut c_void`,
+exactly what the header's own `typedef struct _jfieldID *jfieldID;`
+says — the generator had verified that typedef all along and then
+contradicted it in the signature mapping). The offset assertions are
+unaffected (pointer width either way); every jfieldID-typed slot now
+type-checks as implementable.
+
 ## 4. The accessors — reuse the reflection path exactly
 
 - Instance `Get*/Set*` (95–112): resolve ID → `(owner, slot, desc)`;

@@ -354,6 +354,10 @@ fn main_run() -> i32 {{
     {lib_crate}::statics::init_pool({statics}usize, {classes}usize);
     {lib_crate}::statics::apply_defaults({defaults});
     {lib_crate}::statics::set_constants({constants});
+    // T10 slice 3 (docs/M5_JNI_CLASSES.md §1): the JNI env-table slots
+    // have no context parameter, so the program's dispatch is installed
+    // as the process-global host dispatch — before any Java code runs.
+    ::j2r_runtime::jni::install_host_dispatch({lib_crate}::j2r_dispatch());
     // Static fields are roots for the tracing GC (M2_PLAN §4.4).
     ::j2r_runtime::heap::set_statics_scanner({lib_crate}::statics::gc_scan_roots);
     let args: ::std::vec::Vec<::std::string::String> = ::std::env::args().skip(1).collect();
