@@ -79,12 +79,15 @@ still awaits owner review in parallel.
 ### 3.1 T08 preconditions — the wave-2 entry checklist (all must be green before T08 code)
 
 1. **Toolchain re-proven after every reset** (environments rot — T05's
-   law): rustup → rustc/cargo, Temurin 21.0.13 → `/tmp/jdk21`,
-   `source /home/z/my-project/env.sh`. Status: IN PROGRESS this session.
+   law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 → `/tmp/jdk21`,
+   `source /home/z/my-project/env.sh`. Status: **DONE (session 2)** —
+   exact pinned versions restored.
 2. **Full local baseline green before the first T08 commit**: unit tests
    across all four crates + `diff_suite` (three-channel vs Temurin) +
-   corpus suite; test counts re-synced per gate-11. Never assume green
-   from the last session's claims.
+   corpus suite; test counts re-synced per gate-11. Status: **DONE
+   (session 2)** — 352 tests pre-T08 (cfg_equiv 303 s zero divergences,
+   diff_suite 320 s), all suites re-run green again after T08's
+   vendoring fix; post-T08 total 359.
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -138,6 +141,7 @@ single crate (M5_SCALE.md §2b, with the measured reason). Inline caches
 | **20k end-to-end (this session)** | cold ≈ **17.1 min**; no-op **38.8 s** (~26×); one-edit **55.3 s**; parity PASS | farm20k/*.time |
 | 20k peak rustc | 3.49 GB — the app/Dispatch composite (F3 follow-up) | farm20k |
 | 20k artifacts | emitted source 854 MB; binary ≈ 1.01 GiB (debug=0) | farm20k |
+| JNI table (T08) | 235 slots (4 reserved + 231 fns), const-offset_of!-pinned vs Temurin jni.h; 231 non-null slots | jni/tables.rs + scripts/evidence/jni_slot_list.txt |
 
 **Download-size answer (owner question, 2026-11-09):** No — nobody
 downloads hundreds of GB. The 105–273 GiB / ~300 GB figures are the peak
@@ -220,8 +224,13 @@ by the per-crate budget K.
   split-table emission registered (same follow-up family as the JZlib
   mega-functions).
 - [F4] release-profile 20k trio — registered (disk-guarded).
-- [next] **T08** (JNI, wave 2) — gate satisfied; preconditions checklist
-  in §3.1; T09–T13 follow in M5_PLAN §6 order.
+- [x] **T08** (JNI, wave 2) — LANDED session 2 (see console.md log):
+  generated static tables, const assertions, loud-abort stubs, 7 unit
+  tests; findings F-J1/F-J2 registered.
+- [next] **T09** handle-table bridge (jobject ↔ GC handles, local/global
+  refs, Push/PopLocalFrame) — starts from the F-J1 resolution design
+  note (scoped FFI crate for pointer-out slots), then T10–T13 in
+  M5_PLAN §6 order.
 - [hygiene] Two open dependabot PRs: #1 `actions/checkout` 4.4.0→7.0.1,
   #2 `actions/setup-java` 4.9.1→6.1.0 (2026-11-05) — review after the
   baseline is re-proven; 21 open code-scanning alerts (zizmor

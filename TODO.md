@@ -1466,6 +1466,12 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       §2026-11-09 08:34–09:25.
 - [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
       T08–T13, C-harness parity is the blocker's evidence bar)
+      — T08 LANDED (2026-11-09): `j2r-runtime::jni` tables generated
+      from the Temurin 21 jni.h (235 slots, const offset_of! assertions
+      per slot, loud abort stubs, 7 unit tests; findings F-J1
+      pointer-out-slots-vs-forbid(unsafe_code) and F-J2 varargs-at-A-form
+      registered in jni/mod.rs for T09/T11); vendoring made
+      directory-recursive (suite-caught e2e regression).
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)
 - [ ] mixin application at the bytecode level before j2r (R1; §4,

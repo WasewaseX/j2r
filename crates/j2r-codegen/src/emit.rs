@@ -487,11 +487,26 @@ pub(crate) fn record_runtime_glue_pub(
         }
     };
     record("runtime/Cargo.toml".to_string(), &rt.join("Cargo.toml"));
-    if let Ok(entries) = std::fs::read_dir(rt.join("src")) {
+    // The runtime source tree is walked recursively (it contains directory
+    // modules since T08 — `jni/`): manifest keys are the slash-separated
+    // paths relative to the vendored crate root.
+    let src_root = rt.join("src");
+    let mut stack = vec![src_root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in entries.flatten() {
-            if e.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                let name = e.file_name().to_string_lossy().into_owned();
-                record(format!("runtime/src/{name}"), &e.path());
+            let path = e.path();
+            if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                stack.push(path);
+            } else if e.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                let rel = path
+                    .strip_prefix(&src_root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                record(format!("runtime/src/{rel}"), &path);
             }
         }
     }
@@ -803,25 +818,65 @@ pub(crate) fn copy_runtime(out: &Path) -> crate::Result<()> {
     // regenerates per fixture, and without this the vendored runtime (the
     // expensive compile unit) rebuilt 3 × fixtures times. A stale or
     // partially-written file fails the content compare and is re-copied:
-    // self-healing.
+    // self-healing. The walk is recursive since T08 (the runtime has
+    // directory modules — `jni/`).
     std::fs::create_dir_all(&dest)?;
     copy_file_idempotent(&source.join("Cargo.toml"), &dest.join("Cargo.toml"))?;
     std::fs::create_dir_all(dest.join("src"))?;
-    let mut upstream: Vec<std::ffi::OsString> = Vec::new();
-    for entry in std::fs::read_dir(source.join("src"))? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            let name = entry.file_name();
-            upstream.push(name.clone());
-            let dst = dest.join("src").join(name);
-            copy_file_idempotent(&entry.path(), &dst)?;
-        }
-    }
-    for entry in std::fs::read_dir(dest.join("src"))? {
+    let mut upstream: Vec<std::path::PathBuf> = Vec::new();
+    copy_dir_recursive(
+        &source.join("src"),
+        &dest.join("src"),
+        Path::new(""),
+        &mut upstream,
+    )?;
+    remove_stale_files(&dest.join("src"), &dest.join("src"), &upstream)?;
+    Ok(())
+}
+
+/// Recursively copy `src_dir` into `dst_dir`, mirroring subdirectories and
+/// collecting every copied file's path relative to the src root.
+fn copy_dir_recursive(
+    src_dir: &Path,
+    dst_dir: &Path,
+    rel: &Path,
+    upstream: &mut Vec<std::path::PathBuf>,
+) -> crate::Result<()> {
+    std::fs::create_dir_all(dst_dir)?;
+    for entry in std::fs::read_dir(src_dir)? {
         let entry = entry?;
         let name = entry.file_name();
-        if entry.file_type()?.is_file() && !upstream.iter().any(|u| u == &name) {
-            std::fs::remove_file(entry.path())?;
+        let child_rel = rel.join(&name);
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst_dir.join(&name), &child_rel, upstream)?;
+        } else {
+            upstream.push(child_rel);
+            copy_file_idempotent(&entry.path(), &dst_dir.join(&name))?;
+        }
+    }
+    Ok(())
+}
+
+/// Remove vendored files that no longer exist upstream (recursively), then
+/// any directories left empty by those removals.
+fn remove_stale_files(
+    dir: &Path,
+    src_root: &Path,
+    upstream: &[std::path::PathBuf],
+) -> crate::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            remove_stale_files(&path, src_root, upstream)?;
+            if std::fs::read_dir(&path)?.next().is_none() {
+                std::fs::remove_dir(&path)?;
+            }
+        } else {
+            let rel = path.strip_prefix(src_root).unwrap_or(&path).to_path_buf();
+            if !upstream.iter().any(|u| u == &rel) {
+                std::fs::remove_file(&path)?;
+            }
         }
     }
     Ok(())

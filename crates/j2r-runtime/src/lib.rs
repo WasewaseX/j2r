@@ -35,6 +35,7 @@ pub mod hexfloat;
 pub mod io;
 pub mod javafmt;
 pub mod jdkutil;
+pub mod jni;
 pub mod lambda;
 pub mod langext;
 pub mod monitor;

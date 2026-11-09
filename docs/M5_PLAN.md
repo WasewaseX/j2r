@@ -251,8 +251,24 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
 
 ### Wave 2 — JNI (the blocker)
 
-- [ ] **T08** `j2r-runtime::jni`: JNIEnv/InvokeInterface static tables,
-      compile-time index assertions. → §3.1
+- [x] **T08** LANDED (2026-11-09): `j2r-runtime::jni` — the
+      JNIEnv/JNIInvokeInterface static tables generated MECHANICALLY from
+      the Temurin 21 jni.h of record by `scripts/gen_jni_env_table.py`
+      (235 slots = 4 reserved NULL + 231 functions; every typedef
+      assumption verified against the header, generator fails loudly on
+      drift). Layout pinned by a const-evaluated `offset_of!` assertion
+      per slot; every non-reserved slot holds a real fn (GetVersion =
+      JNI_VERSION_1_8) or a loud slot-named stub — never a null slot. The
+      loudness shape is a process ABORT (panics cannot unwind across the
+      extern "system" boundary), pinned by a child-process test.
+      Findings registered (jni/mod.rs): F-J1 pointer-out slots vs
+      forbid(unsafe_code) (GetEnv/Attach*/region writers need the scoped
+      FFI-crate resolution — shapes T09); F-J2 variadic slots typed at
+      A-form arity until T11's trade-off note. 7 unit tests; env-slot
+      census (231 non-null) is a test, not prose. Collateral fix the
+      suite caught: runtime VENDORING was a flat file copy — directory
+      modules never reached the vendored crate (e2e regression); copy is
+      recursive now (copy/stale-sweep/manifest all walk subdirs). → §3.1
 - [ ] **T09** Handle-table bridge: jobject ↔ GC handles, local/global
       refs, Push/PopLocalFrame, Critical pinning note. → §3.2
 - [ ] **T10** v1 surface: GetObjectClass/FindClass/field

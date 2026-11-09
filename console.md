@@ -196,4 +196,52 @@ getrusage max single child, mistake-list #2).
   InvokeInterface static tables + compile-time index assertions
   (M5_PLAN §3.1).
 
+### [2026-11-09 ~11:00–13:30 UTC] session 2 (cont.) — baseline re-proven, T08 LANDED (wave 2 started)
+- Toolchain rebootstrap done (console_summary.md §9 protocol): rustup
+  rustc/cargo 1.99.1 + Temurin 21.0.13 at /tmp/jdk21 + env.sh — exact
+  pinned versions back. rustup components rustfmt/clippy added.
+- **Full baseline re-proven before any T08 code** (T05's law): 352 tests
+  0 failures — classfile 38, runtime 163, codegen 125, cli 26 incl.
+  cfg_equiv 303.29 s (zero divergences), diff_suite 319.54 s (109
+  fixtures, three-channel vs Temurin), partition/jar/soe/lambda/corpus
+  all green.
+- **T08 LANDED** (M5 wave 2, M5_PLAN §3.1): `j2r-runtime::jni` —
+  JNIEnv/JNIInvokeInterface static tables generated mechanically from
+  the Temurin 21 jni.h (the differential oracle's own header): 235
+  slots = 4 reserved NULL + 231 functions; generator
+  (scripts/gen_jni_env_table.py) VERIFIES every typedef assumption
+  against the header and fails loudly on drift; slot list committed as
+  evidence (scripts/evidence/jni_slot_list.txt). Layout pinned by a
+  const-evaluated offset_of! assertion per slot (drift = compile
+  error). Every non-reserved slot: real fn (GetVersion =
+  JNI_VERSION_1_8; GetEnv's unsupported-version path = JNI_EVERSION)
+  or loud slot-named stub — never null. 7 unit tests (runtime lib 163
+  -> 170; workspace total 359).
+- **Two wave-2 findings registered in jni/mod.rs** (owned by T09/T11):
+  F-J1 — pointer-OUT slots (GetEnv success path, Attach*, the region
+  writers) cannot be implemented under forbid(unsafe_code); resolution
+  = dedicated dependency-free FFI crate with an audited tiny unsafe
+  surface; registered now because it shapes T09. F-J2 — C-varargs
+  slots typed at A-form arity (never-read pointer) until T11's
+  trade-off note.
+- **Semantics discovery, pinned by test:** a stub panic cannot unwind
+  across the extern "system" boundary (Rust >= 1.81) — the loud failure
+  is a process ABORT carrying the slot-named message. Observed the
+  soe_e2e way: child process, assert signal 6 + message contains the
+  slot name.
+- **Suite-caught real bug (the law pays):** runtime VENDORING
+  (copy_runtime in codegen emit.rs) was a flat file copy — the new
+  jni/ directory never reached vendored crates and the codegen e2e
+  regressed ("generated crate must build", E0583 module not found).
+  Fixed recursively (copy + stale sweep + manifest recording all walk
+  subdirs); full battery re-run green after the fix: cfg_equiv
+  310.26 s, diff_suite 320.12 s, partition 17.4 s, jar 13.6 s, corpus
+  32.6 s, soe 9.0 s, lambda 1.1 s, runtime lib 170, release build
+  green, clippy workspace 0 warnings, fmt clean, doc counts in sync
+  (359).
+- Session lesson: a python replace that "succeeds" can still no-op on
+  fmt-reformatted text — ALWAYS grep-verify a scripted edit (caught
+  twice this session: the abort test and the doc bullet).
+- Boards updated; M5_PLAN/TODO registers now mark T08 landed.
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
