@@ -293,8 +293,12 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       weak global refs stay loud stubs, cross-thread local-resolve not
       policed (HotSpot-debug-style; delete IS owner-checked) — all
       registered for the T13 attach lifecycle. → §3.2
-- [ ] **T10** v1 surface: GetObjectClass/FindClass/field
-      accessors/arrays/modified-UTF-8 strings. → §3.3
+- [~] **T10** v1 surface: GetObjectClass/FindClass/field
+      accessors/arrays/modified-UTF-8 strings. → §3.3 — IN PROGRESS:
+      slice 1 landed (jni::strings modified-UTF-8 marshal + string
+      slot bodies, 9 tests, workspace 388 green); slice 2 = string-slot
+      wiring (generator real-slot registry); slice 3 = classes/fields/
+      arrays (global-dispatch registration decision first).
 - [ ] **T11** Arity-shim trade-off note (variadic `Call*Method` ABI, the
       flagged-open question) + the `Call*Method`/`CallStatic*Method`
       families. → §3

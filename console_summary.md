@@ -256,9 +256,12 @@ by the per-crate budget K.
   (13 bridge + 7 ffi); gate-10 amended in the same commit (5 unsafe
   occurrences, pin ≤ 12); vendoring ships both crates (e2e-proven);
   379 green. Evidence: console.md session-3 T09 entry; M5_PLAN §6.
-- [next] **T10** v1 surface: GetObjectClass/FindClass/field
-  accessors/arrays/modified-UTF-8 strings (M5_PLAN §3.3), on top of the
-  T09 bridge.
+- [~] **T10** v1 surface — IN PROGRESS. Slice 1 LANDED (session 3):
+  `jni::strings` modified-UTF-8 marshal + string-family slot bodies +
+  9 tests (workspace 388 green). Next: slice 2 — wire the four string
+  slots via the generator's real-slot mechanism; slice 3 —
+  GetObjectClass/FindClass/field IDs/arrays (needs the global-dispatch
+  registration decision).
 - [hygiene] Two open dependabot PRs: #1 `actions/checkout` 4.4.0→7.0.1,
   #2 `actions/setup-java` 4.9.1→6.1.0 (2026-11-05) — review after the
   baseline is re-proven; 21 open code-scanning alerts (zizmor

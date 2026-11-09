@@ -61,6 +61,7 @@
 //!   in the T09 note.
 
 pub mod bridge;
+pub mod strings;
 pub mod tables;
 
 pub use bridge::{

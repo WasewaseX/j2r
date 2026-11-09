@@ -360,4 +360,37 @@ getrusage max single child, mistake-list #2).
   — the v1 surface (GetObjectClass/FindClass/field accessors/arrays/
   modified-UTF-8 strings) per M5_PLAN §3.3.
 
+### [2026-11-09 ~17:00 UTC] session 3 (cont.) — T10 slice 1 LANDED: JNI string marshalling (modified UTF-8)
+- `j2r-runtime::jni::strings`: decode_modified_utf8 (byte-for-byte
+  mirror of the classfile loader's pinned semantics — JVMS 4.4.7,
+  C0 80 NUL, surrogate-pair supplementary form, unpaired-surrogate →
+  U+FFFD lossy law from corpus/Utf16Probe, lenient raw-0x00 exactly
+  like the oracle; zero-dep law means the mirror lives here, tests pin
+  both sides against the same fixtures) + encode_modified_utf8 (total:
+  a Rust String holds no unpaired surrogates).
+- Slot-level safe API for the string family: slot_new_string_utf (None
+  on malformed → the slot wrapper returns JNI null), slot_new_string
+  (UTF-16 units), slot_get_string_utf_length (mUTF-8 bytes, terminator
+  excluded per the JNI spec), slot_get_string_utf_chars (NUL-terminated
+  buffer handed out registry-pinned, isCopy = JNI_TRUE always) +
+  slot_release_string_utf_chars (loud miss — the T09 registry law).
+  These are the functions the generator's real-slot registry (slice 2)
+  will point the four string slots at.
+- 9 new tests (round-trips: ASCII, embedded NUL, supplementary
+  U+1D530, unpaired-surrogate law, malformed rejections; UTF-length
+  contract; bridge round-trip; UTF-chars registry + loud double/
+  foreign release). One test fix during landing: the raw-0x00 decode
+  is LENIENT in the oracle — the test was stricter than the mirrored
+  law and was corrected to match the oracle (implementation untouched).
+- Evidence: 29 jni tests green (13 bridge + 7 T08 + 9 strings),
+  workspace 388, fmt clean, clippy -D warnings clean, doc-counts in
+  sync (README 379 → 388), codegen/classfile/ffi/cli-main suites
+  re-run green. diff_suite/cfg_equiv NOT re-run for this slice (no
+  codegen/emission change — pure runtime-module addition); they re-run
+  at T10 completion per the standing battery rule.
+- M5_PLAN register: T10 → [~] in progress (slice 1 of 3: strings ✅;
+  next: slice 2 string-slot wiring via the generator's real-slot
+  mechanism + slice 3 GetObjectClass/FindClass/field IDs/arrays on the
+  global-dispatch decision recorded in the T10 design notes).
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
