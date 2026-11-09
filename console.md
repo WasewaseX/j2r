@@ -480,3 +480,59 @@ getrusage max single child, mistake-list #2).
   M5_PLAN register: T10 slice 2 recorded.
 - Next: **T10 slice 3** — GetObjectClass/FindClass/field IDs/arrays on
   the recorded global-dispatch decision (M5_PLAN §3.3).
+
+### [2026-11-10 ~22:30 UTC] session 4 (cont. 2) — T10 slice 3a LANDED: host dispatch, jclass, field IDs, 36 accessors
+- Design note FIRST (docs/M5_JNI_CLASSES.md, committed 84cede9 per the
+  wave rule): the global-dispatch decision, jclass/jfieldID
+  representation, accessor laws, array plan (§5 pending as slice 3b),
+  and the evidence bar. Every decision grounded in a measured fact —
+  the env-table ABI has no ctx parameter, so a process-global slot is
+  the only shape that does not fork the table.
+- `jni::host_dispatch`: ONE process-global Dispatch slot
+  (Mutex<Option<Dispatch>>, all-None default) + install_host_dispatch;
+  the emitted main_run installs it BEFORE any Java code — single-crate
+  (emit.rs) installs the crate dispatch, partitioned (partition.rs)
+  installs the COMPOSED dispatch from the support slot; one emission
+  point covers both layouts, and the partition differential (forced
+  k=2, 24.45 s) is the multi-crate install proof.
+- `jni::classes` (new module, ALL semantics in safe Rust; the generated
+  wrappers are thin casts): jclass = the tag of the interned
+  java/lang/Class mirror (reflect::class_ref) — Temurin-faithful,
+  identity via interning; the boundary guard checks the object's OWN
+  class, because a Class mirror and a Java String BOTH carry
+  Value::Str in slot 0 — `class_name_of` alone cannot tell them apart
+  (caught by the tests, not by review). FindClass existence-validates
+  (compiled via the host dispatch / builtin tables / the two
+  structural classes) BEFORE interning; `[L…;` trailing-semicolon
+  handling covered by tests.
+- jfieldID: bit-63-marked tags into a dedicated registry (dedup: the
+  same (owner, name, desc, static?) triple → the same ID; permanent —
+  the JNI law), superclass walk for inherited fields (JNI semantics,
+  unlike getDeclaredField), kind/receiver guards loud (Temurin: UB →
+  here a named abort). The 36 accessor wrappers are generated
+  PROGRAMMATICALLY from a per-prim table — the verbatim-body pattern
+  does not scale to 36; the per-slot doc comments still carry the true
+  slot numbers.
+- **Generator amendment (the F-J1 shape again):** T08 had mapped
+  jfieldID/jmethodID table signatures to BARE `c_void` — uninhabited,
+  every such slot unimplementable. Slice 3a restored the ABI-faithful
+  pointer alias (the generator had verified
+  `typedef struct _jfieldID *jfieldID;` all along, then contradicted
+  it in the mapping). Recorded in M5_JNI_CLASSES.md §3 + jni/mod.rs
+  type-fidelity notes.
+- Generator hardening learned the hard way: a truncated edit left
+  broken Python (caught immediately — the generator FATALs loudly by
+  design); the accessor bodies initially missed the match-brace pair
+  (rustc caught it); clippy double_parens on the Boolean ctor — all
+  fixed at the SOURCE (the generator), never by patching the
+  generated file.
+- Evidence — full battery MANDATORY (codegen emission changed): fmt
+  clean; clippy `-D warnings` clean; **398 tests, 0 failures** —
+  classfile 38 · runtime 201 (+8 classes) · codegen 125 · jni-ffi 8 ·
+  cli 26 (bin 15 + soe 1 + lambda 2 + jar 3 + partition 1 + corpus 1) ·
+  cfg_equiv 1 (347.95 s) · diff_suite 2 (421.68 s, 109 fixtures) —
+  zero divergences; doc gate in sync (README 390 → 398).
+- Next: **T10 slice 3b** — array families (GetArrayLength 171, the
+  object element pair 173/174, New*Array 175–182, Get/Release*
+  ArrayElements 183–198, region pairs 199–214, critical pair 217/218)
+  per M5_JNI_CLASSES.md §5 — then T10 is COMPLETE.

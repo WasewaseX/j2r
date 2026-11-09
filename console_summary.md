@@ -1,6 +1,6 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 4 cont. — **T10 slice 2 landed, 390 green**;
+Updated 2026-11-10 (session 4 cont. — **T10 slice 3a landed, 398 green**;
 see console.md session-4 entries and §9). Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
@@ -83,8 +83,15 @@ ReleaseStringUTFChars) wired through the generator `REAL_SLOTS`
 registry; audited FFI surface 6 → 7 (`write_u8_out`, the 1-byte
 `isCopy` out-slot); the release-miss abort shape pinned by a
 child-process test; 390 green, diff_suite + cfg_equiv re-run anyway —
-zero divergences. Remaining wave 2: T10 slice 3 (classes/fields/arrays
-on the global-dispatch decision) · T11 (Call*Method + arity note) · T12
+zero divergences. **T10 slice 3a ✅ LANDED (session 4 cont. 2)** — the
+global-dispatch decision implemented: `jni::host_dispatch` installed
+by the emitted main_run (both layouts; partition differential = the
+proof); jclass = the interned Class mirror; jfieldID registry with the
+inherited-field walk + 36 programmatic accessor wrappers; the T08
+bare-`c_void` jfieldID stand-in amended to the ABI-faithful pointer;
+398 green, full battery (partition + cfg_equiv 348 s + diff_suite
+422 s) zero divergences. Remaining wave 2: T10 slice 3b (array
+families, M5_JNI_CLASSES.md §5) · T11 (Call*Method + arity note) · T12
 (RegisterNatives) · T13 (C harness + attach lifecycle). Then T14–T16
 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
 M4 completion package still awaits owner review in parallel.
@@ -107,7 +114,9 @@ M4 completion package still awaits owner review in parallel.
    jni-ffi 7, cli 26 incl. cfg_equiv 324 s + diff_suite 426 s, zero
    divergences; fmt clean, clippy `-D warnings` clean). Re-proven at
    **390** after T10 slice 2 (runtime 193, jni-ffi 8, cli 26;
-   cfg_equiv 347 s + diff_suite 430 s, zero divergences).
+   cfg_equiv 347 s + diff_suite 430 s, zero divergences). Re-proven at
+   **398** after T10 slice 3a (runtime 201; partition 24.5 s,
+   cfg_equiv 348 s + diff_suite 422 s, zero divergences).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -276,7 +285,13 @@ by the per-crate budget K.
   primitives; abort shape pinned by a child-process test; full battery
   re-run incl. diff_suite/cfg_equiv — 390 green, zero divergences.
   Next: slice 3 — GetObjectClass/FindClass/field IDs/arrays (the
-  global-dispatch registration decision first).
+  global-dispatch registration decision first). Slice 3a LANDED
+  (session 4 cont. 2): design note docs/M5_JNI_CLASSES.md committed
+  first; host dispatch + codegen install (both layouts);
+  jclass = interned Class mirror; jfieldID registry + walk + 36
+  accessor wrappers; the jfieldID c_void→pointer amendment; 398 green
+  with the FULL battery (codegen changed — mandatory). Next: slice 3b
+  — array families (171–218) per M5_JNI_CLASSES.md §5 → T10 COMPLETE.
 - [ops] Session 4 (2026-11-10): resets #4/#5 survived via §9; baseline
   re-proven 388 green at 84734d6; second lesson-#12 near-miss (duplicate
   uppercase CONSOLE files from a stale tree) caught before push — rule
