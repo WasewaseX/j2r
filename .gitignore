@@ -7,3 +7,7 @@ j2r-out/
 tools/
 target/
 __pycache__/
+
+# HotSpot crash artifacts from the C-harness oracle experiments
+hs_err_pid*.log
+replay_pid*.log

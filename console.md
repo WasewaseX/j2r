@@ -1015,3 +1015,90 @@ getrusage max single child, mistake-list #2).
   `libjni_harness.so`), the Temurin driver, the j2r-side loading story,
   the three-channel parity runner (M5_JNI_HARNESS.md §1/§3/§5 is the
   design of record; REVIEW_CHECKLIST G1 is the acceptance gate).
+
+### [2026-11-10 session 7 cont. 2] T13 slice 13c LANDED — the ONE C harness, the loading story, and three-channel parity vs Temurin (448 green)
+- **The wave-2 acceptance demo is LIVE**: `tests/jni_harness/harness.c`
+  compiles ONCE (`cc -shared -fPIC` against the pinned JDK's jni.h of
+  record) and the SAME `.so` runs against BOTH runtimes — Temurin via
+  `System.loadLibrary`, and the j2r binary via the SAME
+  `System.loadLibrary` served by the 13c loading story. The full v1
+  battery is **byte-identical on stdout, stderr (EMPTY both sides) and
+  exit** — proven by `crates/j2r-cli/tests/jni_parity.rs` (G1.1/G1.3).
+- **The loading story (docs/M5_JNI_HARNESS.md §7, precision of record):**
+  * VM-table `GetEnv` (slot 6) now serves its supported-version path —
+    the supported set `{1.1, 1.2, 1.4, 1.6, 1.8, 9, 10}` is the set
+    HotSpot 21 MEASURED to accept (0x000b0000 and 0 → EVERSION, nothing
+    written); the write rides audited primitive 3. The old
+    "supported version aborts" child-process pin is replaced by
+    success-path tests (F-J1's last unwired arm is wired).
+  * `GetJavaVM` (env slot 219) wired the same way — REAL_SLOTS 158 →
+    **159 real slots**, slot number verified mechanically against the
+    parsed header; regenerate+fmt idempotent byte-for-byte.
+  * `System.loadLibrary` is a runtime native (the runtime's first
+    library-loading surface): name → `lib<name>.so` (Linux-only v1,
+    loud unsupported elsewhere) → **primitive 12**
+    `load_foreign_jni_library(path, vm)` — ONE audited unsafe block:
+    dlopen(RTLD_NOW|RTLD_LOCAL) + dlsym("JNI_OnLoad") + the ABI-fixed
+    `jint (*)(void*, void*)` call. The handle is NEVER dlclosed
+    (HotSpot semantics; a close would invalidate the held bindings).
+    dlopen miss = LOUD abort with the loader's own error text (the
+    UnsatisfiedLinkError-on-load-failure transport stays a registered
+    v1 gap; the primitive's tests pin the loudness). JNI_OnLoad's
+    version answer validated safe-side (0 or supported = OK, else
+    UnsatisfiedLinkError). **gate-10 amended in the same commit:
+    10 → 11 occurrences of pin 12** (one headroom slot left).
+- **The harness falsified two T08 assumptions in its first oracle runs
+  — exactly its job — and both are corrected to MEASURED values:**
+  * `GetVersion`: Temurin 21.0.13+9 answers the JDK-major form
+    **0x0015_0000**, NOT JNI_VERSION_1_8 (probed live with Ver.c +
+    ver.java). Our slot now returns `JNI_VERSION_21_0`; the unit test
+    renamed get_version_through_the_table_matches_temurin.
+  * `GetEnv` support set: HotSpot accepts 9 and 10 (the old 1.8 cap was
+    wrong); EVERSION starts at 0x000b0000. Our table matches.
+  * Harness JNI hygiene (HotSpot SIGSEGVed in jni_RegisterNatives on
+    the first rebind attempt): a jclass captured in JNI_OnLoad is a
+    LOCAL ref — dead once OnLoad returns (our interned-mirror tags
+    happened to tolerate the stale use; tolerance is not correctness).
+    The harness now holds NO class statics; every rebind/unregister
+    probe re-FindClasses a fresh local within its own frame.
+    NewGlobalRef (21) stays a loud stub, registered for 13d if needed.
+- **The battery (12 bound probes + the helper native, self-checking —
+  the driver's check() exits 3 on ANY missed verdict on BOTH
+  runtimes, so parity can never preserve a wrong answer):**
+  versioning/VM (version=47) · fields (41→42, 1000→2000, verified
+  Java-side) · strings both directions over the mUTF-8 edges (the
+  encoded NUL 0xC0 0x80; the supplementary pair; NewStringUTF
+  "j2r<NUL>ok" = 6 chars; NewString surrogate pair + embedded NUL
+  jchar — verified by C byte-compare AND Java-side length/charAt) ·
+  arrays (regions, GetIntArrayElements + all three release modes,
+  criticals, length — verdict 63; the JNI_ABORT arm CALLS the path but
+  asserts only the COMMIT result, honestly: with a direct-pointer Get
+  the mutation is already in the array, so the ABORT-drops law stays
+  unit-pinned Rust-side) · object arrays · the A-form families
+  (virtual override 12 vs Nonvirtual declared-class 1005, static,
+  void-callback PRINTING through the env, the exception round-trip
+  with the message read through a COMPILED bridge method — a builtin
+  class has no compiled facts, so GetMethodID on it would honestly
+  answer null) · the V-forms BOTH ways (real C variadics — 8 ints pin
+  the register→overflow split, (I D)D pins the GP/FP interleave — AND
+  hand-built __va_list_tag save areas at the ABI's own offsets) ·
+  the natives round-trip (rebind → 777, restore → 47, unregister →
+  the unbound UnsatisfiedLinkError caught Java-side, class name
+  printed).
+- **Evidence — full battery re-run (the standing law): fmt clean;
+  clippy `-D warnings` clean; doc counts in sync (fixtures=109,
+  tests=448 → README 444 → 448); 448 tests, 0 failures** — classfile
+  38 · jni-ffi 17 (15 unit + 2 real-C) · runtime 239 · codegen 125 ·
+  cli 29 (incl. **jni_parity 1**); walls: diff_suite 464.16 s +
+  cfg_equiv 347.11 s (zero divergences), partition 24.40 s, corpus
+  38.56 s, soe 10.54 s, jar 18.89 s, native_e2e 6.40 s, lambda 1.16 s.
+  REVIEW_CHECKLIST **G1.1, G1.2, G1.3 checked with this evidence**
+  (G1.4 attach + G1.5 CI = 13d).
+- Design-of-record updates: M5_JNI_HARNESS.md §6 (13c LANDED) + §7
+  (the loading story) + §8 (the honest inventory: what is exercised,
+  what stays loud/documented); M5_PLAN §6 T13; TODO.md; README status
+  line unchanged (T13 still in progress — 13d remains).
+- Next: **13d** — the attach-lifecycle battery (pthread →
+  AttachCurrentThread on the cached VM → the battery → Detach →
+  re-attach; the VM-table Attach/Detach slots + NewGlobalRef decide
+  their fate there), the loud-gap probes, the CI gate; wave 2 closes.

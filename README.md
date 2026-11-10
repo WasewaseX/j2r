@@ -284,7 +284,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 444 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests + the T10 JNI string-marshalling, class/field-ID, field-accessor array-family tests + the pending-exception machinery + the T11 mock-dispatch invoke tests (all thirty Call*MethodA + all thirty Call*MethodV slots, virtual/static/nonvirtual) + the T12 native-binding registry and ACC_NATIVE call-through tests + the T13 foreign-call thunk tests (a real C-compiled probe, linked into its test binary only)
+$ cargo test                       # 448 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests + the T10 JNI string-marshalling, class/field-ID, field-accessor array-family tests + the pending-exception machinery + the T11 mock-dispatch invoke tests (all thirty Call*MethodA + all thirty Call*MethodV slots, virtual/static/nonvirtual) + the T12 native-binding registry and ACC_NATIVE call-through tests + the T13 foreign-call thunk tests (a real C-compiled probe, linked into its test binary only) + the T13 13c C-harness parity battery (the ONE harness .so, compiled once, three-channel vs Temurin on both runtimes)
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar

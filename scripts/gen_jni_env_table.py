@@ -384,6 +384,12 @@ REAL_SLOTS = {
     # stores foreign fnPtrs; Rust-shape bindings ride the Rust API.
     "RegisterNatives": "jni_register_natives",
     "UnregisterNatives": "jni_unregister_natives",
+    # ---- T13 slice 13c: the VM-out slot (docs/M5_JNI_HARNESS.md §7 —
+    # the loading story: a foreign library caches the VM here, then
+    # GetEnv's the env table and binds its natives). The out-param write
+    # rides audited primitive 3 (write_ptr_out — the M5_JNI_FFI.md §6
+    # inventory listed this slot from day one).
+    "GetJavaVM": "jni_get_java_vm",
 }
 
 # Wrapper bodies, emitted verbatim (doc comment + fn) after the stubs.
@@ -1450,6 +1456,29 @@ WRAPPER_BODIES["UnregisterNatives"] = [
     "}",
 ]
 
+# ---- T13 slice 13c: GetJavaVM (the loading story's VM-out slot).
+# The §6 inventory (M5_JNI_FFI.md) listed it among the pointer-out slots
+# from day one; the write rides audited primitive 3. Slot number verified
+# mechanically against the parsed header below (the _idx_of check).
+if _idx_of["GetJavaVM"] != 219:
+    sys.exit(
+        f"FATAL: GetJavaVM slot drifted: jni.h says {_idx_of['GetJavaVM']}, template says 219"
+    )
+WRAPPER_BODIES["GetJavaVM"] = [
+    "/// `GetJavaVM` (slot 219, T13 13c): hands the caller the VM table",
+    "/// pointer (docs/M5_JNI_HARNESS.md §7 — the loading story: a foreign",
+    "/// library caches the VM here, GetEnvs the env table, binds its",
+    "/// natives). The write goes through audited primitive 3; a null",
+    "/// out-slot is JNI_ERR (the caller-bug law, same as GetEnv).",
+    'extern "system" fn jni_get_java_vm(_env: JNIEnv, vm: *mut *mut JavaVM_) -> jint {',
+    "    if vm.is_null() {",
+    "        return crate::jni::JNI_ERR;",
+    "    }",
+    "    j2r_jni_ffi::ffi::write_ptr_out(vm.cast::<*mut c_void>(), java_vm() as usize);",
+    "    crate::jni::JNI_OK",
+    "}",
+]
+
 
 # ---------------------------------------------------------------- T10 slice 2/3: real-slot registry verification
 # The registry must name slots that jni.h actually defines (a renamed/
@@ -1525,8 +1554,12 @@ A("    panic!(\"j2r-jni: table slot {index} ({name}) is not implemented yet; it 
 A("}")
 A("")
 
-# real implementations first (GetVersion here; GetEnv partial in the VM table)
-A("extern \"system\" fn jni_get_version(_env: JNIEnv) -> jint { crate::jni::JNI_VERSION_1_8 }")
+# real implementations first (GetVersion here; GetEnv in the VM table)
+A("/// The Temurin 21.0.13+9 oracle's literal GetVersion answer (measured")
+A("/// live by the T13 C harness: the JDK-major form 0x0015_0000 — the old")
+A("/// 1.8 assumption was falsified by the harness and corrected to the")
+A("/// measured value, per the three-channel differential law).")
+A("extern \"system\" fn jni_get_version(_env: JNIEnv) -> jint { crate::jni::JNI_VERSION_21_0 }")
 A("")
 
 env_fields: list[str] = []
@@ -1579,14 +1612,28 @@ A("extern \"system\" fn stub_destroy_java_vm(_vm: JavaVM) -> jint { unimplemente
 A("extern \"system\" fn stub_attach_current_thread(_vm: JavaVM, _penv: *mut *mut c_void, _args: *mut c_void) -> jint { unimplemented_slot(4, \"AttachCurrentThread\") }")
 A("extern \"system\" fn stub_detach_current_thread(_vm: JavaVM) -> jint { unimplemented_slot(5, \"DetachCurrentThread\") }")
 A("extern \"system\" fn stub_attach_as_daemon(_vm: JavaVM, _penv: *mut *mut c_void, _args: *mut c_void) -> jint { unimplemented_slot(7, \"AttachCurrentThreadAsDaemon\") }")
-A("/// Partially real: the version check needs no pointer write. A supported")
-A("/// version would have to write through the caller's `penv` — impossible")
-A("/// under forbid(unsafe_code); that resolution is the registered wave-2")
-A("/// finding (see jni/mod.rs).")
+A("/// Real as of T13 13c (the loading story, docs/M5_JNI_HARNESS.md §7):")
+A("/// a supported version (1.1..1.8, 9, 10 — the same set HotSpot 21")
+A("/// accepts, probed live by the T13 C harness) writes the env table")
+A("/// pointer through audited primitive 3 (write_ptr_out — the F-J1")
+A("/// resolution's own primitive) and answers JNI_OK; any other version")
+A("/// answers JNI_EVERSION and writes nothing; a null penv is JNI_ERR.")
 A("extern \"system\" fn jni_get_env(_vm: JavaVM, penv: *mut *mut c_void, version: jint) -> jint {")
 A("    if penv.is_null() { return crate::jni::JNI_ERR; }")
-A("    if version > crate::jni::JNI_VERSION_1_8 { return crate::jni::JNI_EVERSION; }")
-A("    unimplemented_slot(6, \"GetEnv(supported version)\")")
+A("    if !matches!(")
+A("        version,")
+A("        crate::jni::JNI_VERSION_1_1")
+A("            | crate::jni::JNI_VERSION_1_2")
+A("            | crate::jni::JNI_VERSION_1_4")
+A("            | crate::jni::JNI_VERSION_1_6")
+A("            | crate::jni::JNI_VERSION_1_8")
+A("            | crate::jni::JNI_VERSION_9")
+A("            | crate::jni::JNI_VERSION_10")
+A("    ) {")
+A("        return crate::jni::JNI_EVERSION;")
+A("    }")
+A("    j2r_jni_ffi::ffi::write_ptr_out(penv, jni_env() as usize);")
+A("    crate::jni::JNI_OK")
 A("}")
 A("")
 A("pub static VM_TABLE: JNIInvokeInterface_ = JNIInvokeInterface_ {")

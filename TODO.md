@@ -1500,9 +1500,27 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       the Foreign path switch + the REAL C probe via build.rs (test
       binaries only — the first C in the repo) + the window loudness
       pinned through the full runtime path; 444 green, full battery
-      zero divergences. Remaining: 13c the harness `.so` + the
-      Temurin-vs-j2r three-channel parity runner; 13d the
-      attach-lifecycle battery + the CI gate.
+      zero divergences.
+      — 13c LANDED (2026-11-10, session 7): the ONE harness `.so`
+      (`tests/jni_harness/harness.c`, compiled ONCE, runs against BOTH
+      runtimes) + the ONE self-checking driver fixture + the loading
+      story (VM `GetEnv` supported path + `GetJavaVM` wired through
+      audited primitive 3 — 159 real slots; `System.loadLibrary` as a
+      runtime native over primitive 12 `load_foreign_jni_library` =
+      dlopen + dlsym + the ABI-fixed JNI_OnLoad call, gate-10 amended
+      10 → 11 in the same commit; GetVersion corrected to the MEASURED
+      Temurin answer 0x0015_0000 — T08's 1.8 assumption falsified by
+      the harness, the oracle's measured value is the law) + the
+      three-channel parity runner (`tests/jni_parity.rs`) — **Temurin
+      vs j2r BYTE-IDENTICAL on stdout/stderr/exit, the full v1 battery
+      (versioning/VM, classes/fields, the A-form families + the
+      exception round-trip, V-forms real-variadic AND hand-built, the
+      mUTF-8 string edges both directions, arrays incl. all three
+      release modes + criticals, the RegisterNatives rebind/unbind
+      round-trip), both directions**. 448 green, full battery
+      (diff_suite 464.16 s + cfg_equiv 347.11 s) zero divergences.
+      Remaining: 13d the attach-lifecycle battery + the CI gate →
+      wave 2 closes.
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)
 - [ ] mixin application at the bytecode level before j2r (R1; §4,

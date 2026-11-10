@@ -132,8 +132,117 @@ now fully honest); gate-10 amended in the same commit as primitive
   panic BEFORE the fnPtr word is used). 444 green, full battery
   (diff_suite 454.98 s + cfg_equiv 353.99 s) zero divergences.
 - **13c** — the harness C source + the Temurin driver + the j2r-side
-  loading story + the three-channel comparison runner.
+  loading story + the three-channel comparison runner. **LANDED
+  (2026-11-10, session 7)** — see §7 (the loading story, precision of
+  record) and §8 (what the battery exercises and what it honestly
+  does not). 448 green, full battery (diff_suite 464.16 s +
+  cfg_equiv 347.11 s) zero divergences.
 - **13d** — the attach lifecycle battery + the CI gate + the full
   battery re-run + boards.
 
 Wave 2 closes with 13d.
+
+## 7. The loading story (13c, precision of record)
+
+How the SAME `.so` comes to run against BOTH runtimes — the one piece
+this note deliberately left open:
+
+1. **The VM-out slots are real.** VM-table `GetEnv` (slot 6) now serves
+   its supported-version path: the supported set is `{1.1, 1.2, 1.4,
+   1.6, 1.8, 9, 10}` — the exact set HotSpot 21 accepts (measured live
+   by the harness; 0x000b0000 and 0 answer JNI_EVERSION, and nothing is
+   written on those paths) — and writes the env table pointer through
+   audited primitive 3. `GetJavaVM` (env slot 219) is wired the same
+   way. Real slots: 158 → 159. The old "supported version aborts" pin
+   (F-J1's last unwired arm) is replaced by success-path tests.
+2. **`System.loadLibrary` is a runtime native** (`java/lang/System`,
+   `(Ljava/lang/String;)V`): it maps the name to the platform filename
+   (`lib<name>.so` — Linux-only in v1, loud unsupported elsewhere),
+   then calls **primitive 12** `load_foreign_jni_library(path, vm)` in
+   `j2r-jni-ffi`: ONE audited unsafe block doing dlopen (RTLD_NOW |
+   RTLD_LOCAL) + dlsym("JNI_OnLoad") + the ABI-fixed `jint (*)(void*,
+   void*)` call. The handle is NEVER dlclosed (a JNI library lives for
+   the process — HotSpot semantics; a close would invalidate the
+   bindings the natives registry holds). A dlopen miss aborts LOUDLY
+   naming the loader's error text (the UnsatisfiedLinkError-on-load-
+   failure transport stays a registered v1 gap; the primitive's own
+   tests pin the loudness). `JNI_OnLoad`'s version answer is validated
+   safe-side: 0 (no symbol) or a supported version = success; anything
+   else = `UnsatisfiedLinkError` (the oracle's family).
+3. **gate-10 amended in the same commit**: 10 → 11 `unsafe`
+   occurrences of pin 12 (G1.6's tracked headroom: one slot left).
+4. **GetVersion corrected to the MEASURED oracle answer.** T08 shipped
+   `GetVersion = JNI_VERSION_1_8` as an assumption. The harness's very
+   first oracle run falsified it: Temurin 21.0.13+9 answers the
+   JDK-major form **0x0015_0000** (probed live, Ver.c + ver.java, the
+   experiment committed to the session log). Our slot now returns the
+   measured value (`JNI_VERSION_21_0`), because the three-channel
+   differential contract is against THIS oracle, byte for byte. This
+   is the harness working exactly as designed: it judges, not decorates.
+5. **Harness JNI hygiene (a real oracle crash taught it):** a
+   `jclass` captured in `JNI_OnLoad` is a LOCAL ref that dies when
+   OnLoad returns — the first rebind attempt used the stale jclass and
+   HotSpot **SIGSEGVed** in `jni_RegisterNatives` (our interned-mirror
+   tags happened to tolerate it — tolerance is not correctness). The
+   harness now holds NO class statics: every rebind/unregister probe
+   re-FindClasses a fresh local and uses it within its own frame.
+   `NewGlobalRef` (21) stays a loud stub — registered for the T13d
+   attach battery if it needs it.
+6. **The parity runner** (`crates/j2r-cli/tests/jni_parity.rs`)
+   compiles the `.so` ONCE (`cc -shared -fPIC` against the pinned
+   JDK's `jni.h` of record), javac's the ONE driver source, runs
+   Temurin (`-Djava.library.path` + `LD_LIBRARY_PATH`), runs the j2r
+   binary (`LD_LIBRARY_PATH` — the same dlopen search), and asserts
+   stdout + stderr + exit RAW-identical, with stderr expected EMPTY on
+   both sides. Skips loudly (the soe_e2e law) when no JDK or no C
+   compiler is present. The CI gate wiring is 13d.
+
+## 8. What the battery exercises (G1.2, the honest inventory)
+
+`tests/jni_harness/harness.c` — ONE source, 12 bound probes + the
+helper native, all self-checking (the driver's `check()` exits 3 on
+ANY missed verdict, on BOTH runtimes — a broken probe can never
+"preserve parity" with a wrong answer):
+
+* versioning/VM: GetVersion (the measured 0x0015_0000), GetJavaVM →
+  cached VM → the GetEnv matrix (1.8 OK; "11" EVERSION; the served env
+  IS the received env).
+* classes/fields: GetObjectClass, GetFieldID/GetIntField/SetIntField,
+  GetStaticFieldID/GetStaticLongField/SetStaticLongField — verified
+  Java-side after the call (41→42, 1000→2000).
+* methods: GetMethodID/GetStaticMethodID; CallIntMethodA (virtual —
+  the override), CallObjectMethodA (returned string re-read through
+  GetStringUTFChars), CallVoidMethodA (the callback PRINTS — stdout
+  flows Java-side), CallStaticIntMethodA, CallNonvirtualIntMethodA
+  (the DECLARED-class dispatch: Base's 1005 vs the override's 12);
+  the exception round-trip (boom() → zero return → ExceptionOccurred →
+  the message read through a COMPILED bridge method — a builtin class
+  has no compiled facts, so GetMethodID on it would honestly answer
+  null → ExceptionClear → ExceptionCheck false).
+* V-forms: REAL-variadic C helpers (the save area the C compiler
+  itself produces — 8 ints pin the register→overflow split; (I D)D
+  pins the GP/FP interleave) AND hand-built `__va_list_tag` records
+  (the deterministic layout of record, filled at the ABI's own
+  offsets).
+* strings both directions: GetStringUTFLength/GetStringUTFChars/
+  ReleaseStringUTFChars over the mUTF-8 edges (the encoded NUL
+  0xC0 0x80 and the supplementary pair), NewStringUTF ("j2r" + NUL +
+  "ok"), NewString (surrogate pair + an embedded NUL jchar) — all
+  verified by byte-compare in C and by Java-side length/charAt.
+* arrays: NewIntArray + Set/Get regions, GetIntArrayElements + ALL
+  THREE release modes, GetPrimitiveArrayCritical/Release, GetArrayLength.
+  HONEST LIMIT (in-comment): the JNI_ABORT arm CALLS the path but
+  asserts only the COMMIT result — with a direct-pointer Get
+  (HotSpot) the mutation is already in the array, so asserting the
+  ABORT-drops semantics would diverge BY DESIGN; that law is
+  unit-pinned Rust-side (T10 slice 3b, copy-mode registry).
+* natives: RegisterNatives/UnregisterNatives — the binding IS the
+  skeleton (JNI_OnLoad binds all 12 + the helper); the rebind-override
+  law (nativeVersion → 777 → restored 47) and the unbound law
+  (UnregisterNatives → UnsatisfiedLinkError, caught Java-side, the
+  CLASS NAME printed — the message shape is not in the v1 bar).
+
+Registered NOT exercised (still loud/documented v1 gaps): weak global
+refs, cross-thread local-resolve, Monitor*, GetStringRegion/
+GetStringUTFRegion, the string/array exception transports, InvokeInterface.
+13d's battery asserts the LOUD behavior for the ones with a loud arm.

@@ -1,19 +1,15 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 7 — **reset #8 survived via §9: ff-merged
-back to `754ae40`, toolchain re-proven with the byte-exact Temurin
-tarball (207,858,352 B), the owner's 8-hour cron schedule verified
-COMPLETE (0 jobs remain); next = baseline re-proof, then T13 13c**.
-Earlier session 6 — **T13 slice 13b LANDED: primitive 11
-`call_foreign_native` + the `Binding::Foreign` path switch + gate-10
-amended 9 → 10 + the REAL C probe via build.rs (the first C in the
-repo, test-binaries-only) + the window loudness pinned through the full
-runtime path; 444 green, full battery zero divergences**. Also: the
-doc-drift sweep (M5_PLAN register, TODO, docs/ROADMAP, README status —
-all now reflect T08–T12 COMPLETE) and **docs/REVIEW_CHECKLIST.md** (the
-owner's external review converted to strict pass/fail gates). T11 and
-T12 COMPLETE earlier the same day. See console.md session-5/6 entries
-and §9).
+Updated 2026-11-10 (session 7 — **reset #8 survived via §9 (ff to
+`754ae40`), toolchain re-proven byte-exact, the 8-hour cron schedule
+verified COMPLETE (0 jobs); then T13 slice 13c LANDED: the ONE C
+harness `.so` + the loading story (VM GetEnv/GetJavaVM wired,
+`System.loadLibrary` over audited primitive 12, gate-10 10 → 11,
+GetVersion corrected to the MEASURED 0x0015_0000) + the three-channel
+parity runner — Temurin vs j2r BYTE-IDENTICAL on the full v1 battery;
+REVIEW_CHECKLIST G1.1–G1.3 checked; 448 green**. Session 6 landed 13b
++ the review checklist. See console.md session-7 entries and
+M5_JNI_HARNESS.md §7/§8).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
@@ -177,6 +173,10 @@ M4 completion package still awaits owner review in parallel.
    cfg_equiv 350.90 s + diff_suite 447.79 s, zero divergences).
    Re-proven at **440** after T12 12c (runtime 238, cli 28;
    cfg_equiv 351.47 s + diff_suite 451.36 s, zero divergences).
+   Re-proven at **448** after T13 13c (session 7; jni-ffi 17 =
+   15 unit + 2 real-C, runtime 239, cli 29 incl. jni_parity 1;
+   cfg_equiv 347.11 s + diff_suite 464.16 s, zero divergences;
+   the C-harness parity battery green both runtimes).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -421,9 +421,22 @@ by the per-crate budget K.
   build.rs + `tests/c_probe.rs` (the first C in the repo — platform
   compiler, TEST binaries only, the `cc` crate rejected to protect the
   generated projects' `--offline` builds); 444 green, full battery zero
-  divergences. REMAINING: 13c the harness C source + the Temurin driver
-  + the j2r loading story + the three-channel parity runner; 13d the
-  attach-lifecycle battery + the CI gate — wave 2 closes at 13d. ALSO:
+  divergences. **13c LANDED (session 7)**: the ONE harness `.so`
+  (tests/jni_harness/harness.c) + the ONE self-checking driver fixture
+  + the loading story (VM GetEnv supported path {1.1..1.8, 9, 10 — the
+  MEASURED HotSpot 21 set} + GetJavaVM wired through audited primitive
+  3, 159 real slots; System.loadLibrary as a runtime native over
+  primitive 12 load_foreign_jni_library = dlopen + dlsym + the
+  ABI-fixed JNI_OnLoad call, gate-10 10 → 11 same commit; GetVersion
+  corrected to the MEASURED Temurin answer 0x0015_0000 — T08's 1.8
+  assumption falsified by the harness) + the three-channel parity
+  runner (tests/jni_parity.rs) — **Temurin vs j2r BYTE-IDENTICAL on
+  stdout/stderr/exit, the full v1 battery, both directions;
+  REVIEW_CHECKLIST G1.1/G1.2/G1.3 checked**; 448 green, full battery
+  (diff_suite 464.16 s + cfg_equiv 347.11 s) zero divergences.
+  REMAINING: 13d the attach-lifecycle battery (pthread → Attach →
+  battery → Detach → re-attach) + the loud-gap probes + the CI gate —
+  wave 2 closes at 13d. ALSO:
   docs/REVIEW_CHECKLIST.md (G0–G6) now governs milestone-completion
   claims — the external review's P0–P2 as pass/fail gates.
 - [ops] Session 7 (2026-11-10 ~08:25 UTC): reset #8 survived via §9

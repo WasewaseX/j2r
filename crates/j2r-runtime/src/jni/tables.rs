@@ -69,8 +69,12 @@ fn unimplemented_slot(index: usize, name: &'static str) -> ! {
     panic!("j2r-jni: table slot {index} ({name}) is not implemented yet; it is registered for a later wave-2 task")
 }
 
+/// The Temurin 21.0.13+9 oracle's literal GetVersion answer (measured
+/// live by the T13 C harness: the JDK-major form 0x0015_0000 — the old
+/// 1.8 assumption was falsified by the harness and corrected to the
+/// measured value, per the three-channel differential law).
 extern "system" fn jni_get_version(_env: JNIEnv) -> jint {
-    crate::jni::JNI_VERSION_1_8
+    crate::jni::JNI_VERSION_21_0
 }
 
 #[repr(C)]
@@ -698,7 +702,7 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     UnregisterNatives: jni_unregister_natives,
     MonitorEnter: stub_MonitorEnter,
     MonitorExit: stub_MonitorExit,
-    GetJavaVM: stub_GetJavaVM,
+    GetJavaVM: jni_get_java_vm,
     GetStringRegion: stub_GetStringRegion,
     GetStringUTFRegion: stub_GetStringUTFRegion,
     GetPrimitiveArrayCritical: jni_get_primitive_array_critical,
@@ -749,18 +753,30 @@ extern "system" fn stub_attach_as_daemon(
 ) -> jint {
     unimplemented_slot(7, "AttachCurrentThreadAsDaemon")
 }
-/// Partially real: the version check needs no pointer write. A supported
-/// version would have to write through the caller's `penv` — impossible
-/// under forbid(unsafe_code); that resolution is the registered wave-2
-/// finding (see jni/mod.rs).
+/// Real as of T13 13c (the loading story, docs/M5_JNI_HARNESS.md §7):
+/// a supported version (1.1..1.8, 9, 10 — the same set HotSpot 21
+/// accepts, probed live by the T13 C harness) writes the env table
+/// pointer through audited primitive 3 (write_ptr_out — the F-J1
+/// resolution's own primitive) and answers JNI_OK; any other version
+/// answers JNI_EVERSION and writes nothing; a null penv is JNI_ERR.
 extern "system" fn jni_get_env(_vm: JavaVM, penv: *mut *mut c_void, version: jint) -> jint {
     if penv.is_null() {
         return crate::jni::JNI_ERR;
     }
-    if version > crate::jni::JNI_VERSION_1_8 {
+    if !matches!(
+        version,
+        crate::jni::JNI_VERSION_1_1
+            | crate::jni::JNI_VERSION_1_2
+            | crate::jni::JNI_VERSION_1_4
+            | crate::jni::JNI_VERSION_1_6
+            | crate::jni::JNI_VERSION_1_8
+            | crate::jni::JNI_VERSION_9
+            | crate::jni::JNI_VERSION_10
+    ) {
         return crate::jni::JNI_EVERSION;
     }
-    unimplemented_slot(6, "GetEnv(supported version)")
+    j2r_jni_ffi::ffi::write_ptr_out(penv, jni_env() as usize);
+    crate::jni::JNI_OK
 }
 
 pub static VM_TABLE: JNIInvokeInterface_ = JNIInvokeInterface_ {
@@ -1981,9 +1997,6 @@ extern "system" fn stub_MonitorEnter(_env: *mut JNIEnv_, _obj: jobject) -> jint 
 }
 extern "system" fn stub_MonitorExit(_env: *mut JNIEnv_, _obj: jobject) -> jint {
     unimplemented_slot(218, "MonitorExit")
-}
-extern "system" fn stub_GetJavaVM(_env: *mut JNIEnv_, _vm: *mut *mut JavaVM_) -> jint {
-    unimplemented_slot(219, "GetJavaVM")
 }
 extern "system" fn stub_GetStringRegion(
     _env: *mut JNIEnv_,
@@ -4732,6 +4745,19 @@ extern "system" fn jni_register_natives(
 extern "system" fn jni_unregister_natives(_env: JNIEnv, clazz: jclass) -> jint {
     let tag = crate::jni::bridge::jobject_to_tag(clazz);
     crate::jni::natives::slot_unregister_natives(tag)
+}
+
+/// `GetJavaVM` (slot 219, T13 13c): hands the caller the VM table
+/// pointer (docs/M5_JNI_HARNESS.md §7 — the loading story: a foreign
+/// library caches the VM here, GetEnvs the env table, binds its
+/// natives). The write goes through audited primitive 3; a null
+/// out-slot is JNI_ERR (the caller-bug law, same as GetEnv).
+extern "system" fn jni_get_java_vm(_env: JNIEnv, vm: *mut *mut JavaVM_) -> jint {
+    if vm.is_null() {
+        return crate::jni::JNI_ERR;
+    }
+    j2r_jni_ffi::ffi::write_ptr_out(vm.cast::<*mut c_void>(), java_vm() as usize);
+    crate::jni::JNI_OK
 }
 
 /// `GetObjectField` (slot 95): instance access through the

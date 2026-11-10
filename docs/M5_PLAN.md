@@ -352,9 +352,19 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       (build.rs compiles the probe C with the platform compiler, linked
       into the test binaries only — the first C in the repo; vendored
       generated projects never see it, `--offline` builds unaffected);
-      444 green, full battery zero divergences. Remaining: 13c the
-      harness C source + the Temurin/j2r three-channel parity runner,
-      13d the attach-lifecycle battery + the CI gate → wave 2 closes.
+      13c LANDED (session 7): the ONE harness `.so`
+      (`tests/jni_harness/harness.c`) + the ONE driver fixture
+      (self-checking, exits 3 on any missed verdict) + the loading
+      story (VM `GetEnv` + `GetJavaVM` wired through audited primitive
+      3 — 159 real slots; `System.loadLibrary` as a runtime native over
+      primitive 12 `load_foreign_jni_library`, gate-10 10 → 11 in the
+      same commit; GetVersion corrected to the MEASURED oracle answer
+      0x0015_0000) + the three-channel parity runner
+      (`tests/jni_parity.rs`) — **Temurin vs j2r byte-identical on all
+      three channels, the full v1 battery, both directions**
+      (M5_PLAN §3.4's acceptance demo, live). 448 green, full battery
+      zero divergences. Remaining: 13d the attach-lifecycle battery +
+      the CI gate → wave 2 closes.
 
 ### Wave 3 — mappings pipeline
 

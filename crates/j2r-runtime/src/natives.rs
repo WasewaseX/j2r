@@ -645,6 +645,66 @@ fn n_system_arraycopy(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Re
     crate::array::system_arraycopy(args, ctx)
 }
 
+/// `System.loadLibrary(String)` (T13 13c — the loading story,
+/// docs/M5_JNI_HARNESS.md §7): resolve the platform library filename
+/// (`lib<name>.so` on this ABI), dlopen it, and run its `JNI_OnLoad` with
+/// the VM table pointer through audited primitive 12. `JNI_OnLoad` then
+/// `GetEnv`s the env table (VM slot 6, real since 13c) and binds its
+/// natives through slot 215 — the SAME mechanism Temurin serves, which is
+/// what makes the ONE harness `.so` work on both runtimes. No `JNI_OnLoad`
+/// symbol is success (the spec's default-version case); a post-1.8
+/// version answer is `UnsatisfiedLinkError` (the oracle's family); a
+/// dlopen miss aborts loudly inside the primitive (v1: never a silent
+/// fake success; the UnsatisfiedLinkError-on-load-failure transport is a
+/// registered v1 gap, unit-pinned via the primitive's own loudness).
+fn n_system_load_library(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let name = match arg(args, "System.loadLibrary") {
+        Value::Ref(Some(o)) if is_string(o) => object::string_value(o).to_string(),
+        Value::Ref(None) => {
+            return Err(crate::throw_new("java/lang/NullPointerException", None));
+        }
+        _ => {
+            panic!("j2r internal: System.loadLibrary needs a String")
+        }
+    };
+    // v1: this ABI's loader filename. A non-Linux platform is a loud
+    // unsupported (the standing law; CI and the parity runner are Linux).
+    if !cfg!(target_os = "linux") {
+        panic!("j2r JNI bridge: System.loadLibrary is Linux-only in v1 (loud unsupported)");
+    }
+    let path = format!("lib{name}.so");
+    let Ok(cpath) = std::ffi::CString::new(path.clone()) else {
+        return Err(crate::throw_new(
+            "java/lang/UnsatisfiedLinkError",
+            Some(&format!("{path}: embedded NUL in the library name")),
+        ));
+    };
+    let vm = crate::jni::tables::java_vm() as usize as *mut std::os::raw::c_void;
+    let ver = j2r_jni_ffi::ffi::load_foreign_jni_library(cpath.as_ptr(), vm);
+    let ok = ver == 0
+        || matches!(
+            ver,
+            crate::jni::JNI_VERSION_1_1
+                | crate::jni::JNI_VERSION_1_2
+                | crate::jni::JNI_VERSION_1_4
+                | crate::jni::JNI_VERSION_1_6
+                | crate::jni::JNI_VERSION_1_8
+                | crate::jni::JNI_VERSION_9
+                | crate::jni::JNI_VERSION_10
+        );
+    if !ok {
+        return Err(crate::throw_new(
+            "java/lang/UnsatisfiedLinkError",
+            Some(&format!("unsupported JNI version 0x{ver:08x}")),
+        ));
+    }
+    Ok(Value::Ref(None))
+}
+
 // float/double predicates (corpus wave 1) — exact IEEE semantics
 fn n_float_is_infinite(
     _recv: Option<&JRef>,
@@ -2944,6 +3004,14 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "arraycopy",
         "(Ljava/lang/Object;ILjava/lang/Object;II)V",
         n_system_arraycopy,
+    ),
+    // System.loadLibrary (T13 13c — the loading story): dlopen + JNI_OnLoad
+    // through audited primitive 12; see the fn's doc comment.
+    (
+        "java/lang/System",
+        "loadLibrary",
+        "(Ljava/lang/String;)V",
+        n_system_load_library,
     ),
     // java/lang/Math
     ("java/lang/Math", "abs", "(I)I", n_math_abs_i),

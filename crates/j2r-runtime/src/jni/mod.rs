@@ -22,12 +22,15 @@
 //!   single `unsafe`: creating a raw pointer is safe; only the foreign
 //!   side dereferences it (their FFI is theirs — M5_PLAN §3.1).
 //!
-//! Real slots so far: 158 of 231, wired through the generator's
+//! Real slots so far: 159 of 231, wired through the generator's
 //! `REAL_SLOTS` registry (the truth prints at generation time) — the
 //! string families (T10 slice 1), class/field/array surfaces (T10),
 //! the pending-exception trio, the method-ID pair, all sixty
-//! `Call*MethodA`/`Call*MethodV` slots (T11 11b/11c) and the
-//! native-binding pair (T12 12b). Later tasks fill the rest.
+//! `Call*MethodA`/`Call*MethodV` slots (T11 11b/11c), the
+//! native-binding pair (T12 12b) and — T13 13c — `GetJavaVM` (219) plus
+//! the VM table's `GetEnv` supported-version path (the loading story's
+//! two out-param slots, served through audited primitive 3). Later
+//! tasks fill the rest.
 //!
 //! ## Registered wave-2 findings (owned by T09/T11, not hidden)
 //!
@@ -139,6 +142,12 @@ pub const JNI_VERSION_1_6: i32 = 0x0001_0006;
 pub const JNI_VERSION_1_8: i32 = 0x0001_0008;
 pub const JNI_VERSION_9: i32 = 0x0009_0000;
 pub const JNI_VERSION_10: i32 = 0x000a_0000;
+/// What Temurin 21.0.13+9's `GetVersion` LITERALLY answers (probed live by
+/// the T13 C harness, 2026-11-10): the JDK's own version-major form
+/// `0x0015_0000` — NOT a fixed JNI-spec constant. T08's `1.8` was an
+/// assumption the harness falsified; the oracle's measured value is the
+/// law (the three-channel differential contract).
+pub const JNI_VERSION_21_0: i32 = 0x0015_0000;
 
 #[cfg(test)]
 mod tests {
@@ -148,12 +157,14 @@ mod tests {
     use std::ptr;
 
     #[test]
-    fn get_version_through_the_table_is_1_8() {
+    fn get_version_through_the_table_matches_temurin() {
         // Copy the slot-4 function pointer out of the static table and call
         // it — the same positional ABI a foreign library uses, exercised
         // with zero unsafe (calling a copied extern fn value is safe).
+        // Temurin 21.0.13+9 answers 0x0015_0000 (the JDK-major form,
+        // measured live by the T13 C harness) — not the old 1.8 assumption.
         let get_version: extern "system" fn(JNIEnv) -> i32 = ENV_TABLE.GetVersion;
-        assert_eq!(get_version(jni_env()), JNI_VERSION_1_8);
+        assert_eq!(get_version(jni_env()), JNI_VERSION_21_0);
     }
 
     #[test]
@@ -187,8 +198,10 @@ mod tests {
             JNI_ERR
         );
         let mut slot: *mut c_void = ptr::null_mut();
+        // 11 (0x000b_0000) is past HotSpot 21's supported set — EVERSION
+        // (10 IS supported: probed live by the T13 C harness).
         assert_eq!(
-            get_env(java_vm(), &mut slot as *mut *mut c_void, JNI_VERSION_10),
+            get_env(java_vm(), &mut slot as *mut *mut c_void, 0x000b_0000),
             JNI_EVERSION
         );
         // the unsupported-version path must not have written anything
@@ -196,46 +209,60 @@ mod tests {
     }
 
     #[test]
-    fn get_env_supported_version_aborts_loudly() {
-        // A supported version cannot yet be served (F-J1: the required
-        // pointer write is impossible under forbid(unsafe_code)); the slot
-        // must abort the process with a message naming the slot — panics
-        // cannot unwind across the extern "system" boundary, so the stub's
-        // panic aborts. Observed the soe_e2e way: a child process.
-        if std::env::var("J2R_JNI_STUB_ABORT_CHILD").is_ok() {
-            let get_env: extern "system" fn(JavaVM, *mut *mut c_void, i32) -> i32 = VM_TABLE.GetEnv;
-            let mut slot: *mut c_void = ptr::null_mut();
-            let _ = get_env(java_vm(), &mut slot as *mut *mut c_void, JNI_VERSION_1_8);
-            return; // unreachable: the call above aborts
-        }
-        let exe = std::env::current_exe().expect("current_exe");
-        let out = std::process::Command::new(exe)
-            .args([
-                "jni::tests::get_env_supported_version_aborts_loudly",
-                "--exact",
-                "--nocapture",
-            ])
-            .env("J2R_JNI_STUB_ABORT_CHILD", "1")
-            .output()
-            .expect("spawn child test process");
-        assert!(
-            !out.status.success(),
-            "supported-version GetEnv must abort, got {out:?}"
+    fn get_env_supported_version_serves_the_env_table() {
+        // T13 13c: the F-J1 out-param resolution (audited primitive 3) now
+        // serves the supported-version path — the loading story's entry
+        // (a foreign JNI_OnLoad GetEnvs the VM it was handed). JNI_OK +
+        // the exact static env table pointer, and nothing written on the
+        // unsupported paths.
+        let get_env: extern "system" fn(JavaVM, *mut *mut c_void, i32) -> i32 = VM_TABLE.GetEnv;
+        let mut slot: *mut c_void = ptr::null_mut();
+        assert_eq!(
+            get_env(java_vm(), &mut slot as *mut *mut c_void, JNI_VERSION_1_8),
+            JNI_OK
         );
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::ExitStatusExt;
-            assert_eq!(
-                out.status.signal(),
-                Some(6), // SIGABRT
-                "abort is the loud failure shape, got {out:?}"
-            );
+        assert!(ptr::eq(slot, jni_env() as *mut c_void));
+        // every supported version answers OK — including 9/10, which
+        // HotSpot 21 also accepts (probed live by the T13 C harness)
+        for v in [
+            JNI_VERSION_1_1,
+            JNI_VERSION_1_2,
+            JNI_VERSION_1_4,
+            JNI_VERSION_1_6,
+            JNI_VERSION_9,
+            JNI_VERSION_10,
+        ] {
+            assert_eq!(get_env(java_vm(), &mut slot as *mut *mut c_void, v), JNI_OK);
         }
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(
-            stderr.contains("GetEnv"),
-            "the abort message must name the slot, got: {stderr}"
+        // an unsupported version (past 10, and 0): EVERSION, nothing written
+        assert_eq!(
+            get_env(java_vm(), &mut slot as *mut *mut c_void, 0x000b_0000),
+            JNI_EVERSION
         );
+        let stale = slot;
+        assert_eq!(
+            get_env(java_vm(), &mut slot as *mut *mut c_void, 0),
+            JNI_EVERSION
+        );
+        assert!(ptr::eq(slot, stale), "the EVERSION paths must not write");
+        // null penv: JNI_ERR
+        assert_eq!(
+            get_env(java_vm(), ptr::null_mut(), JNI_VERSION_1_8),
+            JNI_ERR
+        );
+    }
+
+    #[test]
+    fn get_java_vm_serves_the_vm_table_pointer() {
+        // T13 13c: slot 219 hands out the same VM table pointer the
+        // loading story caches in JNI_OnLoad (audited primitive 3 write).
+        let get_java_vm: extern "system" fn(JNIEnv, *mut *mut tables::JavaVM_) -> i32 =
+            ENV_TABLE.GetJavaVM;
+        let mut slot: *mut tables::JavaVM_ = ptr::null_mut();
+        assert_eq!(get_java_vm(jni_env(), &mut slot), JNI_OK);
+        assert!(ptr::eq(slot, java_vm()));
+        // null out-slot: JNI_ERR (the caller-bug law)
+        assert_eq!(get_java_vm(jni_env(), ptr::null_mut()), JNI_ERR);
     }
 
     #[test]

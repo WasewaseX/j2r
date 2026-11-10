@@ -1,6 +1,6 @@
 //! The audited primitive surface (M5_JNI_FFI.md §4).
 //!
-//! Eleven total functions; every `unsafe` occurrence in the workspace outside
+//! Twelve total functions; every `unsafe` occurrence in the workspace outside
 //! `#![forbid(unsafe_code)]` lives here, inside these functions, with a
 //! `// SAFETY:` justification naming the JNI contract. gate-10 counts and
 //! pins the occurrences (`AUDITED_UNSAFE_OCCURRENCES` = 12; the T09
@@ -22,6 +22,13 @@
 //! only — the walk consumes the record into a LOCAL cursor safe-side, so
 //! no write primitive exists to misuse. The occurrence pin (≤ 12) still
 //! holds with headroom (9 used).
+//!
+//! T13 slice 13b added primitive 11 (`call_foreign_native`, the fixed
+//! SysV register-window call thunk — occurrences 9 → 10). T13 slice 13c
+//! adds primitive 12 (`load_foreign_jni_library` — dlopen + dlsym + the
+//! ABI-fixed `JNI_OnLoad` call in ONE audited block; occurrences 10 →
+//! 11), the loading story's runtime half (docs/M5_JNI_HARNESS.md §7).
+//! 11 of the 12-slot pin used; one headroom slot remains.
 
 use std::os::raw::{c_char, c_void};
 
@@ -358,10 +365,84 @@ pub struct NativeRet {
     pub d: f64,
 }
 
+// -- primitive 12: the foreign-library loader (13c, docs/M5_JNI_HARNESS.md
+//    §7). The three foreign calls share ONE audited unsafe block.
+
+const RTLD_NOW: std::os::raw::c_int = 2;
+const RTLD_LOCAL: std::os::raw::c_int = 0;
+const JNI_ON_LOAD_SYM: &[u8] = b"JNI_OnLoad\0";
+
+extern "C" {
+    fn dlopen(filename: *const c_char, flags: std::os::raw::c_int) -> *mut c_void;
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    fn dlerror() -> *mut c_char;
+}
+
+/// Primitive 12: load a foreign JNI library and run its `JNI_OnLoad` —
+/// the `System.loadLibrary` runtime half (T13 13c; the loading story is
+/// design-of-record in docs/M5_JNI_HARNESS.md §7).
+///
+/// `path` is the platform library filename (`libjni_harness.so`);
+/// `vm` is the VM table pointer the library's `JNI_OnLoad` receives (so
+/// it can `GetEnv` the env table and bind its natives through slot 215).
+/// The handle is deliberately never `dlclose`d — a JNI library lives for
+/// the process (HotSpot semantics), and a close would invalidate the
+/// bindings the natives registry now holds.
+///
+/// Returns the version `JNI_OnLoad` answered; 0 = loaded, no `JNI_OnLoad`
+/// symbol (the spec's default-version case). A dlopen failure is a LOUD
+/// abort naming the loader's own error text (never a silent fake success;
+/// the safe caller maps Java-visible failure semantics — v1: the parity
+/// battery only loads libraries that exist, and the failure path is
+/// pinned by a child-process test).
+///
+/// # SAFETY (the one `unsafe` below)
+/// `path` is a NUL-terminated C string owned by the caller for the call
+/// (the `read_caller_str` contract); dlopen/dlsym follow the platform
+/// loader's documented contracts; the transmuted pointer is the symbol
+/// the loader just resolved and its signature is fixed by the JNI spec
+/// (§5.4.1: `jint JNI_OnLoad(JavaVM*, void*)`).
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // deliberate: null path guarded
+pub fn load_foreign_jni_library(path: *const c_char, vm: *mut c_void) -> i32 {
+    if path.is_null() {
+        panic!("j2r JNI bridge: System.loadLibrary(null) — a null library name is a caller bug");
+    }
+    // SAFETY: three foreign calls under one audited block. `dlopen`
+    // receives the caller-owned NUL-terminated path (the JNI-spec string
+    // contract); `dlsym` names a fixed ASCII symbol; the transmute only
+    // fixes the JNI-spec signature of the symbol the loader just
+    // resolved. `dlerror` is read only on the failure path the loader
+    // documents. The handle is never closed (see the doc above).
+    unsafe {
+        let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+        if handle.is_null() {
+            let reason = dlerror();
+            let detail = if reason.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(reason)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            panic!(
+                "j2r JNI bridge: dlopen failed ({detail}) — System.loadLibrary must not fake success"
+            );
+        }
+        let sym = dlsym(handle, JNI_ON_LOAD_SYM.as_ptr() as *const c_char);
+        if sym.is_null() {
+            return 0; // loaded, no JNI_OnLoad: the spec's default-version case
+        }
+        type OnLoad = extern "C" fn(*mut c_void, *mut c_void) -> i32;
+        let on_load: OnLoad = std::mem::transmute(sym);
+        on_load(vm, std::ptr::null_mut())
+    }
+}
+
 /// The number of `unsafe` occurrences in this file. Asserted by a test
 /// below (source-scanned, so drift fails locally before gate-10 does).
-/// T13 slice 13b: 9 → 10 (primitive 11), pin ≤ 12 unchanged.
-pub const ACTUAL_UNSAFE_OCCURRENCES: u32 = 10;
+/// T13 slice 13c: 10 → 11 (primitive 12), pin ≤ 12 unchanged (1 slot of
+/// headroom left).
+pub const ACTUAL_UNSAFE_OCCURRENCES: u32 = 11;
 
 #[cfg(test)]
 mod tests {
@@ -577,6 +658,24 @@ mod tests {
         }))
         .is_err();
         assert!(panicked, "beyond the FP window must be loud");
+    }
+
+    // -- primitive 12: the foreign-library loader (13c) -----------------
+
+    #[test]
+    #[should_panic(expected = "dlopen failed")]
+    fn load_foreign_jni_library_missing_is_loud() {
+        // A missing library aborts LOUDLY (the loader's own error text in
+        // the message) — never a silent fake success. Panics unwind fine
+        // inside a plain Rust test (no extern boundary crossed).
+        let c = std::ffi::CString::new("/nonexistent/j2r/libnope.so").unwrap();
+        let _ = load_foreign_jni_library(c.as_ptr(), std::ptr::null_mut());
+    }
+
+    #[test]
+    #[should_panic(expected = "null library name")]
+    fn load_foreign_jni_library_null_path_is_loud() {
+        let _ = load_foreign_jni_library(std::ptr::null(), std::ptr::null_mut());
     }
 
     #[test]
