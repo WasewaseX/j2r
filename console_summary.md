@@ -1,7 +1,9 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 5 — **T10 slice 3b landed → T10 COMPLETE,
-414 green**; see console.md session-5 entry and §9). Raw log: `console.md`.
+Updated 2026-11-10 (session 5 cont. 2 — **T11 slice 11b part 1 landed:
+pending-exception cell + method IDs + ten virtual Call*MethodA, 418
+green**; T10 COMPLETE at 414. See console.md session-5 entries and §9).
+Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
 
@@ -310,6 +312,19 @@ by the per-crate budget K.
   breaks a later valid release); critical-pair slot correction
   217/218 → 222/223 in the design note + mod.rs doc; 414 green, full
   battery re-run — zero divergences. **T10 DONE.**
+- [~] **T11** — design note docs/M5_JNI_CALLS.md LANDED (11a, the F-J2
+  resolution: A-forms workhorse / V-forms via the SysV save-area walk /
+  bare forms loud, honestly typed; pending-exception cell scoped). Part
+  1 LANDED (11b-1): the per-thread pending cell (ExceptionOccurred/
+  Clear/Check slots 15/17/228 real — the first faithful exception
+  transport); the bit-62 method-ID registry (GetMethodID/GetStatic—
+  MethodID 33/113, ancestor walk, NoSuchMethodError pended on miss);
+  the A-form invoke core (descriptor-driven jvalue decode, virtual
+  dispatch by the receiver's runtime class, zero-return-on-throw); 15
+  slots wired (91 → 106); 4 unit tests; 418 green. NEXT (11b-2): the
+  mock-dispatch invoke tests (override vs declared-class), the
+  static/nonvirtual families, the FULL battery; then 11c: V-forms via
+  the save-area walk + the gate-10 amendment (6 used of pin 12).
 - [ops] Session 5 (2026-11-10): reset #6 survived via §9 (tree back at
   pre-M3 `b4badea`, toolchain wiped); baseline re-proven 398 green at
   6e9805a, then slice 3b landed at 414. Correction of record: the
