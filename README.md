@@ -202,9 +202,9 @@ A **JDK-coverage milestone** (M3, [docs/ROADMAP.md](ROADMAP.md)) landed on
 ### What is intentionally not supported (yet)
 
 Unsupported features are **compile errors with a precise message** — never
-silent miscompiles. Currently: `jsr`/`ret` (pre-Java-6 bytecode), native
-methods, and most of the JDK beyond the natives/collections/reflection
-list — the JMM's volatile/final-freeze semantics (threads, monitors,
+silent miscompiles. Currently: `jsr`/`ret` (pre-Java-6 bytecode) and most
+of the JDK beyond the natives/collections/reflection list — the JMM's
+volatile/final-freeze semantics (threads, monitors,
 wait/notify, interrupt and daemon shutdown ARE supported — M4; see
 RUNTIME_SAFETY.md §6 for what the concurrency model does and does not
 guarantee), the stream classes beyond the byte-stream builtins the corpus
@@ -213,7 +213,9 @@ StringReader/Writer), `Optional`, `java.time`,
 regex, serialization, `assert`.
 (`multianewarray`, `monitorenter`/`monitorexit`, `synchronized` methods
 and `ldc` of class constants were implemented across M1.6 and M3
-Waves 4–5 — see the feature list above.)
+Waves 4–5; native methods are accepted since the T12 JNI call-through —
+an unbound native throws `UnsatisfiedLinkError` exactly like the JVM,
+and the C-harness round-trip is T13.)
 
 See [ROADMAP.md](ROADMAP.md) for the plan to close these gaps and reach
 Minecraft.
