@@ -1,6 +1,10 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 6 — **T13 slice 13b LANDED: primitive 11
+Updated 2026-11-10 (session 7 — **reset #8 survived via §9: ff-merged
+back to `754ae40`, toolchain re-proven with the byte-exact Temurin
+tarball (207,858,352 B), the owner's 8-hour cron schedule verified
+COMPLETE (0 jobs remain); next = baseline re-proof, then T13 13c**.
+Earlier session 6 — **T13 slice 13b LANDED: primitive 11
 `call_foreign_native` + the `Binding::Foreign` path switch + gate-10
 amended 9 → 10 + the REAL C probe via build.rs (the first C in the
 repo, test-binaries-only) + the window loudness pinned through the full
@@ -143,8 +147,9 @@ M4 completion package still awaits owner review in parallel.
    law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 →
    `/home/z/my-project/tools/jdk-21.0.13+9` (session 3 moved the JDK to
    the persistent layer; /tmp is not trusted), `source
-   /home/z/my-project/env.sh`. Status: **DONE (session 5 cont. 3;
-   reset #7)** — the §9 recipe (fetch + ff-only merge to origin/main
+   /home/z/my-project/env.sh`. Status: **DONE (session 7; reset #8 —
+   byte-exact tarball again; the working download route is the GitHub
+   releases asset, recorded in console.md)** — the §9 recipe (fetch + ff-only merge to origin/main
    `cf8394e`), exact pinned versions restored (Temurin tarball
    207,858,352 B, byte-exact vs the recorded ~199 MB); env.sh
    recreated; target/ survived → warm builds.
@@ -421,6 +426,11 @@ by the per-crate budget K.
   attach-lifecycle battery + the CI gate — wave 2 closes at 13d. ALSO:
   docs/REVIEW_CHECKLIST.md (G0–G6) now governs milestone-completion
   claims — the external review's P0–P2 as pass/fail gates.
+- [ops] Session 7 (2026-11-10 ~08:25 UTC): reset #8 survived via §9
+  (tree back at pre-M3 `b4badea`, toolchain + tools/ + env.sh wiped);
+  ff-only merge → `754ae40`; rebootstrap byte-exact (the GitHub
+  releases route recorded); the owner's 8-hour cron schedule verified
+  COMPLETE — 0 jobs remain. Next: baseline re-proof, then 13c.
 - [ops] Session 5 (2026-11-10): reset #6 survived via §9 (tree back at
   pre-M3 `b4badea`, toolchain wiped); baseline re-proven 398 green at
   6e9805a, then slice 3b landed at 414. Reset #7 also survived via §9
