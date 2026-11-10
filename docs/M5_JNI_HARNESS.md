@@ -2,14 +2,15 @@
 # primitive 11 (design note)
 
 Status: DESIGN OF RECORD for T13 (committed before any code — the
-12a/11a pattern). Read with M5_PLAN §3 (the acceptance: "a C-compiled
-test `.so` exercising every v1 function, run against Temurin and the
-j2r binary with identical observable results, three channels;
-`RegisterNatives` round-trip demonstrated; the JNI suite pinned in
-CI — this harness gates all LWJGL bring-up"), M5_JNI_CALLS.md §3
-(decision 3 registers this note), M5_JNI_NATIVES.md §2/§7 (primitive
-11 and the frame-level parity pin) and M5_JNI_FFI.md (the audited
-primitive surface, 10 today).
+12a/11a pattern; §9 records the 13d precision of record — T13 is
+COMPLETE and wave 2 is CLOSED with it). Read with M5_PLAN §3 (the
+acceptance: "a C-compiled test `.so` exercising every v1 function, run
+against Temurin and the j2r binary with identical observable results,
+three channels; `RegisterNatives` round-trip demonstrated; the JNI
+suite pinned in CI — this harness gates all LWJGL bring-up"),
+M5_JNI_CALLS.md §3 (decision 3 registers this note), M5_JNI_NATIVES.md
+§2/§7 (primitive 11 and the frame-level parity pin) and M5_JNI_FFI.md
+(the audited primitive surface, 10 today).
 
 ## 1. The parity shape, stated exactly
 
@@ -138,9 +139,8 @@ now fully honest); gate-10 amended in the same commit as primitive
   does not). 448 green, full battery (diff_suite 464.16 s +
   cfg_equiv 347.11 s) zero divergences.
 - **13d** — the attach lifecycle battery + the CI gate + the full
-  battery re-run + boards.
-
-Wave 2 closes with 13d.
+  battery re-run + boards. **LANDED (2026-11-10, session 8)** — §9 is
+  the precision of record; wave 2 CLOSES with 13d.
 
 ## 7. The loading story (13c, precision of record)
 
@@ -186,8 +186,9 @@ this note deliberately left open:
    tags happened to tolerate it — tolerance is not correctness). The
    harness now holds NO class statics: every rebind/unregister probe
    re-FindClasses a fresh local and uses it within its own frame.
-   `NewGlobalRef` (21) stays a loud stub — registered for the T13d
-   attach battery if it needs it.
+   `NewGlobalRef` (21) stays a loud stub — pinned by a 13d loud-gap
+   child-process test; the harness battery needs no global refs (every
+   probe stays within its own thread and frame).
 6. **The parity runner** (`crates/j2r-cli/tests/jni_parity.rs`)
    compiles the `.so` ONCE (`cc -shared -fPIC` against the pinned
    JDK's `jni.h` of record), javac's the ONE driver source, runs
@@ -199,8 +200,9 @@ this note deliberately left open:
 
 ## 8. What the battery exercises (G1.2, the honest inventory)
 
-`tests/jni_harness/harness.c` — ONE source, 12 bound probes + the
-helper native, all self-checking (the driver's `check()` exits 3 on
+`tests/jni_harness/harness.c` — ONE source, 13 bound probes (12 from
+13c + the 13d attach-lifecycle probe) + the helper native, all
+self-checking (the driver's `check()` exits 3 on
 ANY missed verdict, on BOTH runtimes — a broken probe can never
 "preserve parity" with a wrong answer):
 
@@ -244,5 +246,70 @@ ANY missed verdict, on BOTH runtimes — a broken probe can never
 
 Registered NOT exercised (still loud/documented v1 gaps): weak global
 refs, cross-thread local-resolve, Monitor*, GetStringRegion/
-GetStringUTFRegion, the string/array exception transports, InvokeInterface.
-13d's battery asserts the LOUD behavior for the ones with a loud arm.
+GetStringUTFRegion, the string/array exception transports. 13d's
+loud-gap probes pin the loud arms Rust-side (child-process aborts
+naming the slot: NewGlobalRef, MonitorEnter, MonitorExit,
+GetStringUTFRegion). Precision correction of record: "InvokeInterface"
+was named here as a v1 gap — the Temurin 21 jni.h has NO such function
+(it was dropped from the header); the loud v1 gaps above are the
+header's real slots, mechanically verified.
+
+## 9. The attach lifecycle (13d, precision of record)
+
+**The MEASURED oracle contract first** (the project law — the harness
+judges, not decorates): the standalone C probe
+(`scripts/evidence/attach_lifecycle_probe/`, Temurin 21.0.13+9 live,
+2026-11-10) recorded every arm:
+
+* a fresh (never-attached) thread's VM `GetEnv` answers
+  **JNI_EDETACHED**; after a detach it answers EDETACHED again;
+* `AttachCurrentThread` answers **JNI_OK** (env non-null); a re-attach
+  of an already-attached thread answers **JNI_OK** (idempotent);
+  `AttachCurrentThreadAsDaemon` on an attached thread answers **JNI_OK**;
+* `DetachCurrentThread` answers **JNI_OK ALWAYS** — measured THREE
+  consecutive detaches all JNI_OK: the oracle tolerates extra detaches,
+  it never answers JNI_ERR (the probe's raw verdicts: V=991, V=-200 —
+  both committed with their decode);
+* the main thread is attached at birth (the 13c battery's GetEnv arm
+  proves it on the oracle).
+
+**The slots' fate (T13 13d):** VM `AttachCurrentThread` (4),
+`DetachCurrentThread` (5) and `AttachCurrentThreadAsDaemon` (7) are now
+REAL (159 → **162 real slots**); `DestroyJavaVM` (3) stays a loud stub
+(no generated program ever destroys the VM; honestly registered). The
+registry (`jni::attach`) is one global set of attached thread ids;
+detach runs the 12b-wired `bridge::detach_thread` hook — the frame-
+stack sweep is the end-to-end lifecycle proof G1.4 names. `GetEnv`
+became attach-aware (EDETACHED on a never-attached thread, in that
+check order: null-penv JNI_ERR → EVERSION → EDETACHED). Daemon-ness
+has no v1 representation (no VM-exit join exists); documented, not
+pretended. The generated `main_run` marks the main thread attached at
+birth (one emission next to `begin_main_java_thread`).
+
+**The battery (harness `probe_attach_lifecycle`, G1.4):** ONE pthread,
+spawned and JOINED by the probe (deterministic stdout), walks every
+measured arm and runs a compact self-checking battery ON the attached
+env twice (GetVersion / FindClass / the NewStringUTF-UTFChars
+round-trip / NewIntArray + region + length / ExceptionCheck clean —
+expect 31 per cycle). Verdict expected **2047** (eleven bits); the
+driver checks it; the SAME `.so` answers 2047 on Temurin (measured
+first, standalone) and on j2r (the parity run) — three channels
+byte-identical including `P attach=2047`.
+
+**The loud-gap probes:** the registered v1 gaps with a loud arm are
+pinned Rust-side (child-process aborts through the REAL env table,
+naming the slot): NewGlobalRef (21), MonitorEnter (217), MonitorExit
+(218), GetStringUTFRegion (221). The oracle implements these for real,
+so they stay OUT of the parity battery by design.
+
+**The CI gate (G1.5):** `gate-22-jni-c-harness-parity` — a dedicated
+job that compiles the harness with cc, runs BOTH runtimes, asserts the
+three channels raw-identical, and is wired into the all-gates
+aggregate (17 upstream gates). A missing JDK/compiler skips LOUDLY in
+local runs (the soe_e2e law); the CI image has both, so a skip there
+is a visible anomaly, not a silent green.
+
+**Evidence:** 452 tests, 0 failures; the parity battery green with the
+attach arm; gate-11 in sync (fixtures=109, tests=452). Wave 2 (JNI) is
+CLOSED — G1.1–G1.6 all carry their evidence.
+

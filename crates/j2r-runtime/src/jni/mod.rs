@@ -22,15 +22,17 @@
 //!   single `unsafe`: creating a raw pointer is safe; only the foreign
 //!   side dereferences it (their FFI is theirs — M5_PLAN §3.1).
 //!
-//! Real slots so far: 159 of 231, wired through the generator's
+//! Real slots so far: 162 of 231, wired through the generator's
 //! `REAL_SLOTS` registry (the truth prints at generation time) — the
 //! string families (T10 slice 1), class/field/array surfaces (T10),
 //! the pending-exception trio, the method-ID pair, all sixty
 //! `Call*MethodA`/`Call*MethodV` slots (T11 11b/11c), the
-//! native-binding pair (T12 12b) and — T13 13c — `GetJavaVM` (219) plus
-//! the VM table's `GetEnv` supported-version path (the loading story's
-//! two out-param slots, served through audited primitive 3). Later
-//! tasks fill the rest.
+//! native-binding pair (T12 12b), `GetJavaVM` (219) plus the VM table's
+//! `GetEnv` supported-version path (13c) and — T13 13d — the VM attach
+//! lifecycle: `AttachCurrentThread` (4), `DetachCurrentThread` (5) and
+//! `AttachCurrentThreadAsDaemon` (7), with `GetEnv` answering
+//! `JNI_EDETACHED` on a never-attached thread (the MEASURED oracle law;
+//! see [`attach`]). Later tasks fill the rest.
 //!
 //! ## Registered wave-2 findings (owned by T09/T11, not hidden)
 //!
@@ -72,6 +74,7 @@
 //!   design advantage, restated in the T09 note.
 
 pub mod arrays;
+pub mod attach;
 pub mod bridge;
 pub mod calls;
 pub mod classes;
@@ -192,6 +195,8 @@ mod tests {
 
     #[test]
     fn get_env_rejects_null_penv_and_unsupported_versions() {
+        // The caller-bug and version arms answer BEFORE the attach check
+        // (checked in that order), so this test needs no attach mark.
         let get_env: extern "system" fn(JavaVM, *mut *mut c_void, i32) -> i32 = VM_TABLE.GetEnv;
         assert_eq!(
             get_env(java_vm(), ptr::null_mut(), JNI_VERSION_1_8),
@@ -214,7 +219,11 @@ mod tests {
         // serves the supported-version path — the loading story's entry
         // (a foreign JNI_OnLoad GetEnvs the VM it was handed). JNI_OK +
         // the exact static env table pointer, and nothing written on the
-        // unsupported paths.
+        // unsupported paths. T13 13d: the calling test thread marks
+        // itself attached first — HotSpot's GetEnv answers JNI_OK only
+        // on an attached thread (the main thread is attached at birth;
+        // a fresh pthread gets EDETACHED — the lifecycle test below).
+        crate::jni::attach::mark_attached();
         let get_env: extern "system" fn(JavaVM, *mut *mut c_void, i32) -> i32 = VM_TABLE.GetEnv;
         let mut slot: *mut c_void = ptr::null_mut();
         assert_eq!(
@@ -388,5 +397,143 @@ mod tests {
             stderr.contains("ReleaseIntArrayElements"),
             "the abort message must name the slot, got: {stderr}"
         );
+    }
+
+    #[test]
+    fn attach_lifecycle_matches_the_measured_oracle() {
+        // T13 13d (REVIEW_CHECKLIST G1.4, runtime side): the full
+        // attach/detach/re-attach lifecycle on a FRESH thread, asserting
+        // every MEASURED Temurin 21.0.13+9 arm (the evidence probe lives
+        // in scripts/evidence/attach_lifecycle_probe/):
+        // EDETACHED pre-attach → attach OK + the env table → GetEnv OK,
+        // the SAME env → re-attach OK (idempotent) → detach OK → detach
+        // again OK (the measured tolerance) → GetEnv EDETACHED again →
+        // re-attach OK → GetEnv OK again → AsDaemon on the attached
+        // thread OK → final detach OK.
+        std::thread::spawn(|| {
+            let get_env: extern "system" fn(JavaVM, *mut *mut c_void, i32) -> i32 = VM_TABLE.GetEnv;
+            let attach: extern "system" fn(JavaVM, *mut *mut c_void, *mut c_void) -> i32 =
+                VM_TABLE.AttachCurrentThread;
+            let as_daemon: extern "system" fn(JavaVM, *mut *mut c_void, *mut c_void) -> i32 =
+                VM_TABLE.AttachCurrentThreadAsDaemon;
+            let detach: extern "system" fn(JavaVM) -> i32 = VM_TABLE.DetachCurrentThread;
+            let mut slot: *mut c_void = ptr::null_mut();
+            assert_eq!(
+                get_env(java_vm(), &mut slot, JNI_VERSION_1_8),
+                JNI_EDETACHED,
+                "a fresh thread must be EDETACHED before its first attach"
+            );
+            let mut env: *mut c_void = ptr::null_mut();
+            assert_eq!(attach(java_vm(), &mut env, ptr::null_mut()), JNI_OK);
+            assert!(!env.is_null(), "attach must hand out the env table");
+            assert_eq!(get_env(java_vm(), &mut slot, JNI_VERSION_1_8), JNI_OK);
+            assert!(ptr::eq(slot, jni_env() as *mut c_void));
+            // idempotent re-attach (measured: OK)
+            let mut env2: *mut c_void = ptr::null_mut();
+            assert_eq!(attach(java_vm(), &mut env2, ptr::null_mut()), JNI_OK);
+            // detach, and the MEASURED tolerance: extra detaches stay OK
+            assert_eq!(detach(java_vm()), JNI_OK);
+            assert_eq!(detach(java_vm()), JNI_OK);
+            assert_eq!(
+                get_env(java_vm(), &mut slot, JNI_VERSION_1_8),
+                JNI_EDETACHED,
+                "after a detach the thread is EDETACHED again (measured)"
+            );
+            // re-attach: the full battery shape works again
+            let mut env3: *mut c_void = ptr::null_mut();
+            assert_eq!(attach(java_vm(), &mut env3, ptr::null_mut()), JNI_OK);
+            assert_eq!(get_env(java_vm(), &mut slot, JNI_VERSION_1_8), JNI_OK);
+            // AsDaemon on an attached thread: measured OK
+            assert_eq!(as_daemon(java_vm(), &mut env3, ptr::null_mut()), JNI_OK);
+            assert_eq!(detach(java_vm()), JNI_OK);
+        })
+        .join()
+        .expect("the lifecycle thread must not panic");
+    }
+
+    #[test]
+    fn loud_v1_gap_slots_abort_through_the_table() {
+        // T13 13d loud-gap probes (M5_JNI_HARNESS.md §8: "13d's battery
+        // asserts the LOUD behavior for the ones with a loud arm"). The
+        // registered v1 gaps stay loud stubs — each child arm calls one
+        // through the REAL env table (the same positional ABI a foreign
+        // library uses) and the panic must cross the extern "system"
+        // boundary as a process ABORT naming the slot. These slots are
+        // REAL functions on the oracle (HotSpot implements them), so the
+        // loudness is asserted Rust-side only — the parity battery never
+        // exercises them. (InvokeInterface, named in earlier docs, does
+        // not exist in the Temurin 21 jni.h at all — it was dropped from
+        // the header; the loud v1 gaps below are the header's real slots.)
+        const ARMS: &[(&str, &str)] = &[
+            ("new_global_ref", "NewGlobalRef"),
+            ("monitor_enter", "MonitorEnter"),
+            ("monitor_exit", "MonitorExit"),
+            ("get_string_utf_region", "GetStringUTFRegion"),
+        ];
+        let exe = std::env::current_exe().expect("current_exe");
+        for (arm, slot_name) in ARMS {
+            let out = std::process::Command::new(&exe)
+                .args(["jni::tests::loud_v1_gap_child", "--exact", "--nocapture"])
+                .env("J2R_JNI_LOUD_GAP_ARM", arm)
+                .output()
+                .unwrap_or_else(|e| panic!("spawn child for arm {arm}: {e}"));
+            assert!(!out.status.success(), "arm {arm} must abort, got {out:?}");
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                assert_eq!(
+                    out.status.signal(),
+                    Some(6), // SIGABRT
+                    "arm {arm}: abort is the loud failure shape, got {out:?}"
+                );
+            }
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                stderr.contains(slot_name),
+                "arm {arm}: the abort message must name the slot {slot_name}, got: {stderr}"
+            );
+        }
+    }
+
+    #[test]
+    fn loud_v1_gap_child() {
+        // The child arm of loud_v1_gap_slots_abort_through_the_table:
+        // calls ONE loud stub through the env table per the arm env var.
+        let Some(arm) = std::env::var("J2R_JNI_LOUD_GAP_ARM").ok() else {
+            return; // not a child run
+        };
+        let env = jni_env();
+        let bogus: tables::jobject = 1 as tables::jobject; // non-null, never handed out
+        match arm.as_str() {
+            "new_global_ref" => {
+                let f: extern "system" fn(
+                    *mut tables::JNIEnv_,
+                    tables::jobject,
+                ) -> tables::jobject = ENV_TABLE.NewGlobalRef;
+                let _ = f(env, bogus);
+            }
+            "monitor_enter" => {
+                let f: extern "system" fn(*mut tables::JNIEnv_, tables::jobject) -> i32 =
+                    ENV_TABLE.MonitorEnter;
+                let _ = f(env, bogus);
+            }
+            "monitor_exit" => {
+                let f: extern "system" fn(*mut tables::JNIEnv_, tables::jobject) -> i32 =
+                    ENV_TABLE.MonitorExit;
+                let _ = f(env, bogus);
+            }
+            "get_string_utf_region" => {
+                let f: extern "system" fn(
+                    *mut tables::JNIEnv_,
+                    tables::jobject,
+                    i32,
+                    i32,
+                    *mut c_char,
+                ) = ENV_TABLE.GetStringUTFRegion;
+                f(env, bogus, 0, 1, ptr::null_mut()); // aborts: the loud stub
+            }
+            other => panic!("unknown loud-gap arm {other}"),
+        }
+        // unreachable: every arm above aborts through the loud stub
     }
 }

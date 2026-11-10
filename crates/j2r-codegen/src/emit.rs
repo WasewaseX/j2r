@@ -351,6 +351,11 @@ fn main_run() -> i32 {{
     // M4 Wave 2: register this worker as the main Java thread BEFORE any
     // Java allocation — the thread registry is the rooting story (T07).
     ::j2r_runtime::thread::begin_main_java_thread();
+    // T13 13d: the main thread is attached to the VM at birth (HotSpot
+    // semantics, MEASURED by the 13d probe: GetEnv from main answers
+    // JNI_OK; a fresh foreign pthread answers JNI_EDETACHED until IT
+    // attaches — docs/M5_JNI_HARNESS.md §9).
+    ::j2r_runtime::jni::attach::mark_attached();
     {lib_crate}::statics::init_pool({statics}usize, {classes}usize);
     {lib_crate}::statics::apply_defaults({defaults});
     {lib_crate}::statics::set_constants({constants});

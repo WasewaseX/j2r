@@ -340,9 +340,10 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       chain); 440 green, full battery zero divergences. The unbound
       direction is three-channel vs the oracle; the bound-Rust
       direction is unit-pinned; the bound-C-native direction is T13.
-- [~] **T13** C test harness `.so`: every v1 function, Temurin vs j2r
-      parity, pinned in CI. → §3.4 — IN PROGRESS (docs/M5_JNI_HARNESS.md
-      is the design of record): 13a the note LANDED (`724e839`); 13b
+- [x] **T13** C test harness `.so`: every v1 function, Temurin vs j2r
+      parity, pinned in CI. → §3.4 — **COMPLETE (2026-11-10)**
+      (docs/M5_JNI_HARNESS.md is the design of record; §9 records the
+      13d precision of record): 13a the note LANDED (`724e839`); 13b
       primitive 11 (`call_foreign_native`, the fixed SysV register-window
       call) + the gate-10 amendment (9 → 10 unsafe occurrences of pin
       12, same commit) + the `Binding::Foreign` path switch
@@ -362,9 +363,18 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       0x0015_0000) + the three-channel parity runner
       (`tests/jni_parity.rs`) — **Temurin vs j2r byte-identical on all
       three channels, the full v1 battery, both directions**
-      (M5_PLAN §3.4's acceptance demo, live). 448 green, full battery
-      zero divergences. Remaining: 13d the attach-lifecycle battery +
-      the CI gate → wave 2 closes.
+      (M5_PLAN §3.4's acceptance demo, live); 13d LANDED (session 8):
+      the MEASURED attach contract (scripts/evidence/
+      attach_lifecycle_probe/ — EDETACHED pre-attach/post-detach,
+      attach idempotent OK, detach OK ALWAYS incl. three in a row) →
+      VM slots 4/5/7 real (162 real slots; DestroyJavaVM stays loud),
+      GetEnv attach-aware, main_run marks main attached at birth, the
+      pthread battery verdict 2047 byte-identical both runtimes, the
+      loud-gap child-process pins (NewGlobalRef/MonitorEnter/
+      MonitorExit/GetStringUTFRegion), and the dedicated CI gate
+      gate-22 wired into the all-gates aggregate (17 upstream gates).
+      **WAVE 2 (JNI) CLOSED** — REVIEW_CHECKLIST G1.1–G1.6 all checked;
+      452 tests green.
 
 ### Wave 3 — mappings pipeline
 

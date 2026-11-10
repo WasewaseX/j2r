@@ -1154,3 +1154,66 @@ getrusage max single child, mistake-list #2).
   Attach/Detach slots decide their fate there; NewGlobalRef stays a
   loud stub unless the battery needs it), the loud-gap probes, the
   CI gate — wave 2 closes at 13d.
+
+### [2026-11-10 session 8 cont. 2] T13 slice 13d LANDED — the MEASURED attach lifecycle + the loud-gap probes + the CI gate. T13 COMPLETE; WAVE 2 (JNI) CLOSED (452 green)
+- **The oracle was MEASURED before any runtime code** (the harness
+  judges, not decorates): a standalone C probe against Temurin
+  21.0.13+9 (committed raw under scripts/evidence/
+  attach_lifecycle_probe/ with its README decode, per lesson #11):
+  fresh-thread VM GetEnv = **JNI_EDETACHED** (pre-attach AND
+  post-detach); AttachCurrentThread = JNI_OK, env non-null, re-attach
+  idempotent OK; AttachCurrentThreadAsDaemon on an attached thread =
+  JNI_OK; **DetachCurrentThread = JNI_OK ALWAYS — three consecutive
+  detaches measured JNI_OK** (raw verdicts V=991 / V=-200, decoded in
+  the evidence README: d1=d2=d3=0, ge=-2, a2=0, d4=0); the main thread
+  is attached at birth (the 13c battery's GetEnv arm).
+- **The slots' fate**: VM `AttachCurrentThread` (4),
+  `DetachCurrentThread` (5), `AttachCurrentThreadAsDaemon` (7) are now
+  REAL — 159 → **162 real slots** (`DestroyJavaVM` stays a loud stub,
+  honestly registered). New module `jni::attach` (one global set of
+  attached thread ids; detach runs the 12b-wired
+  `bridge::detach_thread` hook — the frame-stack sweep G1.4 names);
+  GetEnv is attach-aware (check order: null-penv JNI_ERR → EVERSION →
+  EDETACHED); the emitted `main_run` marks the main thread attached at
+  birth (one line next to begin_main_java_thread). Daemon-ness has no
+  v1 representation (no VM-exit join) — documented, not pretended.
+  Zero new FFI primitives (audited primitive 3 reused); gate-10
+  unchanged at 11 of pin 12.
+- **The battery (G1.4)**: harness `probe_attach_lifecycle` spawns ONE
+  pthread and JOINs it (deterministic stdout); the worker walks every
+  measured arm and runs the compact self-checking battery ON the
+  attached env in BOTH attach cycles (GetVersion / FindClass /
+  NewStringUTF-UTFChars round-trip / NewIntArray+region+length /
+  ExceptionCheck clean — 31 per cycle); verdict **2047** (eleven
+  bits); Temurin answered 2047 (measured standalone FIRST), then the
+  parity run: **byte-identical three channels incl. `P attach=2047`**
+  — the attach lifecycle proven end to end on both runtimes.
+- **The loud-gap probes** (§8's law, Rust-side only — the oracle
+  implements these for real): child-process abort pins through the
+  REAL env table naming the slot — NewGlobalRef (21), MonitorEnter
+  (217), MonitorExit (218), GetStringUTFRegion (221). Precision
+  correction of record: "InvokeInterface" was named in §8 as a v1 gap
+  — the Temurin 21 jni.h has NO such function (dropped from the
+  header); the loud gaps are the header's real slots.
+- **The CI gate (G1.5)**: `gate-22-jni-c-harness-parity` — dedicated
+  job (compiles the harness with cc, runs BOTH runtimes, three raw
+  channels, loud skip law), wired into the all-gates aggregate (now 17
+  upstream gates). README gate table row added.
+- **Evidence — full battery re-run (G0.2; codegen changed)**: fmt
+  clean; clippy `-D warnings` clean; **452 tests, 0 failures** —
+  classfile 38 · jni-ffi 17 (15 unit + 2 real-C) · runtime 243 (+4:
+  the attach-registry unit test, the fresh-thread lifecycle test, the
+  loud-gap parent + child) · codegen 125 · cli 29; walls: cfg_equiv
+  370.05 s + diff_suite 491.11 s (**zero divergences**), partition
+  28.03 s, corpus 42.49 s, soe 11.84 s, jar 20.90 s, native_e2e
+  7.69 s, jni_parity 4.80 s (the attach battery green both runtimes);
+  gate-11 in sync (fixtures=109, tests=452 → README 448 → 452).
+- **REVIEW_CHECKLIST G1.1–G1.6 ALL checked — M5 wave-2 (JNI) is
+  CLOSED.** Docs synced in the same commit (the G6.1 law): M5_PLAN §6
+  (T13 COMPLETE), M5_JNI_HARNESS (status + §6 13d + §8 correction +
+  new §9 the 13d precision of record), TODO.md (the JNI bullet
+  [x], the 13d entry), README (status line + gate table + test
+  count), docs/ROADMAP.md M5 row.
+- Next per REVIEW_CHECKLIST ordering: G2 (the 70k path — F1/F2/F3/F4
+  + the G2.6 fat-method F6 either-arm bar) is the remaining P0; G5
+  (mappings T14–T16) starts only after G1 AND G2 are checked.

@@ -75,19 +75,37 @@ the amended gate-10 (G0.3); it stays resolved only while G0.3 holds.
   the 12c call-through → primitive 11). The battery is SELF-CHECKING
   (the driver exits 3 on any missed verdict on BOTH runtimes), so the
   parity cannot silently preserve a wrong answer.
-- [ ] **G1.4 — attach lifecycle.**
-  PASS: a pthread spawns, `AttachCurrentThread` on the cached `JavaVM`,
-  runs the battery, `DetachCurrentThread`, re-attaches — identical results
-  both runtimes; the detach hook and frame-stack lifecycle proven end to end.
-- [ ] **G1.5 — CI pinning.**
-  PASS: a dedicated CI gate compiles the harness with cc, runs both sides,
-  compares three channels, and is wired into the all-gates aggregate; a
-  missing JDK/compiler skips LOUDLY (the soe_e2e law). FAIL: harness runs
-  only on a dev box.
-- [ ] **G1.6 — no casual unsafe growth.**
-  PASS: any new FFI primitive lands with its gate-10 amendment in the same
-  commit, its SAFETY justification, and its place in the M5_JNI_FFI.md §4
-  register (the 10-of-12 headroom is tracked, not free).
+- [x] **G1.4 — attach lifecycle.**
+  PASS (2026-11-10, T13 13d): the oracle's attach contract MEASURED first
+  (scripts/evidence/attach_lifecycle_probe/ — fresh-thread GetEnv =
+  JNI_EDETACHED, attach/re-attach/AsDaemon = JNI_OK idempotent, detach =
+  JNI_OK ALWAYS incl. three consecutive detaches, GetEnv-after-detach =
+  EDETACHED again); the VM slots 4/5/7 are real and implement exactly
+  that contract (jni::attach registry + the 12b-wired detach_thread hook
+  — the frame-stack sweep runs on detach); the generated main_run marks
+  the main thread attached at birth; the harness's `probe_attach_lifecycle`
+  spawns a pthread, walks every measured arm, runs the self-checking
+  battery ON the attached env in BOTH attach cycles (verdict 2047), and
+  the SAME `.so` answers identically on Temurin (measured standalone
+  first) and j2r — three channels byte-identical incl. `P attach=2047`
+  (`crates/j2r-cli/tests/jni_parity.rs`). Runtime-side pin:
+  `attach_lifecycle_matches_the_measured_oracle` on a fresh thread.
+- [x] **G1.5 — CI pinning.**
+  PASS (2026-11-10, T13 13d): `gate-22-jni-c-harness-parity` — a
+  dedicated CI job that compiles the harness with cc, runs BOTH sides
+  (Temurin via System.loadLibrary; j2r via the 13c loading story),
+  compares three channels, and is wired into the all-gates aggregate
+  (17 upstream gates). A missing JDK/compiler skips LOUDLY (the
+  soe_e2e law); the CI image has both, so a skip there is a visible
+  anomaly, not a silent green.
+- [x] **G1.6 — no casual unsafe growth.**
+  PASS (verified through T13 completion, 2026-11-10): every primitive
+  landing so far amended gate-10 in the SAME commit (T09 5, T10-s2 +1 =
+  6, T11 11c +3 = 9, T13 13b +1 = 10, T13 13c +1 = 11) with its SAFETY
+  justification and its M5_JNI_FFI.md §4 register entry; the
+  source-scanned count assert passes (11 of pin 12 — one headroom slot
+  left, tracked). T13 13d added ZERO new primitives (the attach
+  lifecycle reuses audited primitive 3); gate-10 unchanged.
 
 **M5 wave-2 (JNI milestone) completion = G1.1–G1.6 ALL checked with the
 evidence committed. Nothing else — not "the code compiles", not "the unit

@@ -1464,8 +1464,9 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       trio, F5 artifact sizes for the download-size story. Evidence:
       work farm20k run, scripts/m5_20k_confirm.sh, console.md
       §2026-11-09 08:34–09:25.
-- [~] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
+- [x] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
       T08–T13, C-harness parity is the blocker's evidence bar)
+      — **WAVE 2 (JNI) CLOSED 2026-11-10** — T08–T13 all COMPLETE
       — T08 LANDED (2026-11-09): `j2r-runtime::jni` tables generated
       from the Temurin 21 jni.h (235 slots, const offset_of! assertions
       per slot, loud abort stubs, 7 unit tests; findings F-J1
@@ -1521,6 +1522,24 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       (diff_suite 464.16 s + cfg_equiv 347.11 s) zero divergences.
       Remaining: 13d the attach-lifecycle battery + the CI gate →
       wave 2 closes.
+      — 13d LANDED (2026-11-10, session 8) — **T13 COMPLETE, WAVE 2
+      (JNI) CLOSED**: the MEASURED attach contract (the C probe in
+      scripts/evidence/attach_lifecycle_probe/ — fresh-thread GetEnv =
+      JNI_EDETACHED pre-attach AND post-detach; attach/re-attach/
+      AsDaemon = JNI_OK idempotent; detach = JNI_OK ALWAYS, three
+      consecutive detaches measured JNI_OK) → VM AttachCurrentThread
+      (4) / DetachCurrentThread (5) / AttachCurrentThreadAsDaemon (7)
+      real (162 real slots; DestroyJavaVM stays loud), GetEnv
+      attach-aware, main_run marks the main thread attached at birth,
+      the harness pthread battery (verdict 2047: every measured arm +
+      the self-checking battery on the attached env in BOTH attach
+      cycles) byte-identical three-channel vs Temurin, the loud-gap
+      child-process pins (NewGlobalRef/MonitorEnter/MonitorExit/
+      GetStringUTFRegion abort naming the slot), and the dedicated CI
+      gate gate-22-jni-c-harness-parity wired into the all-gates
+      aggregate (17 upstream gates). REVIEW_CHECKLIST G1.1–G1.6 ALL
+      checked; 452 green. Next: T14–T16 mappings (G5, ordered after
+      G1/G2 per the review).
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)
 - [ ] mixin application at the bytecode level before j2r (R1; §4,

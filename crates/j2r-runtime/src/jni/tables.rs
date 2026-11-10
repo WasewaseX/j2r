@@ -736,22 +736,54 @@ pub struct JNIInvokeInterface_ {
 extern "system" fn stub_destroy_java_vm(_vm: JavaVM) -> jint {
     unimplemented_slot(3, "DestroyJavaVM")
 }
-extern "system" fn stub_attach_current_thread(
+/// Real as of T13 13d (the attach lifecycle, docs/M5_JNI_HARNESS.md §9):
+/// marks the calling thread attached (idempotent — the MEASURED oracle
+/// answers JNI_OK to a re-attach of an attached thread) and writes the
+/// env-table pointer through audited primitive 3. A null penv is JNI_ERR
+/// (the same caller-bug law as GetEnv's; the parity battery does not
+/// exercise the oracle's null-penv arm).
+extern "system" fn jni_attach_current_thread(
     _vm: JavaVM,
-    _penv: *mut *mut c_void,
+    penv: *mut *mut c_void,
     _args: *mut c_void,
 ) -> jint {
-    unimplemented_slot(4, "AttachCurrentThread")
+    if penv.is_null() {
+        return crate::jni::JNI_ERR;
+    }
+    crate::jni::attach::mark_attached();
+    j2r_jni_ffi::ffi::write_ptr_out(penv, jni_env() as usize);
+    crate::jni::JNI_OK
 }
-extern "system" fn stub_detach_current_thread(_vm: JavaVM) -> jint {
-    unimplemented_slot(5, "DetachCurrentThread")
+
+/// Real as of T13 13d. The MEASURED oracle law (Temurin 21.0.13+9,
+/// probed live — the evidence probe lives in
+/// scripts/evidence/attach_lifecycle_probe/): EVERY detach answers
+/// JNI_OK — an attached thread detaches (the frame-stack sweep runs via
+/// the registry's hook, bridge::detach_thread), and extra detaches of an
+/// unattached thread are tolerated no-ops (measured: three consecutive
+/// detaches all JNI_OK).
+extern "system" fn jni_detach_current_thread(_vm: JavaVM) -> jint {
+    crate::jni::attach::run_detach_hook();
+    crate::jni::JNI_OK
 }
-extern "system" fn stub_attach_as_daemon(
+
+/// Real as of T13 13d: the daemon flavor of attach. Daemon-ness has no
+/// v1 representation in this runtime (there is no VM-exit join to keep
+/// alive), so the slot IS attach — the MEASURED oracle arm (AsDaemon on
+/// an already-attached thread answers JNI_OK) is covered by the harness
+/// battery; the unattached-thread arm matches the oracle's design
+/// (it attaches the caller as a daemon and answers OK).
+extern "system" fn jni_attach_as_daemon(
     _vm: JavaVM,
-    _penv: *mut *mut c_void,
+    penv: *mut *mut c_void,
     _args: *mut c_void,
 ) -> jint {
-    unimplemented_slot(7, "AttachCurrentThreadAsDaemon")
+    if penv.is_null() {
+        return crate::jni::JNI_ERR;
+    }
+    crate::jni::attach::mark_attached();
+    j2r_jni_ffi::ffi::write_ptr_out(penv, jni_env() as usize);
+    crate::jni::JNI_OK
 }
 /// Real as of T13 13c (the loading story, docs/M5_JNI_HARNESS.md §7):
 /// a supported version (1.1..1.8, 9, 10 — the same set HotSpot 21
@@ -775,6 +807,14 @@ extern "system" fn jni_get_env(_vm: JavaVM, penv: *mut *mut c_void, version: jin
     ) {
         return crate::jni::JNI_EVERSION;
     }
+    // T13 13d: a never-attached (or detached) thread answers JNI_EDETACHED
+    // — the JNI spec's own code for this state, MEASURED on Temurin
+    // 21.0.13+9 both pre-attach and post-detach. The main thread is
+    // attached at birth (main_run marks it; the 13c battery's GetEnv arm
+    // proves the oracle behavior).
+    if !crate::jni::attach::is_attached() {
+        return crate::jni::JNI_EDETACHED;
+    }
     j2r_jni_ffi::ffi::write_ptr_out(penv, jni_env() as usize);
     crate::jni::JNI_OK
 }
@@ -784,10 +824,10 @@ pub static VM_TABLE: JNIInvokeInterface_ = JNIInvokeInterface_ {
     reserved1: None,
     reserved2: None,
     DestroyJavaVM: stub_destroy_java_vm,
-    AttachCurrentThread: stub_attach_current_thread,
-    DetachCurrentThread: stub_detach_current_thread,
+    AttachCurrentThread: jni_attach_current_thread,
+    DetachCurrentThread: jni_detach_current_thread,
     GetEnv: jni_get_env,
-    AttachCurrentThreadAsDaemon: stub_attach_as_daemon,
+    AttachCurrentThreadAsDaemon: jni_attach_as_daemon,
 };
 
 pub static JNI_ENV: JNIEnv_ = JNIEnv_ {

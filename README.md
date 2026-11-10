@@ -8,7 +8,7 @@ mods, to native code.
 [![CI](https://github.com/WasewaseX/j2r/actions/workflows/ci.yml/badge.svg)](https://github.com/WasewaseX/j2r/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Status: Milestone 5 (Minecraft readiness) — wave 1 (scale) CLOSED at 20k; wave 2 (JNI) T08–T12 landed, T13 (the C harness) in progress
+## Status: Milestone 5 (Minecraft readiness) — wave 1 (scale) CLOSED at 20k; wave 2 (JNI) CLOSED: T08–T13 complete, the C-harness parity + attach lifecycle proven vs Temurin (G1.1–G1.6); next T14–T16 mappings
 
 Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM (Temurin 21), compiled with J2R, run natively,
@@ -286,7 +286,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 448 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests + the T10 JNI string-marshalling, class/field-ID, field-accessor array-family tests + the pending-exception machinery + the T11 mock-dispatch invoke tests (all thirty Call*MethodA + all thirty Call*MethodV slots, virtual/static/nonvirtual) + the T12 native-binding registry and ACC_NATIVE call-through tests + the T13 foreign-call thunk tests (a real C-compiled probe, linked into its test binary only) + the T13 13c C-harness parity battery (the ONE harness .so, compiled once, three-channel vs Temurin on both runtimes)
+$ cargo test                       # 452 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests + the T10 JNI string-marshalling, class/field-ID, field-accessor array-family tests + the pending-exception machinery + the T11 mock-dispatch invoke tests (all thirty Call*MethodA + all thirty Call*MethodV slots, virtual/static/nonvirtual) + the T12 native-binding registry and ACC_NATIVE call-through tests + the T13 foreign-call thunk tests (a real C-compiled probe, linked into its test binary only) + the T13 13c C-harness parity battery (the ONE harness .so, compiled once, three-channel vs Temurin on both runtimes) + the T13 13d attach-lifecycle tests (the MEASURED oracle contract: EDETACHED/attach/detach/re-attach, plus the loud-v1-gap abort pins)
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar
@@ -326,6 +326,7 @@ Every push to `main` runs the full evidence chain — every job, every run
 | 19 | doc-links | every local markdown link and anchor resolves |
 | 20 | code-integrity | no stubs, elision markers or FIXME tokens in `crates/` |
 | 21 | dependency-hygiene | unused-dependency report (advisory by design) |
+| 22 | jni-parity | the ONE C harness `.so`: three-channel parity vs Temurin on both runtimes, incl. the attach-lifecycle pthread battery |
 
 Supply-chain posture: every third-party action pinned by commit SHA,
 workflow-level `permissions: contents: read` only, `persist-credentials:

@@ -18,6 +18,7 @@ public class HarnessDriver extends HarnessBase {
     private native String[] probeObjArray();
     private native int probeCallsA();
     private native int probeCallsV();
+    private native int probeAttach();
     private native int probeRebind();
     private native int probeRestore();
     private native int probeUnregisterHelper();
@@ -89,6 +90,10 @@ public class HarnessDriver extends HarnessBase {
         int callsV = d.probeCallsV();
         check("callsV", callsV, 15);
         System.out.println("P callsV=" + callsV);
+
+        int attach = d.probeAttach();
+        check("attach", attach, 2047);
+        System.out.println("P attach=" + attach);
 
         int rebind = d.probeRebind();
         int v2 = d.nativeVersion();

@@ -25,6 +25,7 @@
 #include <jni.h>
 #include <string.h>
 #include <stdarg.h>
+#include <pthread.h>
 
 static JavaVM *g_vm; /* cached by probe_version via GetJavaVM (219) */
 
@@ -355,6 +356,94 @@ static jint helper_add(JNIEnv *env, jobject thiz, jint a, jint b) {
     return a + b;
 }
 
+/* -- the attach lifecycle (T13 13d, inventory §3.7; REVIEW_CHECKLIST
+   G1.4) -------------------------------------------------------------- */
+
+/* A compact SELF-CHECKING battery that runs on ANY attached env — the
+   same shape the harness probes run on the loading thread, now executed
+   on a foreign pthread's attached env, twice (once per attach cycle).
+   Bits: 1 GetVersion (the measured 0x00150000), 2 FindClass(String),
+   4 the NewStringUTF/UTFChars round-trip over "attach", 8 a NewIntArray
+   + region + length, 16 ExceptionCheck clean throughout. Expect 31. */
+static jint attach_battery(JNIEnv *env) {
+    jint verdict = 0;
+    if ((*env)->GetVersion(env) == 0x00150000) verdict |= 1;
+    jclass c = (*env)->FindClass(env, "java/lang/String");
+    if (c != NULL) verdict |= 2;
+    const char *p = (*env)->GetStringUTFChars(env,
+            (*env)->NewStringUTF(env, "attach"), NULL);
+    if (p != NULL && strcmp(p, "attach") == 0) verdict |= 4;
+    if (p != NULL) {
+        jstring s = (*env)->NewStringUTF(env, "attach");
+        (*env)->ReleaseStringUTFChars(env, s, p);
+    }
+    jintArray a = (*env)->NewIntArray(env, 3);
+    if (a != NULL) {
+        jint buf[3] = {7, 8, 9};
+        (*env)->SetIntArrayRegion(env, a, 0, 3, buf);
+        if ((*env)->GetArrayLength(env, a) == 3) verdict |= 8;
+    }
+    if (!(*env)->ExceptionCheck(env)) verdict |= 16;
+    return verdict;
+}
+
+/* The worker: a fresh (never-attached) pthread walking the MEASURED
+   Temurin 21.0.13+9 lifecycle (the evidence probe in
+   scripts/evidence/attach_lifecycle_probe/ recorded the codes this
+   battery asserts — the oracle's measured values are the law):
+   EDETACHED pre-attach -> attach OK (env non-null) -> GetEnv OK, the
+   SAME env -> battery 31 -> re-attach OK (idempotent) -> detach OK ->
+   double detach OK (the measured tolerance) -> GetEnv EDETACHED again
+   -> re-attach OK -> battery 31 again -> AsDaemon on the attached
+   thread OK -> final detach OK. Expect 2047 (eleven bits). */
+static void *attach_worker(void *arg) {
+    jint *v = (jint *)arg;
+    void *penv = NULL;
+    if ((*g_vm)->GetEnv(g_vm, &penv, JNI_VERSION_1_8) == JNI_EDETACHED)
+        *v |= 1;
+    JNIEnv *env = NULL;
+    if ((*g_vm)->AttachCurrentThread(g_vm, (void **)&env, NULL) == JNI_OK &&
+        env != NULL)
+        *v |= 2;
+    penv = NULL;
+    if ((*g_vm)->GetEnv(g_vm, &penv, JNI_VERSION_1_8) == JNI_OK &&
+        penv == (void *)env)
+        *v |= 4;
+    if (attach_battery(env) == 31) *v |= 8;
+    JNIEnv *env2 = NULL;
+    if ((*g_vm)->AttachCurrentThread(g_vm, (void **)&env2, NULL) == JNI_OK)
+        *v |= 16;
+    if ((*g_vm)->DetachCurrentThread(g_vm) == JNI_OK) *v |= 32;
+    if ((*g_vm)->DetachCurrentThread(g_vm) == JNI_OK) *v |= 64;
+    penv = NULL;
+    if ((*g_vm)->GetEnv(g_vm, &penv, JNI_VERSION_1_8) == JNI_EDETACHED)
+        *v |= 128;
+    env = NULL;
+    if ((*g_vm)->AttachCurrentThread(g_vm, (void **)&env, NULL) == JNI_OK &&
+        attach_battery(env) == 31)
+        *v |= 256;
+    JNIEnv *denv = NULL;
+    if ((*g_vm)->AttachCurrentThreadAsDaemon(g_vm, (void **)&denv, NULL) ==
+        JNI_OK)
+        *v |= 512;
+    if ((*g_vm)->DetachCurrentThread(g_vm) == JNI_OK) *v |= 1024;
+    return NULL;
+}
+
+/* Spawns the pthread, JOINS it (deterministic stdout — the verdict is
+   printed by the driver after this returns), folds the worker verdict.
+   Expect 2047. */
+static jint probe_attach_lifecycle(JNIEnv *env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+    if (g_vm == NULL) return -1;
+    jint verdict = 0;
+    pthread_t t;
+    if (pthread_create(&t, NULL, attach_worker, &verdict) != 0) return -2;
+    pthread_join(t, NULL);
+    return verdict;
+}
+
 /* -- the binding skeleton itself (§1: RegisterNatives IS the skeleton) -- */
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -382,12 +471,13 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
          (void *)probe_obj_array},
         {(char *)"probeCallsA", (char *)"()I", (void *)probe_calls_a},
         {(char *)"probeCallsV", (char *)"()I", (void *)probe_calls_v},
+        {(char *)"probeAttach", (char *)"()I", (void *)probe_attach_lifecycle},
         {(char *)"probeRebind", (char *)"()I", (void *)probe_rebind},
         {(char *)"probeRestore", (char *)"()I", (void *)probe_restore},
         {(char *)"probeUnregisterHelper", (char *)"()I",
          (void *)probe_unregister_helper},
     };
-    if ((*env)->RegisterNatives(env, driver, d, 12) != JNI_OK)
+    if ((*env)->RegisterNatives(env, driver, d, 13) != JNI_OK)
         return JNI_ERR;
     JNINativeMethod h[] = {
         {(char *)"helperAdd", (char *)"(II)I", (void *)helper_add},
