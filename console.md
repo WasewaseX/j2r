@@ -1372,3 +1372,46 @@ getrusage max single child, mistake-list #2).
 - Next: G2.1 (split the app/Dispatch composite) — emission code
   investigation started; the split must keep the partition differential
   byte-identical and drop the 20k peak-rustc number materially.
+
+### [2026-11-10 session 10 cont.] G2.1 SPLIT LANDED — F3 fixed in the emitter (per-partition tables + static route tables); 5k A/B peak 1.89 → 1.26 GB (−33 %); full battery green; the checkbox waits for the 20k re-measurement
+- Diagnosis confirmed from the code + the committed census:
+  `emit_app` embedded TWO total-class-scaled literals into
+  `app/src/main.rs` (`apply_defaults` default-run tuples +
+  `set_constants` ConstantValue finals), making `main_run` one fat
+  function body — fact 4's disease in dispatch-table form.
+  Attribution cross-check: 1k/k=500 peak 1.91 GB ≈ the 500-class
+  partition-crate compile (census: 500 classes = 2.1 GB single-crate);
+  at 20k/k=250 partition crates bound at ~1.1–1.3 GB vs the recorded
+  3.49 GB peak → the app bin was the difference.
+- The split (emitter change, `emit.rs` + `partition.rs`):
+  (a) per-partition `register_defaults`/`register_constants` fns in
+  each `p{i}/src/lib.rs` — literals bounded by k, slot-sorted,
+  partition order == slot order, and `apply_defaults`/`set_constants`
+  coverage is order-independent → identical pool state;
+  (b) `app/src/main.rs` composes one register line per partition and
+  passes slices — O(partitions), never O(classes); (c) the three
+  composite fns route through STATIC per-partition fn-pointer tables
+  (`ROUTE_LOOKUP`/`ROUTE_PARENTS_OF`/`ROUTE_META_OF`) indexed by
+  `part_of`'s binary search — no per-partition match arms. `part_of`,
+  `build_link`, the support crate and the runtime are UNTOUCHED.
+- 5k A/B, census protocol (N=5000, k=300, cargo -j 2, CI=0, debug=0,
+  RUSAGE_CHILDREN peak): wall 282.72 → **242.75 s** (−14 %); peak rustc
+  1,888,504 → **1,260,656 KB** (−33 %). Post-split peak = the largest
+  PARTITION-crate compile — the bounded unit; the app bin no longer
+  sets the peak. `app/src/main.rs` at 5k = 4,973 B (34 register
+  lines); `p0/src/lib.rs` 1,050,908 B (per-partition bounded).
+- Behavior preservation: 5k three-channel parity IDENTICAL vs Temurin
+  21.0.13+9 (raw stdout files committed); partition differential forced
+  k=2 ok (25.26 s); workspace remainder 449 passed / 0 failed;
+  diff_suite 2 passed (478.60 s) + cfg_equiv 1 passed (356.03 s), zero
+  divergences; gate-10 expression re-run (11 of pin 12, none outside
+  ffi.rs), gate-11 re-measured `fixtures=109 tests=452` ✓, gate-19
+  links ✓, gate-20 stubs ✓; fmt + clippy `-D warnings` clean.
+- Evidence (G6.3): `scripts/evidence/g2_1_split/` — README (diagnosis +
+  A/B table + battery record), raw timeit file, raw 5k stdouts both
+  runtimes.
+- Honest remainder: the G2.1 CHECKBOX waits for the 20k peak-rustc
+  re-measurement (the checklist bar says 20k, not 5k). Next chunks:
+  20k farm + emit + watched cargo run (chunked ≤10 min; a /proc VmHWM
+  rustc sampler records the true whole-build peak across invocations),
+  then G2.6 (the JZlib either-arm bar).

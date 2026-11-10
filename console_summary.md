@@ -345,11 +345,17 @@ by the per-crate budget K.
 
 - [x] 20k census-jar confirmation — LANDED (session 1), wave 1 closed;
   state survived sandbox reset #2 via these boards (session 2, §9).
-- [G2.1 = F3] split the app/Dispatch composite (rustc near-wall at 20k,
-  3.49 GB) — no single generated compilation unit may scale with TOTAL
-  class count; the 20k peak-rustc number re-measured and drops
-  materially; the partition differential stays byte-identical
-  (REVIEW_CHECKLIST §G2).
+- [~] **G2.1 = F3** split the app/Dispatch composite — split LANDED
+  session 10 (emit.rs + partition.rs): per-partition
+  register_defaults/register_constants fns (bounded by k) + app-side
+  Vec composition + static per-partition route tables; app/src/main.rs
+  is 4,973 B at 5k (was the total-class literal). 5k A/B (census
+  protocol, k=300, -j2): peak rustc 1.89 GB → **1.26 GB** (−33 %),
+  wall 282.7 → 242.8 s; 5k parity three-channel IDENTICAL; partition
+  differential k=2 byte-identical; full battery green (diff 478.6 s +
+  cfg 356.0 s, zero divergences; 452 re-measured by gate-11).
+  Evidence: scripts/evidence/g2_1_split/. The CHECKBOX waits for the
+  20k peak-rustc re-measurement (checklist bar says 20k — next chunk).
 - [G2.2 = F2] no-op rebuild fast path — (mtime,size) fast path; the
   manifest stays a CACHE (corrupt/tampered → full re-emit, loud); the
   20k no-op number re-measured, raw files in scripts/evidence/.

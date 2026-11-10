@@ -708,8 +708,19 @@ pub(crate) enum DfKind {
 /// Run-length-encoded default values for the static pool, in slot order.
 /// A program whose statics are all ints (the common case) is a single range.
 fn static_default_ranges(prog: &Program) -> Vec<(u32, u32, DfKind)> {
+    static_default_ranges_in(prog.classes.iter())
+}
+
+/// Per-partition core (G2.1, console.md F3): the same run-length merge
+/// over exactly the given classes. Coverage — not order — decides the
+/// applied defaults (each slot is written its kind's default exactly
+/// once), so partition-local ranges compose to the same pool state as
+/// the old global literal; the partition differential pins this.
+fn static_default_ranges_in<'a>(
+    classes: impl Iterator<Item = &'a ClassPlan>,
+) -> Vec<(u32, u32, DfKind)> {
     let mut slots: Vec<(u32, &str)> = Vec::new();
-    for c in &prog.classes {
+    for c in classes {
         for f in &c.fields {
             if f.is_static {
                 slots.push((f.static_slot.expect("static slot"), f.desc.as_str()));
@@ -763,6 +774,32 @@ pub(crate) fn static_defaults_literal(prog: &Program, lib_crate: &str) -> String
     out
 }
 
+/// The per-partition `register_defaults` fn source (G2.1): the defaults
+/// table lives in the partition crate, bounded by k, so no generated
+/// compilation unit scales with TOTAL class count (console.md F3 — the
+/// 20k app-bin peak was the total-class literal in main.rs). The app
+/// composes the partitions in order at startup.
+pub(crate) fn static_defaults_register_fn(part: &[&ClassPlan]) -> String {
+    let mut out = String::from(
+        "pub fn register_defaults(out: &mut ::std::vec::Vec<(u32, u32, support::statics::Df)>) {\n",
+    );
+    out.push_str("    out.extend_from_slice(&[");
+    for (start, len, kind) in static_default_ranges_in(part.iter().copied()) {
+        let k = match kind {
+            DfKind::Int => "Int",
+            DfKind::Long => "Long",
+            DfKind::Float => "Float",
+            DfKind::Double => "Double",
+            DfKind::Ref => "Ref",
+        };
+        out.push_str(&format!(
+            "({start}u32, {len}u32, support::statics::Df::{k}), "
+        ));
+    }
+    out.push_str("]);\n}\n");
+    out
+}
+
 /// The `&[(u32, Value)]` literal of `ConstantValue` static finals, in slot
 /// order — the JVM's preparation-phase initialization.
 pub(crate) fn static_constants_literal(prog: &Program) -> String {
@@ -791,6 +828,42 @@ pub(crate) fn static_constants_literal(prog: &Program) -> String {
         out.push_str(&format!("({slot}u32, {v}), "));
     }
     out.push(']');
+    out
+}
+
+/// The per-partition `register_constants` fn source (G2.1): the same
+/// split as the defaults table — a per-partition slot-sorted literal
+/// (bounded by k) composed by the app at startup in partition order,
+/// instead of one total-class-scaled literal in app/src/main.rs.
+pub(crate) fn static_constants_register_fn(part: &[&ClassPlan]) -> String {
+    let mut slots: Vec<(u32, &ConstantValue)> = Vec::new();
+    for c in part {
+        for f in &c.fields {
+            if f.is_static {
+                if let Some(cv) = &f.constant_value {
+                    slots.push((f.static_slot.expect("static slot"), cv));
+                }
+            }
+        }
+    }
+    slots.sort_unstable_by_key(|(s, _)| *s);
+    let mut out = String::from(
+        "pub fn register_constants(out: &mut ::std::vec::Vec<(u32, ::j2r_runtime::Value)>) {\n",
+    );
+    out.push_str("    out.extend_from_slice(&[");
+    for (slot, cv) in slots {
+        let v = match cv {
+            ConstantValue::Int(v) => format!("{RT}::Value::Int({v})"),
+            ConstantValue::Long(v) => format!("{RT}::Value::Long({v}i64)"),
+            ConstantValue::Float(v) => format!("{RT}::Value::Float({})", f32_lit(*v)),
+            ConstantValue::Double(v) => format!("{RT}::Value::Double({})", f64_lit(*v)),
+            ConstantValue::String(s) => {
+                format!("{RT}::Value::Str(::std::sync::Arc::new({s:?}.to_string()))")
+            }
+        };
+        out.push_str(&format!("({slot}u32, {v}), "));
+    }
+    out.push_str("]);\n}\n");
     out
 }
 
