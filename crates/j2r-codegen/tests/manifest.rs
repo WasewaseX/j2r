@@ -146,6 +146,79 @@ fn compile(inputs: Vec<PathBuf>, out: &Path) -> j2r_codegen::manifest::EmitStats
     compile_to_crate_stats(&opts).expect("codegen succeeds").1
 }
 
+/// G2.2 (F2): the (mtime,size) fast path trusts a stat match even when the
+/// recorded content hash is wrong (proving the hash was skipped), and a
+/// stat change falls back to the content hash, which forces a re-emit —
+/// never a silent stale reuse.
+#[test]
+fn stat_fast_path_trusts_then_falls_back_to_hash() {
+    let dir = temp_dir("statfp");
+    let out = dir.join("out");
+    let util = write_class(
+        &dir,
+        "Util",
+        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
+    );
+    let app = write_class(&dir, "App", &app_class());
+    let inputs = || vec![util.clone(), app.clone()];
+    compile(inputs(), &out);
+
+    // tamper the manifest: keep App's stat field, corrupt its emitted sha
+    let mpath = j2r_codegen::manifest::Manifest::path(&out);
+    let text = std::fs::read_to_string(&mpath).unwrap();
+    let mut tampered = String::new();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("e\tApp\t") {
+            let f: Vec<&str> = rest.split('\t').collect();
+            assert!(f.len() >= 3, "v2 e line carries the stat");
+            tampered.push_str(&format!(
+                "e\tApp\t{}\t{}\t{}\n",
+                f[0],
+                "ff".repeat(32),
+                f[2]
+            ));
+        } else {
+            tampered.push_str(line);
+            tampered.push('\n');
+        }
+    }
+    std::fs::write(&mpath, tampered).unwrap();
+
+    // stat matches (file untouched) → the fast path trusts it and App is
+    // reused DESPITE the wrong content hash
+    let s2 = compile(inputs(), &out);
+    assert_eq!(s2.classes_reused, 2, "stat match must take the fast path");
+
+    // change App.rs's mtime only (content stays identical): stat misses →
+    // content-hash fallback → the TAMPERED sha mismatches the (identical)
+    // content → one re-render, which is a cost, never a correctness issue
+    // (rendering is deterministic); the repaired entry records the correct
+    // sha + the new stat.
+    let app_rs = out.join("src/classes/App.rs");
+    let f = std::fs::File::options().write(true).open(&app_rs).unwrap();
+    f.set_times(
+        std::fs::FileTimes::new()
+            .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_730_000_000)),
+    )
+    .unwrap();
+    drop(f);
+    let s3 = compile(inputs(), &out);
+    assert_eq!(
+        s3.classes_reused, 1,
+        "Util (stat+hash fine) reuses; App's tampered sha + new mtime re-renders"
+    );
+    assert_eq!(s3.classes_reemitted, 1);
+
+    // the manifest is repaired now (correct sha, current stat) — a REAL
+    // content change must still be caught: rewrite App.rs to garbage
+    // (stat changes → hash decides → mismatch → re-emit)
+    std::fs::write(&app_rs, b"garbage").unwrap();
+    let s4 = compile(inputs(), &out);
+    assert_eq!(s4.classes_reused, 1, "content change must force re-emit");
+    assert_eq!(s4.classes_reemitted, 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn compile_partitioned(
     inputs: Vec<PathBuf>,
     out: &Path,
@@ -224,12 +297,28 @@ fn manifest_roundtrip() {
         j2r_codegen::manifest::Entry {
             input_sha: "11".repeat(32),
             emitted_sha: "22".repeat(32),
+            emitted_stat: Some((1_731_234_567_890_123_456, 4096)),
         },
     );
     m.glue.insert("src/lib.rs".to_string(), "33".repeat(32));
     let text = m.render();
     let parsed = j2r_codegen::manifest::parse(text.as_bytes()).expect("parses");
     assert_eq!(parsed, m);
+    // a legacy 4-field e line parses with the stat absent (v1 manifests)
+    let legacy = format!(
+        "v2\temitter=2\temit_cfg=false\temit_typed=false\tsurface={}\tlayout=-\tcrate=demo\ne\tp/Big\t{}\t{}\n",
+        "ab".repeat(32),
+        "11".repeat(32),
+        "22".repeat(32)
+    );
+    let parsed_legacy = j2r_codegen::manifest::parse(legacy.as_bytes()).expect("legacy parses");
+    assert_eq!(parsed_legacy.entries["p/Big"].emitted_stat, None);
+    // a malformed 5th field is corruption, not a missing stat
+    let corrupt = legacy.replace(
+        &format!("e\tp/Big\t{}\t{}\n", "11".repeat(32), "22".repeat(32)),
+        &format!("e\tp/Big\t{}\t{}\tzz.\n", "11".repeat(32), "22".repeat(32)),
+    );
+    assert!(j2r_codegen::manifest::parse(corrupt.as_bytes()).is_none());
     // garbage must parse to None, never panic
     assert!(j2r_codegen::manifest::parse(b"hello world".as_slice()).is_none());
     assert!(j2r_codegen::manifest::parse(b"v1\temitter=x\n".as_slice()).is_none());

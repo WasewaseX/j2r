@@ -45,8 +45,8 @@
 //! parseable without a JSON dependency (the workspace has none):
 //!
 //! ```text
-//! v1  emitter=1       emit_cfg=false  emit_typed=false        surface=<64 hex>        layout=<64 hex|->       crate=<name>
-//! e   <pkg/Class>     <input sha>     <emitted sha>
+//! v2  emitter=2       emit_cfg=false  emit_typed=false        surface=<64 hex>        layout=<64 hex|->       crate=<name>
+//! e   <pkg/Class>     <input sha>     <emitted sha>   <emitted mtime_ns.size|->
 //! g   <src/lib.rs>    <sha>
 //! ```
 //!
@@ -57,6 +57,20 @@
 //! is a deterministic function of the name-sorted classes and the
 //! per-crate budget, so a budget or membership change reshuffles it and
 //! must invalidate the per-class reuse gate.
+//!
+//! v2 (G2.2, F2) adds the emitted file's `(mtime_ns, size)` to the `e`
+//! line: the reuse check fast-paths on a stat match and only falls back to
+//! the SHA-256 content hash when the stat differs — the measured no-op
+//! cost was rehash-bound (~854 MB of emitted sources ≈ 22 MB/s). A legacy
+//! 4-field `e` line parses with `emitted_stat: None` (content-hash path);
+//! a v1 header parses fine and every entry takes the slow path once, then
+//! records stats. The manifest remains a CACHE: any parse problem, missing
+//! entry or stat/hash mismatch falls back to rendering, never to trusting
+//! a doubtful state. The stat fast path's trust model is the standard
+//! incremental-build one (same as Cargo fingerprints): a file whose
+//! `(mtime, size)` match the recorded pair is assumed unchanged —
+//! adversarial same-stat rewrites are out of scope, and any other doubt
+//! still hits the content hash.
 
 use crate::sha256::{sha256_file, sha256_hex};
 use crate::{ClassPlan, Program};
@@ -66,11 +80,12 @@ use std::path::{Path, PathBuf};
 
 /// Bumped whenever any emitted byte could change for identical inputs
 /// (emitter logic, templates, runtime vendoring). Recorded in the manifest;
-/// a mismatch forces a full re-emit.
-pub const EMITTER_VERSION: u32 = 1;
+/// a mismatch forces a full re-emit. v2: the G2.6 array-literal peephole
+/// changes emitted bytes for clinit-bearing classes.
+pub const EMITTER_VERSION: u32 = 2;
 
 const MANIFEST_NAME: &str = "j2r-manifest.tsv";
-const FORMAT_VERSION: &str = "v1";
+const FORMAT_VERSION: &str = "v2";
 
 /// The parsed manifest file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,7 +125,12 @@ impl Manifest {
             self.emitter, self.emit_cfg, self.emit_typed, self.surface, self.layout, self.crate_name
         ));
         for (class, e) in &self.entries {
-            s.push_str(&format!("e\t{class}\t{}\t{}\n", e.input_sha, e.emitted_sha));
+            s.push_str(&format!(
+                "e\t{class}\t{}\t{}\t{}\n",
+                e.input_sha,
+                e.emitted_sha,
+                enc_stat(&e.emitted_stat)
+            ));
         }
         for (path, sha) in &self.glue {
             s.push_str(&format!("g\t{path}\t{sha}\n"));
@@ -142,7 +162,9 @@ pub fn parse(r: impl std::io::Read) -> Option<Manifest> {
         }
         let fields: Vec<&str> = line.split('\t').collect();
         match fields[0] {
-            "v1" => {
+            // v2 = the G2.2 stat field on `e` lines; v1 manifests parse
+            // fine (their 4-field e lines take the content-hash path).
+            "v1" | "v2" => {
                 if fields.len() != 7 {
                     return None;
                 }
@@ -171,7 +193,17 @@ pub fn parse(r: impl std::io::Read) -> Option<Manifest> {
                 header_seen = true;
             }
             "e" => {
-                if !header_seen || fields.len() != 4 || !is_sha(fields[2]) || !is_sha(fields[3]) {
+                // v2: 5 fields (with the emitted stat); legacy: 4 fields.
+                let emitted_stat = match fields.len() {
+                    5 => dec_stat(fields[4]),
+                    4 => None,
+                    _ => return None,
+                };
+                if !header_seen || !is_sha(fields[2]) || !is_sha(fields[3]) {
+                    return None;
+                }
+                if fields.len() == 5 && emitted_stat.is_none() {
+                    // a present-but-malformed stat field is corruption
                     return None;
                 }
                 m.entries.insert(
@@ -179,6 +211,7 @@ pub fn parse(r: impl std::io::Read) -> Option<Manifest> {
                     Entry {
                         input_sha: fields[2].to_string(),
                         emitted_sha: fields[3].to_string(),
+                        emitted_stat,
                     },
                 );
             }
@@ -198,11 +231,40 @@ pub fn parse(r: impl std::io::Read) -> Option<Manifest> {
     }
 }
 
-/// One per-class record: input `.class` hash → emitted `.rs` hash.
+/// One per-class record: input `.class` hash → emitted `.rs` hash, with
+/// the emitted file's `(mtime_ns, size)` when known (G2.2 fast path;
+/// `None` for legacy manifest lines).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub input_sha: String,
     pub emitted_sha: String,
+    pub emitted_stat: Option<(u128, u64)>,
+}
+
+/// The current `(mtime_ns, size)` of a file, or `None` when it cannot be
+/// stated (missing/unreadable).
+pub fn stat_of(path: &Path) -> Option<(u128, u64)> {
+    let md = std::fs::metadata(path).ok()?;
+    let mt = md.modified().ok()?;
+    let nanos = mt.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some((nanos, md.len()))
+}
+
+/// `"<mtime_ns>.<size>"` for the manifest `e` line; `-` when unknown.
+fn enc_stat(s: &Option<(u128, u64)>) -> String {
+    match s {
+        Some((mt, sz)) => format!("{mt}.{sz}"),
+        None => "-".to_string(),
+    }
+}
+
+/// Inverse of [`enc_stat`]; `None` for `-` or malformed input.
+fn dec_stat(s: &str) -> Option<(u128, u64)> {
+    if s == "-" {
+        return None;
+    }
+    let (mt, sz) = s.split_once('.')?;
+    Some((mt.parse().ok()?, sz.parse().ok()?))
 }
 
 fn is_sha(s: &str) -> bool {
@@ -322,12 +384,19 @@ pub fn write_if_changed(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
     Ok(true)
 }
 
-/// Verify one class for reuse; `true` = all four soundness conditions
-/// hold (see the module docs). `emitted_path` is the class's per-crate
+/// Verify one class for reuse; `true` = all soundness conditions hold
+/// (see the module docs). `emitted_path` is the class's per-crate
 /// module file (which crate the class lives in is decided by the caller,
 /// from the same deterministic layout the emitter uses). The class's
 /// input hash comes from [`ClassPlan::input_sha`] — computed at parse
 /// time over the exact `.class` bytes this run loaded.
+///
+/// G2.2 (F2): when the recorded `(mtime_ns, size)` of the emitted file
+/// matches the file's current stat, the content hash is SKIPPED (the
+/// measured no-op cost was emitted-side rehashing, ~854 MB ≈ 22 MB/s at
+/// 20k). On any stat mismatch the content hash decides — a changed file
+/// with stale stats re-verifies or forces re-render, never a silent
+/// stale reuse.
 pub fn verify_reuse(class: &ClassPlan, emitted_path: &Path, manifest: &Manifest) -> bool {
     let entry = match manifest.entries.get(&class.name) {
         Some(e) => e,
@@ -335,6 +404,11 @@ pub fn verify_reuse(class: &ClassPlan, emitted_path: &Path, manifest: &Manifest)
     };
     if class.input_sha != entry.input_sha {
         return false;
+    }
+    if let Some(recorded) = entry.emitted_stat {
+        if stat_of(emitted_path) == Some(recorded) {
+            return true;
+        }
     }
     match sha256_file(emitted_path) {
         Ok(disk_sha) => disk_sha == entry.emitted_sha,

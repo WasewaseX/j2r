@@ -296,11 +296,13 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
     // refreshed with the hashes that were just verified.
     for c in &prog.classes {
         if let Some(emitted_sha) = reuse.get(&c.name) {
+            let emitted_path = out.join(class_file_rel(&c.module));
             entries.insert(
                 c.name.clone(),
                 Entry {
                     input_sha: c.input_sha.clone(),
                     emitted_sha: emitted_sha.clone(),
+                    emitted_stat: crate::manifest::stat_of(&emitted_path),
                 },
             );
             stats.classes_reused += 1;
@@ -319,6 +321,7 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
             Entry {
                 input_sha: c.input_sha.clone(),
                 emitted_sha: sha256_hex(bytes),
+                emitted_stat: crate::manifest::stat_of(&dest),
             },
         );
         stats.classes_reemitted += 1;

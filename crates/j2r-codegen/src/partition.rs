@@ -239,6 +239,7 @@ impl Ws<'_> {
             Entry {
                 input_sha: class.input_sha.clone(),
                 emitted_sha: sha256_hex(bytes),
+                emitted_stat: crate::manifest::stat_of(rel_path),
             },
         );
         self.stats.classes_reemitted += 1;
@@ -449,11 +450,13 @@ fn emit_part(
     // makes the skip sound.
     for c in part {
         if let Some(emitted_sha) = reuse.get(&c.name) {
+            let emitted_path = classes_dir.join(format!("{}.rs", c.module));
             ws.entries.insert(
                 c.name.clone(),
                 Entry {
                     input_sha: c.input_sha.clone(),
                     emitted_sha: emitted_sha.clone(),
+                    emitted_stat: crate::manifest::stat_of(&emitted_path),
                 },
             );
             ws.stats.classes_reused += 1;

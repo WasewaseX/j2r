@@ -148,11 +148,22 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
   with the measured number and the per-process sampler wired into the
   standing 20k/70k protocol. FAIL: silence, or running the G2.5 ladder
   into this wall unmeasured.
-- [ ] **G2.2 — no-op rebuild fast path (F2).**
-  PASS: the SHA-256-rehash no-op cost drops via the (mtime,size) fast path
-  with the manifest remaining a CACHE (corrupt/tampered → full re-emit,
-  loud); the 20k no-op number re-measured and recorded with raw files in
-  `scripts/evidence/`.
+- [x] **G2.2 — no-op rebuild fast path (F2).** CLOSED session 11: the
+  manifest gains the emitted file's `(mtime_ns, size)` (format v2,
+  EMITTER_VERSION 2 — the peephole changed emitted bytes; legacy v1
+  manifests parse and take the content-hash path), and `verify_reuse`
+  fast-paths on a stat match, falling back to the SHA-256 content hash
+  on any mismatch (trust model = Cargo fingerprints, documented in
+  manifest.rs; the behavioral test proves stat-match reuse with a
+  corrupted hash AND content-change detection after a stat change).
+  20k re-measure: no-op emit **41.74 s → 29.93 s (−28 %)**, cargo
+  0.36 s, `20,003 reused / 0 re-emitted / 0 written` on the v2
+  manifest, partition differential k=2 byte-identical (28.52 s),
+  corpus_suite + jar_suite green. Evidence: `scripts/evidence/g2_2/`.
+  Honest residual, measured: the remaining ~30 s is parse/plan +
+  input-side `.class` hashing + glue IO — the emitted-side rehash (the
+  measured 854 MB term) is gone; the residual is exactly what G2.3's
+  profile must name.
 - [ ] **G2.3 — emission-stage profile (F1).**
   PASS: a profile of the 20k emit stage exists (named hot function, not
   adjectives) and either a fix lands or the super-linearity is accepted in

@@ -364,9 +364,16 @@ by the per-crate budget K.
   budget AND either a measured link mitigation (linker choice/flags or
   binary-size reduction) with re-measure, or a written accepted boundary
   + the per-process sampler wired into the standing 20k/70k protocol.
-- [G2.2 = F2] no-op rebuild fast path — (mtime,size) fast path; the
-  manifest stays a CACHE (corrupt/tampered → full re-emit, loud); the
-  20k no-op number re-measured, raw files in scripts/evidence/.
+- [x] **G2.2 = F2** no-op rebuild fast path — **CLOSED session 11**:
+  manifest v2 records the emitted file's (mtime_ns,size);
+  verify_reuse fast-paths on a stat match (content-hash fallback on any
+  mismatch; Cargo-fingerprint trust model documented + behaviorally
+  tested: stat-match reuse with a corrupted hash, then content-change
+  detection). 20k no-op: emit **41.74 → 29.93 s (−28 %)**, cargo 0.36 s,
+  20,003 reused / 0 written; partition k=2 byte-identical; corpus+jar
+  suites green. Evidence: scripts/evidence/g2_2/. Honest residual
+  (measured): the remaining ~30 s = parse/plan + input hashing + glue
+  IO → G2.3's profile names it.
 - [G2.3 = F1] emission-stage profile at 20k — a named hot function
   (34.12 s vs T03's near-linear 2.02 s @ 5k); a fix lands OR the
   super-linearity is accepted in writing with its measured constant.
@@ -389,10 +396,10 @@ by the per-crate budget K.
   sampler + census = the standing regression probe.
 - [G2.7] the 70k acceptance names the 4 GB/process budget up front and
   is measured against it.
-- Implementation order (2026-11-10 external review): ~~G2.1~~ DONE
-  (session 11); ~~G2.6~~ DONE (session 11, arm a) → G2.2–G2.4 → G2.5;
-  G2.1b rides with the next 20k/70k protocol run; no mappings/
-  mod-loader work until G2 passes.
+- Implementation order (2026-11-10 external review): ~~G2.1~~ DONE; ~~G2.6~~
+  DONE; ~~G2.2~~ DONE (all session 11) → G2.3 (profile the 20k emit
+  residual) → G2.4 (release 20k trio) → G2.5; G2.1b rides with the next
+  20k/70k protocol run; no mappings/mod-loader work until G2 passes.
 - [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
   (run 42616529578, all 21 gates + CodeQL/OSV/Scorecard success):
   generated static tables, const offset_of! assertions, loud-abort

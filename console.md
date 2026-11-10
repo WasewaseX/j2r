@@ -1528,3 +1528,46 @@ getrusage max single child, mistake-list #2).
   sampler + census = the standing regression probe.
 - Next: **G2.2** (no-op (mtime,size) fast path), G2.3 (emit-stage
   profile), G2.4 (release 20k trio), G2.1b (link wall), then G2.5.
+
+### [2026-11-10 session 11 cont. 2] G2.2 CLOSED — manifest v2 (mtime,size) fast path lands; 20k no-op emit 41.74 → 29.93 s (−28 %), 20,003 reused / 0 written; reuse battery green
+- Mechanism: `Entry` gains `emitted_stat: Option<(mtime_ns, size)>`
+  (manifest format v2; `EMITTER_VERSION` bumped 1 → 2 — the G2.6
+  peephole changed emitted bytes for identical inputs, so the bump was
+  contractually due). `verify_reuse` fast-paths on a stat match and
+  falls back to the SHA-256 content hash on any mismatch. Trust model
+  documented in manifest.rs (Cargo-fingerprint semantics; corrupt
+  parse → None → full re-emit, loud — unchanged; legacy v1 4-field e
+  lines parse with stat None and take the content-hash path).
+- Behavioral test `stat_fast_path_trusts_then_falls_back_to_hash`
+  proves BOTH arms: (1) a stat match reuses even with a corrupted
+  content hash (the hash was really skipped), and (2) after a stat
+  change the hash fallback catches a tampered sha (one deterministic
+  re-render — a cost, never a correctness issue) and a garbage rewrite
+  (content change → re-emit). Glue stays hash-verified every run (the
+  vendored runtime copy is correctness-relevant; its cost is ~1-2 s).
+- 20k re-measure (N=20000, k=250, the standing protocol): the v1→v2 +
+  emitter=2 invalidation run re-rendered everything (36.51 s emit —
+  the farm has no giant clinit fills, so bytes were identical and
+  write_if_changed rewrote nothing; cargo then rebuilt all 81 crates
+  chunked, peak rust-lld 3.13 GB / worst rustc 0.99 GB — G2.1's
+  numbers reconfirmed); the TRUE no-op after that: **emit 29.93 s /
+  cargo 0.36 s, `20,003 reused, 0 re-emitted, 286 files unchanged,
+  0 written`** — the emitted-side rehash (the measured ~854 MB term)
+  is gone. Honest residual: the remaining ~30 s is parse/plan +
+  input-side .class hashing + glue IO — precisely what G2.3's profile
+  must name next.
+- Disk lesson (recorded): the invalidation rebuild doubled the out20k
+  target (old + new rlibs coexist by hash) and the final link died
+  ENOSPC at 99 % — cargo clean + chunked rebuild (585 s killed +
+  405.60 s completed). The 70k ladder must budget target-dir growth
+  per stage (G2.7 note).
+- Battery: j2r-codegen 110 lib (incl. 8 peephole) + manifest 11 (incl.
+  the new fast-path test) + e2e ✓; partition differential k=2
+  28.52 s ✓ (byte-identical — the partitioned reuse loop was updated
+  too); corpus_suite 34.57 s ✓; jar_suite 3 passed 20.81 s ✓;
+  fmt + clippy `-D warnings` ✓.
+- Evidence: `scripts/evidence/g2_2/` (build2 compile log/time +
+  cargo time + the full remeasure log).
+- Next: **G2.3** — profile the 20k emit residual (parse/plan/input-
+  hash/glue — name the hot function), then G2.4 (release 20k trio),
+  G2.1b (link wall), G2.5 (ladder).
