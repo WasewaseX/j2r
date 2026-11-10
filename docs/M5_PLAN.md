@@ -293,8 +293,8 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       weak global refs stay loud stubs, cross-thread local-resolve not
       policed (HotSpot-debug-style; delete IS owner-checked) — all
       registered for the T13 attach lifecycle. → §3.2
-- [~] **T10** v1 surface: GetObjectClass/FindClass/field
-      accessors/arrays/modified-UTF-8 strings. → §3.3 — IN PROGRESS:
+- [x] **T10** v1 surface: GetObjectClass/FindClass/field
+      accessors/arrays/modified-UTF-8 strings. → §3.3 — COMPLETE (all slices landed):
       slice 1 landed (jni::strings modified-UTF-8 marshal + string
       slot bodies, 9 tests, workspace 388 green); slice 2 landed
       (generator REAL_SLOTS registry wires the five string slots;
@@ -306,7 +306,15 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       the T08 bare-c_void jfieldID stand-in amended to the ABI-faithful
       pointer; 8 classes tests, workspace 398 green, full battery incl.
       partition + diff_suite + cfg_equiv zero divergences);
-      slice 3b = array families (171–218) per M5_JNI_CLASSES.md §5.
+      slice 3b landed (the 46 array slots — 171–174 object/length,
+      175–182 New<Prim>Array, 183–190 Get<Prim>ArrayElements with the
+      registry-pinned caller copy + isCopy through audited primitive 7,
+      191–198 Release<Prim>ArrayElements with the COMMIT/ABORT/0 mode
+      law and validate-before-remove registry discipline, 199–214
+      regions, 222–223 criticals via the existing critical registry;
+      15 arrays tests + the child-process release-miss abort pin;
+      workspace 414 green, full battery re-run — zero divergences).
+      **T10 COMPLETE.**
 - [ ] **T11** Arity-shim trade-off note (variadic `Call*Method` ABI, the
       flagged-open question) + the `Call*Method`/`CallStatic*Method`
       families. → §3

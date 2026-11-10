@@ -157,8 +157,8 @@ descriptor). Mapping:
   copies back without freeing; `0` copies back and frees;
   `JNI_ABORT` (2) frees without copying back. Copy-back goes through
   the raw store accessors.
-- `GetPrimitiveArrayCritical` (217) / `ReleasePrimitiveArrayCritical`
-  (218): the existing critical registry (`bridge::critical_register`)
+- `GetPrimitiveArrayCritical` (222) / `ReleasePrimitiveArrayCritical`
+  (223): the existing critical registry (`bridge::critical_register`)
   — pinning is free because the arena never moves and payloads never
   reallocate (the documented M2 advantage).
 

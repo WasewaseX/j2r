@@ -649,50 +649,50 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     GetStringUTFLength: jni_get_string_utf_length,
     GetStringUTFChars: jni_get_string_utf_chars,
     ReleaseStringUTFChars: jni_release_string_utf_chars,
-    GetArrayLength: stub_GetArrayLength,
-    NewObjectArray: stub_NewObjectArray,
-    GetObjectArrayElement: stub_GetObjectArrayElement,
-    SetObjectArrayElement: stub_SetObjectArrayElement,
-    NewBooleanArray: stub_NewBooleanArray,
-    NewByteArray: stub_NewByteArray,
-    NewCharArray: stub_NewCharArray,
-    NewShortArray: stub_NewShortArray,
-    NewIntArray: stub_NewIntArray,
-    NewLongArray: stub_NewLongArray,
-    NewFloatArray: stub_NewFloatArray,
-    NewDoubleArray: stub_NewDoubleArray,
-    GetBooleanArrayElements: stub_GetBooleanArrayElements,
-    GetByteArrayElements: stub_GetByteArrayElements,
-    GetCharArrayElements: stub_GetCharArrayElements,
-    GetShortArrayElements: stub_GetShortArrayElements,
-    GetIntArrayElements: stub_GetIntArrayElements,
-    GetLongArrayElements: stub_GetLongArrayElements,
-    GetFloatArrayElements: stub_GetFloatArrayElements,
-    GetDoubleArrayElements: stub_GetDoubleArrayElements,
-    ReleaseBooleanArrayElements: stub_ReleaseBooleanArrayElements,
-    ReleaseByteArrayElements: stub_ReleaseByteArrayElements,
-    ReleaseCharArrayElements: stub_ReleaseCharArrayElements,
-    ReleaseShortArrayElements: stub_ReleaseShortArrayElements,
-    ReleaseIntArrayElements: stub_ReleaseIntArrayElements,
-    ReleaseLongArrayElements: stub_ReleaseLongArrayElements,
-    ReleaseFloatArrayElements: stub_ReleaseFloatArrayElements,
-    ReleaseDoubleArrayElements: stub_ReleaseDoubleArrayElements,
-    GetBooleanArrayRegion: stub_GetBooleanArrayRegion,
-    GetByteArrayRegion: stub_GetByteArrayRegion,
-    GetCharArrayRegion: stub_GetCharArrayRegion,
-    GetShortArrayRegion: stub_GetShortArrayRegion,
-    GetIntArrayRegion: stub_GetIntArrayRegion,
-    GetLongArrayRegion: stub_GetLongArrayRegion,
-    GetFloatArrayRegion: stub_GetFloatArrayRegion,
-    GetDoubleArrayRegion: stub_GetDoubleArrayRegion,
-    SetBooleanArrayRegion: stub_SetBooleanArrayRegion,
-    SetByteArrayRegion: stub_SetByteArrayRegion,
-    SetCharArrayRegion: stub_SetCharArrayRegion,
-    SetShortArrayRegion: stub_SetShortArrayRegion,
-    SetIntArrayRegion: stub_SetIntArrayRegion,
-    SetLongArrayRegion: stub_SetLongArrayRegion,
-    SetFloatArrayRegion: stub_SetFloatArrayRegion,
-    SetDoubleArrayRegion: stub_SetDoubleArrayRegion,
+    GetArrayLength: jni_get_array_length,
+    NewObjectArray: jni_new_object_array,
+    GetObjectArrayElement: jni_get_object_array_element,
+    SetObjectArrayElement: jni_set_object_array_element,
+    NewBooleanArray: jni_new_boolean_array,
+    NewByteArray: jni_new_byte_array,
+    NewCharArray: jni_new_char_array,
+    NewShortArray: jni_new_short_array,
+    NewIntArray: jni_new_int_array,
+    NewLongArray: jni_new_long_array,
+    NewFloatArray: jni_new_float_array,
+    NewDoubleArray: jni_new_double_array,
+    GetBooleanArrayElements: jni_get_boolean_array_elements,
+    GetByteArrayElements: jni_get_byte_array_elements,
+    GetCharArrayElements: jni_get_char_array_elements,
+    GetShortArrayElements: jni_get_short_array_elements,
+    GetIntArrayElements: jni_get_int_array_elements,
+    GetLongArrayElements: jni_get_long_array_elements,
+    GetFloatArrayElements: jni_get_float_array_elements,
+    GetDoubleArrayElements: jni_get_double_array_elements,
+    ReleaseBooleanArrayElements: jni_release_boolean_array_elements,
+    ReleaseByteArrayElements: jni_release_byte_array_elements,
+    ReleaseCharArrayElements: jni_release_char_array_elements,
+    ReleaseShortArrayElements: jni_release_short_array_elements,
+    ReleaseIntArrayElements: jni_release_int_array_elements,
+    ReleaseLongArrayElements: jni_release_long_array_elements,
+    ReleaseFloatArrayElements: jni_release_float_array_elements,
+    ReleaseDoubleArrayElements: jni_release_double_array_elements,
+    GetBooleanArrayRegion: jni_get_boolean_array_region,
+    GetByteArrayRegion: jni_get_byte_array_region,
+    GetCharArrayRegion: jni_get_char_array_region,
+    GetShortArrayRegion: jni_get_short_array_region,
+    GetIntArrayRegion: jni_get_int_array_region,
+    GetLongArrayRegion: jni_get_long_array_region,
+    GetFloatArrayRegion: jni_get_float_array_region,
+    GetDoubleArrayRegion: jni_get_double_array_region,
+    SetBooleanArrayRegion: jni_set_boolean_array_region,
+    SetByteArrayRegion: jni_set_byte_array_region,
+    SetCharArrayRegion: jni_set_char_array_region,
+    SetShortArrayRegion: jni_set_short_array_region,
+    SetIntArrayRegion: jni_set_int_array_region,
+    SetLongArrayRegion: jni_set_long_array_region,
+    SetFloatArrayRegion: jni_set_float_array_region,
+    SetDoubleArrayRegion: jni_set_double_array_region,
     RegisterNatives: stub_RegisterNatives,
     UnregisterNatives: stub_UnregisterNatives,
     MonitorEnter: stub_MonitorEnter,
@@ -700,8 +700,8 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     GetJavaVM: stub_GetJavaVM,
     GetStringRegion: stub_GetStringRegion,
     GetStringUTFRegion: stub_GetStringUTFRegion,
-    GetPrimitiveArrayCritical: stub_GetPrimitiveArrayCritical,
-    ReleasePrimitiveArrayCritical: stub_ReleasePrimitiveArrayCritical,
+    GetPrimitiveArrayCritical: jni_get_primitive_array_critical,
+    ReleasePrimitiveArrayCritical: jni_release_primitive_array_critical,
     GetStringCritical: stub_GetStringCritical,
     ReleaseStringCritical: stub_ReleaseStringCritical,
     NewWeakGlobalRef: stub_NewWeakGlobalRef,
@@ -2497,320 +2497,6 @@ extern "system" fn stub_ReleaseStringChars(
 ) {
     unimplemented_slot(166, "ReleaseStringChars")
 }
-extern "system" fn stub_GetArrayLength(_env: *mut JNIEnv_, _array: jobject) -> jsize {
-    unimplemented_slot(171, "GetArrayLength")
-}
-extern "system" fn stub_NewObjectArray(
-    _env: *mut JNIEnv_,
-    _len: jsize,
-    _clazz: jobject,
-    _init: jobject,
-) -> jobject {
-    unimplemented_slot(172, "NewObjectArray")
-}
-extern "system" fn stub_GetObjectArrayElement(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _index: jsize,
-) -> jobject {
-    unimplemented_slot(173, "GetObjectArrayElement")
-}
-extern "system" fn stub_SetObjectArrayElement(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _index: jsize,
-    _val: jobject,
-) {
-    unimplemented_slot(174, "SetObjectArrayElement")
-}
-extern "system" fn stub_NewBooleanArray(_env: *mut JNIEnv_, _len: jsize) -> jobject {
-    unimplemented_slot(175, "NewBooleanArray")
-}
-extern "system" fn stub_NewByteArray(_env: *mut JNIEnv_, _len: jsize) -> jobject {
-    unimplemented_slot(176, "NewByteArray")
-}
-extern "system" fn stub_NewCharArray(_env: *mut JNIEnv_, _len: jsize) -> jobject {
-    unimplemented_slot(177, "NewCharArray")
-}
-extern "system" fn stub_NewShortArray(_env: *mut JNIEnv_, _len: jsize) -> jobject {
-    unimplemented_slot(178, "NewShortArray")
-}
-extern "system" fn stub_NewIntArray(_env: *mut JNIEnv_, _len: jsize) -> jobject {
-    unimplemented_slot(179, "NewIntArray")
-}
-extern "system" fn stub_NewLongArray(_env: *mut JNIEnv_, _len: jsize) -> jobject {
-    unimplemented_slot(180, "NewLongArray")
-}
-extern "system" fn stub_NewFloatArray(_env: *mut JNIEnv_, _len: jsize) -> jobject {
-    unimplemented_slot(181, "NewFloatArray")
-}
-extern "system" fn stub_NewDoubleArray(_env: *mut JNIEnv_, _len: jsize) -> jobject {
-    unimplemented_slot(182, "NewDoubleArray")
-}
-extern "system" fn stub_GetBooleanArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut jboolean {
-    unimplemented_slot(183, "GetBooleanArrayElements")
-}
-extern "system" fn stub_GetByteArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut jbyte {
-    unimplemented_slot(184, "GetByteArrayElements")
-}
-extern "system" fn stub_GetCharArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut jchar {
-    unimplemented_slot(185, "GetCharArrayElements")
-}
-extern "system" fn stub_GetShortArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut jshort {
-    unimplemented_slot(186, "GetShortArrayElements")
-}
-extern "system" fn stub_GetIntArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut jint {
-    unimplemented_slot(187, "GetIntArrayElements")
-}
-extern "system" fn stub_GetLongArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut jlong {
-    unimplemented_slot(188, "GetLongArrayElements")
-}
-extern "system" fn stub_GetFloatArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut jfloat {
-    unimplemented_slot(189, "GetFloatArrayElements")
-}
-extern "system" fn stub_GetDoubleArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut jdouble {
-    unimplemented_slot(190, "GetDoubleArrayElements")
-}
-extern "system" fn stub_ReleaseBooleanArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _elems: *mut jboolean,
-    _mode: jint,
-) {
-    unimplemented_slot(191, "ReleaseBooleanArrayElements")
-}
-extern "system" fn stub_ReleaseByteArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _elems: *mut jbyte,
-    _mode: jint,
-) {
-    unimplemented_slot(192, "ReleaseByteArrayElements")
-}
-extern "system" fn stub_ReleaseCharArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _elems: *mut jchar,
-    _mode: jint,
-) {
-    unimplemented_slot(193, "ReleaseCharArrayElements")
-}
-extern "system" fn stub_ReleaseShortArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _elems: *mut jshort,
-    _mode: jint,
-) {
-    unimplemented_slot(194, "ReleaseShortArrayElements")
-}
-extern "system" fn stub_ReleaseIntArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _elems: *mut jint,
-    _mode: jint,
-) {
-    unimplemented_slot(195, "ReleaseIntArrayElements")
-}
-extern "system" fn stub_ReleaseLongArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _elems: *mut jlong,
-    _mode: jint,
-) {
-    unimplemented_slot(196, "ReleaseLongArrayElements")
-}
-extern "system" fn stub_ReleaseFloatArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _elems: *mut jfloat,
-    _mode: jint,
-) {
-    unimplemented_slot(197, "ReleaseFloatArrayElements")
-}
-extern "system" fn stub_ReleaseDoubleArrayElements(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _elems: *mut jdouble,
-    _mode: jint,
-) {
-    unimplemented_slot(198, "ReleaseDoubleArrayElements")
-}
-extern "system" fn stub_GetBooleanArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _l: jsize,
-    _buf: *mut jboolean,
-) {
-    unimplemented_slot(199, "GetBooleanArrayRegion")
-}
-extern "system" fn stub_GetByteArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *mut jbyte,
-) {
-    unimplemented_slot(200, "GetByteArrayRegion")
-}
-extern "system" fn stub_GetCharArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *mut jchar,
-) {
-    unimplemented_slot(201, "GetCharArrayRegion")
-}
-extern "system" fn stub_GetShortArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *mut jshort,
-) {
-    unimplemented_slot(202, "GetShortArrayRegion")
-}
-extern "system" fn stub_GetIntArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *mut jint,
-) {
-    unimplemented_slot(203, "GetIntArrayRegion")
-}
-extern "system" fn stub_GetLongArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *mut jlong,
-) {
-    unimplemented_slot(204, "GetLongArrayRegion")
-}
-extern "system" fn stub_GetFloatArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *mut jfloat,
-) {
-    unimplemented_slot(205, "GetFloatArrayRegion")
-}
-extern "system" fn stub_GetDoubleArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *mut jdouble,
-) {
-    unimplemented_slot(206, "GetDoubleArrayRegion")
-}
-extern "system" fn stub_SetBooleanArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _l: jsize,
-    _buf: *const jboolean,
-) {
-    unimplemented_slot(207, "SetBooleanArrayRegion")
-}
-extern "system" fn stub_SetByteArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *const jbyte,
-) {
-    unimplemented_slot(208, "SetByteArrayRegion")
-}
-extern "system" fn stub_SetCharArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *const jchar,
-) {
-    unimplemented_slot(209, "SetCharArrayRegion")
-}
-extern "system" fn stub_SetShortArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *const jshort,
-) {
-    unimplemented_slot(210, "SetShortArrayRegion")
-}
-extern "system" fn stub_SetIntArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *const jint,
-) {
-    unimplemented_slot(211, "SetIntArrayRegion")
-}
-extern "system" fn stub_SetLongArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *const jlong,
-) {
-    unimplemented_slot(212, "SetLongArrayRegion")
-}
-extern "system" fn stub_SetFloatArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *const jfloat,
-) {
-    unimplemented_slot(213, "SetFloatArrayRegion")
-}
-extern "system" fn stub_SetDoubleArrayRegion(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _start: jsize,
-    _len: jsize,
-    _buf: *const jdouble,
-) {
-    unimplemented_slot(214, "SetDoubleArrayRegion")
-}
 extern "system" fn stub_RegisterNatives(
     _env: *mut JNIEnv_,
     _clazz: jobject,
@@ -2848,21 +2534,6 @@ extern "system" fn stub_GetStringUTFRegion(
     _buf: *mut c_char,
 ) {
     unimplemented_slot(221, "GetStringUTFRegion")
-}
-extern "system" fn stub_GetPrimitiveArrayCritical(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _isCopy: *mut jboolean,
-) -> *mut c_void {
-    unimplemented_slot(222, "GetPrimitiveArrayCritical")
-}
-extern "system" fn stub_ReleasePrimitiveArrayCritical(
-    _env: *mut JNIEnv_,
-    _array: jobject,
-    _carray: *mut c_void,
-    _mode: jint,
-) {
-    unimplemented_slot(223, "ReleasePrimitiveArrayCritical")
 }
 extern "system" fn stub_GetStringCritical(
     _env: *mut JNIEnv_,
@@ -3096,6 +2767,923 @@ extern "system" fn jni_get_static_field_id(
         Some(id) => crate::jni::classes::field_id_to_ptr(id),
         None => std::ptr::null_mut(),
     }
+}
+
+/// `GetArrayLength` (slot 171): the array's length — T10 slice 3b.
+/// Null array → 0: the §5-conceded v1 law (the spec's NPE shape
+/// needs the exception machinery — T13-registered). A non-array
+/// handle panics loud at resolve — the T09 law.
+extern "system" fn jni_get_array_length(_env: JNIEnv, array: jobject) -> jsize {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return 0;
+    }
+    crate::jni::arrays::slot_get_array_length(tag)
+}
+
+/// `NewObjectArray` (slot 172): element class FROM the jclass
+/// argument (a foreign lib may hand any Class mirror, builtin
+/// included); `init`, when non-null, resolves ONCE and every slot
+/// stores a copy of that JRef — T10 slice 3b. Null class → JNI
+/// null (v1 NPE gap, T13-registered); negative length or an
+/// init/class mismatch aborts loudly (the §5 failure law).
+extern "system" fn jni_new_object_array(
+    _env: JNIEnv,
+    len: jsize,
+    clazz: jobject,
+    init: jobject,
+) -> jobject {
+    let class_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    if class_tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let init_tag = crate::jni::bridge::jobject_to_tag(init);
+    let tag = crate::jni::arrays::slot_new_object_array(len, class_tag, init_tag);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `GetObjectArrayElement` (slot 173): a rooted local ref for a
+/// live element, JNI null for a null element — T10 slice 3b. Null
+/// array → JNI null (v1 NPE gap); out-of-bounds aborts loudly
+/// (ArrayIndexOutOfBoundsException, the §5 law).
+extern "system" fn jni_get_object_array_element(
+    _env: JNIEnv,
+    array: jobject,
+    idx: jsize,
+) -> jobject {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    match crate::jni::arrays::slot_get_object_array_element(tag, idx) {
+        Some(elem) => crate::jni::bridge::tag_to_jobject(elem),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// `SetObjectArrayElement` (slot 174): the store rides array_store,
+/// whose ArrayStoreException check runs with the host dispatch —
+/// T10 slice 3b. Null array → no-op (v1 NPE gap); a null elem tag
+/// stores a null element (legal); out-of-bounds or a store
+/// violation aborts loudly (the §5 law).
+extern "system" fn jni_set_object_array_element(
+    _env: JNIEnv,
+    array: jobject,
+    idx: jsize,
+    value: jobject,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    let elem_tag = crate::jni::bridge::jobject_to_tag(value);
+    crate::jni::arrays::slot_set_object_array_element(tag, idx, elem_tag);
+}
+
+/// `NewBooleanArray` (slot 175): the slot IS one primitive — no descriptor
+/// Element width: 0/1 — the Int-group law narrows at the payload.
+/// parsing (design §5) — T10 slice 3b. Negative length aborts
+/// loudly (NegativeArraySizeException, the v1 failure law).
+extern "system" fn jni_new_boolean_array(_env: JNIEnv, len: jsize) -> jobject {
+    let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::Z, len);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `NewByteArray` (slot 176): the slot IS one primitive — no descriptor
+/// Element width: i8 — the Int-group law narrows at the payload.
+/// parsing (design §5) — T10 slice 3b. Negative length aborts
+/// loudly (NegativeArraySizeException, the v1 failure law).
+extern "system" fn jni_new_byte_array(_env: JNIEnv, len: jsize) -> jobject {
+    let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::B, len);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `NewCharArray` (slot 177): the slot IS one primitive — no descriptor
+/// Element width: u16 — the Int-group law narrows at the payload.
+/// parsing (design §5) — T10 slice 3b. Negative length aborts
+/// loudly (NegativeArraySizeException, the v1 failure law).
+extern "system" fn jni_new_char_array(_env: JNIEnv, len: jsize) -> jobject {
+    let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::C, len);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `NewShortArray` (slot 178): the slot IS one primitive — no descriptor
+/// Element width: i16 — the Int-group law narrows at the payload.
+/// parsing (design §5) — T10 slice 3b. Negative length aborts
+/// loudly (NegativeArraySizeException, the v1 failure law).
+extern "system" fn jni_new_short_array(_env: JNIEnv, len: jsize) -> jobject {
+    let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::S, len);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `NewIntArray` (slot 179): the slot IS one primitive — no descriptor
+/// parsing (design §5) — T10 slice 3b. Negative length aborts
+/// loudly (NegativeArraySizeException, the v1 failure law).
+extern "system" fn jni_new_int_array(_env: JNIEnv, len: jsize) -> jobject {
+    let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::I, len);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `NewLongArray` (slot 180): the slot IS one primitive — no descriptor
+/// parsing (design §5) — T10 slice 3b. Negative length aborts
+/// loudly (NegativeArraySizeException, the v1 failure law).
+extern "system" fn jni_new_long_array(_env: JNIEnv, len: jsize) -> jobject {
+    let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::J, len);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `NewFloatArray` (slot 181): the slot IS one primitive — no descriptor
+/// parsing (design §5) — T10 slice 3b. Negative length aborts
+/// loudly (NegativeArraySizeException, the v1 failure law).
+extern "system" fn jni_new_float_array(_env: JNIEnv, len: jsize) -> jobject {
+    let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::F, len);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `NewDoubleArray` (slot 182): the slot IS one primitive — no descriptor
+/// parsing (design §5) — T10 slice 3b. Negative length aborts
+/// loudly (NegativeArraySizeException, the v1 failure law).
+extern "system" fn jni_new_double_array(_env: JNIEnv, len: jsize) -> jobject {
+    let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::D, len);
+    crate::jni::bridge::tag_to_jobject(tag)
+}
+
+/// `GetBooleanArrayElements` (slot 183): hands out a caller-owned registry-pinned COPY
+/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE
+/// through the audited write_u8_out primitive. Null array → NULL
+/// (isCopy untouched, v1 NPE gap).
+extern "system" fn jni_get_boolean_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut jboolean {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr =
+        crate::jni::arrays::slot_get_prim_array_elements(crate::jni::arrays::PrimKind::Z, tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy
+    }
+    addr as *mut jboolean
+}
+
+/// `GetByteArrayElements` (slot 184): hands out a caller-owned registry-pinned COPY
+/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE
+/// through the audited write_u8_out primitive. Null array → NULL
+/// (isCopy untouched, v1 NPE gap).
+extern "system" fn jni_get_byte_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut jbyte {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr =
+        crate::jni::arrays::slot_get_prim_array_elements(crate::jni::arrays::PrimKind::B, tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy
+    }
+    addr as *mut jbyte
+}
+
+/// `GetCharArrayElements` (slot 185): hands out a caller-owned registry-pinned COPY
+/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE
+/// through the audited write_u8_out primitive. Null array → NULL
+/// (isCopy untouched, v1 NPE gap).
+extern "system" fn jni_get_char_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut jchar {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr =
+        crate::jni::arrays::slot_get_prim_array_elements(crate::jni::arrays::PrimKind::C, tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy
+    }
+    addr as *mut jchar
+}
+
+/// `GetShortArrayElements` (slot 186): hands out a caller-owned registry-pinned COPY
+/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE
+/// through the audited write_u8_out primitive. Null array → NULL
+/// (isCopy untouched, v1 NPE gap).
+extern "system" fn jni_get_short_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut jshort {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr =
+        crate::jni::arrays::slot_get_prim_array_elements(crate::jni::arrays::PrimKind::S, tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy
+    }
+    addr as *mut jshort
+}
+
+/// `GetIntArrayElements` (slot 187): hands out a caller-owned registry-pinned COPY
+/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE
+/// through the audited write_u8_out primitive. Null array → NULL
+/// (isCopy untouched, v1 NPE gap).
+extern "system" fn jni_get_int_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut jint {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr =
+        crate::jni::arrays::slot_get_prim_array_elements(crate::jni::arrays::PrimKind::I, tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy
+    }
+    addr as *mut jint
+}
+
+/// `GetLongArrayElements` (slot 188): hands out a caller-owned registry-pinned COPY
+/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE
+/// through the audited write_u8_out primitive. Null array → NULL
+/// (isCopy untouched, v1 NPE gap).
+extern "system" fn jni_get_long_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut jlong {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr =
+        crate::jni::arrays::slot_get_prim_array_elements(crate::jni::arrays::PrimKind::J, tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy
+    }
+    addr as *mut jlong
+}
+
+/// `GetFloatArrayElements` (slot 189): hands out a caller-owned registry-pinned COPY
+/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE
+/// through the audited write_u8_out primitive. Null array → NULL
+/// (isCopy untouched, v1 NPE gap).
+extern "system" fn jni_get_float_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut jfloat {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr =
+        crate::jni::arrays::slot_get_prim_array_elements(crate::jni::arrays::PrimKind::F, tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy
+    }
+    addr as *mut jfloat
+}
+
+/// `GetDoubleArrayElements` (slot 190): hands out a caller-owned registry-pinned COPY
+/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE
+/// through the audited write_u8_out primitive. Null array → NULL
+/// (isCopy untouched, v1 NPE gap).
+extern "system" fn jni_get_double_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut jdouble {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr =
+        crate::jni::arrays::slot_get_prim_array_elements(crate::jni::arrays::PrimKind::D, tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy
+    }
+    addr as *mut jdouble
+}
+
+/// `ReleaseBooleanArrayElements` (slot 191): the mode law — JNI_COMMIT (1) copies
+/// back without freeing; 0 copies back and frees; JNI_ABORT (2)
+/// frees without copying back — T10 slice 3b. A foreign pointer,
+/// a wrong-family release, or an array mismatch aborts loudly.
+/// Null array → no-op (v1 NPE gap).
+extern "system" fn jni_release_boolean_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    elems: *mut jboolean,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_prim_array_elements(
+        crate::jni::arrays::PrimKind::Z,
+        tag,
+        elems as usize,
+        mode,
+    );
+}
+
+/// `ReleaseByteArrayElements` (slot 192): the mode law — JNI_COMMIT (1) copies
+/// back without freeing; 0 copies back and frees; JNI_ABORT (2)
+/// frees without copying back — T10 slice 3b. A foreign pointer,
+/// a wrong-family release, or an array mismatch aborts loudly.
+/// Null array → no-op (v1 NPE gap).
+extern "system" fn jni_release_byte_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    elems: *mut jbyte,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_prim_array_elements(
+        crate::jni::arrays::PrimKind::B,
+        tag,
+        elems as usize,
+        mode,
+    );
+}
+
+/// `ReleaseCharArrayElements` (slot 193): the mode law — JNI_COMMIT (1) copies
+/// back without freeing; 0 copies back and frees; JNI_ABORT (2)
+/// frees without copying back — T10 slice 3b. A foreign pointer,
+/// a wrong-family release, or an array mismatch aborts loudly.
+/// Null array → no-op (v1 NPE gap).
+extern "system" fn jni_release_char_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    elems: *mut jchar,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_prim_array_elements(
+        crate::jni::arrays::PrimKind::C,
+        tag,
+        elems as usize,
+        mode,
+    );
+}
+
+/// `ReleaseShortArrayElements` (slot 194): the mode law — JNI_COMMIT (1) copies
+/// back without freeing; 0 copies back and frees; JNI_ABORT (2)
+/// frees without copying back — T10 slice 3b. A foreign pointer,
+/// a wrong-family release, or an array mismatch aborts loudly.
+/// Null array → no-op (v1 NPE gap).
+extern "system" fn jni_release_short_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    elems: *mut jshort,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_prim_array_elements(
+        crate::jni::arrays::PrimKind::S,
+        tag,
+        elems as usize,
+        mode,
+    );
+}
+
+/// `ReleaseIntArrayElements` (slot 195): the mode law — JNI_COMMIT (1) copies
+/// back without freeing; 0 copies back and frees; JNI_ABORT (2)
+/// frees without copying back — T10 slice 3b. A foreign pointer,
+/// a wrong-family release, or an array mismatch aborts loudly.
+/// Null array → no-op (v1 NPE gap).
+extern "system" fn jni_release_int_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    elems: *mut jint,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_prim_array_elements(
+        crate::jni::arrays::PrimKind::I,
+        tag,
+        elems as usize,
+        mode,
+    );
+}
+
+/// `ReleaseLongArrayElements` (slot 196): the mode law — JNI_COMMIT (1) copies
+/// back without freeing; 0 copies back and frees; JNI_ABORT (2)
+/// frees without copying back — T10 slice 3b. A foreign pointer,
+/// a wrong-family release, or an array mismatch aborts loudly.
+/// Null array → no-op (v1 NPE gap).
+extern "system" fn jni_release_long_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    elems: *mut jlong,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_prim_array_elements(
+        crate::jni::arrays::PrimKind::J,
+        tag,
+        elems as usize,
+        mode,
+    );
+}
+
+/// `ReleaseFloatArrayElements` (slot 197): the mode law — JNI_COMMIT (1) copies
+/// back without freeing; 0 copies back and frees; JNI_ABORT (2)
+/// frees without copying back — T10 slice 3b. A foreign pointer,
+/// a wrong-family release, or an array mismatch aborts loudly.
+/// Null array → no-op (v1 NPE gap).
+extern "system" fn jni_release_float_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    elems: *mut jfloat,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_prim_array_elements(
+        crate::jni::arrays::PrimKind::F,
+        tag,
+        elems as usize,
+        mode,
+    );
+}
+
+/// `ReleaseDoubleArrayElements` (slot 198): the mode law — JNI_COMMIT (1) copies
+/// back without freeing; 0 copies back and frees; JNI_ABORT (2)
+/// frees without copying back — T10 slice 3b. A foreign pointer,
+/// a wrong-family release, or an array mismatch aborts loudly.
+/// Null array → no-op (v1 NPE gap).
+extern "system" fn jni_release_double_array_elements(
+    _env: JNIEnv,
+    array: jobject,
+    elems: *mut jdouble,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_prim_array_elements(
+        crate::jni::arrays::PrimKind::D,
+        tag,
+        elems as usize,
+        mode,
+    );
+}
+
+/// `GetBooleanArrayRegion` (slot 199): bulk copy into the caller's buffer,
+/// bounds checked UP FRONT — a violation aborts loudly with the
+/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice
+/// 3b. Null array → no-op (v1 NPE gap).
+extern "system" fn jni_get_boolean_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *mut jboolean,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_get_prim_array_region(
+        crate::jni::arrays::PrimKind::Z,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `GetByteArrayRegion` (slot 200): bulk copy into the caller's buffer,
+/// bounds checked UP FRONT — a violation aborts loudly with the
+/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice
+/// 3b. Null array → no-op (v1 NPE gap).
+extern "system" fn jni_get_byte_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *mut jbyte,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_get_prim_array_region(
+        crate::jni::arrays::PrimKind::B,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `GetCharArrayRegion` (slot 201): bulk copy into the caller's buffer,
+/// bounds checked UP FRONT — a violation aborts loudly with the
+/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice
+/// 3b. Null array → no-op (v1 NPE gap).
+extern "system" fn jni_get_char_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *mut jchar,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_get_prim_array_region(
+        crate::jni::arrays::PrimKind::C,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `GetShortArrayRegion` (slot 202): bulk copy into the caller's buffer,
+/// bounds checked UP FRONT — a violation aborts loudly with the
+/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice
+/// 3b. Null array → no-op (v1 NPE gap).
+extern "system" fn jni_get_short_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *mut jshort,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_get_prim_array_region(
+        crate::jni::arrays::PrimKind::S,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `GetIntArrayRegion` (slot 203): bulk copy into the caller's buffer,
+/// bounds checked UP FRONT — a violation aborts loudly with the
+/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice
+/// 3b. Null array → no-op (v1 NPE gap).
+extern "system" fn jni_get_int_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *mut jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_get_prim_array_region(
+        crate::jni::arrays::PrimKind::I,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `GetLongArrayRegion` (slot 204): bulk copy into the caller's buffer,
+/// bounds checked UP FRONT — a violation aborts loudly with the
+/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice
+/// 3b. Null array → no-op (v1 NPE gap).
+extern "system" fn jni_get_long_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *mut jlong,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_get_prim_array_region(
+        crate::jni::arrays::PrimKind::J,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `GetFloatArrayRegion` (slot 205): bulk copy into the caller's buffer,
+/// bounds checked UP FRONT — a violation aborts loudly with the
+/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice
+/// 3b. Null array → no-op (v1 NPE gap).
+extern "system" fn jni_get_float_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *mut jfloat,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_get_prim_array_region(
+        crate::jni::arrays::PrimKind::F,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `GetDoubleArrayRegion` (slot 206): bulk copy into the caller's buffer,
+/// bounds checked UP FRONT — a violation aborts loudly with the
+/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice
+/// 3b. Null array → no-op (v1 NPE gap).
+extern "system" fn jni_get_double_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *mut jdouble,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_get_prim_array_region(
+        crate::jni::arrays::PrimKind::D,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `SetBooleanArrayRegion` (slot 207): bulk copy from the caller's buffer,
+/// bounds checked UP FRONT; narrowing follows the ARRAY
+/// descriptor (design §5) — T10 slice 3b. Null array → no-op
+/// (v1 NPE gap).
+extern "system" fn jni_set_boolean_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *const jboolean,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_set_prim_array_region(
+        crate::jni::arrays::PrimKind::Z,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `SetByteArrayRegion` (slot 208): bulk copy from the caller's buffer,
+/// bounds checked UP FRONT; narrowing follows the ARRAY
+/// descriptor (design §5) — T10 slice 3b. Null array → no-op
+/// (v1 NPE gap).
+extern "system" fn jni_set_byte_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *const jbyte,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_set_prim_array_region(
+        crate::jni::arrays::PrimKind::B,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `SetCharArrayRegion` (slot 209): bulk copy from the caller's buffer,
+/// bounds checked UP FRONT; narrowing follows the ARRAY
+/// descriptor (design §5) — T10 slice 3b. Null array → no-op
+/// (v1 NPE gap).
+extern "system" fn jni_set_char_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *const jchar,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_set_prim_array_region(
+        crate::jni::arrays::PrimKind::C,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `SetShortArrayRegion` (slot 210): bulk copy from the caller's buffer,
+/// bounds checked UP FRONT; narrowing follows the ARRAY
+/// descriptor (design §5) — T10 slice 3b. Null array → no-op
+/// (v1 NPE gap).
+extern "system" fn jni_set_short_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *const jshort,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_set_prim_array_region(
+        crate::jni::arrays::PrimKind::S,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `SetIntArrayRegion` (slot 211): bulk copy from the caller's buffer,
+/// bounds checked UP FRONT; narrowing follows the ARRAY
+/// descriptor (design §5) — T10 slice 3b. Null array → no-op
+/// (v1 NPE gap).
+extern "system" fn jni_set_int_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *const jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_set_prim_array_region(
+        crate::jni::arrays::PrimKind::I,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `SetLongArrayRegion` (slot 212): bulk copy from the caller's buffer,
+/// bounds checked UP FRONT; narrowing follows the ARRAY
+/// descriptor (design §5) — T10 slice 3b. Null array → no-op
+/// (v1 NPE gap).
+extern "system" fn jni_set_long_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *const jlong,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_set_prim_array_region(
+        crate::jni::arrays::PrimKind::J,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `SetFloatArrayRegion` (slot 213): bulk copy from the caller's buffer,
+/// bounds checked UP FRONT; narrowing follows the ARRAY
+/// descriptor (design §5) — T10 slice 3b. Null array → no-op
+/// (v1 NPE gap).
+extern "system" fn jni_set_float_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *const jfloat,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_set_prim_array_region(
+        crate::jni::arrays::PrimKind::F,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `SetDoubleArrayRegion` (slot 214): bulk copy from the caller's buffer,
+/// bounds checked UP FRONT; narrowing follows the ARRAY
+/// descriptor (design §5) — T10 slice 3b. Null array → no-op
+/// (v1 NPE gap).
+extern "system" fn jni_set_double_array_region(
+    _env: JNIEnv,
+    array: jobject,
+    start: jsize,
+    len: jsize,
+    buf: *const jdouble,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_set_prim_array_region(
+        crate::jni::arrays::PrimKind::D,
+        tag,
+        start,
+        len,
+        buf.cast::<u8>(),
+    );
+}
+
+/// `GetPrimitiveArrayCritical` (slot 222): hands out the payload's
+/// OWN address through the existing critical registry — pinning
+/// is free because the arena never moves and payloads never
+/// reallocate (the M2 advantage) — T10 slice 3b. isCopy, when
+/// asked, is JNI_FALSE (the real storage, the faithful uncopied
+/// shape). Null array → NULL; a non-primitive array is loud.
+extern "system" fn jni_get_primitive_array_critical(
+    _env: JNIEnv,
+    array: jobject,
+    is_copy: *mut jboolean,
+) -> *mut c_void {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return std::ptr::null_mut();
+    }
+    let addr = crate::jni::arrays::slot_get_primitive_array_critical(tag);
+    if !is_copy.is_null() {
+        j2r_jni_ffi::ffi::write_u8_out(is_copy, 0); // JNI_FALSE — real storage
+    }
+    addr as *mut c_void
+}
+
+/// `ReleasePrimitiveArrayCritical` (slot 223): the existing
+/// critical registry's loud release — T10 slice 3b. The handed
+/// address IS the live payload, so the caller's writes are
+/// already in the array: there is nothing to copy back and
+/// JNI_ABORT cannot retroactively un-write — the mode is accepted
+/// and recorded as a no-op (documented v1 deviation,
+/// T13-registered). A miss aborts loudly (never silent).
+extern "system" fn jni_release_primitive_array_critical(
+    _env: JNIEnv,
+    array: jobject,
+    ptr: *mut c_void,
+    mode: jint,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(array);
+    if tag == 0 {
+        return;
+    }
+    crate::jni::arrays::slot_release_primitive_array_critical(ptr as usize, mode);
 }
 
 /// `GetObjectField` (slot 95): instance access through the

@@ -61,10 +61,11 @@
 //!   `typedef struct _jfieldID *jfieldID;` by the generator). The
 //!   handle-bridge gives them their meaning: a `jfieldID` is a marked
 //!   tag into `jni::classes`'s field-ID registry.
-//! * `GetPrimitiveArrayCritical` (slot 213) pins trivially because the
-//!   M2 arena never moves objects — a documented design advantage, restated
-//!   in the T09 note.
+//! * `GetPrimitiveArrayCritical` (slot 222, released at 223) pins
+//!   trivially because the M2 arena never moves objects — a documented
+//!   design advantage, restated in the T09 note.
 
+pub mod arrays;
 pub mod bridge;
 pub mod classes;
 pub mod strings;
@@ -300,5 +301,60 @@ mod tests {
         assert_eq!(std::mem::size_of::<JavaVM>(), std::mem::size_of::<usize>());
         let _env = jni_env();
         let _vm = java_vm();
+    }
+
+    #[test]
+    fn release_prim_array_elements_registry_miss_aborts_loudly() {
+        // T10 slice 3b: the array-elements registry obeys the same law as
+        // the string registry (slice 2) — a release for a pointer
+        // Get*ArrayElements never handed out is a LOUD registry miss
+        // (docs/M5_JNI_CLASSES.md §5). The panic starts inside
+        // j2r-runtime::jni::arrays and must cross the extern "system"
+        // boundary of the generated wrapper, where unwinding is
+        // impossible: the process aborts. Pinned the soe_e2e way: a
+        // child process, with a REAL array handle so the miss is the
+        // registry's, not the stale-handle path.
+        if std::env::var("J2R_JNI_ARRAY_RELEASE_ABORT_CHILD").is_ok() {
+            let _rt = crate::test_support::runtime();
+            let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::I, 4);
+            let obj = crate::jni::bridge::tag_to_jobject(tag);
+            let release: extern "system" fn(JNIEnv, tables::jobject, *mut i32, i32) =
+                ENV_TABLE.ReleaseIntArrayElements;
+            release(
+                jni_env(),
+                obj,
+                0xDEAD_BEEF as *mut i32, // a pointer we never handed out
+                0,
+            );
+            return; // unreachable: the call above aborts
+        }
+        let exe = std::env::current_exe().expect("current_exe");
+        let out = std::process::Command::new(exe)
+            .args([
+                "jni::tests::release_prim_array_elements_registry_miss_aborts_loudly",
+                "--exact",
+                "--nocapture",
+            ])
+            .env("J2R_JNI_ARRAY_RELEASE_ABORT_CHILD", "1")
+            .output()
+            .expect("spawn child test process");
+        assert!(
+            !out.status.success(),
+            "foreign array-elements release must abort, got {out:?}"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            assert_eq!(
+                out.status.signal(),
+                Some(6), // SIGABRT
+                "abort is the loud failure shape, got {out:?}"
+            );
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("ReleaseIntArrayElements"),
+            "the abort message must name the slot, got: {stderr}"
+        );
     }
 }
