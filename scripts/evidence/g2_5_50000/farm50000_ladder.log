@@ -1,0 +1,34 @@
+[2026-11-10T23:17:02Z] N=50000 ================ G2.5 LADDER RUNG INIT N=50000 k=250 (standing dev profile, CI=0)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  2.8G  6.6G  30% /
+[2026-11-10T23:17:02Z] N=50000 == [G] farm gen + javac + jar (fresh)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  2.8G  6.6G  30% /
+farm: 50000 classes + Base + Op + Main, 3000370 total LOC -> /home/z/my-project/work/m5invest/farm50000/farm_src
+[2026-11-10T23:18:27Z] N=50000 javac WALL_S PEAK_RSS_KB = 74.19 1201436
+[2026-11-10T23:18:32Z] N=50000 stageG OK: jar 61M, src 395M
+[2026-11-10T23:18:32Z] N=50000 == [P] JVM parity capture + farm_src release
+[2026-11-10T23:18:32Z] N=50000 JVM captured: exit=0 out=83B err=0B
+[2026-11-10T23:18:33Z] N=50000 farm_src + jar deleted after capture (parity diffs against the captured channels)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  2.8G  6.6G  30% /
+[2026-11-10T23:18:33Z] N=50000 == [E] COLD emit (fresh out50000, standing dev protocol)
+[2026-11-10T23:18:33Z] N=50000 disk guard OK (6873188 kB free; min 1200000 kB)
+[2026-11-10T23:18:33Z] N=50000 EMIT FAILED
+j2r: error: error in class -: classpath entry /home/z/my-project/work/m5invest/farm50000/farm50000.jar is not readable: No such file or directory (os error 2)
+[2026-11-10T23:18:36Z] N=50000 == [E] COLD emit (fresh out50000, standing dev protocol)
+[2026-11-10T23:18:36Z] N=50000 disk guard OK (6873180 kB free; min 1200000 kB)
+[2026-11-10T23:18:36Z] N=50000 EMIT FAILED
+j2r: error: error in class -: classpath entry /home/z/my-project/work/m5invest/farm50000/farm50000.jar is not readable: No such file or directory (os error 2)
+[2026-11-10T23:18:46Z] N=50000 == [G] farm gen + javac + jar (fresh)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  2.8G  6.6G  30% /
+farm: 50000 classes + Base + Op + Main, 3000370 total LOC -> /home/z/my-project/work/m5invest/farm50000/farm_src
+[2026-11-10T23:20:16Z] N=50000 javac WALL_S PEAK_RSS_KB = 78.85 1198356
+[2026-11-10T23:20:21Z] N=50000 stageG OK: jar 61M, src 395M
+[2026-11-10T23:20:21Z] N=50000 == [E] COLD emit (fresh out50000, standing dev protocol)
+[2026-11-10T23:20:21Z] N=50000 disk guard OK (6407048 kB free; min 1200000 kB)
+[2026-11-10T23:20:57Z] N=50000 cold emit WALL_S PEAK_RSS_KB = 36.35 2233436
+[2026-11-10T23:20:57Z] N=50000 out50000 sources: 2.1G
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.3G  4.1G  57% /
+[2026-11-10T23:20:57Z] N=50000 == [P] JVM parity capture + farm_src release
+[2026-11-10T23:20:58Z] N=50000 JVM captured: exit=0 out=83B err=0B
+[2026-11-10T23:20:59Z] N=50000 farm_src + jar deleted after capture (parity diffs against the captured channels)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  4.9G  4.5G  52% /
+[2026-11-10T23:20:59Z] N=50000 == [T] EMIT-ONLY teardown + evidence

@@ -1,0 +1,23 @@
+[2026-11-10T23:21:06Z] N=70000 ================ G2.5 LADDER RUNG INIT N=70000 k=250 (standing dev profile, CI=0)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  2.8G  6.6G  30% /
+[2026-11-10T23:21:06Z] N=70000 == [G] farm gen + javac + jar (fresh)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  2.8G  6.6G  30% /
+farm: 70000 classes + Base + Op + Main, 4200370 total LOC -> /home/z/my-project/work/m5invest/farm70000/farm_src
+[2026-11-10T23:22:10Z] N=70000 JAVAC FAILED
+	at jdk.compiler/com.sun.tools.javac.main.Main.compile(Main.java:178)
+	at jdk.compiler/com.sun.tools.javac.Main.compile(Main.java:64)
+	at jdk.compiler/com.sun.tools.javac.Main.main(Main.java:50)
+[2026-11-10T23:24:07Z] N=70000 == [E] COLD emit (fresh out70000, standing dev protocol)
+[2026-11-10T23:24:07Z] N=70000 disk guard OK (6502460 kB free; min 1200000 kB)
+[2026-11-10T23:24:07Z] N=70000 EMIT FAILED
+j2r: error: error in class -: classpath archive /home/z/my-project/work/m5invest/farm70000/farm70000.jar failed to parse: zip error: zip64 archives are not supported (entry counts/offsets hit the classic limit)
+[2026-11-10T23:27:34Z] N=70000 == [E] COLD emit (fresh out70000, standing dev protocol)
+[2026-11-10T23:27:34Z] N=70000 disk guard OK (6447048 kB free; min 1200000 kB)
+[2026-11-10T23:28:27Z] N=70000 cold emit WALL_S PEAK_RSS_KB = 53.14 3159744
+[2026-11-10T23:28:28Z] N=70000 out70000 sources: 3.0G
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  6.1G  3.3G  66% /
+[2026-11-10T23:28:34Z] N=70000 == [P] JVM parity capture + farm_src release
+[2026-11-10T23:28:34Z] N=70000 JVM captured: exit=0 out=83B err=0B
+[2026-11-10T23:28:35Z] N=70000 farm_src + jar deleted after capture (parity diffs against the captured channels)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.8G  3.6G  62% /
+[2026-11-10T23:28:35Z] N=70000 == [T] EMIT-ONLY teardown + evidence

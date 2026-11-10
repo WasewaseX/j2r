@@ -1,0 +1,9 @@
+EMIT-ONLY RUNG: cargo/link NOT attempted (the 35k link wall is measured;
+this rung records the emit-stage scaling only). NOTES: (1) javac OOMs at
+70k on the default heap — javac3g.time is the re-run with -J-Xmx3g
+(74.32 s, 2.95 GB peak; javac.time is the FAILED default-heap attempt);
+(2) the 70,003-entry jar is a ZIP64 archive — the emit that produced
+out70000 ran AFTER the G2.5 ZIP64 jar-reader fix landed (zip.rs: locator
++ ZIP64 EOCD + per-entry 0x0001 extras; 3 new unit tests incl. a real
+65,537-entry in-memory archive); emit = 53.14 s, peak RSS 3.16 GB,
+sources 3.0 GB — INSIDE the 4 GB budget at the Minecraft scale.

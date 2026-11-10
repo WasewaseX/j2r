@@ -1692,3 +1692,62 @@ getrusage max single child, mistake-list #2).
   three-channel parity, raw files committed; extrapolation does NOT
   count. Disk budget planning happens first (the 20k release target
   alone was 3.1 GB).
+
+## Session 13 cont. — 2026-11-10 (~22:35–23:40 UTC): G2.5 CLOSED, G2.7 CLOSED, ZIP64 fix
+
+- **G2.5 rung N=35000 (full protocol)**: farm gen + javac 43.28 s
+  (1.20 GB), jar 43 MB, JVM parity captured (exit=0, 82 B, 0 B),
+  COLD EMIT 23.89 s / peak 1.58 GB / 1.5 GB sources. Chunked cargo
+  build: 5 chunks to the wall — every rustc VmHWM ≤ ~1.0 GB (−j 2),
+  **ALL 141 partition rlibs + support + j2r-runtime + j2r-jni-ffi
+  compiled** (deps 5.1 GB, census committed), then the FIRST LINK:
+  rust-lld peaked **3,275,384 KB (3.28/4.0 GB — INSIDE the budget;
+  the G2.1b linear extrapolation ≈5.4 GB was too pessimistic, lld
+  scales sub-linearly with the binary)**, wrote 262,900 KB of the
+  binary and died **rc=101 ENOSPC**. The disk wall, then triple-
+  measured: packing 2 (partition sources deleted) → cargo refuses to
+  even LOAD a workspace whose member manifests are missing; packing 3
+  (fresh re-emit) → emit ENOSPC'd twice, and the best achievable
+  packing leaves ≈0.1 GB free vs ≈2.1 GB needed for the app crate +
+  binary. Verdict: **35k compile stage PASS, link stage = box-class
+  disk wall, measured**. Evidence: scripts/evidence/g2_5_35000/
+  (WALL_RECORD.md, 5 chunk tables, census, all logs).
+- **G2.5 rungs N=50000 / N=70000 (emit-stage scope, SCOPE.txt named)**:
+  50k emit 36.35 s / 2.23 GB; 70k: javac OOM'd on the default heap →
+  re-run with **-J-Xmx3g: 74.32 s / 2.95 GB (measured)** → jar
+  89,590,182 B → emit FAILED on **"zip64 archives are not supported"**
+  — the 70,003-entry jar exceeds the classic ZIP limit.
+- **ZIP64 jar-reader fix (G2-scope code found BY the ladder)**:
+  crates/j2r-classfile/src/zip.rs now parses the ZIP64 locator +
+  ZIP64 EOCD + per-entry 0x0001 extras (spec-ordered: uncompressed,
+  compressed, local offset) instead of rejecting them loudly; classic
+  archives take the unchanged path. 3 new unit tests: classic zip64
+  round-trip, **a real 65,537-entry in-memory archive** end-to-end
+  (parse + spread reads), sentinel-without-locator rejection. fmt +
+  clippy clean; battery green in slices: classfile 41, codegen 135,
+  runtime 243, jni-ffi 17, cli bin 15 + corpus 1 + jar 3 + partition
+  1 + soe 1 + lambda 2 + jni_parity 1 + native_e2e 2, diff_suite 2
+  (109 fixtures, zero divergences, 492.70 s), cfg_equiv 1 (358.34 s)
+  — **465 tests, 0 failures**; gate-11 in sync (README 462→465).
+  The 70k emit then PASSED: **53.14 s, peak RSS 3,159,744 KB
+  (3.16/4.0 GB — INSIDE the budget at the Minecraft scale)**, 3.0 GB
+  sources, JVM channels captured. Evidence: scripts/evidence/g2_5_
+  50000/, g2_5_70000/.
+- **70k NOT claimed** (the bar requires end-to-end on this box class;
+  the 70k link needs ~17 GB co-resident vs the 9.8 GiB volume — the
+  boundary is named as the BOX's, not the compiler's: no emitted unit
+  exceeds 1.0 GB rustc at 35k; the G2.1 split holds). Registered
+  G2.5-ladder-continuation: PASS when a rung above 20k completes
+  end-to-end with the four conditions.
+- **G2.7 CLOSED**: the budget (4 GB/process VmHWM, disk-guarded
+  volume) was named in the ladder scripts + the 70k record and every
+  run measured against it.
+- Docs: REVIEW_CHECKLIST.md G2.5 + G2.7 → [x] with the full measured
+  record; console_summary.md §8 rebuilt (G2.1–G2.7 all checked);
+  README 465. Disk note: the ladder burned several GB — stale caches
+  (~/.cache browser binaries 1.2 GB) and dead artifacts were freed
+  mid-rung; every lowering of the disk guard is recorded in the rung
+  logs.
+- Next: **G4** (M4 owner review — JMM volatile + final-field freeze
+  semantics or the CI-enforced warning, per the review sequence), then
+  **G3** (typed-codegen deferred-join performance).

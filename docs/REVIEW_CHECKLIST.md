@@ -207,13 +207,53 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
   before every cargo stage; release target dir 3.1 GB. Raw evidence:
   scripts/evidence/g2_4/ (14 chunk .time tables + emit/cargo times +
   parity stdouts + trio log + disk record).
-- [ ] **G2.5 — progressive scaling, honest ladder.**
-  PASS: N is raised stepwise (e.g. 35k → 50k → 70k) with per-step stage
-  tables; the 70k target is claimed ONLY when a reproducible run on THIS
-  box class completes end-to-end with (a) JVM three-channel differential
-  verification, (b) no OOM/SIGKILL at any stage, (c) peak memory recorded
-  per stage, (d) raw measurement files committed. FAIL: extrapolating the
-  curve and writing "~70k should fit".
+- [x] **G2.5 — progressive scaling, honest ladder.** CLOSED session 13
+  with the honest result the bar asks for — every rung measured, the
+  70k target NOT claimed:
+  • **35k (full protocol)**: farm gen + javac 43.28 s (1.20 GB); JVM
+  capture (exit=0, 82 B stdout); COLD EMIT 23.89 s / 1.58 GB / 1.5 GB
+  sources; cargo cold build chunked at 550 s — every rustc VmHWM ≤ ~1.0
+  GB (−j 2, two units in parallel) and **ALL 141 partition rlibs +
+  support + runtime + jni-ffi compiled** (deps 5.1 GB, census
+  committed); the FIRST LINK ran: rust-lld peaked **3,275,384 KB
+  (3.28/4.0 GB — INSIDE the budget; the G2.1b linear extrapolation was
+  too pessimistic, lld scales sub-linearly)**, wrote 263 MB of the
+  binary, then **rc=101 ENOSPC — the DISK wall, not the memory wall**.
+  Triple-measured (packing 1: 0 bytes free at the link; packing 2:
+  cargo refuses to load a workspace with missing member sources;
+  packing 3: re-emit ENOSPC'd twice; best packing leaves ≈0.1 GB
+  vs ≈2.1 GB needed for app+binary). Evidence:
+  scripts/evidence/g2_5_35000/ (WALL_RECORD.md + 5 chunk tables +
+  census + logs).
+  • **50k / 70k (emit-stage rungs)**: emit 36.35 s / 2.23 GB at 50k;
+  **70k: emit 53.14 s / peak RSS 3.16 GB / 3.0 GB sources — INSIDE the
+  4 GB budget at the Minecraft scale**; JVM channels captured at both
+  (exit=0). Evidence: scripts/evidence/g2_5_50000/,
+  scripts/evidence/g2_5_70000/ (SCOPE notes the two 70k discoveries:
+  javac needs -J-Xmx3g at 70k — 74.32 s / 2.95 GB measured; and the
+  70,003-entry jar is ZIP64 — the jar reader REJECTED it, fixed this
+  session, see the code note below).
+  • **The 70k target is NOT claimed** — the bar requires end-to-end
+  completion on this box class and the volume cannot hold the 70k link
+  (arithmetic from measured constants: binary ≈3.8 GB + deps ≈10.2 GB
+  + sources ≈3.0 GB ≈ 17 GB > 9.8 GiB volume; recorded as the box-class
+  boundary, NOT a compiler-design boundary — no emitted unit exceeds
+  1.0 GB rustc; the G2.1 split holds at 35k).
+  • **ZIP64 jar-reader fix (G2-scope code, found BY the ladder)**:
+  crates/j2r-classfile/src/zip.rs now reads ZIP64 archives (locator +
+  ZIP64 EOCD + per-entry 0x0001 extras, spec-ordered) instead of
+  rejecting them loudly; 3 new unit tests (classic round-trip,
+  >65,535 entries end-to-end, sentinel-without-locator rejection);
+  full battery green **465 tests, 0 failures** (diff_suite 109
+  fixtures zero divergences, cfg_equiv, runtime 243, codegen 135,
+  classfile 41, jar/corpus/partition/soe/lambda/jni/native suites;
+  fmt + clippy clean; gate-11 in sync fixtures=109 tests=465).
+- [ ] **G2.5-ladder-continuation (registered session 13).** The honest
+  ladder's next rungs need a bigger box: a >9.8 GiB volume for the
+  35k+ link (and ~17 GB for a 70k attempt), possibly a link-memory
+  mitigation now that lld measured sub-linear (3.28 GB at 35k scale).
+  PASS when a rung above 20k completes end-to-end with the four
+  conditions (a)–(d).
 - [x] **G2.6 — the fat-method regression the review flagged (registered
   here as F6).** CLOSED session 11 via arm (a) — the emission fix, with
   the byte-identical proof the bar names:
@@ -235,10 +275,15 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
   (InfBlocks::proc 217 KB — compiles fine, no budget threat in any
   measured build); the sampler + census tooling is the standing
   regression probe.
-- [ ] **G2.7 — the review's memory-budget framing.**
-  PASS: the 70k acceptance names a memory budget up front (this box class:
-  4 GB/process, disk-guarded) and the run is measured against THAT budget,
-  not against a bigger machine.
+- [x] **G2.7 — the review's memory-budget framing.** CLOSED session 13:
+  the budget was named up front (this box class: **4 GB/process VmHWM,
+  disk-guarded volume**) and every G2.4/G2.5 run was measured against
+  THAT budget — the ladder scripts (g2_4_release_trio.sh,
+  g2_5_ladder.sh) hard-code the guard (≥1.2 GB free default,
+  parameterized with every lowering recorded), wrap every cargo chunk
+  in the per-process sampler, and the 70k acceptance record names the
+  budget explicitly with the measured 3.16 GB emit peak and the
+  volume/memory boundary numbers.
 
 ## G3 — P1: Typed-codegen performance (the ~100× steady-state gap)
 

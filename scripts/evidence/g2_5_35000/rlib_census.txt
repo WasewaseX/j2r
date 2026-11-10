@@ -1,0 +1,3 @@
+rlibs in deps/: 145
+partition rlibs (target/debug/): 141
+deps size: 5.1G

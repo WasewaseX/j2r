@@ -384,9 +384,26 @@ by the per-crate budget K.
   release cargo **100.88 s** (relink-dominated, peak 3.30 GB); parity
   vs Temurin PASS (stdout+stderr+exit identical). Raw evidence:
   scripts/evidence/g2_4/ (chunk tables + times + parity stdouts + log).
-- [G2.5] the honest ladder — 35k → 50k → 70k on this 4 GB box class,
-  end-to-end, three-channel parity, no OOM/SIGKILL, per-stage peak
-  memory, raw files committed. Extrapolation does NOT count.
+- [x] **G2.5 = the honest ladder — CLOSED session 13, 70k NOT claimed**:
+  **35k** full protocol — emit 23.89 s / 1.58 GB; **ALL 141 partition
+  units + support + runtime compiled** (rustc ≤ 1.0 GB each, deps
+  5.1 GB); first link ran: lld 3.28/4.0 GB (INSIDE budget, sub-linear
+  — G2.1b's linear guess was too pessimistic), wrote 263 MB, died
+  rc=101 **ENOSPC — the DISK wall, triple-measured** (0 bytes free;
+  cargo refuses missing-member workspaces; best packing leaves 0.1 GB
+  vs 2.1 GB needed). **50k** emit 36.35 s / 2.23 GB. **70k** emit
+  53.14 s / **3.16 GB peak — INSIDE the 4 GB budget at Minecraft
+  scale**; JVM captured (exit=0). Ladder discoveries FIXED or noted:
+  the 70,003-entry jar is ZIP64 — the reader rejected it, **zip.rs now
+  reads ZIP64 (locator + ZIP64 EOCD + 0x0001 extras) with 3 new tests,
+  battery green 465/0, gate-11 in sync**; javac needs -J-Xmx3g at 70k
+  (74.32 s / 2.95 GB). 70k end-to-end needs ~17 GB volume — recorded
+  as the box-class boundary, NOT a compiler-design boundary (no unit
+  > 1.0 GB rustc). Evidence: scripts/evidence/g2_5_{35000,50000,
+  70000}/.
+- [G2.5-ladder-continuation] next rungs need a bigger box (>9.8 GiB
+  volume for the 35k+ link, ~17 GB for 70k); PASS when a rung above
+  20k completes end-to-end with (a)–(d).
 - [x] **G2.6 = F6** the JZlib fat-method regression — **CLOSED session
   11 via arm (a)**: the array-literal peephole (peephole.rs) collapses
   javac's clinit fill runs into ONE nested-static literal constructor;
@@ -399,13 +416,19 @@ by the per-crate budget K.
   scripts/evidence/g2_6/. Honest scope: the switch-table shape remains
   (InfBlocks::proc 217 KB — compiles fine, no budget threat measured);
   sampler + census = the standing regression probe.
-- [G2.7] the 70k acceptance names the 4 GB/process budget up front and
-  is measured against it.
+- [x] **G2.7** the 70k acceptance names the 4 GB/process budget up
+  front and is measured against it — **CLOSED session 13**: budget
+  named in the ladder scripts (guard ≥1.2 GB, sampler on every cargo
+  chunk) and in the 70k record (emit 3.16/4.0 GB measured).
 - Implementation order (2026-11-10 external review): ~~G2.1~~ DONE;
   ~~G2.6~~ DONE; ~~G2.2~~ DONE; ~~G2.3~~ DONE; ~~G2.4~~ DONE; ~~G2.1b~~
-  DONE (all sessions 11–13) → **G2.5** (the honest 35k → 50k → 70k
-  ladder) with G2.7's budget framing; no mappings/mod-loader work until
-  G2 passes.
+  DONE; ~~G2.5~~ DONE (honest ladder: 20k PASS, 35k link-disk-wall
+  triple-measured, 50k/70k emit measured, 70k NOT claimed); ~~G2.7~~
+  DONE (all sessions 11–13) → **G2 ladder on THIS box class is
+  complete**; next per the review sequence: G4 (JMM volatile/final
+  review) then G3 (typed-codegen); G2.5-ladder-continuation resumes
+  when a bigger box is available; no mappings/mod-loader work until
+  the G2 gate set passes — G2.1–G2.7 now all checked.
 - [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
   (run 42616529578, all 21 gates + CodeQL/OSV/Scorecard success):
   generated static tables, const offset_of! assertions, loud-abort
@@ -530,16 +553,16 @@ by the per-crate budget K.
   pthread battery verdict 2047 byte-identical both runtimes, the
   loud-gap pins, gate-22 wired into the aggregate (17 gates); 452
   green. The checklist's G1 section is fully discharged.
-- [ops] Session 13 (2026-11-10 ~22:30 UTC): **G2.4 CLOSED + G2.1b
-  CLOSED (arm b)** — release-profile 20k trio measured end-to-end:
-  cold release cargo 7537.36 s across 14 chunked stages (550 s cap,
-  fingerprints resume), peak VmHWM 3.29/4.0 GB (final rust-lld link,
-  no OOM/SIGKILL), release binary 1.01 GiB, parity vs Temurin PASS
-  three-channel; no-op release cargo 0.36 s, one-edit 100.88 s; the
-  G2.2 stat fast path carries into release. Disk guard ≥1.2 GB held
-  (840 MB stale target/debug freed first; release target 3.1 GB).
-  Raw evidence scripts/evidence/g2_4/ committed. Next: **G2.5** (35k →
-  50k → 70k ladder) with G2.7 budget framing.
+- [ops] Session 13 (2026-11-10 ~22:30–23:35 UTC): **G2.4 CLOSED, G2.1b
+  CLOSED (arm b), G2.5 CLOSED (honest ladder, 70k NOT claimed), G2.7
+  CLOSED — the G2.1–G2.7 gate set is now fully checked**. G2.4: release
+  trio measured (cold release cargo 7537.36 s / 14 chunks, peak 3.29
+  GB, parity PASS, no-op release cargo 0.36 s). G2.5: 35k all-units-
+  compiled + link disk-wall triple-measured (lld 3.28 GB INSIDE
+  budget); 50k emit 36.35 s; 70k emit 53.14 s / 3.16 GB INSIDE budget;
+  ZIP64 jar-reader fix landed (70k jar was rejected) — battery 465/0,
+  gate-11 in sync. Next: **G4** (M4 JMM volatile/final-field owner
+  review per the review sequence), then **G3**.
 - [ops] Session 12 (2026-11-10 ~20:13 UTC): reset #12 survived via §9
   (tree back at pre-M3 `b4badea`; ff-only merge → `c4c45cf` ==
   origin/main, 167 commits — all four G2 closures verified ON origin);

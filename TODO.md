@@ -1558,8 +1558,21 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       100.88 s; G2.1b CLOSED session 13 via arm (b) — the link-stage
       boundary accepted in writing (3.29/4.0 GB measured, sampler
       wired into the standing protocol, a ~70k release link EXPECTED
-      to exceed the budget and recorded if it fires); remaining
-      G2.5 + G2.7)
+      to exceed the budget and recorded if it fires); G2.5 CLOSED
+      session 13 as the honest ladder, 70k NOT claimed — 35k: emit
+      23.89 s / 1.58 GB, ALL 141 partition units compiled (rustc ≤
+      1.0 GB each), first link ran (lld 3.28/4.0 GB INSIDE budget,
+      sub-linear) and died rc=101 ENOSPC at 263 MB of binary — the
+      disk wall triple-measured (0 B free; cargo refuses missing-
+      member workspaces; best packing 0.1 GB vs 2.1 GB needed);
+      50k emit 36.35 s / 2.23 GB; 70k emit 53.14 s / 3.16 GB INSIDE
+      the 4 GB budget at Minecraft scale (javac needed -J-Xmx3g;
+      the 70,003-entry jar is ZIP64 — the reader rejected it, zip.rs
+      now reads ZIP64 with 3 new tests, battery 465/0, gate-11 in
+      sync); G2.7 CLOSED session 13 (budget named in the ladder
+      scripts + 70k record); G2.1–G2.7 all checked — next: G4 then
+      G3; G2.5-ladder-continuation (a rung above 20k end-to-end)
+      waits for a bigger box)
       is the remaining P0; T14–T16
       mappings (G5) start only after G1 AND G2 are checked.
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +

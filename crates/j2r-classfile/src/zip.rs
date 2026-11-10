@@ -5,8 +5,10 @@
 //! Scope (M3_PLAN §4.2): read `.class` entries; `META-INF/` and resources
 //! are ignorable but still extractable through the same API. Supported:
 //! STORED (method 0) and DEFLATED (method 8) entries, archives with or
-//! without a ZIP64 record (ZIP64 is rejected loudly — class files in
-//! practice fit the classic format; the error names the limitation).
+//! without a ZIP64 record (ZIP64 EOCD locator + ZIP64 EOCD + per-entry
+//! ZIP64 extras — needed for archives with more than 65 535 entries,
+//! e.g. a 70k-class Minecraft-sized farm jar; the classic-only path is
+//! unchanged when no ZIP64 structures are present).
 //!
 //! Robustness contract (M3_PLAN §4.3): truncated, corrupted, or hostile
 //! archives produce `Err`, never a panic; every extracted entry is
@@ -43,8 +45,15 @@ impl std::error::Error for ZipError {}
 const EOCD_SIG: u32 = 0x0605_4B50;
 const CD_SIG: u32 = 0x0201_4B50;
 const LOCAL_SIG: u32 = 0x0403_4B50;
+const ZIP64_EOCD_LOCATOR_SIG: u32 = 0x0706_4B50;
+const ZIP64_EOCD_SIG: u32 = 0x0606_4B50;
+const ZIP64_EXTRA_HEADER: u16 = 0x0001;
 const METHOD_STORED: u16 = 0;
 const METHOD_DEFLATED: u16 = 8;
+
+/// Classic-format sentinels that mean "the real value lives in ZIP64".
+const U16_SENTINEL: usize = 0xFFFF;
+const U32_SENTINEL: usize = 0xFFFF_FFFF;
 
 /// One central-directory record.
 #[derive(Debug, Clone)]
@@ -82,6 +91,15 @@ pub struct Jar<'a> {
     entries: Vec<Entry>,
 }
 
+/// The effective archive-level numbers: classic EOCD fields, overridden
+/// by the ZIP64 EOCD when one is present.
+struct ArchiveBounds {
+    total_entries: usize,
+    cd_size: usize,
+    cd_offset: usize,
+    eocd: usize,
+}
+
 impl<'a> Jar<'a> {
     /// Parse the end-of-central-directory record + central directory.
     ///
@@ -106,13 +124,36 @@ impl<'a> Jar<'a> {
         if disk != 0 || cd_disk != 0 {
             return Err(ZipError::new("multi-disk archives are not supported"));
         }
-        // A count of 0xFFFF hints at ZIP64; reject with a clear message.
-        if total_entries == 0xFFFF || cd_offset == 0xFFFF_FFFF || cd_size == 0xFFFF_FFFF {
-            return Err(ZipError::new(
-                "zip64 archives are not supported (entry counts/offsets hit the classic limit)",
-            ));
-        }
-        if entries_this_disk != total_entries {
+
+        // ZIP64: a locator sits immediately before the classic EOCD and
+        // points at the ZIP64 EOCD, which carries the real (64-bit) entry
+        // count / directory size / offset. Any classic sentinel means the
+        // writer hit a classic limit and the ZIP64 record is authoritative.
+        let bounds = if total_entries == U16_SENTINEL
+            || cd_offset == U32_SENTINEL
+            || cd_size == U32_SENTINEL
+            || eocd >= 20 && read_u32(data, eocd - 20) == ZIP64_EOCD_LOCATOR_SIG
+        {
+            let zip64 = parse_zip64_eocd(data, eocd)?;
+            ArchiveBounds {
+                total_entries: zip64.total_entries,
+                cd_size: zip64.cd_size,
+                cd_offset: zip64.cd_offset,
+                eocd,
+            }
+        } else {
+            ArchiveBounds {
+                total_entries,
+                cd_size,
+                cd_offset,
+                eocd,
+            }
+        };
+        let total_entries = bounds.total_entries;
+        let cd_size = bounds.cd_size;
+        let cd_offset = bounds.cd_offset;
+        let eocd = bounds.eocd;
+        if entries_this_disk != total_entries && entries_this_disk != U16_SENTINEL {
             return Err(ZipError::new("EOCD entry-count inconsistency"));
         }
         let cd_end = cd_offset
@@ -142,17 +183,26 @@ impl<'a> Jar<'a> {
             let flags = read_u16(data, at + 8);
             let method = read_u16(data, at + 10);
             let crc = read_u32(data, at + 16);
-            let csize = read_u32(data, at + 20) as usize;
-            let usize_ = read_u32(data, at + 24) as usize;
+            let mut csize = read_u32(data, at + 20) as usize;
+            let mut usize_ = read_u32(data, at + 24) as usize;
             let name_len = read_u16(data, at + 28) as usize;
             let extra_len = read_u16(data, at + 30) as usize;
             let comment_len = read_u16(data, at + 32) as usize;
-            let local_offset = read_u32(data, at + 42) as usize;
+            let mut local_offset = read_u32(data, at + 42) as usize;
 
             let name_start = at + 46;
             let name_end = name_start
                 .checked_add(name_len)
                 .ok_or_else(|| ZipError::new("entry name length overflow"))?;
+            let extra_start = name_end;
+            let extra_end = extra_start
+                .checked_add(extra_len)
+                .ok_or_else(|| ZipError::new("entry extra length overflow"))?;
+            if extra_end > cd_end {
+                return Err(ZipError::new(format!(
+                    "central directory entry {i} name/extra runs past the directory"
+                )));
+            }
             if name_end > cd_end {
                 return Err(ZipError::new(format!(
                     "central directory entry {i} name runs past the directory"
@@ -160,6 +210,24 @@ impl<'a> Jar<'a> {
             }
             let name = String::from_utf8(data[name_start..name_end].to_vec())
                 .map_err(|_| ZipError::new("entry name is not valid UTF-8"))?;
+
+            // ZIP64 per-entry extras: when a classic field carries its
+            // sentinel, the real 64-bit value lives in the 0x0001 extra,
+            // in the fixed order uncompressed, compressed, local-offset
+            // (disk-start never occurs in single-disk archives).
+            if usize_ == U32_SENTINEL || csize == U32_SENTINEL || local_offset == U32_SENTINEL {
+                let z = zip64_extra(data, extra_start, extra_end, &name)?;
+                let mut q = 0usize;
+                if usize_ == U32_SENTINEL {
+                    usize_ = take_u64(z, &mut q, &name)? as usize;
+                }
+                if csize == U32_SENTINEL {
+                    csize = take_u64(z, &mut q, &name)? as usize;
+                }
+                if local_offset == U32_SENTINEL {
+                    local_offset = take_u64(z, &mut q, &name)? as usize;
+                }
+            }
 
             entries.push(Entry {
                 name,
@@ -171,9 +239,8 @@ impl<'a> Jar<'a> {
                 flags,
             });
 
-            p = name_end
-                .checked_add(extra_len)
-                .and_then(|v| v.checked_add(comment_len))
+            p = extra_end
+                .checked_add(comment_len)
                 .ok_or_else(|| ZipError::new("entry trailing-length overflow"))?;
         }
 
@@ -325,6 +392,93 @@ fn find_eocd(data: &[u8]) -> Option<usize> {
     }
 }
 
+/// Parse the ZIP64 EOCD pointed at by the locator that sits immediately
+/// before the classic EOCD. Layout (APPNOTE.TXT §4.3.14):
+/// sig(4) size(8) ver_made(2) ver_need(2) disk(4) cd_disk(4)
+/// entries_disk(8) entries_total(8) cd_size(8) cd_offset(8) [ext].
+fn parse_zip64_eocd(data: &[u8], eocd: usize) -> Result<Zip64Eocd, ZipError> {
+    if eocd < 20 {
+        return Err(ZipError::new("no room for a ZIP64 locator before the EOCD"));
+    }
+    let at = eocd - 20;
+    if read_u32(data, at) != ZIP64_EOCD_LOCATOR_SIG {
+        return Err(ZipError::new(
+            "archive carries ZIP64 sentinels but no ZIP64 locator (corrupt or hostile)",
+        ));
+    }
+    let zip64_offset = read_u64(data, at + 8) as usize;
+    let total_disks = read_u32(data, at + 16);
+    if total_disks > 1 {
+        return Err(ZipError::new(
+            "multi-disk archives are not supported (ZIP64 locator names >1 disk)",
+        ));
+    }
+    if zip64_offset + 56 > data.len() {
+        return Err(ZipError::new("ZIP64 EOCD truncated"));
+    }
+    if read_u32(data, zip64_offset) != ZIP64_EOCD_SIG {
+        return Err(ZipError::new("ZIP64 EOCD bad signature"));
+    }
+    let disk = read_u32(data, zip64_offset + 16);
+    let cd_disk = read_u32(data, zip64_offset + 20);
+    if disk != 0 || cd_disk != 0 {
+        return Err(ZipError::new("multi-disk archives are not supported"));
+    }
+    Ok(Zip64Eocd {
+        total_entries: read_u64(data, zip64_offset + 32) as usize,
+        cd_size: read_u64(data, zip64_offset + 40) as usize,
+        cd_offset: read_u64(data, zip64_offset + 48) as usize,
+    })
+}
+
+struct Zip64Eocd {
+    total_entries: usize,
+    cd_size: usize,
+    cd_offset: usize,
+}
+
+/// Extract the ZIP64 extended-information extra field (header 0x0001)
+/// from a central-directory record. Non-ZIP64 extras are skipped; the
+/// first 0x0001 extra is the one the spec reserves for the 64-bit fields.
+fn zip64_extra<'a>(
+    data: &'a [u8],
+    start: usize,
+    end: usize,
+    name: &str,
+) -> Result<&'a [u8], ZipError> {
+    let mut p = start;
+    while p + 4 <= end {
+        let header = read_u16(data, p);
+        let size = read_u16(data, p + 2) as usize;
+        let body_start = p + 4;
+        let body_end = body_start + size;
+        if body_end > end {
+            return Err(ZipError::new(format!(
+                "entry {name}: ZIP64 extra field truncated"
+            )));
+        }
+        if header == ZIP64_EXTRA_HEADER {
+            return Ok(&data[body_start..body_end]);
+        }
+        p = body_end;
+    }
+    Err(ZipError::new(format!(
+        "entry {name}: classic fields carry ZIP64 sentinels but no 0x0001 extra field is present"
+    )))
+}
+
+/// Consume one 64-bit value from the ZIP64 extra body.
+fn take_u64(body: &[u8], q: &mut usize, name: &str) -> Result<u64, ZipError> {
+    if *q + 8 > body.len() {
+        return Err(ZipError::new(format!(
+            "entry {name}: ZIP64 extra field too short for the sentinel value"
+        )));
+    }
+    let v = read_u64(body, *q);
+    *q += 8;
+    Ok(v)
+}
+
 #[inline]
 fn read_u16(data: &[u8], at: usize) -> u16 {
     u16::from_le_bytes([data[at], data[at + 1]])
@@ -333,6 +487,20 @@ fn read_u16(data: &[u8], at: usize) -> u16 {
 #[inline]
 fn read_u32(data: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]])
+}
+
+#[inline]
+fn read_u64(data: &[u8], at: usize) -> u64 {
+    u64::from_le_bytes([
+        data[at],
+        data[at + 1],
+        data[at + 2],
+        data[at + 3],
+        data[at + 4],
+        data[at + 5],
+        data[at + 6],
+        data[at + 7],
+    ])
 }
 
 // ------------------------------------------------------------------ tests
@@ -514,5 +682,162 @@ mod tests {
         let big = jar.read("big.txt").expect("big entry");
         let expected = std::fs::read(vector_path("big_plain.txt")).expect("big payload");
         assert_eq!(big, expected);
+    }
+
+    // ---- ZIP64 ---------------------------------------------------------
+    // `build_zip64_zip` mirrors `build_stored_zip` but writes the ZIP64
+    // structures a real writer (the JDK `jar` tool) emits once the classic
+    // limits are exceeded: per-entry 0x0001 extras with 64-bit sizes and
+    // offsets, classic EOCD fields at their sentinels, the ZIP64 locator
+    // immediately before the classic EOCD, and the ZIP64 EOCD carrying
+    // the real numbers.
+
+    fn build_zip64_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out: Vec<u8> = Vec::new();
+        struct CdRec {
+            name: String,
+            crc: u32,
+            size: usize,
+            local_offset: usize,
+        }
+        let mut cds: Vec<CdRec> = Vec::new();
+        for (name, data) in entries {
+            let local_offset = out.len();
+            out.extend_from_slice(&LOCAL_SIG.to_le_bytes());
+            out.extend_from_slice(&45u16.to_le_bytes()); // version needed
+            out.extend_from_slice(&0u16.to_le_bytes()); // flags
+            out.extend_from_slice(&METHOD_STORED.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes()); // mtime
+            out.extend_from_slice(&0u16.to_le_bytes()); // mdate
+            out.extend_from_slice(&crc32(data).to_le_bytes());
+            out.extend_from_slice(&U32_SENTINEL_B.to_le_bytes()); // csize
+            out.extend_from_slice(&U32_SENTINEL_B.to_le_bytes()); // usize
+            out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&20u16.to_le_bytes()); // extra len: 0x0001 + 2*8
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(&ZIP64_EXTRA_HEADER.to_le_bytes());
+            out.extend_from_slice(&16u16.to_le_bytes()); // two 64-bit fields
+            out.extend_from_slice(&(data.len() as u64).to_le_bytes());
+            out.extend_from_slice(&(data.len() as u64).to_le_bytes());
+            out.extend_from_slice(data);
+            cds.push(CdRec {
+                name: name.to_string(),
+                crc: crc32(data),
+                size: data.len(),
+                local_offset,
+            });
+        }
+        let cd_offset = out.len();
+        for cd in &cds {
+            out.extend_from_slice(&CD_SIG.to_le_bytes());
+            out.extend_from_slice(&45u16.to_le_bytes()); // version made by
+            out.extend_from_slice(&45u16.to_le_bytes()); // version needed
+            out.extend_from_slice(&0u16.to_le_bytes()); // flags
+            out.extend_from_slice(&METHOD_STORED.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes()); // mtime
+            out.extend_from_slice(&0u16.to_le_bytes()); // mdate
+            out.extend_from_slice(&cd.crc.to_le_bytes());
+            out.extend_from_slice(&U32_SENTINEL_B.to_le_bytes());
+            out.extend_from_slice(&U32_SENTINEL_B.to_le_bytes());
+            out.extend_from_slice(&(cd.name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&28u16.to_le_bytes()); // extra len: 0x0001 + 3*8
+            out.extend_from_slice(&0u16.to_le_bytes()); // comment len
+            out.extend_from_slice(&0u16.to_le_bytes()); // disk start
+            out.extend_from_slice(&0u16.to_le_bytes()); // internal attrs
+            out.extend_from_slice(&0u32.to_le_bytes()); // external attrs
+            out.extend_from_slice(&U32_SENTINEL_B.to_le_bytes()); // local offset
+            out.extend_from_slice(cd.name.as_bytes());
+            out.extend_from_slice(&ZIP64_EXTRA_HEADER.to_le_bytes());
+            out.extend_from_slice(&24u16.to_le_bytes()); // three 64-bit fields
+            out.extend_from_slice(&(cd.size as u64).to_le_bytes()); // uncompressed
+            out.extend_from_slice(&(cd.size as u64).to_le_bytes()); // compressed
+            out.extend_from_slice(&(cd.local_offset as u64).to_le_bytes());
+        }
+        let cd_size = out.len() - cd_offset;
+        // ZIP64 EOCD.
+        let zip64_eocd_offset = out.len();
+        out.extend_from_slice(&ZIP64_EOCD_SIG.to_le_bytes());
+        out.extend_from_slice(&44u64.to_le_bytes()); // size of remainder
+        out.extend_from_slice(&45u16.to_le_bytes()); // version made by
+        out.extend_from_slice(&45u16.to_le_bytes()); // version needed
+        out.extend_from_slice(&0u32.to_le_bytes()); // disk
+        out.extend_from_slice(&0u32.to_le_bytes()); // cd disk
+        out.extend_from_slice(&(cds.len() as u64).to_le_bytes()); // entries disk
+        out.extend_from_slice(&(cds.len() as u64).to_le_bytes()); // entries total
+        out.extend_from_slice(&(cd_size as u64).to_le_bytes());
+        out.extend_from_slice(&(cd_offset as u64).to_le_bytes());
+        // ZIP64 locator immediately before the classic EOCD.
+        let locator_offset = out.len();
+        out.extend_from_slice(&ZIP64_EOCD_LOCATOR_SIG.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // disk with zip64 eocd
+        out.extend_from_slice(&(zip64_eocd_offset as u64).to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes()); // total disks
+                                                    // Classic EOCD at its sentinels.
+        out.extend_from_slice(&EOCD_SIG.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // disk
+        out.extend_from_slice(&0u16.to_le_bytes()); // cd disk
+        out.extend_from_slice(&U16_SENTINEL_B.to_le_bytes());
+        out.extend_from_slice(&U16_SENTINEL_B.to_le_bytes());
+        out.extend_from_slice(&U32_SENTINEL_B.to_le_bytes());
+        out.extend_from_slice(&U32_SENTINEL_B.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // comment len
+        debug_assert_eq!(locator_offset + 20, out.len() - 22);
+        out
+    }
+
+    const U16_SENTINEL_B: u16 = 0xFFFF;
+    const U32_SENTINEL_B: u32 = 0xFFFF_FFFF;
+
+    #[test]
+    fn zip64_small_archive_round_trip() {
+        let z = build_zip64_zip(&[
+            ("META-INF/MANIFEST.MF", b"Manifest-Version: 1.0\n" as &[u8]),
+            ("a/b/C.class", b"\xCA\xFE\xBA\xBE zip64 payload"),
+        ]);
+        let jar = Jar::parse(&z).expect("zip64 parse");
+        let names: Vec<&str> = jar.entry_names().collect();
+        assert_eq!(names, ["META-INF/MANIFEST.MF", "a/b/C.class"]);
+        assert_eq!(jar.class_entries().count(), 1);
+        assert_eq!(
+            jar.read("a/b/C.class").unwrap(),
+            b"\xCA\xFE\xBA\xBE zip64 payload"
+        );
+    }
+
+    /// The 70k-class case that motivated ZIP64 support: MORE entries than
+    /// the classic format can name (65 537 tiny stored entries), exactly
+    /// what a Minecraft-sized farm jar looks like. Parses end-to-end and
+    /// reads a spread of entries back.
+    #[test]
+    fn zip64_over_65535_entries() {
+        let n = 65_537usize;
+        let mut entries = Vec::with_capacity(n);
+        for i in 0..n {
+            let payload = format!("payload {i}");
+            entries.push((format!("farm/C{i:05}.class"), payload.into_bytes()));
+        }
+        let refs: Vec<(&str, &[u8])> = entries
+            .iter()
+            .map(|(n, d)| (n.as_str(), d.as_slice()))
+            .collect();
+        let z = build_zip64_zip(&refs);
+        let jar = Jar::parse(&z).expect("zip64 parse of a 65,537-entry archive");
+        assert_eq!(jar.class_entries().count(), n);
+        for probe in [0usize, 1, 32_768, 65_535, 65_536] {
+            let name = format!("farm/C{probe:05}.class");
+            let got = jar.read(&name).expect(&name);
+            assert_eq!(got, format!("payload {probe}").into_bytes());
+        }
+    }
+
+    #[test]
+    fn zip64_sentinels_without_locator_errors() {
+        // Sentinels in the classic EOCD with the locator signature
+        // corrupted → loud error, never a bogus parse.
+        let mut z = build_zip64_zip(&[("a.class", b"payload")]);
+        let eocd = z.len() - 22;
+        let locator = eocd - 20;
+        z[locator] ^= 0xFF; // kill the locator signature
+        assert!(Jar::parse(&z).is_err());
     }
 }

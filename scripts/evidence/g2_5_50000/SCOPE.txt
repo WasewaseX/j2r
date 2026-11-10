@@ -1,0 +1,2 @@
+EMIT-ONLY RUNG: cargo/link NOT attempted (the 35k link wall is
+measured; this rung records the emit-stage scaling only).

@@ -1,0 +1,79 @@
+[2026-11-10T22:34:41Z] N=35000 ================ G2.5 LADDER RUNG INIT N=35000 k=250 (standing dev profile, CI=0)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  3.1G  6.3G  34% /
+[2026-11-10T22:34:43Z] N=35000 == [G] farm gen + javac + jar (fresh)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  3.1G  6.3G  34% /
+farm: 35000 classes + Base + Op + Main, 2100370 total LOC -> /home/z/my-project/work/m5invest/farm35000/farm_src
+[2026-11-10T22:35:32Z] N=35000 javac WALL_S PEAK_RSS_KB = 43.28 1199552
+[2026-11-10T22:35:35Z] N=35000 stageG OK: jar 43M, src 277M
+[2026-11-10T22:35:38Z] N=35000 == [P] JVM parity capture + farm_src release
+[2026-11-10T22:35:38Z] N=35000 JVM captured: exit=0 out=82B err=0B
+[2026-11-10T22:35:39Z] N=35000 farm_src + jar deleted after capture (parity diffs against the captured channels)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  3.1G  6.3G  34% /
+[2026-11-10T22:35:41Z] N=35000 == [E] COLD emit (fresh out35000, standing dev protocol)
+[2026-11-10T22:35:41Z] N=35000 disk guard OK (6516684 kB free)
+[2026-11-10T22:35:41Z] N=35000 EMIT FAILED
+j2r: error: error in class -: classpath entry /home/z/my-project/work/m5invest/farm35000/farm35000.jar is not readable: No such file or directory (os error 2)
+[2026-11-10T22:35:55Z] N=35000 == [G] farm gen + javac + jar (fresh)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  3.1G  6.3G  34% /
+farm: 35000 classes + Base + Op + Main, 2100370 total LOC -> /home/z/my-project/work/m5invest/farm35000/farm_src
+[2026-11-10T22:36:58Z] N=35000 javac WALL_S PEAK_RSS_KB = 54.60 1195940
+[2026-11-10T22:37:02Z] N=35000 stageG OK: jar 43M, src 277M
+[2026-11-10T22:37:02Z] N=35000 == [E] COLD emit (fresh out35000, standing dev protocol)
+[2026-11-10T22:37:02Z] N=35000 disk guard OK (6190316 kB free)
+[2026-11-10T22:37:26Z] N=35000 cold emit WALL_S PEAK_RSS_KB = 23.89 1581600
+[2026-11-10T22:37:26Z] N=35000 out35000 sources: 1.5G
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  4.9G  4.5G  53% /
+[2026-11-10T22:37:30Z] N=35000 == [P] JVM parity capture + farm_src release
+[2026-11-10T22:37:31Z] N=35000 JVM captured: exit=0 out=82B err=0B
+[2026-11-10T22:37:31Z] N=35000 farm_src + jar deleted after capture (parity diffs against the captured channels)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  4.6G  4.8G  49% /
+[2026-11-10T22:37:31Z] N=35000 disk guard OK (4983388 kB free)
+[2026-11-10T22:37:31Z] N=35000 == [C] cargo chunk #1 (fingerprints resume; sampler wired)
+[2026-11-10T22:46:42Z] N=35000 chunk #1 rc=124 sampler: 550.04 1003876
+[2026-11-10T22:46:42Z] N=35000 chunk #1 killed by the 550 s cap (expected mid-build; fingerprints resume)
+998924 1657 rustc
+998628 1086 rustc
+998252 1401 rustc
+998016 1484 rustc
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.8G  3.5G  63% /
+[2026-11-10T22:46:51Z] N=35000 disk guard OK (3669324 kB free)
+[2026-11-10T22:46:51Z] N=35000 == [C] cargo chunk #2 (fingerprints resume; sampler wired)
+[2026-11-10T22:56:01Z] N=35000 chunk #2 rc=124 sampler: 550.07 1005364
+[2026-11-10T22:56:01Z] N=35000 chunk #2 killed by the 550 s cap (expected mid-build; fingerprints resume)
+1000528 2327 rustc
+1000496 2413 rustc
+999468 2724 rustc
+999396 2472 rustc
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  7.1G  2.3G  76% /
+[2026-11-10T22:58:19Z] N=35000 disk guard OK (2392096 kB free)
+[2026-11-10T22:58:19Z] N=35000 == [C] cargo chunk #3 (fingerprints resume; sampler wired)
+[2026-11-10T23:07:29Z] N=35000 chunk #3 rc=124 sampler: 550.04 995664
+[2026-11-10T23:07:29Z] N=35000 chunk #3 killed by the 550 s cap (expected mid-build; fingerprints resume)
+993352 3477 rustc
+992840 3653 rustc
+992488 3851 rustc
+992440 3895 rustc
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  8.3G  1.1G  89% /
+[2026-11-10T23:08:08Z] N=35000 disk guard OK (1389316 kB free; min 700000 kB)
+[2026-11-10T23:08:08Z] N=35000 == [C] cargo chunk #4 (fingerprints resume; sampler wired)
+[2026-11-10T23:09:33Z] N=35000 chunk #4 rc=101 sampler: 84.97 3275384
+[2026-11-10T23:09:33Z] N=35000 chunk #4 killed by the 550 s cap (expected mid-build; fingerprints resume)
+262900 4181 rustc
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  9.3G     0 100% /
+[2026-11-10T23:11:10Z] N=35000 disk guard OK (2262788 kB free; min 700000 kB)
+[2026-11-10T23:11:10Z] N=35000 == [C] cargo chunk #5 (fingerprints resume; sampler wired)
+[2026-11-10T23:11:10Z] N=35000 chunk #5 rc=101 sampler: 0.12 356932
+[2026-11-10T23:11:10Z] N=35000 chunk #5 killed by the 550 s cap (expected mid-build; fingerprints resume)
+3100 4294 bash
+2264 909 bash
+1208 4291 sh
+1116 4309 timeout
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  7.2G  2.2G  77% /
+[2026-11-10T23:11:46Z] N=35000 == [G] farm gen + javac + jar (fresh)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  7.8G  1.6G  84% /
+farm: 35000 classes + Base + Op + Main, 2100370 total LOC -> /home/z/my-project/work/m5invest/farm35000/farm_src
+[2026-11-10T23:12:31Z] N=35000 javac WALL_S PEAK_RSS_KB = 43.29 1202460
+[2026-11-10T23:12:34Z] N=35000 stageG OK: jar 43M, src 277M
