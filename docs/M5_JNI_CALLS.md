@@ -65,10 +65,15 @@ an integer-typed 4th param never sees it.
    pointer reads live in `j2r-jni-ffi` as new audited primitives
    (`read_word_at`, `read_fp_word_at`, `read_u32_at`) — the same
    scoped-unsafe pattern as write_u8_out, with the gate-10 count
-   amended IN THE SAME COMMIT (T09 precedent; pin ≤ 12, currently 6
-   used — `ACTUAL_UNSAFE_OCCURRENCES` = 6 asserts the file count). The
-   walk is unit-tested against hand-built save areas with known
-   layouts.
+   amended IN THE SAME COMMIT (T09 precedent; pin ≤ 12, now 9 used —
+   `ACTUAL_UNSAFE_OCCURRENCES` = 9 asserts the file count). The walk is
+   unit-tested against hand-built save areas with known layouts
+   (INTEGER-only, FP-only, mixed GP+FP, the register→overflow split,
+   the null-ap/unreadable-record laws). 11c precision of record: the
+   record is consumed into a LOCAL cursor — the caller's record is
+   left untouched (one-shot consume per Call*MethodV; a caller that
+   needs the args twice va_copy's first, standard C practice; never
+   mutating foreign memory is the conservative shape for a bridge).
 3. **Bare forms: LOUD aborts, honestly typed.** The slot stays a stub
    but the message stops lying: it names the slot, states that the
    bare C-variadic ABI cannot be served in safe stable Rust (F-J2
@@ -151,6 +156,15 @@ doc-count sync, full battery re-run (the boards' standing law), boards
   against the parsed header in the generator).
 - **11c** — V-forms via the save-area walk + the gate-10 amendment
   (new audited primitives + count assert), battery again.
+  **LANDED (11c)**: the three read primitives (7 → 10, occurrences
+  6 → 9, pin ≤ 12 unchanged, the count assert amended in the same
+  commit); the walk in `jni::calls` (GP < 48 / FP < 176 bounds,
+  overflow fallback, per-descriptor classification); all THIRTY
+  `Call*MethodV` slots (virtual 35..62, nonvirtual 65..92, static
+  115..142 — step 3, asserted mechanically against the parsed header);
+  5 save-area tests + 3 primitive tests; 432 green, full battery
+  re-run — zero divergences. The bare C-variadic forms stay LOUD
+  aborts (decision 3) — T13's C-harness exercises the A/V forms.
 
 T13 keeps the C-harness evidence bar (a compiled `.so` exercising
 every v1 function on both runtimes, three-channel) — this note defines

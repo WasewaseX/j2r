@@ -728,3 +728,55 @@ getrusage max single child, mistake-list #2).
 - Next (11c): the V-form save-area walk + the three audited primitives
   (read_word_at / read_fp_word_at / read_u32_at) + the gate-10
   amendment (6 → 9 of pin 12) in the same commit, then the battery.
+
+### [2026-11-10 ~13:30 UTC] session 5 cont. 4 — T11 slice 11c: the V-form save-area walk + the gate-10 amendment (432 green) — T11 COMPLETE
+- The audited FFI surface grows 7 → 10 primitives
+  (`crates/j2r-jni-ffi/src/ffi.rs`, M5_JNI_CALLS.md §3 decision 2):
+  `read_u32_at` (the __va_list_tag cursor fields), `read_word_at` (a GP
+  vararg word — save area or overflow), `read_fp_word_at` (the value
+  half of one 16-byte XMM save slot). **`ACTUAL_UNSAFE_OCCURRENCES`
+  6 → 9 IN THE SAME COMMIT** (the T09 precedent); the gate-10 pin ≤ 12
+  is unchanged and the source-scanned count assert passed locally. All
+  three primitives are null-guarded (None) — the walk turns None into
+  a loud internal-error pend, never a silent mis-marshal. 3 new
+  primitive tests (cursor-field reads, GP word, SSE slot half incl.
+  the upper-half-noise isolation). jni-ffi 8 → 11.
+- The walk itself is SAFE code in `jni::calls` (`decode_vform_args`):
+  SysV x86-64 ABI §3.5.6 — gp_offset @0, fp_offset @4,
+  overflow_arg_area @8, reg_save_area @16; GP-class words (everything
+  except F/D) come from `reg_save_area + gp_offset` while
+  `gp_offset < 48`, F/D from `reg_save_area + fp_offset` while
+  `fp_offset < 176` (16-byte stride, value in the low 8 bytes);
+  exhausted registers fall back to the overflow area at 8 bytes per
+  word. **v1 law of record: the record is consumed into a LOCAL cursor
+  — the caller's record is left untouched** (one-shot consume;
+  va_copy is the caller's tool for reuse; never mutating foreign
+  memory is the conservative bridge shape). A/V share
+  `resolve_checked` (the staticness loudness) and `dispatch` (the
+  receiver/declared-class laws + the ancestor walk) — the V-form core
+  adds only the arg decode.
+- generator: +30 REAL_SLOTS entries (126 → **156 real slots**) — all
+  thirty `Call*MethodV` (virtual 35..62, nonvirtual 65..92, static
+  115..142, step 3) with the slot numbers asserted MECHANICALLY
+  against the parsed header; regenerate+fmt **idempotent
+  byte-for-byte**; the A/V wrapper docs carry the family law.
+- 5 new V-form tests (the §5 acceptance: hand-built save areas with
+  KNOWN layouts): INTEGER-only (gp_offset 16, three register words →
+  12), FP-only + mixed GP/FP (independent cursor advance — mix(I D)I =
+  2100), the register→overflow split (gp_offset exhausted → overflow
+  words → 21), the LOCAL-cursor law (record bytes unchanged), and the
+  loud laws (null ap with a demanding descriptor pends NPE; an
+  unreadable record — reg_save_area = 0 — pends `java/lang/Error`,
+  never a silent mis-marshal). runtime 227 → 232.
+- Evidence — full battery re-run (the standing law): fmt clean; clippy
+  `-D warnings` clean; **432 tests, 0 failures** — classfile 38 ·
+  jni-ffi 11 · runtime 232 · codegen 125 · cli 26; walls: cfg_equiv
+  337.91 s + diff_suite 442.93 s (**zero divergences**), partition
+  25.10 s, corpus 38.70 s, soe 10.02 s, jar 18.10 s, lambda 1.07 s.
+- **T11 COMPLETE** (the design of record's full slice order 11a→11b→
+  11c landed in one day): the A/V forms of all three call families
+  (60 slots), the pending-exception trio, the method-ID pair; the
+  bare C-variadic forms stay LOUD aborts per decision 3 (honestly
+  typed, message names the slot and the F-J2 resolution). Remaining
+  wave 2: T12 (RegisterNatives) and T13 (C harness + attach
+  lifecycle).

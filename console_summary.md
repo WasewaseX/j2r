@@ -1,9 +1,10 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 5 cont. 3 — **T11 slice 11b part 2 landed:
-the static/nonvirtual Call*MethodA families + the mock-dispatch tests,
-424 green**; 11b-1 was the pending-exception cell + method IDs + ten
-virtual Call*MethodA. See console.md session-5 entries and §9).
+Updated 2026-11-10 (session 5 cont. 4 — **T11 COMPLETE: slice 11c
+landed the V-form save-area walk + the gate-10 amendment (7 → 10
+audited primitives, 6 → 9 occurrences), all thirty Call*MethodV slots;
+432 green**. 11b was the pending cell + method IDs + all thirty
+Call*MethodA. See console.md session-5 entries and §9).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
@@ -106,12 +107,13 @@ payload); 15 arrays tests + the child-process release-miss abort pin;
 no new FFI primitives (gate-10 unchanged); design-note correction of
 record: the critical pair is 222/223 (217/218 are MonitorEnter/Exit);
 414 green, full battery re-run (cfg_equiv 339 s + diff_suite 438 s)
-zero divergences. **T11 (Call*Method) IN PROGRESS** — see §8: 11a
-design note + 11b-1 (pending cell, method IDs, ten virtual
-Call*MethodA) + 11b-2 (the static/nonvirtual families + the
-mock-dispatch tests) LANDED at 424 green; remaining wave 2: 11c (the
-V-form save-area walk + the gate-10 amendment) ·
-T12 (RegisterNatives) · T13 (C harness + attach lifecycle). Then T14–T16
+zero divergences. **T11 (Call*Method) ✅ COMPLETE — 11a design note +
+11b (the pending cell, the method-ID registry, all thirty
+Call*MethodA) + 11c (the SysV save-area walk, all thirty Call*MethodV,
+FFI 7 → 10 primitives, 6 → 9 unsafe occurrences of pin 12) LANDED at
+432 green** — see §8; the bare C-variadic forms stay LOUD aborts per
+the design note. Remaining wave 2: T12 (RegisterNatives) · T13
+(C harness + attach lifecycle). Then T14–T16
 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
 M4 completion package still awaits owner review in parallel.
 
@@ -144,6 +146,8 @@ M4 completion package still awaits owner review in parallel.
    327.80 s + diff_suite 440.23 s, zero divergences). Re-proven at
    **424** after T11 11b-2 (runtime 227; partition 24.30 s, corpus
    37.53 s, cfg_equiv 348.99 s + diff_suite 455.62 s, zero
+   divergences). Re-proven at **432** after T11 11c (jni-ffi 11,
+   runtime 232; cfg_equiv 337.91 s + diff_suite 442.93 s, zero
    divergences).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
@@ -322,7 +326,7 @@ by the per-crate budget K.
   breaks a later valid release); critical-pair slot correction
   217/218 → 222/223 in the design note + mod.rs doc; 414 green, full
   battery re-run — zero divergences. **T10 DONE.**
-- [~] **T11** — design note docs/M5_JNI_CALLS.md LANDED (11a, the F-J2
+- [x] **T11** — design note docs/M5_JNI_CALLS.md LANDED (11a, the F-J2
   resolution: A-forms workhorse / V-forms via the SysV save-area walk /
   bare forms loud, honestly typed; pending-exception cell scoped). Part
   1 LANDED (11b-1): the per-thread pending cell (ExceptionOccurred/
@@ -343,11 +347,17 @@ by the per-crate budget K.
   NPE/zero laws, thrown-callee round-trip); 20 slots wired (106 → 126)
   with slot numbers asserted mechanically against the parsed header;
   regenerate+fmt byte-idempotent; 424 green, full battery re-run —
-  zero divergences. NEXT (11c): V-forms via the save-area walk + the
-  three audited primitives (read_word_at / read_fp_word_at /
-  read_u32_at) + the gate-10 amendment (6 → 9 of pin 12) in the same
-  commit, battery again; then T12 (RegisterNatives) and T13 (C harness
-  + attach lifecycle).
+  zero divergences. Part 3 LANDED (11c) — **T11 ✅ COMPLETE**: the
+  three audited read primitives (read_u32_at / read_word_at /
+  read_fp_word_at; FFI 7 → 10, `ACTUAL_UNSAFE_OCCURRENCES` 6 → 9 in
+  the same commit, pin ≤ 12 unchanged); the SysV __va_list_tag
+  save-area walk in safe code (GP < 48 / FP < 176 bounds, overflow
+  fallback, LOCAL-cursor law — the caller's record is never written
+  back); all thirty Call*MethodV slots (35..62 / 65..92 / 115..142,
+  asserted mechanically); 5 hand-built-save-area tests + 3 primitive
+  tests; 432 green, full battery re-run — zero divergences. The bare
+  C-variadic forms stay LOUD aborts (design-note decision 3). NEXT:
+  T12 (RegisterNatives) and T13 (C harness + attach lifecycle).
 - [ops] Session 5 (2026-11-10): reset #6 survived via §9 (tree back at
   pre-M3 `b4badea`, toolchain wiped); baseline re-proven 398 green at
   6e9805a, then slice 3b landed at 414. Reset #7 also survived via §9

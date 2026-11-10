@@ -346,6 +346,39 @@ REAL_SLOTS = {
     "CallNonvirtualFloatMethodA": "jni_call_nonvirtual_float_method_a",
     "CallNonvirtualDoubleMethodA": "jni_call_nonvirtual_double_method_a",
     "CallNonvirtualVoidMethodA": "jni_call_nonvirtual_void_method_a",
+    # ---- T11 slice 11c: the V-form families (docs/M5_JNI_CALLS.md §3
+    # decision 2) — the SysV __va_list_tag save-area walk; the audited
+    # FFI surface grew 7 → 10 read primitives in the same commit.
+    "CallObjectMethodV": "jni_call_object_method_v",
+    "CallBooleanMethodV": "jni_call_boolean_method_v",
+    "CallByteMethodV": "jni_call_byte_method_v",
+    "CallCharMethodV": "jni_call_char_method_v",
+    "CallShortMethodV": "jni_call_short_method_v",
+    "CallIntMethodV": "jni_call_int_method_v",
+    "CallLongMethodV": "jni_call_long_method_v",
+    "CallFloatMethodV": "jni_call_float_method_v",
+    "CallDoubleMethodV": "jni_call_double_method_v",
+    "CallVoidMethodV": "jni_call_void_method_v",
+    "CallStaticObjectMethodV": "jni_call_static_object_method_v",
+    "CallStaticBooleanMethodV": "jni_call_static_boolean_method_v",
+    "CallStaticByteMethodV": "jni_call_static_byte_method_v",
+    "CallStaticCharMethodV": "jni_call_static_char_method_v",
+    "CallStaticShortMethodV": "jni_call_static_short_method_v",
+    "CallStaticIntMethodV": "jni_call_static_int_method_v",
+    "CallStaticLongMethodV": "jni_call_static_long_method_v",
+    "CallStaticFloatMethodV": "jni_call_static_float_method_v",
+    "CallStaticDoubleMethodV": "jni_call_static_double_method_v",
+    "CallStaticVoidMethodV": "jni_call_static_void_method_v",
+    "CallNonvirtualObjectMethodV": "jni_call_nonvirtual_object_method_v",
+    "CallNonvirtualBooleanMethodV": "jni_call_nonvirtual_boolean_method_v",
+    "CallNonvirtualByteMethodV": "jni_call_nonvirtual_byte_method_v",
+    "CallNonvirtualCharMethodV": "jni_call_nonvirtual_char_method_v",
+    "CallNonvirtualShortMethodV": "jni_call_nonvirtual_short_method_v",
+    "CallNonvirtualIntMethodV": "jni_call_nonvirtual_int_method_v",
+    "CallNonvirtualLongMethodV": "jni_call_nonvirtual_long_method_v",
+    "CallNonvirtualFloatMethodV": "jni_call_nonvirtual_float_method_v",
+    "CallNonvirtualDoubleMethodV": "jni_call_nonvirtual_double_method_v",
+    "CallNonvirtualVoidMethodV": "jni_call_nonvirtual_void_method_v",
 }
 
 # Wrapper bodies, emitted verbatim (doc comment + fn) after the stubs.
@@ -1211,6 +1244,154 @@ for _name, _ret_cty in _CALL_A2_KINDS:
                 "            obj_tag,",
                 "            clazz_tag,",
                 "            args as usize,",
+                "        ),",
+                "    )",
+            ]
+        ),
+        "}",
+    ]
+
+
+# ---------------------------------------------------------------- T11 slice 11c: the V-form families (programmatic)
+# Thirty slots: the three families with the jvalue* replaced by a
+# `va_list` — on x86-64 SysV a POINTER to the caller's 24-byte
+# __va_list_tag record (ABI §3.5.6). The save-area walk lives in
+# jni::calls (safe code over the audited read primitives 8-10); these
+# are thin, documented casts. Slot numbers verified MECHANICALLY
+# against the parsed header — a renumbered jni.h fails the generator
+# loudly.
+
+_V_SLOT_NOS = {
+    "Object": 35, "Boolean": 38, "Byte": 41, "Char": 44, "Short": 47,
+    "Int": 50, "Long": 53, "Float": 56, "Double": 59, "Void": 62,
+}
+_STATIC_V_SLOT_NOS = {
+    "Object": 115, "Boolean": 118, "Byte": 121, "Char": 124, "Short": 127,
+    "Int": 130, "Long": 133, "Float": 136, "Double": 139, "Void": 142,
+}
+_NV_V_SLOT_NOS = {
+    "Object": 65, "Boolean": 68, "Byte": 71, "Char": 74, "Short": 77,
+    "Int": 80, "Long": 83, "Float": 86, "Double": 89, "Void": 92,
+}
+for _name in _V_SLOT_NOS:
+    for _prefix, _nos in (("", _V_SLOT_NOS), ("Static", _STATIC_V_SLOT_NOS), ("Nonvirtual", _NV_V_SLOT_NOS)):
+        _sname = f"Call{_prefix}{_name}MethodV"
+        if _idx_of[_sname] != _nos[_name]:
+            sys.exit(
+                f"FATAL: {_sname} slot drifted: jni.h says {_idx_of[_sname]}, "
+                f"template says {_nos[_name]}"
+            )
+
+_VFORM_DOC = (
+    "/// — the V-form: the caller's saved argument list (design of",
+    "/// record: docs/M5_JNI_CALLS.md §3 decision 2): the SysV",
+    "/// __va_list_tag record is consumed through the audited read",
+    "/// primitives into a LOCAL cursor (the caller's record is left",
+    "/// untouched — the documented v1 law), the words are marshalled per",
+    "/// the method's own descriptor and the call dispatches per the",
+    "/// family law. A thrown answer is PENDED",
+    "/// (ExceptionOccurred/Check/Clear) and the zero value returned —",
+    "/// the JNI-faithful shape. A null mid is a loud foreign-side bug",
+    "/// (the T09 registry law).",
+)
+
+for _name, _ret_cty in _CALL_A2_KINDS:
+    _ret_decl = f" -> {_ret_cty}" if _ret_cty else ""
+    _low = _name.lower()
+    # VIRTUAL V: (env, obj, mid, ap)
+    WRAPPER_BODIES[f"Call{_name}MethodV"] = [
+        f"/// `Call{_name}MethodV` (slot {_V_SLOT_NOS[_name]})",
+        *_VFORM_DOC,
+        f'extern "system" fn jni_call_{_low}_method_v(',
+        "    _env: JNIEnv,",
+        "    obj: jobject,",
+        "    mid: jmethodID,",
+        "    ap: VaList,",
+        f"){_ret_decl} {{",
+        "    let tag = crate::jni::bridge::jobject_to_tag(obj);",
+        *(
+            [
+                f"    crate::jni::calls::slot_call_{_low}_method_v(",
+                "        crate::jni::classes::method_id_from_ptr(mid),",
+                "        tag,",
+                "        ap as usize,",
+                "    )",
+            ]
+            if _ret_cty != "jobject"
+            else [
+                "    crate::jni::bridge::tag_to_jobject(",
+                f"        crate::jni::calls::slot_call_{_low}_method_v(",
+                "            crate::jni::classes::method_id_from_ptr(mid),",
+                "            tag,",
+                "            ap as usize,",
+                "        ),",
+                "    )",
+            ]
+        ),
+        "}",
+    ]
+    # STATIC V: (env, clazz, mid, ap)
+    WRAPPER_BODIES[f"CallStatic{_name}MethodV"] = [
+        f"/// `CallStatic{_name}MethodV` (slot {_STATIC_V_SLOT_NOS[_name]})",
+        *_VFORM_DOC,
+        f'extern "system" fn jni_call_static_{_low}_method_v(',
+        "    _env: JNIEnv,",
+        "    clazz: jclass,",
+        "    mid: jmethodID,",
+        "    ap: VaList,",
+        f"){_ret_decl} {{",
+        "    let tag = crate::jni::bridge::jobject_to_tag(clazz);",
+        *(
+            [
+                f"    crate::jni::calls::slot_call_static_{_low}_method_v(",
+                "        crate::jni::classes::method_id_from_ptr(mid),",
+                "        tag,",
+                "        ap as usize,",
+                "    )",
+            ]
+            if _ret_cty != "jobject"
+            else [
+                "    crate::jni::bridge::tag_to_jobject(",
+                f"        crate::jni::calls::slot_call_static_{_low}_method_v(",
+                "            crate::jni::classes::method_id_from_ptr(mid),",
+                "            tag,",
+                "            ap as usize,",
+                "        ),",
+                "    )",
+            ]
+        ),
+        "}",
+    ]
+    # NONVIRTUAL V: (env, obj, clazz, mid, ap)
+    WRAPPER_BODIES[f"CallNonvirtual{_name}MethodV"] = [
+        f"/// `CallNonvirtual{_name}MethodV` (slot {_NV_V_SLOT_NOS[_name]})",
+        *_VFORM_DOC,
+        f'extern "system" fn jni_call_nonvirtual_{_low}_method_v(',
+        "    _env: JNIEnv,",
+        "    obj: jobject,",
+        "    clazz: jclass,",
+        "    mid: jmethodID,",
+        "    ap: VaList,",
+        f"){_ret_decl} {{",
+        "    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);",
+        "    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);",
+        *(
+            [
+                f"    crate::jni::calls::slot_call_nonvirtual_{_low}_method_v(",
+                "        crate::jni::classes::method_id_from_ptr(mid),",
+                "        obj_tag,",
+                "        clazz_tag,",
+                "        ap as usize,",
+                "    )",
+            ]
+            if _ret_cty != "jobject"
+            else [
+                "    crate::jni::bridge::tag_to_jobject(",
+                f"        crate::jni::calls::slot_call_nonvirtual_{_low}_method_v(",
+                "            crate::jni::classes::method_id_from_ptr(mid),",
+                "            obj_tag,",
+                "            clazz_tag,",
+                "            ap as usize,",
                 "        ),",
                 "    )",
             ]

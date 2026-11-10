@@ -1,6 +1,6 @@
-//! The audited primitive surface (M5_JNI_FFI.md §4, v1 — complete).
+//! The audited primitive surface (M5_JNI_FFI.md §4).
 //!
-//! Six total functions; every `unsafe` occurrence in the workspace outside
+//! Ten total functions; every `unsafe` occurrence in the workspace outside
 //! `#![forbid(unsafe_code)]` lives here, inside these functions, with a
 //! `// SAFETY:` justification naming the JNI contract. gate-10 counts and
 //! pins the occurrences (`AUDITED_UNSAFE_OCCURRENCES` = 12; the T09
@@ -15,6 +15,13 @@
 //! * `write_ptr_out` takes the out-value as `usize` (the note's shape) and
 //!   writes it as one pointer-sized word — the only pointer-width store
 //!   the pointer-out slots need.
+//!
+//! T11 slice 11c amendment (M5_JNI_CALLS.md §3 decision 2): primitives
+//! 8–10 (`read_u32_at`, `read_word_at`, `read_fp_word_at`) serve the SysV
+//! `__va_list_tag` save-area walk the `Call*MethodV` forms need. Reads
+//! only — the walk consumes the record into a LOCAL cursor safe-side, so
+//! no write primitive exists to misuse. The occurrence pin (≤ 12) still
+//! holds with headroom (9 used).
 
 use std::os::raw::{c_char, c_void};
 
@@ -170,9 +177,85 @@ pub fn write_u8_out(slot: *mut u8, value: u8) {
     }
 }
 
+/// 8. Read one 4-byte little-endian word at `ptr` — the `gp_offset` /
+///    `fp_offset` cursor fields of the SysV `__va_list_tag` record the
+///    `Call*MethodV` forms receive. Added by the T11 slice-11c amendment
+///    (M5_JNI_CALLS.md §3 decision 2); the walk itself is safe-side in
+///    `j2r-runtime::jni::calls` and consumes the record into a LOCAL
+///    cursor, so no write primitive exists to misuse.
+///
+/// Total: null `ptr` → `None` (the walk turns it into a loud
+/// internal-error pend — an unreadable record is never silently
+/// mis-marshalled).
+///
+/// # SAFETY (the one `unsafe` below)
+/// Contract (x86-64 SysV ABI §3.5.6): `ptr` names 4 readable bytes —
+/// a cursor field of the 24-byte `__va_list_tag` record whose address the
+/// C caller passed as the `va_list` argument. Aligned reads suffice (the
+/// ABI lays the record out 4/4/8/8); `read_unaligned` is the honest
+/// weaker form and costs nothing here.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // deliberate: total fn, null guarded
+pub fn read_u32_at(ptr: *const u8) -> Option<u32> {
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: per the ABI contract above, `ptr` names 4 readable bytes of
+    // the caller's va_list record; one aligned 4-byte read, no write.
+    Some(unsafe { (ptr as *const u32).read_unaligned() })
+}
+
+/// 9. Read one 8-byte little-endian word at `ptr` — a GP-class vararg
+///    slot: either inside the save area's 48-byte GP region
+///    (`reg_save_area + gp_offset`) or an 8-byte overflow-area word.
+///    Added by the T11 slice-11c amendment (M5_JNI_CALLS.md §3
+///    decision 2).
+///
+/// Total: null `ptr` → `None` (loud internal-error pend safe-side).
+///
+/// # SAFETY (the one `unsafe` below)
+/// Contract (x86-64 SysV ABI §3.5.6 + the JNI V-form caller): `ptr` is
+/// the exact address the record's cursors name for the next GP vararg —
+/// 8 readable bytes holding the argument word. One 8-byte read, no
+/// write; `read_unaligned` covers an overflow area the C caller aligned
+/// to 8 anyway.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // deliberate: total fn, null guarded
+pub fn read_word_at(ptr: *const u8) -> Option<u64> {
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: per the ABI contract above, `ptr` names 8 readable bytes —
+    // the next GP vararg word; one read, no write.
+    Some(unsafe { (ptr as *const u64).read_unaligned() })
+}
+
+/// 10. Read the value half (low 8 bytes) of one 16-byte SSE save-area
+///     slot — `reg_save_area + fp_offset`, addressed by the record's
+///     `fp_offset` cursor (`f32` lives in the low 4 bytes, `f64` in the
+///     low 8; the walk advances `fp_offset` by 16 per SSE vararg per the
+///     ABI). Added by the T11 slice-11c amendment (M5_JNI_CALLS.md §3
+///     decision 2).
+///
+/// Total: null `ptr` → `None` (loud internal-error pend safe-side).
+///
+/// # SAFETY (the one `unsafe` below)
+/// Contract (x86-64 SysV ABI §3.5.6 + the JNI V-form caller): `ptr` is
+/// `reg_save_area + fp_offset` — the low half of one 16-byte XMM save
+/// slot, 8 readable bytes holding the FP argument. One 8-byte read, no
+/// write; the upper 8 bytes of the slot are never touched.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // deliberate: total fn, null guarded
+pub fn read_fp_word_at(ptr: *const u8) -> Option<u64> {
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: per the ABI contract above, `ptr` names the 8 value bytes
+    // of one XMM save slot; one read, no write.
+    Some(unsafe { (ptr as *const u64).read_unaligned() })
+}
+
 /// The number of `unsafe` occurrences in this file. Asserted by a test
 /// below (source-scanned, so drift fails locally before gate-10 does).
-pub const ACTUAL_UNSAFE_OCCURRENCES: u32 = 6;
+/// T11 slice 11c: 6 → 9 (primitives 8–10), pin ≤ 12 unchanged.
+pub const ACTUAL_UNSAFE_OCCURRENCES: u32 = 9;
 
 #[cfg(test)]
 mod tests {
@@ -269,6 +352,54 @@ mod tests {
         assert_eq!(flag, 0);
         // total: null slot is a no-op, never a dereference
         write_u8_out(std::ptr::null_mut(), 1);
+    }
+
+    #[test]
+    fn read_u32_at_reads_the_cursor_fields_and_guards_null() {
+        // The ABI's __va_list_tag head: gp_offset then fp_offset.
+        let rec: [u8; 8] = 0x0020_0010u32
+            .to_le_bytes()
+            .iter()
+            .chain(0x0000_00B0u32.to_le_bytes().iter())
+            .copied()
+            .collect::<Vec<u8>>()
+            .try_into()
+            .expect("8 bytes");
+        assert_eq!(read_u32_at(rec.as_ptr()), Some(0x0020_0010));
+        assert_eq!(read_u32_at(rec.as_ptr().wrapping_add(4)), Some(0x0000_00B0));
+        // total: null -> None, never a dereference
+        assert_eq!(read_u32_at(std::ptr::null()), None);
+    }
+
+    #[test]
+    fn read_word_at_reads_one_gp_word_and_guards_null() {
+        let slot: [u8; 8] = (-42_i64).to_le_bytes();
+        assert_eq!(read_word_at(slot.as_ptr()), Some((-42_i64) as u64));
+        let mut tag_word = [0u8; 8];
+        tag_word.copy_from_slice(&0x0000_FFFF_0000_1234usize.to_le_bytes());
+        assert_eq!(read_word_at(tag_word.as_ptr()), Some(0x0000_FFFF_0000_1234));
+        // total: null -> None
+        assert_eq!(read_word_at(std::ptr::null()), None);
+    }
+
+    #[test]
+    fn read_fp_word_at_reads_the_value_half_of_an_sse_slot() {
+        // A 16-byte XMM save slot: the value lives in the LOW 8 bytes;
+        // the upper half is padding the walk never touches.
+        let mut xmm = [0u8; 16];
+        xmm[0..8].copy_from_slice(&2.5_f64.to_le_bytes());
+        xmm[9] = 0xAA; // upper-half noise: must not leak into the answer
+        assert_eq!(read_fp_word_at(xmm.as_ptr()), Some(2.5_f64.to_bits()));
+        // an f32 arg lives in ITS OWN slot: f32 bits in the low 4 bytes
+        let mut xmm32 = [0u8; 16];
+        xmm32[0..4].copy_from_slice(&1.5_f32.to_le_bytes());
+        let w = read_fp_word_at(xmm32.as_ptr()).expect("read");
+        assert_eq!(
+            f32::from_le_bytes(w.to_le_bytes()[0..4].try_into().expect("4")),
+            1.5_f32
+        );
+        // total: null -> None
+        assert_eq!(read_fp_word_at(std::ptr::null()), None);
     }
 
     #[test]

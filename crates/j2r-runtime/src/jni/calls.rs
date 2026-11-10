@@ -26,7 +26,7 @@
 //!   native-binding story).
 
 use crate::desc::{parse_method_desc, TypeDesc};
-use crate::jni::classes::resolve_method_id;
+use crate::jni::classes::{resolve_method_id, MethodId};
 use crate::{Throw, Value};
 
 /// Decodes one 8-byte `jvalue` word per the parameter descriptor.
@@ -114,28 +114,15 @@ impl CallFamily {
     }
 }
 
-/// The A-form invoke core, shared by all three families. NEVER fails:
-/// every Java-observable failure pends a throwable and answers the zero
-/// value — the JNI-faithful shape the wrappers rely on. Loud PANICS are
-/// reserved for foreign-side bugs that Java cannot express (a corrupted
-/// method ID, a family/staticness mismatch).
-///
-/// Resolution law (11b-2): the family picks the START class —
-/// virtual: the receiver's runtime class; static/nonvirtual: the
-/// declared class (see [`CallFamily::Nonvirtual`] for the precision) —
-/// then the walk goes start → ancestors via `parent_of` until
-/// `find_method` hits, the JVM's own resolution shape (invokevirtual/
-/// invokestatic search the class and its superclasses). The walk is
-/// what makes an ID minted through GetMethodID's ancestor walk (owner =
-/// the declaring superclass) work for a receiver whose runtime class
-/// only INHERITS the method.
-fn invoke_a(
+/// Resolves the method ID and checks the family/staticness agreement —
+/// the shared head of the A-form and V-form invoke cores. A corrupted ID
+/// or a staticness mismatch is a loud PANIC (foreign-side bugs, Temurin:
+/// UB — Java cannot express either).
+fn resolve_checked(
     family: CallFamily,
     mid: u64,
-    receiver_tag: u64,
-    declared_tag: u64,
-    args_ptr: usize,
-) -> Value {
+    form: &str,
+) -> (MethodId, TypeDesc, Vec<TypeDesc>) {
     let m = resolve_method_id(mid);
     let (params, ret) = parse_method_desc(&m.sig).unwrap_or_else(|| {
         panic!(
@@ -143,17 +130,15 @@ fn invoke_a(
             m.owner, m.name, m.sig
         )
     });
-    // The family and the ID's staticness must agree — a mismatch is a
-    // foreign-side bug (Temurin: UB), so this is a loud panic, not a pend.
     match family {
         CallFamily::Static if !m.is_static => panic!(
-            "j2r JNI bridge: CallStatic*MethodA given an INSTANCE method ID \
-             for {}::{} — foreign-side bug",
+            "j2r JNI bridge: CallStatic*Method{form} given an INSTANCE method \
+             ID for {}::{} — foreign-side bug",
             m.owner, m.name
         ),
         CallFamily::Static => {}
         _ if m.is_static => panic!(
-            "j2r JNI bridge: Call*MethodA ({}) given a STATIC method ID \
+            "j2r JNI bridge: Call*Method{form} ({}) given a STATIC method ID \
              for {}::{} — foreign-side bug",
             family.describe(),
             m.owner,
@@ -161,28 +146,27 @@ fn invoke_a(
         ),
         _ => {}
     }
-    // Fetch the jvalue words through the audited primitive — null args
-    // with a demanding descriptor pends NPE (Temurin's is UB there).
-    let mut cooked: Vec<Value> = Vec::with_capacity(params.len());
-    if !params.is_empty() {
-        if args_ptr == 0 {
-            return pend_and_zero(
-                &ret,
-                crate::throw_new("java/lang/NullPointerException", None),
-            );
-        }
-        let bytes = j2r_jni_ffi::ffi::copy_from_caller(args_ptr as *const u8, params.len() * 8);
-        for (i, t) in params.iter().enumerate() {
-            cooked.push(decode_jvalue(&bytes[i * 8..i * 8 + 8], t));
-        }
-    }
+    (m, ret, params)
+}
+
+/// The shared dispatch tail of both invoke cores: receiver + declared
+/// class laws, the per-family start class, the ancestor walk, the invoke,
+/// zero-return-on-throw, and the loud miss pend.
+fn dispatch(
+    family: CallFamily,
+    m: &MethodId,
+    ret: &TypeDesc,
+    cooked: Vec<Value>,
+    receiver_tag: u64,
+    declared_tag: u64,
+) -> Value {
     // Receiver law: virtual/nonvirtual dereference the receiver (null →
     // NPE pend + zero); static has none.
     let recv = match family {
         CallFamily::Static => None,
         _ if receiver_tag == 0 => {
             return pend_and_zero(
-                &ret,
+                ret,
                 crate::throw_new("java/lang/NullPointerException", None),
             );
         }
@@ -196,7 +180,7 @@ fn invoke_a(
         CallFamily::Virtual => None,
         _ if declared_tag == 0 => {
             return pend_and_zero(
-                &ret,
+                ret,
                 crate::throw_new("java/lang/NullPointerException", None),
             );
         }
@@ -205,7 +189,10 @@ fn invoke_a(
                 .expect("a live jclass tag resolves — null was handled above"),
         ),
     };
-    // The start class per family, then the ancestor walk.
+    // The start class per family, then the ancestor walk (the JVM's own
+    // resolution shape: start → parent_of until find_method hits — what
+    // makes an ID minted through GetMethodID's ancestor walk work for a
+    // receiver whose runtime class only INHERITS the method).
     let start: String = match family {
         CallFamily::Virtual => crate::heap::with_obj(
             *recv.as_ref().expect("virtual family has a receiver"),
@@ -225,7 +212,7 @@ fn invoke_a(
                         v
                     }
                 }
-                Err(t) => pend_and_zero(&ret, t),
+                Err(t) => pend_and_zero(ret, t),
             };
         }
         match ctx.parent_of(&cur) {
@@ -234,7 +221,7 @@ fn invoke_a(
         }
     }
     pend_and_zero(
-        &ret,
+        ret,
         crate::internal_error(&format!(
             "{} dispatch target {}.{}{} not in dispatch table",
             family.describe(),
@@ -243,6 +230,142 @@ fn invoke_a(
             m.sig
         )),
     )
+}
+
+/// The A-form invoke core (`Call*MethodA`), shared by all three families.
+/// NEVER fails: every Java-observable failure pends a throwable and
+/// answers the zero value — the JNI-faithful shape the wrappers rely on.
+fn invoke_a(
+    family: CallFamily,
+    mid: u64,
+    receiver_tag: u64,
+    declared_tag: u64,
+    args_ptr: usize,
+) -> Value {
+    let (m, ret, params) = resolve_checked(family, mid, "A");
+    // Fetch the jvalue words through the audited primitive — null args
+    // with a demanding descriptor pends NPE (Temurin's is UB there).
+    let mut cooked: Vec<Value> = Vec::with_capacity(params.len());
+    if !params.is_empty() {
+        if args_ptr == 0 {
+            return pend_and_zero(
+                &ret,
+                crate::throw_new("java/lang/NullPointerException", None),
+            );
+        }
+        let bytes = j2r_jni_ffi::ffi::copy_from_caller(args_ptr as *const u8, params.len() * 8);
+        for (i, t) in params.iter().enumerate() {
+            cooked.push(decode_jvalue(&bytes[i * 8..i * 8 + 8], t));
+        }
+    }
+    dispatch(family, &m, &ret, cooked, receiver_tag, declared_tag)
+}
+
+// ---------------------------------------------------------------------
+// The V-form walk (T11 slice 11c — docs/M5_JNI_CALLS.md §3 decision 2).
+//
+// On x86-64 SysV a `va_list` is a POINTER to one 24-byte `__va_list_tag`
+// record: gp_offset @0, fp_offset @4, overflow_arg_area @8,
+// reg_save_area @16. Consuming a vararg is the ABI's deterministic
+// algorithm over that record — implemented here in SAFE code reading
+// ONLY through the audited primitives (read_u32_at / read_word_at /
+// read_fp_word_at; gate-10 count amended in the same commit).
+//
+// v1 law: the record is consumed into a LOCAL cursor — the caller's
+// record is left untouched. A one-shot consume per Call*MethodV; a
+// foreign caller that needs the args twice va_copy's first (standard C
+// practice), and never mutating foreign memory is the conservative
+// shape for a bridge.
+//
+// Classification per descriptor letter: F/D are SSE-class (fp_offset,
+// 16-byte XMM slots, value in the low 8 bytes); every other kind is
+// GP-class (gp_offset, 8-byte slots). Register bounds: GP < 48 (6
+// slots), FP < 176 (48 + 8 slots × 16); beyond the bound the word comes
+// from the overflow (stack) area, advanced 8 bytes per word.
+const VFORM_GP_LIMIT: usize = 48;
+const VFORM_FP_LIMIT: usize = 176;
+
+/// Decodes the V-form arguments: walks the `__va_list_tag` record at
+/// `ap` through the audited primitives and marshals each word per its
+/// parameter descriptor. `Err(msg)` = an unreadable record/area — the
+/// caller pends a loud internal error (never a silent mis-marshal).
+/// A null `ap` with NO demanding parameters is fine (nothing to read);
+/// the caller checks that case before calling here.
+fn decode_vform_args(params: &[TypeDesc], ap: usize) -> Result<Vec<Value>, String> {
+    use j2r_jni_ffi::ffi::{read_fp_word_at, read_u32_at, read_word_at};
+    let p = ap as *const u8; // fed to the primitives only — no deref here
+    let mut gp = read_u32_at(p).ok_or("unreadable gp_offset")? as usize;
+    let mut fp = read_u32_at(p.wrapping_add(4)).ok_or("unreadable fp_offset")? as usize;
+    let mut ovf = read_word_at(p.wrapping_add(8)).ok_or("unreadable overflow_arg_area")? as usize;
+    let save = read_word_at(p.wrapping_add(16)).ok_or("unreadable reg_save_area")? as usize;
+    let mut cooked = Vec::with_capacity(params.len());
+    for t in params {
+        let word: u64 = match t {
+            TypeDesc::Float | TypeDesc::Double => {
+                if fp < VFORM_FP_LIMIT {
+                    let addr = save + fp;
+                    fp += 16;
+                    read_fp_word_at(addr as *const u8)
+                } else {
+                    let addr = ovf;
+                    ovf += 8;
+                    read_word_at(addr as *const u8)
+                }
+            }
+            _ => {
+                if gp < VFORM_GP_LIMIT {
+                    let addr = save + gp;
+                    gp += 8;
+                    read_word_at(addr as *const u8)
+                } else {
+                    let addr = ovf;
+                    ovf += 8;
+                    read_word_at(addr as *const u8)
+                }
+            }
+        }
+        .ok_or_else(|| format!("unreadable va_list slot for param {t:?}"))?;
+        cooked.push(decode_jvalue(&word.to_le_bytes(), t));
+    }
+    Ok(cooked)
+}
+
+/// The V-form invoke core (`Call*MethodV`) — same resolve/dispatch laws
+/// as [`invoke_a`], the args come from the va_list walk instead of the
+/// jvalue array. An unreadable record pends a loud internal error; a
+/// null `ap` with a demanding descriptor pends NPE (Temurin's is UB
+/// there — same shape as the A-form null-args law).
+fn invoke_v(
+    family: CallFamily,
+    mid: u64,
+    receiver_tag: u64,
+    declared_tag: u64,
+    ap: usize,
+) -> Value {
+    let (m, ret, params) = resolve_checked(family, mid, "V");
+    let cooked = if params.is_empty() {
+        Vec::new()
+    } else {
+        if ap == 0 {
+            return pend_and_zero(
+                &ret,
+                crate::throw_new("java/lang/NullPointerException", None),
+            );
+        }
+        match decode_vform_args(&params, ap) {
+            Ok(c) => c,
+            Err(msg) => {
+                return pend_and_zero(
+                    &ret,
+                    crate::internal_error(&format!(
+                        "Call*MethodV for {}::{}: {msg}",
+                        m.owner, m.name
+                    )),
+                );
+            }
+        }
+    };
+    dispatch(family, &m, &ret, cooked, receiver_tag, declared_tag)
 }
 
 /// Virtual family core (the ten landed `Call<K>MethodA` slots).
@@ -528,6 +651,257 @@ pub fn slot_call_nonvirtual_void_method_a(mid: u64, obj_tag: u64, clazz_tag: u64
     let _ = call_nonvirtual_method_a(mid, obj_tag, clazz_tag, args_ptr);
 }
 
+// ---------------------------------------------------- V-form families (11c)
+//
+// The C signatures mirror the A-forms with the jvalue* replaced by a
+// `va_list` (a POINTER to the caller's __va_list_tag record on this
+// ABI): virtual `(env, obj, mid, ap)`, static `(env, clazz, mid, ap)`,
+// nonvirtual `(env, obj, clazz, mid, ap)`. The walk reads the record
+// through the audited primitives and consumes it into a LOCAL cursor
+// (the caller's record is left untouched — the documented v1 law).
+
+fn call_method_v(mid: u64, obj_tag: u64, ap: usize) -> Value {
+    invoke_v(CallFamily::Virtual, mid, obj_tag, 0, ap)
+}
+
+fn call_static_method_v(mid: u64, clazz_tag: u64, ap: usize) -> Value {
+    invoke_v(CallFamily::Static, mid, 0, clazz_tag, ap)
+}
+
+fn call_nonvirtual_method_v(mid: u64, obj_tag: u64, clazz_tag: u64, ap: usize) -> Value {
+    invoke_v(CallFamily::Nonvirtual, mid, obj_tag, clazz_tag, ap)
+}
+
+pub fn slot_call_object_method_v(mid: u64, obj_tag: u64, ap: usize) -> u64 {
+    tag_or_zero(call_method_v(mid, obj_tag, ap))
+}
+
+pub fn slot_call_boolean_method_v(mid: u64, obj_tag: u64, ap: usize) -> u8 {
+    match call_method_v(mid, obj_tag, ap) {
+        Value::Int(i) => (i != 0) as u8,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_byte_method_v(mid: u64, obj_tag: u64, ap: usize) -> i8 {
+    match call_method_v(mid, obj_tag, ap) {
+        Value::Int(i) => i as i8,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_char_method_v(mid: u64, obj_tag: u64, ap: usize) -> u16 {
+    match call_method_v(mid, obj_tag, ap) {
+        Value::Int(i) => i as u16,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_short_method_v(mid: u64, obj_tag: u64, ap: usize) -> i16 {
+    match call_method_v(mid, obj_tag, ap) {
+        Value::Int(i) => i as i16,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_int_method_v(mid: u64, obj_tag: u64, ap: usize) -> i32 {
+    match call_method_v(mid, obj_tag, ap) {
+        Value::Int(i) => i,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_long_method_v(mid: u64, obj_tag: u64, ap: usize) -> i64 {
+    match call_method_v(mid, obj_tag, ap) {
+        Value::Long(j) => j,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_float_method_v(mid: u64, obj_tag: u64, ap: usize) -> f32 {
+    match call_method_v(mid, obj_tag, ap) {
+        Value::Float(f) => f,
+        _ => 0.0,
+    }
+}
+
+pub fn slot_call_double_method_v(mid: u64, obj_tag: u64, ap: usize) -> f64 {
+    match call_method_v(mid, obj_tag, ap) {
+        Value::Double(d) => d,
+        _ => 0.0,
+    }
+}
+
+/// Void has no zero to answer — the unit return is the whole story.
+pub fn slot_call_void_method_v(mid: u64, obj_tag: u64, ap: usize) {
+    let _ = call_method_v(mid, obj_tag, ap);
+}
+
+pub fn slot_call_static_object_method_v(mid: u64, clazz_tag: u64, ap: usize) -> u64 {
+    tag_or_zero(call_static_method_v(mid, clazz_tag, ap))
+}
+
+pub fn slot_call_static_boolean_method_v(mid: u64, clazz_tag: u64, ap: usize) -> u8 {
+    match call_static_method_v(mid, clazz_tag, ap) {
+        Value::Int(i) => (i != 0) as u8,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_static_byte_method_v(mid: u64, clazz_tag: u64, ap: usize) -> i8 {
+    match call_static_method_v(mid, clazz_tag, ap) {
+        Value::Int(i) => i as i8,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_static_char_method_v(mid: u64, clazz_tag: u64, ap: usize) -> u16 {
+    match call_static_method_v(mid, clazz_tag, ap) {
+        Value::Int(i) => i as u16,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_static_short_method_v(mid: u64, clazz_tag: u64, ap: usize) -> i16 {
+    match call_static_method_v(mid, clazz_tag, ap) {
+        Value::Int(i) => i as i16,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_static_int_method_v(mid: u64, clazz_tag: u64, ap: usize) -> i32 {
+    match call_static_method_v(mid, clazz_tag, ap) {
+        Value::Int(i) => i,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_static_long_method_v(mid: u64, clazz_tag: u64, ap: usize) -> i64 {
+    match call_static_method_v(mid, clazz_tag, ap) {
+        Value::Long(j) => j,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_static_float_method_v(mid: u64, clazz_tag: u64, ap: usize) -> f32 {
+    match call_static_method_v(mid, clazz_tag, ap) {
+        Value::Float(f) => f,
+        _ => 0.0,
+    }
+}
+
+pub fn slot_call_static_double_method_v(mid: u64, clazz_tag: u64, ap: usize) -> f64 {
+    match call_static_method_v(mid, clazz_tag, ap) {
+        Value::Double(d) => d,
+        _ => 0.0,
+    }
+}
+
+/// Void has no zero to answer — the unit return is the whole story.
+pub fn slot_call_static_void_method_v(mid: u64, clazz_tag: u64, ap: usize) {
+    let _ = call_static_method_v(mid, clazz_tag, ap);
+}
+
+pub fn slot_call_nonvirtual_object_method_v(
+    mid: u64,
+    obj_tag: u64,
+    clazz_tag: u64,
+    ap: usize,
+) -> u64 {
+    tag_or_zero(call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap))
+}
+
+pub fn slot_call_nonvirtual_boolean_method_v(
+    mid: u64,
+    obj_tag: u64,
+    clazz_tag: u64,
+    ap: usize,
+) -> u8 {
+    match call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap) {
+        Value::Int(i) => (i != 0) as u8,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_nonvirtual_byte_method_v(mid: u64, obj_tag: u64, clazz_tag: u64, ap: usize) -> i8 {
+    match call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap) {
+        Value::Int(i) => i as i8,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_nonvirtual_char_method_v(
+    mid: u64,
+    obj_tag: u64,
+    clazz_tag: u64,
+    ap: usize,
+) -> u16 {
+    match call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap) {
+        Value::Int(i) => i as u16,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_nonvirtual_short_method_v(
+    mid: u64,
+    obj_tag: u64,
+    clazz_tag: u64,
+    ap: usize,
+) -> i16 {
+    match call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap) {
+        Value::Int(i) => i as i16,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_nonvirtual_int_method_v(mid: u64, obj_tag: u64, clazz_tag: u64, ap: usize) -> i32 {
+    match call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap) {
+        Value::Int(i) => i,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_nonvirtual_long_method_v(
+    mid: u64,
+    obj_tag: u64,
+    clazz_tag: u64,
+    ap: usize,
+) -> i64 {
+    match call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap) {
+        Value::Long(j) => j,
+        _ => 0,
+    }
+}
+
+pub fn slot_call_nonvirtual_float_method_v(
+    mid: u64,
+    obj_tag: u64,
+    clazz_tag: u64,
+    ap: usize,
+) -> f32 {
+    match call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap) {
+        Value::Float(f) => f,
+        _ => 0.0,
+    }
+}
+
+pub fn slot_call_nonvirtual_double_method_v(
+    mid: u64,
+    obj_tag: u64,
+    clazz_tag: u64,
+    ap: usize,
+) -> f64 {
+    match call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap) {
+        Value::Double(d) => d,
+        _ => 0.0,
+    }
+}
+
+/// Void has no zero to answer — the unit return is the whole story.
+pub fn slot_call_nonvirtual_void_method_v(mid: u64, obj_tag: u64, clazz_tag: u64, ap: usize) {
+    let _ = call_nonvirtual_method_v(mid, obj_tag, clazz_tag, ap);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,7 +1019,7 @@ mod tests {
     // keeps the guard alive: the host dispatch is process-global and the
     // classes.rs fixture must not race this one.
 
-    static BASE_METHODS: [crate::UserMethod; 6] = [
+    static BASE_METHODS: [crate::UserMethod; 9] = [
         crate::UserMethod {
             name: "mark",
             desc: "()I",
@@ -675,6 +1049,21 @@ mod tests {
             name: "mk",
             desc: "()Ljava/lang/String;",
             is_static: true,
+        },
+        crate::UserMethod {
+            name: "sum3",
+            desc: "(III)I",
+            is_static: true,
+        },
+        crate::UserMethod {
+            name: "addD",
+            desc: "(DD)D",
+            is_static: true,
+        },
+        crate::UserMethod {
+            name: "mix",
+            desc: "(ID)I",
+            is_static: false,
         },
     ];
     static DERIVED_METHODS: [crate::UserMethod; 1] = [crate::UserMethod {
@@ -733,6 +1122,34 @@ mod tests {
         Ok(Value::Ref(Some(crate::object::new_string("from static"))))
     }
 
+    fn base_sum3(_recv: Option<&crate::heap::JRef>, args: &[Value]) -> Result<Value, crate::Throw> {
+        let mut sum = 0;
+        for a in args {
+            match a {
+                Value::Int(i) => sum += i,
+                other => panic!("fixture sum3 expects Int args, got {other:?}"),
+            }
+        }
+        Ok(Value::Int(sum))
+    }
+
+    fn base_add_d(
+        _recv: Option<&crate::heap::JRef>,
+        args: &[Value],
+    ) -> Result<Value, crate::Throw> {
+        match (args.first(), args.get(1)) {
+            (Some(Value::Double(a)), Some(Value::Double(b))) => Ok(Value::Double(a + b)),
+            other => panic!("fixture addD expects two Double args, got {other:?}"),
+        }
+    }
+
+    fn base_mix(_recv: Option<&crate::heap::JRef>, args: &[Value]) -> Result<Value, crate::Throw> {
+        match (args.first(), args.get(1)) {
+            (Some(Value::Int(i)), Some(Value::Double(d))) => Ok(Value::Int(i * 100 + *d as i32)),
+            other => panic!("fixture mix expects (Int, Double), got {other:?}"),
+        }
+    }
+
     fn dispatch_lookup(class: &str, name: &str, desc: &str) -> Option<crate::MethodFn> {
         match (class, name, desc) {
             ("j2r/test/CallBase", "mark", "()I") => Some(base_mark),
@@ -741,6 +1158,9 @@ mod tests {
             ("j2r/test/CallBase", "sq", "(I)I") => Some(base_sq),
             ("j2r/test/CallBase", "boom", "()I") => Some(base_boom),
             ("j2r/test/CallBase", "mk", "()Ljava/lang/String;") => Some(base_mk),
+            ("j2r/test/CallBase", "sum3", "(III)I") => Some(base_sum3),
+            ("j2r/test/CallBase", "addD", "(DD)D") => Some(base_add_d),
+            ("j2r/test/CallBase", "mix", "(ID)I") => Some(base_mix),
             ("j2r/test/CallDerived", "mark", "()I") => Some(derived_mark),
             _ => None,
         }
@@ -814,6 +1234,61 @@ mod tests {
 
     fn clear_pending() {
         super::super::bridge::take_pending_exception();
+    }
+
+    /// A hand-built SysV V-form record set (the 11c acceptance: the walk
+    /// tested against records with KNOWN layouts). `consumed_gp`/
+    /// `consumed_fp` = the named-argument slots the (simulated) foreign
+    /// variadic caller already burned; `gp_words`/`fp_words` = the vararg
+    /// payload; `overflow_words` rides the overflow (stack) area. All
+    /// three buffers are boxed and kept together so every address pinned
+    /// in the record outlives the call.
+    struct VFormArea {
+        rec: Box<[u8; 24]>,
+        _save: Box<[u8]>,
+        _ovf: Box<[u8]>,
+    }
+
+    impl VFormArea {
+        /// The `va_list` value: the record's address (what a C caller
+        /// passes as the ap argument).
+        fn ap(&self) -> usize {
+            self.rec.as_ptr() as usize
+        }
+    }
+
+    fn build_save_area(
+        consumed_gp: usize,
+        consumed_fp: usize,
+        gp_words: &[u64],
+        fp_words: &[f64],
+        overflow_words: &[u64],
+    ) -> VFormArea {
+        let mut save = vec![0u8; 48 + 8 * 16].into_boxed_slice();
+        let mut gp = consumed_gp * 8;
+        for w in gp_words {
+            save[gp..gp + 8].copy_from_slice(&w.to_le_bytes());
+            gp += 8;
+        }
+        let mut fp = 48 + consumed_fp * 16;
+        for v in fp_words {
+            save[fp..fp + 8].copy_from_slice(&v.to_le_bytes());
+            fp += 16;
+        }
+        let mut ovf = vec![0u8; overflow_words.len() * 8 + 8].into_boxed_slice();
+        for (i, w) in overflow_words.iter().enumerate() {
+            ovf[i * 8..i * 8 + 8].copy_from_slice(&w.to_le_bytes());
+        }
+        let mut rec = Box::new([0u8; 24]);
+        rec[0..4].copy_from_slice(&((consumed_gp * 8) as u32).to_le_bytes());
+        rec[4..8].copy_from_slice(&((48 + consumed_fp * 16) as u32).to_le_bytes());
+        rec[8..16].copy_from_slice(&(ovf.as_ptr() as usize).to_le_bytes());
+        rec[16..24].copy_from_slice(&(save.as_ptr() as usize).to_le_bytes());
+        VFormArea {
+            rec,
+            _save: save,
+            _ovf: ovf,
+        }
     }
 
     #[test]
@@ -1085,6 +1560,144 @@ mod tests {
             "java/lang/RuntimeException"
         );
         super::super::bridge::delete_local(recv);
+        super::super::bridge::delete_local(base_cls);
+    }
+
+    // -- the V-form save-area walk (11c) --------------------------------
+
+    #[test]
+    fn vform_walk_reads_integer_save_areas() {
+        let _rt = crate::test_support::runtime();
+        install_dispatch_fixture();
+        let base_cls = class_tag("j2r/test/CallBase");
+        let m_sum3 = super::super::classes::slot_get_method_id(base_cls, "sum3", "(III)I", true)
+            .expect("static sum3");
+        // A realistic static-V record: a 3-word payload needs all three
+        // GP register slots, so the walk starts at gp_offset 16 (the
+        // simulated foreign caller burned 2 named slots): words at
+        // save+16/24/32. The register→overflow split is its own test.
+        let area = build_save_area(2, 0, &[3, 4, 5], &[], &[]);
+        let ap = area.ap();
+        assert_eq!(
+            slot_call_static_int_method_v(m_sum3, base_cls, ap),
+            12,
+            "three GP words walk the save area and reach the callee"
+        );
+        // The Object kind on the V-form static family: the answer is a
+        // rooted local-ref tag (mk takes NO args — nothing to read).
+        let m_mk =
+            super::super::classes::slot_get_method_id(base_cls, "mk", "()Ljava/lang/String;", true)
+                .expect("static mk");
+        let tag = slot_call_static_object_method_v(m_mk, base_cls, ap);
+        assert_ne!(tag, 0, "a zero-arg V-call needs no walk at all");
+        let r = super::super::bridge::resolve(tag);
+        assert_eq!(&*crate::object::string_value(&r), "from static");
+        super::super::bridge::delete_local(tag);
+        clear_pending();
+        super::super::bridge::delete_local(base_cls);
+    }
+
+    #[test]
+    fn vform_walk_reads_fp_and_mixed_save_areas() {
+        let _rt = crate::test_support::runtime();
+        install_dispatch_fixture();
+        let base_cls = class_tag("j2r/test/CallBase");
+        let recv = base_receiver();
+        // FP-only: addD(DD)D — two SSE-class words at fp_offset 48 and 64
+        // (a static V-call burns ZERO fp slots for its named args: they
+        // are all GP). The 16-byte slot stride is the ABI law.
+        let m_add_d = super::super::classes::slot_get_method_id(base_cls, "addD", "(DD)D", true)
+            .expect("static addD");
+        let area = build_save_area(4, 0, &[], &[1.5, 2.25], &[]);
+        let ap = area.ap();
+        match slot_call_static_double_method_v(m_add_d, base_cls, ap) {
+            d if (d - 3.75).abs() < 1e-9 => {}
+            other => panic!("expected 3.75, got {other:?}"),
+        }
+        // MIXED: mix(I D)I — the Int rides GP (gp_offset 32), the Double
+        // rides the FIRST FP slot (fp_offset 48); each family's cursor
+        // advances independently.
+        let m_mix = super::super::classes::slot_get_method_id(base_cls, "mix", "(ID)I", false)
+            .expect("instance mix");
+        let area2 = build_save_area(4, 0, &[21], &[0.5], &[]);
+        let ap2 = area2.ap();
+        assert_eq!(
+            slot_call_int_method_v(m_mix, recv, ap2),
+            2100,
+            "the GP and FP cursors advance independently"
+        );
+        clear_pending();
+        super::super::bridge::delete_local(recv);
+        super::super::bridge::delete_local(base_cls);
+    }
+
+    #[test]
+    fn vform_walk_falls_back_to_the_overflow_area() {
+        let _rt = crate::test_support::runtime();
+        install_dispatch_fixture();
+        let base_cls = class_tag("j2r/test/CallBase");
+        let m_sum3 = super::super::classes::slot_get_method_id(base_cls, "sum3", "(III)I", true)
+            .expect("static sum3");
+        // gp_offset exhausted (48 = 6 GP slots burned): every word now
+        // comes from the overflow (stack) area, 8 bytes per word.
+        let area = build_save_area(6, 0, &[], &[], &[6, 7, 8]);
+        let ap = area.ap();
+        assert_eq!(
+            slot_call_static_int_method_v(m_sum3, base_cls, ap),
+            21,
+            "exhausted registers read from the overflow area"
+        );
+        clear_pending();
+        super::super::bridge::delete_local(base_cls);
+    }
+
+    #[test]
+    fn vform_record_is_left_untouched() {
+        let _rt = crate::test_support::runtime();
+        install_dispatch_fixture();
+        let base_cls = class_tag("j2r/test/CallBase");
+        let m_sum3 = super::super::classes::slot_get_method_id(base_cls, "sum3", "(III)I", true)
+            .expect("static sum3");
+        let area = build_save_area(4, 0, &[3, 4, 5], &[], &[]);
+        let ap = area.ap();
+        let before: [u8; 24] = *area.rec;
+        let _ = slot_call_static_int_method_v(m_sum3, base_cls, ap);
+        assert_eq!(
+            &*area.rec, &before,
+            "the LOCAL-cursor law: the caller's \
+            record is consumed into our cursor, never written back"
+        );
+        clear_pending();
+        super::super::bridge::delete_local(base_cls);
+    }
+
+    #[test]
+    fn vform_null_ap_and_unreadable_record_are_loud_not_silent() {
+        let _rt = crate::test_support::runtime();
+        install_dispatch_fixture();
+        let base_cls = class_tag("j2r/test/CallBase");
+        let m_sum3 = super::super::classes::slot_get_method_id(base_cls, "sum3", "(III)I", true)
+            .expect("static sum3");
+        // null ap with a demanding descriptor → NPE pend + zero (the
+        // A-form null-args law's V-form twin; Temurin's is UB there).
+        assert_eq!(slot_call_static_int_method_v(m_sum3, base_cls, 0), 0);
+        assert!(super::super::bridge::has_pending_exception());
+        clear_pending();
+        // An unreadable record (reg_save_area = 0, gp_offset < 48 → the
+        // first read addresses NULL) → the primitives answer None → a
+        // loud internal-error pend, NEVER a silent mis-marshal.
+        let mut rec: Box<[u8; 24]> = Box::new([0u8; 24]);
+        rec[8..16].copy_from_slice(&1usize.to_le_bytes()); // overflow area (unread, must be non-null-shaped)
+                                                           // reg_save_area stays 0; gp_offset stays 0.
+        let ap = rec.as_ptr() as usize;
+        assert_eq!(slot_call_static_int_method_v(m_sum3, base_cls, ap), 0);
+        assert!(super::super::bridge::has_pending_exception());
+        let t = super::super::bridge::take_pending_exception().expect("pending");
+        assert_eq!(
+            crate::heap::with_obj(t.obj, |o| o.jclass.to_string()),
+            "java/lang/Error",
+            "an unreadable record is OUR loud internal error, not NPE"
+        );
         super::super::bridge::delete_local(base_cls);
     }
 }
