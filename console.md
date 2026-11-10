@@ -1137,3 +1137,20 @@ getrusage max single child, mistake-list #2).
   Attach/Detach slots + NewGlobalRef decide their fate there), the
   loud-gap probes, the CI gate (G1.5) — wave 2 closes at 13d.
 - Boards updated and pushed immediately after this entry.
+
+### [2026-11-10 session 8 cont.] baseline re-proven at 448 green on 2722bf9 (the §3.1 law, before any 13d code)
+- fmt clean; clippy `-D warnings` clean (workspace, all targets,
+  10.82 s warm).
+- **448 tests, 0 failures** — classfile 38 · jni-ffi 17 (15 unit +
+  2 real-C) · runtime 239 (20.65 s) · codegen 125 · cli 29 (bin 15 +
+  soe_e2e 1 + lambda_neg 2 + jar_suite 3 + partition_suite 1 +
+  corpus_suite 1 + native_e2e 2 + jni_parity 1 + cfg_equiv 1 +
+  diff_suite 2). Walls: cfg_equiv 379.77 s, diff_suite 496.55 s
+  (fresh javac compile of all 109 fixtures) — **zero divergences**;
+  the 13c C-harness parity battery green on this box too.
+- Next: finish the .md reading pass (TODO/README/ROADMAPs/M5_PLAN +
+  the remaining design notes), then **13d** per REVIEW_CHECKLIST
+  G1.4/G1.5 — the attach-lifecycle battery (the VM-table
+  Attach/Detach slots decide their fate there; NewGlobalRef stays a
+  loud stub unless the battery needs it), the loud-gap probes, the
+  CI gate — wave 2 closes at 13d.
