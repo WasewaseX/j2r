@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-08.
+fix the board. Last updated: 2026-11-10.
 
 Project: J2R — Java → Rust compiler, 100% safe Rust (zero `unsafe`).
 North star: compile Minecraft Java Edition + mods (Fabric/Forge/NeoForge,
@@ -1464,7 +1464,7 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       trio, F5 artifact sizes for the download-size story. Evidence:
       work farm20k run, scripts/m5_20k_confirm.sh, console.md
       §2026-11-09 08:34–09:25.
-- [ ] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
+- [~] JNI bridge for LWJGL/GLFW/OpenAL (R3, safe-Rust design; §3,
       T08–T13, C-harness parity is the blocker's evidence bar)
       — T08 LANDED (2026-11-09): `j2r-runtime::jni` tables generated
       from the Temurin 21 jni.h (235 slots, const offset_of! assertions
@@ -1472,6 +1472,37 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       pointer-out-slots-vs-forbid(unsafe_code) and F-J2 varargs-at-A-form
       registered in jni/mod.rs for T09/T11); vendoring made
       directory-recursive (suite-caught e2e regression).
+      — T09 LANDED (2026-11-09): the audited FFI crate `j2r-jni-ffi`
+      (6 primitives, 5 unsafe occurrences, pin ≤ 12, gate-10 amended in
+      the same commit) + the safe generation-pinned handle-table bridge;
+      379 green.
+      — T10 COMPLETE (2026-11-10): the five mUTF-8 string slots wired
+      through the generator real-slot registry (FFI 6 → 7,
+      `write_u8_out`); slice 3a host dispatch + jclass mirror + jfieldID
+      registry + 36 accessors; slice 3b the 46 array slots (91 real
+      slots) with the mode law and validate-before-remove discipline;
+      child-process abort pins; 414 green, full battery zero
+      divergences.
+      — T11 COMPLETE (2026-11-10): docs/M5_JNI_CALLS.md (the F-J2
+      resolution — A-forms workhorse, V-forms via the SysV save-area
+      walk, bare forms loud); the pending-exception cell; the method-ID
+      registry; all thirty Call*MethodA AND all thirty Call*MethodV
+      across virtual/static/nonvirtual; FFI 7 → 10 primitives
+      (occurrences 6 → 9); 432 green.
+      — T12 COMPLETE (2026-11-10): docs/M5_JNI_NATIVES.md; the binding
+      registry + slots 215/216; the dispatch-walk consult; ACC_NATIVE
+      accepted with the emitted call-through body; the REAL
+      three-channel acceptance e2e vs Temurin (byte-identical
+      UnsatisfiedLinkError header); 440 green.
+      — T13 IN PROGRESS (docs/M5_JNI_HARNESS.md): 13a the note landed;
+      13b primitive 11 `call_foreign_native` (the fixed SysV
+      register-window call) + gate-10 amended (occurrences 9 → 10) +
+      the Foreign path switch + the REAL C probe via build.rs (test
+      binaries only — the first C in the repo) + the window loudness
+      pinned through the full runtime path; 444 green, full battery
+      zero divergences. Remaining: 13c the harness `.so` + the
+      Temurin-vs-j2r three-channel parity runner; 13d the
+      attach-lifecycle battery + the CI gate.
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)
 - [ ] mixin application at the bytecode level before j2r (R1; §4,

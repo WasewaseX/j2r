@@ -1,0 +1,228 @@
+# J2R — Strict Review Checklist (the milestone-completion gate)
+
+Derived from the external readiness review of 2026-11-10 (P0–P2 priority
+order) and bound on THIS repository's coding agent. Purpose, verbatim from
+the review: **a milestone cannot be claimed complete just because the code
+compiles.** Every item below has explicit PASS criteria, FAIL conditions,
+and an explicit list of what does NOT count as evidence.
+
+Standing definitions used throughout:
+
+* **Three-channel differential proof** — stdout, stderr and exit status
+  byte-identical vs Temurin 21.0.13+9 (stderr with only stack-trace frame
+  lines normalized). This is the ONLY definition of "behaves identically".
+* **Runnable evidence** — a committed test name, CI gate, fixture, or
+  measurement file (`scripts/evidence/`) that a fresh `cargo test` / script
+  run can reproduce. Prose, commit messages, and this file are NOT evidence.
+* **The boards win** — `console.md` + `console_summary.md` are the
+  authoritative state; if a claim anywhere disagrees with them, the claim
+  is wrong until the boards are updated WITH evidence.
+
+---
+
+## G0 — Standing gates that never pause (every landing, every priority)
+
+| # | Gate | PASS | FAIL / does NOT count |
+|---|------|------|-----------------------|
+| G0.1 | fmt + clippy | `cargo fmt --all` clean; `cargo clippy --workspace --all-targets --all-features -- -D warnings` exits 0 | "mostly clean", warnings fixed "later" |
+| G0.2 | Full battery | workspace tests 0 failures; `diff_suite` (109 fixtures, three-channel vs Temurin) and `cfg_equiv` zero divergences re-run on the landing commit | a suite skipped because "no codegen change" when ANY runtime/FFI/behavioral path changed |
+| G0.3 | gate-10 unsafe pin | no `unsafe` outside `j2r-jni-ffi/src/ffi.rs`; occurrence count ≤ 12 and equal to `ACTUAL_UNSAFE_OCCURRENCES`; every occurrence carries a `// SAFETY:` justification naming the JNI contract | relaxing the pin without a committed design note + owner review in the SAME commit |
+| G0.4 | doc-count sync | `scripts/check_doc_counts.py` exit 0 (README measured, not claimed) | hand-edited counts |
+| G0.5 | boards + push | `console.md` + `console_summary.md` updated and PUSHED in the same landing; un-pushed = un-protected | local-only commits at session end |
+| G0.6 | loud-unsupported law | every unimplemented feature fails loudly with a named error — never a silent wrong answer | a "probably fine" fallback |
+| G0.7 | honest numbers | every perf claim carries: median protocol, same-session control pair, environment (2-core Xeon / 4 GB box class), and byte-identical-output proof; startup-dominated and steady-state numbers never quoted against each other | quoting a ratio without its regime |
+
+## G1 — P0: Finish and prove the JNI bridge (M5 wave 2, T13c/T13d + acceptance)
+
+State at checklist creation (2026-11-10): T08–T12 COMPLETE; T13 13a+13b
+landed (primitive 11 `call_foreign_native` proven against a REAL
+C-compiled probe; register-window loudness pinned through the full runtime
+path; 444 green). The registered pointer/out-slot vs zero-unsafe issue
+(review item) is F-J1 — RESOLVED by the audited `j2r-jni-ffi` crate under
+the amended gate-10 (G0.3); it stays resolved only while G0.3 holds.
+
+- [ ] **G1.1 — the C harness exists and is ONE source.**
+  PASS: `tests/jni_harness/harness.c` compiles to `libjni_harness.so` with
+  the repo's pinned toolchain; the SAME `.so` runs against Temurin (via
+  `System.loadLibrary`) and against the j2r binary; no side-specific code
+  paths beyond the loading mechanism. FAIL: two different harness sources;
+  a Rust-only "harness".
+- [ ] **G1.2 — every v1 function exercised from real C.**
+  PASS: the harness drives the full inventory of M5_JNI_HARNESS.md §3
+  (versioning/VM, classes/fields, the Call*MethodA/V families, the
+  Exception* trio, the five mUTF-8 string slots both directions incl.
+  encoded-NUL and supplementary-pair edges, the array families with all
+  three release modes, RegisterNatives/UnregisterNatives), and the harness
+  output asserts the LOUD behavior for the v1 registered gaps (weak global
+  refs, cross-thread local-resolve) instead of pretending they work.
+- [ ] **G1.3 — three-channel parity, both directions.**
+  PASS: Temurin-vs-j2r outputs byte-identical on stdout/stderr/exit for
+  the whole battery; native→J2R calls (GetEnv/attach/env-table use) and
+  J2R→native calls (RegisterNatives-bound C natives invoked through
+  primitive 11) both demonstrated. FAIL: "stdout matches, stderr differs
+  but that's fine"; a diff normalized away beyond frame lines.
+- [ ] **G1.4 — attach lifecycle.**
+  PASS: a pthread spawns, `AttachCurrentThread` on the cached `JavaVM`,
+  runs the battery, `DetachCurrentThread`, re-attaches — identical results
+  both runtimes; the detach hook and frame-stack lifecycle proven end to end.
+- [ ] **G1.5 — CI pinning.**
+  PASS: a dedicated CI gate compiles the harness with cc, runs both sides,
+  compares three channels, and is wired into the all-gates aggregate; a
+  missing JDK/compiler skips LOUDLY (the soe_e2e law). FAIL: harness runs
+  only on a dev box.
+- [ ] **G1.6 — no casual unsafe growth.**
+  PASS: any new FFI primitive lands with its gate-10 amendment in the same
+  commit, its SAFETY justification, and its place in the M5_JNI_FFI.md §4
+  register (the 10-of-12 headroom is tracked, not free).
+
+**M5 wave-2 (JNI milestone) completion = G1.1–G1.6 ALL checked with the
+evidence committed. Nothing else — not "the code compiles", not "the unit
+tests pass", not "the mock dispatch works".**
+
+## G2 — P0: The 70k-class scalability path (wave-1 follow-ups F1–F4)
+
+State: 20k demonstrated (cold ≈17.1 min, no-op 38.8 s, one-edit 55.3 s,
+parity PASS, binary ≈1.01 GiB, peak rustc 3.49 GB = the app/Dispatch
+composite). 70k is NOT demonstrated and may not be claimed.
+
+- [ ] **G2.1 — split the app dispatch composite (F3).**
+  PASS: the Dispatch/link-table emission is split so no single generated
+  Rust compilation unit scales with TOTAL class count; the 20k peak-rustc
+  number is re-measured and drops materially; the partition differential
+  stays byte-identical. FAIL: a split that changes observable behavior.
+- [ ] **G2.2 — no-op rebuild fast path (F2).**
+  PASS: the SHA-256-rehash no-op cost drops via the (mtime,size) fast path
+  with the manifest remaining a CACHE (corrupt/tampered → full re-emit,
+  loud); the 20k no-op number re-measured and recorded with raw files in
+  `scripts/evidence/`.
+- [ ] **G2.3 — emission-stage profile (F1).**
+  PASS: a profile of the 20k emit stage exists (named hot function, not
+  adjectives) and either a fix lands or the super-linearity is accepted in
+  writing with its measured constant.
+- [ ] **G2.4 — release-profile 20k trio (F4).**
+  PASS: the cold/no-op/one-edit trio re-measured under `--release` on a
+  disk-guarded protocol, raw evidence committed.
+- [ ] **G2.5 — progressive scaling, honest ladder.**
+  PASS: N is raised stepwise (e.g. 35k → 50k → 70k) with per-step stage
+  tables; the 70k target is claimed ONLY when a reproducible run on THIS
+  box class completes end-to-end with (a) JVM three-channel differential
+  verification, (b) no OOM/SIGKILL at any stage, (c) peak memory recorded
+  per stage, (d) raw measurement files committed. FAIL: extrapolating the
+  curve and writing "~70k should fit".
+- [ ] **G2.6 — the fat-method regression the review flagged (registered
+  here as F6).**
+  Context: partitioning bounds CRATE size; it does NOT split one enormous
+  generated method. The JZlib release build SIGKILLed rustc at every opt
+  level (peak 3.03–3.56 GB, borrow-check/MIR phase) on this 4 GB box —
+  never closed, only bounded by machine memory.
+  PASS (either arm, honestly recorded): (a) split-table/smaller-function
+  emission lands and the JZlib generated crate completes `--release -O3`
+  on this box with byte-identical output, or (b) the limit is registered
+  as a machine-bound boundary with the measured number, a named follow-up
+  (the emission fix), AND a CI-visible regression test that fails loudly
+  the day the emitted function grows past a committed size/shape threshold
+  (a proxy test on the emitter side — e.g. per-method instruction /
+  switch-table census with a pinned ceiling). FAIL: silence, or a claim
+  that "partitioning fixed the fat-method problem" (it did not).
+- [ ] **G2.7 — the review's memory-budget framing.**
+  PASS: the 70k acceptance names a memory budget up front (this box class:
+  4 GB/process, disk-guarded) and the run is measured against THAT budget,
+  not against a bigger machine.
+
+## G3 — P1: Typed-codegen performance (the ~100× steady-state gap)
+
+State: lever ledger structuring-flat → typed-locals 0.992 → operand
+unification 0.958 → typed-payload arrays 0.936 (6.4% cumulative); steady
+state ~66× behind the full-tier JVM on JamaBench; ~73–104× on StringsSimBench.
+
+- [ ] **G3.1 — the deferred-join mechanism** (tred2/orthes/hqr2 refusals,
+  the registered next CFG layer). PASS: lands behind `--emit-cfg`, the
+  three kernels lift, cfg_equiv stays zero-divergence on the whole suite,
+  and the same-session controlled pair is recorded EITHER WAY (a measured
+  NO-GO is a valid recorded outcome; a silent no-measurement is not).
+- [ ] **G3.2 — the block-join/entry-var layer** (~140 slot-var sites, the
+  named next prerequisite). Same PASS shape as G3.1.
+- [ ] **G3.3 — primitive-specialized collection paths** (the measured
+  2.78× container tax, addendum 7). PASS: design lands after the
+  entry-var layer per the register; the BoxingBoxed/BoxingPrim pair
+  re-measured; output byte-identical.
+- [ ] **G3.4 — the acceptance bar.** PASS: repeatable (≥2 sessions,
+  same protocol) improvements on BOTH JamaBench and StringsSimBench with
+  byte-identical output AND zero diff-suite regressions on every landing;
+  every number carries its same-session control pair (G0.7). FAIL: a win
+  quoted from a stale baseline (the 1.31× machine-drift lesson).
+- [ ] **G3.5 — honesty guard.** The gap may be reported as "improving" but
+  the ~100× (now ~66×) figure stays quoted until a measured order-of-
+  magnitude change; no "approaching JVM performance" phrasing without the
+  number.
+
+## G4 — P1: Close the concurrency review (M4 + the JMM boundary)
+
+State: all four M4 waves implemented and CI-verified; the owner completion
+review is PENDING (registered); volatile and final-field freeze semantics
+do NOT exist (RUNTIME_SAFETY.md §6 documents the boundary).
+
+- [ ] **G4.1 — the M4 owner review completes** with a recorded verdict
+  (approve / approve-with-follow-ups / request-changes) in the boards.
+- [ ] **G4.2 — the memory-model boundary is enforced, not just
+  documented.** PASS (either arm): (a) volatile/final-freeze implemented
+  with litmus-suite evidence per STRATEGIC_GAPS R4 (the JMM→Rust mapping
+  table + SB/CoRR/IRIW/message-passing litmus tests asserting the ALLOWED
+  outcome set under stress), or (b) the boundary stays as documented AND
+  gains machine enforcement — a CI check that fails loudly when a field
+  marked `volatile`/`final` in input bytecode is compiled to a plain
+  non-atomic access WITHOUT the documented boundary warning in the
+  generated crate (the incompatibility must be visible at the use site,
+  not only in a doc). FAIL: dropping the documentation, or claiming
+  JMM conformance that §6 does not support.
+
+## G5 — P2: Mappings, mixins, inline caches (ordered AFTER G1/G2 per the review)
+
+- [ ] **G5.1 — T14–T16 mappings.** PASS: Tiny v2 parser with unit
+  fixtures; the remap stage rewrites constant-pool names BEFORE j2r as a
+  separate pipeline stage; name-for-name parity vs a reference remapper
+  on a fixture jar; the remapped jar compiles and runs differentially
+  clean; a real Fabric intermediary map loads.
+- [ ] **G5.2 — T17–T21 mixins.** PASS: the class-identity equivalence
+  design answer (T17) lands BEFORE any rewrite rule; @Inject/@Redirect/
+  @Accessor each carry a differential fixture vs Temurin; the wave's
+  acceptance is a real Fabric mod with ≥3 mixins across the three
+  families behaving identically both sides (three channels). FAIL: any
+  rewrite rule landing before T17; runtime bytecode rewriting (v1
+  non-goal).
+- [ ] **G5.3 — T22–T23 inline caches.** PASS: the megamorphic-site census
+  table committed; vtable-guarded caches either measured-and-kept or
+  measured-NO-GO-recorded on the bench battery; never a speculative
+  landing.
+- [ ] **G5.4 — ecosystem gating.** Fabric/Forge/NeoForge work (M6) does
+  not START until G1 and G2 are both checked. The review's words are the
+  gate: finish the JNI bridge and scalability gates first.
+
+## G6 — Documentation and evidence discipline (the review's §4, standing)
+
+- [ ] **G6.1 — the machine-checked status register.** The doc-count gate
+  (G0.4) covers counts; the SAME discipline extends to milestone status:
+  M5_PLAN §6, TODO.md, docs/ROADMAP.md and README's status line may only
+  change in the same commit as the evidence they record (this checklist's
+  first enforcement pass fixed the T11/T12/T13 drift — kept true by
+  G0.5's boards discipline). A drift found later is a bug in the process,
+  fixed at the source.
+- [ ] **G6.2 — two meanings of "T08" never conflated** (the M2-era
+  fat-method T08-a vs the JNI function tables T08): every task reference
+  in prose carries its milestone context.
+- [ ] **G6.3 — evidence files outlive the sandbox:** raw measurement
+  files land in `scripts/evidence/` in the claim's commit (lesson #11).
+- [ ] **G6.4 — the review cadence.** Each P0/P1 area above gets its
+  verdict recorded in the boards when its checks complete; the checklist
+  itself is updated in the same commit (never re-written from memory).
+
+---
+
+## What this checklist is
+
+The pass/fail contract between the owner and the coding agent for the
+rest of M5. It converts the external review's priorities into the repo's
+own evidence discipline: nothing is complete because it compiles; nothing
+is complete because a unit test passes; it is complete when the named
+runnable evidence exists, the differential battery is green, the boards
+say so, and the work is pushed.

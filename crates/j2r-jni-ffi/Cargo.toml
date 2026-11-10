@@ -7,3 +7,10 @@ description = "Audited FFI memory primitives for the J2R JNI bridge — the work
 repository = "https://github.com/WasewaseX/j2r"
 
 [dependencies]
+
+# `build.rs` emits this cfg when the platform C compiler is available
+# (the real-C probe tests in tests/c_probe.rs); declared here so the
+# `unexpected_cfgs` check knows it. The section is valid in the vendored
+# standalone manifest too (it changes nothing for generated projects).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(j2r_c_probe)'] }

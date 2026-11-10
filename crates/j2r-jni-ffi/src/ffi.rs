@@ -1,6 +1,6 @@
 //! The audited primitive surface (M5_JNI_FFI.md §4).
 //!
-//! Ten total functions; every `unsafe` occurrence in the workspace outside
+//! Eleven total functions; every `unsafe` occurrence in the workspace outside
 //! `#![forbid(unsafe_code)]` lives here, inside these functions, with a
 //! `// SAFETY:` justification naming the JNI contract. gate-10 counts and
 //! pins the occurrences (`AUDITED_UNSAFE_OCCURRENCES` = 12; the T09
@@ -252,10 +252,116 @@ pub fn read_fp_word_at(ptr: *const u8) -> Option<u64> {
     Some(unsafe { (ptr as *const u64).read_unaligned() })
 }
 
+/// 11. Call a bare-form foreign native through the FIXED SysV
+///     max-register signature — the OUTBOUND half of the variadic
+///     answer (M5_JNI_HARNESS.md §2; the inbound halves are the A-forms
+///     and the 11c save-area walk). Added by the T13 slice-13b
+///     amendment; the occurrence pin (≤ 12) still holds (10 used).
+///
+/// The fixed signature `(env, recv, usize × 4, f64 × 8)`: on x86-64
+/// SysV the integer-class args land in rdi/rsi/rdx/rcx/r8/r9 (env +
+/// recv consume the first two) and the SSE-class args land in xmm0–7
+/// IN ORDER — so a bare C native whose varargs fit 4 GP + 8 FP
+/// register words is called correctly, with `gp`/`fp` filled per the
+/// descriptor's classification (the same marshalling law the A-form
+/// decode uses, applied safe-side in `j2r-runtime::jni::natives`).
+///
+/// The return is read as BOTH channels — the 16-byte `NativeRet`
+/// (INTEGER + SSE) comes back in rax + xmm0, so a C fn returning any
+/// jint/jlong/jobject-shaped word is read from `.i` and a jdouble (or
+/// jfloat) from `.d`; the caller picks per the return descriptor.
+/// This is why ONE thunk serves every return kind without lying about
+/// the callee's own return type.
+///
+/// Beyond the register window (`gp.len() > 4 || fp.len() > 8`): a LOUD
+/// panic naming the window law — stack-frame construction is libffi's
+/// exact problem and stays banned by both standing laws. The harness
+/// fixtures stay inside the window (documented per fixture).
+///
+/// # SAFETY (the one `unsafe` below)
+/// Contract (M5_JNI_HARNESS.md §2): `ptr` is the `fnPtr` the foreign
+/// caller handed `RegisterNatives` for a native whose declared
+/// descriptor classifies into the register window above; calling it
+/// with (env, recv, gp, fp) in the ABI's own register order is exactly
+/// what the JVM itself does for the same registration. The callee owns
+/// its own safety; we never dereference `ptr` as data.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // deliberate: the pointer IS a fn to call
+#[allow(clippy::too_many_arguments)] // the fixed SysV shape is the point
+pub fn call_foreign_native(
+    ptr: *const c_void,
+    env: *mut c_void,
+    recv: *mut c_void,
+    gp: &[usize],
+    fp: &[f64],
+) -> NativeRet {
+    assert!(
+        gp.len() <= 4 && fp.len() <= 8,
+        "j2r JNI bridge: foreign native call outside the SysV register \
+         window ({} GP words, {} FP words; max 4 + 8) — stack-frame \
+         construction is not served (libffi stays banned); widen the \
+         harness fixture or bind a Rust-shape native",
+        gp.len(),
+        fp.len()
+    );
+    type BareNative = extern "C" fn(
+        *mut c_void, // env
+        *mut c_void, // recv / jclass
+        usize,
+        usize,
+        usize,
+        usize, // gp words (rdx, rcx, r8, r9)
+        f64,
+        f64,
+        f64,
+        f64,
+        f64,
+        f64,
+        f64,
+        f64, // fp words (xmm0..7)
+    ) -> NativeRet;
+    let w = |k: usize| gp.get(k).copied().unwrap_or(0);
+    let d = |k: usize| fp.get(k).copied().unwrap_or(0.0);
+    // SAFETY: per the contract above — `ptr` is a registered C native
+    // fn inside the register window; the transmute only fixes the
+    // calling convention (the SysV classification argument is in the
+    // design note), and the call passes the ABI's own register shapes.
+    unsafe {
+        let f: BareNative = std::mem::transmute(ptr);
+        f(
+            env,
+            recv,
+            w(0),
+            w(1),
+            w(2),
+            w(3),
+            d(0),
+            d(1),
+            d(2),
+            d(3),
+            d(4),
+            d(5),
+            d(6),
+            d(7),
+        )
+    }
+}
+
+/// The dual-channel return of [`call_foreign_native`]: the SysV
+/// two-eightbyte {INTEGER, SSE} return lands in rax + xmm0; the caller
+/// picks the channel per the native's return descriptor.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NativeRet {
+    /// The INTEGER-class return word (rax): jint/jlong/jobject/void.
+    pub i: u64,
+    /// The SSE-class return word (xmm0): jfloat (low 4 bytes) / jdouble.
+    pub d: f64,
+}
+
 /// The number of `unsafe` occurrences in this file. Asserted by a test
 /// below (source-scanned, so drift fails locally before gate-10 does).
-/// T11 slice 11c: 6 → 9 (primitives 8–10), pin ≤ 12 unchanged.
-pub const ACTUAL_UNSAFE_OCCURRENCES: u32 = 9;
+/// T13 slice 13b: 9 → 10 (primitive 11), pin ≤ 12 unchanged.
+pub const ACTUAL_UNSAFE_OCCURRENCES: u32 = 10;
 
 #[cfg(test)]
 mod tests {
@@ -400,6 +506,77 @@ mod tests {
         );
         // total: null -> None
         assert_eq!(read_fp_word_at(std::ptr::null()), None);
+    }
+
+    // -- primitive 11: the foreign-native call thunk (13b) --------------
+    //
+    // The Rust `extern "C"` probes below validate the register-window
+    // MATH. `build.rs` ADDITIONALLY compiles a REAL C probe (the
+    // M5_JNI_HARNESS.md §1 shape — the first C in the repo) and links it
+    // into this package's TEST binaries only; the tests that exercise it
+    // live in `tests/c_probe.rs` (an integration-test target — a
+    // `rustc-link-arg-tests` link needs one) so the transmute is also
+    // proven against actual C-compiler output. 13c's harness adds the
+    // full JNI-loop parity on top.
+
+    extern "C" fn probe_add(_env: *mut c_void, _recv: *mut c_void, a: usize, b: usize) -> u64 {
+        (a + b) as u64 // a jint native's INTEGER return (rax)
+    }
+
+    extern "C" fn probe_mul_d(_env: *mut c_void, _recv: *mut c_void, a: usize, b: f64) -> f64 {
+        // a jdouble native's SSE return (xmm0); the Int arg rides the
+        // GP window INDEPENDENTLY of the FP window (SysV classification).
+        (a as f64) * b
+    }
+
+    #[test]
+    fn foreign_native_call_integer_window_and_return() {
+        let ret = call_foreign_native(
+            probe_add as *const c_void,
+            0x1000 as *mut c_void,
+            0x2000 as *mut c_void,
+            &[20, 22],
+            &[],
+        );
+        assert_eq!(ret.i, 42, "the GP words land in rdx/rcx order");
+        // window guard: 5 GP words is OUTSIDE the window — loud
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = call_foreign_native(
+                probe_add as *const c_void,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &[1, 2, 3, 4, 5],
+                &[],
+            );
+        }))
+        .is_err();
+        assert!(panicked, "beyond the GP window must be loud");
+    }
+
+    #[test]
+    fn foreign_native_call_mixed_classification_and_sse_return() {
+        // mix(I D)D — the Int rides gp[0] (rdx), the Double rides
+        // fp[0] (xmm0); the jdouble return is read from .d.
+        let ret = call_foreign_native(
+            probe_mul_d as *const c_void,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &[21],
+            &[2.0],
+        );
+        assert!((ret.d - 42.0).abs() < 1e-9, "the SSE return channel works");
+        // window guard: 9 FP words — loud
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = call_foreign_native(
+                probe_mul_d as *const c_void,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &[],
+                &[0.0; 9],
+            );
+        }))
+        .is_err();
+        assert!(panicked, "beyond the FP window must be loud");
     }
 
     #[test]

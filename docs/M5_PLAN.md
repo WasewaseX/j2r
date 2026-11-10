@@ -315,12 +315,46 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
       15 arrays tests + the child-process release-miss abort pin;
       workspace 414 green, full battery re-run — zero divergences).
       **T10 COMPLETE.**
-- [ ] **T11** Arity-shim trade-off note (variadic `Call*Method` ABI, the
+- [x] **T11** Arity-shim trade-off note (variadic `Call*Method` ABI, the
       flagged-open question) + the `Call*Method`/`CallStatic*Method`
-      families. → §3
-- [ ] **T12** `RegisterNatives` + round-trip demo. → §3
-- [ ] **T13** C test harness `.so`: every v1 function, Temurin vs j2r
-      parity, pinned in CI. → §3.4
+      families. → §3 — **COMPLETE (2026-11-10)**: 11a design note
+      (docs/M5_JNI_CALLS.md, the F-J2 resolution: A-forms workhorse /
+      V-forms via the SysV save-area walk / bare forms LOUD, honestly
+      typed); 11b-1 the pending-exception cell + the method-ID registry
+      + the ten virtual Call*MethodA; 11b-2 the static/nonvirtual
+      families through ONE invoke core with the ancestor walk + six
+      mock-dispatch tests; 11c the three audited read primitives (FFI
+      7 → 10, unsafe occurrences 6 → 9 of pin 12, same-commit law) +
+      the save-area walk + all thirty Call*MethodV; 156 real slots;
+      432 green, full battery zero divergences.
+- [x] **T12** `RegisterNatives` + round-trip demo. → §3 — **COMPLETE
+      (2026-11-10)**: 12a design note (docs/M5_JNI_NATIVES.md — the
+      MethodFn binding shape, the registry laws, the walk consult, the
+      UserMethod.is_native metadata decision); 12b the binding registry
+      + slots 215/216 (156 → 158) + the dispatch-walk consult; 12c
+      plan_methods accepts ACC_NATIVE with the emitted call-through
+      body + the verifier skip + BOTH lookup layouts + the REAL
+      three-channel acceptance e2e (the byte-identical
+      UnsatisfiedLinkError header vs Temurin, which surfaced and fixed
+      the message shape and the missing linkage-error builtin parent
+      chain); 440 green, full battery zero divergences. The unbound
+      direction is three-channel vs the oracle; the bound-Rust
+      direction is unit-pinned; the bound-C-native direction is T13.
+- [~] **T13** C test harness `.so`: every v1 function, Temurin vs j2r
+      parity, pinned in CI. → §3.4 — IN PROGRESS (docs/M5_JNI_HARNESS.md
+      is the design of record): 13a the note LANDED (`724e839`); 13b
+      primitive 11 (`call_foreign_native`, the fixed SysV register-window
+      call) + the gate-10 amendment (9 → 10 unsafe occurrences of pin
+      12, same commit) + the `Binding::Foreign` path switch
+      (`invoke_binding`/`foreign_call`, descriptor-driven marshal, the
+      jclass-as-second-slot static convention) + the register-window
+      loudness pinned through the full runtime path + the REAL C probe
+      (build.rs compiles the probe C with the platform compiler, linked
+      into the test binaries only — the first C in the repo; vendored
+      generated projects never see it, `--offline` builds unaffected);
+      444 green, full battery zero divergences. Remaining: 13c the
+      harness C source + the Temurin/j2r three-channel parity runner,
+      13d the attach-lifecycle battery + the CI gate → wave 2 closes.
 
 ### Wave 3 — mappings pipeline
 

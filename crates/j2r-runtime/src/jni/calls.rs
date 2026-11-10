@@ -220,11 +220,19 @@ fn dispatch(
         // this class, ask the registry — the walk consults at EVERY
         // class it visits, which makes bind-on-Base resolve for a
         // Derived receiver exactly like an inherited compiled method.
-        // A foreign fnPtr binding is a loud abort (as_method_fn); a
-        // Rust binding invokes like any other method fn.
+        // Rust bindings invoke like any other method fn; FOREIGN fn
+        // pointers go through the audited call thunk (primitive 11,
+        // 13b) — the C native ABI served inside the SysV register
+        // window, loud beyond it.
         if let Some(b) = super::natives::lookup(&cur, &m.name, &m.sig) {
-            let f = super::natives::as_method_fn(&cur, &m.name, &m.sig, b);
-            return match f(recv.as_ref(), &cooked) {
+            return match super::natives::invoke_binding(
+                &cur,
+                &m.name,
+                &m.sig,
+                b,
+                recv.as_ref(),
+                &cooked,
+            ) {
                 Ok(v) => {
                     if matches!(ret, TypeDesc::Void) {
                         Value::Ref(None)

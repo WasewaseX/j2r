@@ -32,9 +32,16 @@ file disagrees with memory, this file wins.
   large-scale-compilation evidence — delivered by the 20k run) ·
   **20k census-jar confirmation LANDED** (cold ≈ 17.1 min, no-op 38.8 s,
   one-edit 55.3 s, parity PASS; findings F1–F5 in the log below).
-- **M5 waves 2–5 (next):** T08–T13 JNI bridge (gate satisfied — T08
-  preconditions checklist in console_summary.md §3.1) · T14–T16 mappings ·
-  T17–T21 mixins · T22–T23 inline caches.
+- **M5 wave 2 (JNI): T08–T12 COMPLETE, T13 13a+13b LANDED (2026-11-10).**
+  T08 tables ✅ · T09 FFI+bridge ✅ · T10 strings/classes/arrays ✅ ·
+  T11 all sixty Call*MethodA/V ✅ · T12 RegisterNatives + the call-through
+  + the acceptance e2e ✅ · T13: 13a note ✅, 13b primitive 11 + the REAL
+  C probe ✅ (444 green) — 13c harness parity + 13d attach/CI remain.
+  New: docs/REVIEW_CHECKLIST.md — the strict pass/fail gate register
+  (the owner's external review converted to evidence law).
+- **M5 waves 3–5 (next after 13c/13d):** T14–T16 mappings ·
+  T17–T21 mixins · T22–T23 inline caches (order pinned by
+  docs/REVIEW_CHECKLIST.md G5: after the JNI + scale gates).
 - **Toolchain:** `source /home/z/my-project/env.sh` → rustc/cargo 1.99.1,
   Temurin javac 21.0.13 (the pinned CI versions). Sandbox: 2 vCPU,
   4 GiB RAM, no swap. Persistent state lives under `/home/z/my-project/`;
@@ -871,3 +878,83 @@ getrusage max single child, mistake-list #2).
   direction three-channel vs Temurin; the bound-Rust direction
   unit-pinned). Remaining wave 2: T13 (the C harness `.so` + attach
   lifecycle + primitive 11 the foreign-call thunk).
+
+### [2026-11-10 ~17:30 UTC] session 6 — T13 slice 13b LANDED: primitive 11, the Foreign path, and the REAL C probe (444 green)
+- Session opened on the owner's external readiness review (P0–P2
+  priorities) + "check the repo state and read all .md files". Read the
+  full doc set: both boards, README, TODO (structure + M5 section),
+  ROADMAP (root + docs/), M5_PLAN, all five M5 JNI design notes,
+  M5_SCALE, STRATEGIC_GAPS, BENCHMARKS (all 8 addenda),
+  TYPED_REGISTER_READINESS, CORPUS_WAVE, EXTERNAL_V12_MINICRAFT,
+  RUNTIME_SAFETY §6, examples/vectors READMEs, plus the diff of the
+  uncommitted slice-13b work found in the tree (ffi.rs / calls.rs /
+  natives.rs at HEAD 724e839).
+- **Doc drift found and FIXED (the review's §4 point, enforced):**
+  M5_PLAN §6 still showed T11/T12/T13 unchecked after T11 and T12 were
+  COMPLETE; TODO.md said "Last updated 2026-11-08" with only T08
+  recorded under the M5 JNI bullet; docs/ROADMAP.md's M5 ladder row
+  still said "wave 0 (census) running"; README's status line still said
+  "Milestone 3". All four updated to the boards' truth (T08–T12 landed,
+  T13 13a+13b this commit). G0.4 doc-count gate re-run: in sync.
+- **T13 slice 13b landed** (docs/M5_JNI_HARNESS.md §2/§6 is the design
+  of record; the session started from the in-flight diff and completed
+  it):
+  * **primitive 11 `call_foreign_native`** in j2r-jni-ffi (the audited
+    crate): the FIXED SysV max-register signature (env, recv, usize×4,
+    f64×8) — integer-class args rdi/rsi/rdx/rcx/r8/r9, SSE args
+    xmm0–7, the return read as BOTH channels (rax + xmm0) so ONE thunk
+    serves every return kind; beyond the window (5+ GP / 9+ FP words)
+    a LOUD panic naming the window law (stack-frame construction stays
+    banned — libffi's exact problem).
+  * **gate-10 amended in the same commit** (the T09/11c/13b law):
+    `ACTUAL_UNSAFE_OCCURRENCES` 9 → 10 (primitive 11's one transmute),
+    pin ≤ 12 unchanged; the source-scanned in-crate assert passes.
+  * **The `Binding::Foreign` path switch**: `as_method_fn`'s loud abort
+    becomes `invoke_binding` — Rust bindings call as before; Foreign
+    bindings go through `foreign_call`: descriptor-driven marshalling
+    (the A-form classification law), the receiver rides as a rooted
+    local ref (the jclass for statics — the JNI native convention),
+    the return channel picked per the return descriptor. calls.rs's
+    dispatch walk consult switched to it.
+  * **The register-window loudness is pinned through the FULL runtime
+    path** (call_native → invoke_binding → foreign_call → primitive
+    11): a 5-GP-word descriptor trips the guard BEFORE the fnPtr word
+    is ever used — the 0xDEAD_C0DE binding is safe to exercise with
+    catch_unwind (fixed the in-flight test's dead-code tail: the old
+    snippet bound a bogus pointer but never called it).
+  * **The REAL C probe — the first C in the repo** (13b's evidence bar,
+    "a C fn compiled into the test binary"): `j2r-jni-ffi/build.rs`
+    compiles `c_probe_add`/`c_probe_mad` with the PLATFORM C compiler
+    and links the object into the package's TEST binaries only
+    (`cargo:rustc-link-arg-tests`); `tests/c_probe.rs` (an integration
+    target — the link-arg needs one) proves the transmute against
+    actual C-compiler output on both return channels. Precision of
+    record (M5_JNI_HARNESS.md §6 amended): the `cc` CRATE was rejected
+    — a build-dependency would enter the vendored manifest and break
+    generated projects' `--offline` builds (gate-5 outranks); build.rs
+    is never vendored, and a compiler-less box cfgs the real-C tests
+    out (`[lints.rust] unexpected_cfgs` declares the `j2r_c_probe`
+    cfg).
+- Evidence — full battery re-run (the standing law): fmt clean; clippy
+  `-D warnings` clean; **444 tests, 0 failures** — classfile 38 ·
+  jni-ffi 13 (11 unit + 2 real-C integration) · runtime 238 · codegen
+  125 · cli 28; walls: diff_suite 454.98 s + cfg_equiv 353.99 s (zero
+  divergences), partition 24.63 s, soe 10.90 s, native_e2e 6.23 s,
+  lambda 1.12 s, jar + corpus green; gate-11 in sync (fixtures=109,
+  tests=444 → README 440 → 444).
+- **docs/REVIEW_CHECKLIST.md created** — the owner's external review
+  converted into the repo's own law: G0 standing gates (battery,
+  gate-10, doc-counts, boards+push, loud-unsupported, honest-numbers),
+  G1 the JNI C-harness acceptance (per-function inventory, three-channel
+  both directions, attach lifecycle, CI pinning), G2 the 70k path
+  (F3 split-table, F2 fast path, F1 profile, F4 release trio, the
+  progressive ladder, **F6 the fat-method O3 regression — registered**
+  with its either-arm PASS bar), G3 the typed-codegen lever (deferred
+  join, entry vars, collection specialization, the honesty guard), G4
+  the M4 review closure + the volatile/final-freeze enforcement arm,
+  G5 mappings/mixins/inline caches with the M6 ordering gate, G6 the
+  documentation discipline. Every item has PASS criteria, FAIL
+  conditions, and what does NOT count.
+- Next: **13c** — the harness C source + the Temurin driver + the j2r
+  loading story + the three-channel parity runner; then **13d** — the
+  attach lifecycle battery + the CI gate; wave 2 closes.

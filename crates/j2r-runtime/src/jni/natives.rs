@@ -118,20 +118,104 @@ pub fn lookup(class: &str, name: &str, desc: &str) -> Option<Binding> {
         .map(|e| e.binding)
 }
 
-/// The `MethodFn`-shaped view the dispatch tail invokes: a Rust binding
-/// is returned as-is; a foreign fn pointer is a LOUD abort naming the
-/// registered T13 primitive (M5_JNI_NATIVES.md §2 — never a silent
-/// wrong answer).
-pub fn as_method_fn(class: &str, name: &str, desc: &str, b: Binding) -> crate::MethodFn {
+/// Invokes a binding (M5_JNI_NATIVES.md §2, 13b shape law): a Rust
+/// binding is called as-is; a FOREIGN fn pointer goes through the
+/// audited `call_foreign_native` thunk (primitive 11 — the FIXED SysV
+/// register-window call; the args marshal per the descriptor exactly
+/// like the A-form decode, the return channel picks per the return
+/// descriptor).
+///
+/// `class`/`name`/`desc` name the binding (loud messages + the static
+/// jclass the C side receives); the receiver argument picks the second
+/// ABI slot's shape (the receiver object, or the jclass for statics —
+/// the JNI native convention).
+pub fn invoke_binding(
+    class: &str,
+    name: &str,
+    desc: &str,
+    b: Binding,
+    recv: Option<&crate::heap::JRef>,
+    args: &[Value],
+) -> Result<Value, Throw> {
     match b {
-        Binding::Rust(f) => f,
-        Binding::Foreign(_) => panic!(
-            "j2r JNI bridge: native binding for {class}::{name}{desc} is a \
-             FOREIGN fn pointer — calling the C native ABI from a \
-             forbid(unsafe_code) runtime needs the registered T13 \
-             primitive 11 (call_foreign_native); refusing loudly"
-        ),
+        Binding::Rust(f) => f(recv, args),
+        Binding::Foreign(addr) => foreign_call(class, name, desc, addr, recv, args),
     }
+}
+
+/// The descriptor-driven marshal + thunk call for a FOREIGN native.
+/// Marshals `args` into the SysV register-window word arrays per the
+/// descriptor (the A-form classification law), calls primitive 11, and
+/// picks the return channel per the return descriptor. The receiver
+/// rides as a rooted local ref (or the jclass for statics — the JNI
+/// native convention).
+fn foreign_call(
+    class: &str,
+    name: &str,
+    desc: &str,
+    addr: usize,
+    recv: Option<&crate::heap::JRef>,
+    args: &[Value],
+) -> Result<Value, Throw> {
+    let (params, ret) = crate::desc::parse_method_desc(desc).unwrap_or_else(|| {
+        panic!("j2r internal: native {class}::{name} has unparseable descriptor {desc}")
+    });
+    let mut gp: Vec<usize> = Vec::with_capacity(params.len());
+    let mut fp: Vec<f64> = Vec::with_capacity(params.len());
+    for (t, v) in params.iter().zip(args.iter()) {
+        match (t, v) {
+            (TypeDesc::Float, Value::Float(f)) => fp.push(*f as f64),
+            (TypeDesc::Double, Value::Double(d)) => fp.push(*d),
+            (TypeDesc::Long, Value::Long(j)) => gp.push(*j as usize),
+            (TypeDesc::Object(_) | TypeDesc::Array(_), Value::Ref(None)) => gp.push(0),
+            (TypeDesc::Object(_) | TypeDesc::Array(_), Value::Ref(Some(r))) => {
+                gp.push(super::bridge::new_local(*r) as usize)
+            }
+            (
+                TypeDesc::Boolean
+                | TypeDesc::Byte
+                | TypeDesc::Short
+                | TypeDesc::Char
+                | TypeDesc::Int,
+                Value::Int(i),
+            ) => gp.push(*i as usize),
+            (t, v) => panic!(
+                "j2r internal: native {class}::{name} arg shape mismatch: \
+                 descriptor {t:?} vs value {v:?}"
+            ),
+        }
+    }
+    let env = super::tables::jni_env() as usize as *mut std::os::raw::c_void;
+    let second = match recv {
+        Some(r) => super::bridge::new_local(*r) as usize as *mut std::os::raw::c_void,
+        None => {
+            // Static native: the second argument is the jclass (the
+            // interned mirror's tag — rooted as a local for the call).
+            super::bridge::new_local(crate::reflect::class_ref(class)) as usize
+                as *mut std::os::raw::c_void
+        }
+    };
+    let ret_words = j2r_jni_ffi::ffi::call_foreign_native(
+        addr as *const std::os::raw::c_void,
+        env,
+        second,
+        &gp,
+        &fp,
+    );
+    Ok(match ret {
+        TypeDesc::Void => Value::Ref(None),
+        TypeDesc::Long => Value::Long(ret_words.i as i64),
+        TypeDesc::Float => Value::Float(ret_words.d as f32),
+        TypeDesc::Double => Value::Double(ret_words.d),
+        TypeDesc::Object(_) | TypeDesc::Array(_) => {
+            if ret_words.i == 0 {
+                Value::Ref(None)
+            } else {
+                Value::Ref(Some(super::bridge::resolve(ret_words.i)))
+            }
+        }
+        _ => Value::Int(ret_words.i as u32 as i32),
+    })
 }
 
 /// The Java-source rendering of a descriptor type — the shape Temurin's
@@ -220,10 +304,7 @@ pub fn call_native(
     args: &[Value],
 ) -> Result<Value, Throw> {
     match lookup(owner, name, desc) {
-        Some(b) => {
-            let f = as_method_fn(owner, name, desc, b);
-            f(recv, args)
-        }
+        Some(b) => invoke_binding(owner, name, desc, b, recv, args),
         None => Err(unbound_link_error(owner, name, desc)),
     }
 }
@@ -485,13 +566,18 @@ mod tests {
         )
         .is_some());
         let recv = None;
-        let f = as_method_fn(
-            "j2r/test/NativesBase",
-            "nativeScale",
-            "(I)I",
-            lookup("j2r/test/NativesBase", "nativeScale", "(I)I").expect("bound"),
-        );
-        assert!(matches!(f(recv, &[Value::Int(7)]), Ok(Value::Int(70))));
+        let b = lookup("j2r/test/NativesBase", "nativeScale", "(I)I").expect("bound");
+        assert!(matches!(
+            invoke_binding(
+                "j2r/test/NativesBase",
+                "nativeScale",
+                "(I)I",
+                b,
+                recv,
+                &[Value::Int(7)]
+            ),
+            Ok(Value::Int(70))
+        ));
         // Rebinding overrides: a Rust binding returning -1 wins forever.
         fn rust_neg(_recv: Option<&crate::heap::JRef>, _args: &[Value]) -> Result<Value, Throw> {
             Ok(Value::Int(-1))
@@ -503,13 +589,18 @@ mod tests {
             Binding::Rust(rust_neg)
         )
         .is_some());
-        let f = as_method_fn(
-            "j2r/test/NativesBase",
-            "nativeScale",
-            "(I)I",
-            lookup("j2r/test/NativesBase", "nativeScale", "(I)I").expect("bound"),
-        );
-        assert!(matches!(f(recv, &[Value::Int(7)]), Ok(Value::Int(-1))));
+        let b = lookup("j2r/test/NativesBase", "nativeScale", "(I)I").expect("bound");
+        assert!(matches!(
+            invoke_binding(
+                "j2r/test/NativesBase",
+                "nativeScale",
+                "(I)I",
+                b,
+                recv,
+                &[Value::Int(7)]
+            ),
+            Ok(Value::Int(-1))
+        ));
         // Unregister clears; the consult misses afterwards.
         unbind_class("j2r/test/NativesBase");
         assert!(lookup("j2r/test/NativesBase", "nativeScale", "(I)I").is_none());
@@ -556,26 +647,73 @@ mod tests {
         clear();
     }
 
+    // -- the FOREIGN shape through primitive 11 (13b) -------------------
+    //
+    // The "C native" here is a RUST `extern "C"` fn — the SysV ABI is
+    // identical, so the full thunk round trip is validated at the
+    // runtime level. The REAL C-compiler validation lives one layer
+    // down: j2r-jni-ffi's build.rs compiles a C probe into its test
+    // binaries (the first C in the repo), and 13c's harness adds the
+    // full JNI-loop parity.
+
+    extern "C" fn c_add_native(
+        _env: *mut std::os::raw::c_void,
+        _recv: *mut std::os::raw::c_void,
+        a: usize,
+        b: usize,
+    ) -> u64 {
+        (a + b) as u64
+    }
+
     #[test]
-    fn foreign_fn_pointer_is_stored_but_loud_on_call() {
+    fn foreign_fn_pointer_roundtrips_through_the_thunk() {
         let _rt = crate::test_support::runtime();
         install();
-        // A foreign fnPtr binds (the C harness shape, T13); calling it
-        // LOUDLY aborts naming primitive 11 — pinned here without a
-        // child process (the panic never crosses an extern boundary in
-        // this test).
+        // The C-harness shape: a raw fnPtr registered as Foreign; the
+        // call marshals (Int, Int) into the GP window and reads the
+        // INTEGER return channel — the M5_PLAN acceptance direction,
+        // now working end to end at the runtime level.
         bind_for_test(
             "j2r/test/NativesBase",
-            "nativeScale",
-            "(I)I",
+            "nativeAdd",
+            "(II)I",
+            Binding::Foreign(c_add_native as *const () as usize),
+        );
+        let got = call_native(
+            "j2r/test/NativesBase",
+            "nativeAdd",
+            "(II)I",
+            None,
+            &[Value::Int(20), Value::Int(22)],
+        );
+        assert!(
+            matches!(got, Ok(Value::Int(42))),
+            "the foreign fnPtr round-trips through primitive 11"
+        );
+        // Beyond the register window is LOUD (the 13b window law): a
+        // descriptor demanding five GP words trips the thunk's guard
+        // BEFORE the fnPtr word is ever used, so the never-valid
+        // 0xDEAD_C0DE binding is safe to exercise with catch_unwind —
+        // the window law through the FULL runtime path (call_native →
+        // invoke_binding → foreign_call → primitive 11).
+        bind_for_test(
+            "j2r/test/NativesBase",
+            "nativeWide",
+            "(IIIII)I",
             Binding::Foreign(0xDEAD_C0DE),
         );
-        let b = lookup("j2r/test/NativesBase", "nativeScale", "(I)I").expect("stored");
         let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = as_method_fn("j2r/test/NativesBase", "nativeScale", "(I)I", b);
+            let wide = vec![Value::Int(1); 5];
+            let _ = call_native(
+                "j2r/test/NativesBase",
+                "nativeWide",
+                "(IIIII)I",
+                None,
+                &wide,
+            );
         }))
         .is_err();
-        assert!(panicked, "a foreign fnPtr call must be loud until T13");
+        assert!(panicked, "beyond the register window must be loud");
         clear();
     }
 

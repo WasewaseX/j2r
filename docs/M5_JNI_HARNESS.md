@@ -115,8 +115,22 @@ now fully honest); gate-10 amended in the same commit as primitive
 - **13a** — this note.
 - **13b** — primitive 11 (`call_foreign_native`) + the gate-10
   amendment in the same commit + the `Binding::Foreign` path switch +
-  unit tests (a C fn compiled into the test binary via `cc` — the
-  first C in the repo, built only for tests).
+  unit tests (a C fn compiled into the test binary — the first C in
+  the repo, built only for tests). **LANDED, one precision of record
+  vs this note:** the C probe compiles via the crate's own `build.rs`
+  invoking the PLATFORM C compiler directly (`$CC`/`cc`), NOT the `cc`
+  crate — a `[build-dependencies]` entry would enter the vendored
+  manifest (every member manifest is copied verbatim into generated
+  projects) and break their `--offline` builds, and gate-5 outranks
+  the convenience. The probe object links into the package's TEST
+  binaries only (`cargo:rustc-link-arg-tests`); the library target
+  never references the symbols, build.rs itself is never vendored, and
+  a compiler-less box cfgs the real-C tests out (the Rust `extern "C"`
+  probes still cover the window math). The full runtime path
+  (`call_native` → `invoke_binding` → `foreign_call` → primitive 11)
+  is pinned, including the register-window loudness (5 GP words →
+  panic BEFORE the fnPtr word is used). 444 green, full battery
+  (diff_suite 454.98 s + cfg_equiv 353.99 s) zero divergences.
 - **13c** — the harness C source + the Temurin driver + the j2r-side
   loading story + the three-channel comparison runner.
 - **13d** — the attach lifecycle battery + the CI gate + the full

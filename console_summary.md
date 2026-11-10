@@ -1,9 +1,15 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 5 cont. 5 — **T12 COMPLETE: 12c landed
-the codegen call-through + the acceptance e2e (three-channel vs
-Temurin, byte-identical headers); 440 green**. T11 COMPLETE earlier
-the same day. See console.md session-5 entries and §9).
+Updated 2026-11-10 (session 6 — **T13 slice 13b LANDED: primitive 11
+`call_foreign_native` + the `Binding::Foreign` path switch + gate-10
+amended 9 → 10 + the REAL C probe via build.rs (the first C in the
+repo, test-binaries-only) + the window loudness pinned through the full
+runtime path; 444 green, full battery zero divergences**. Also: the
+doc-drift sweep (M5_PLAN register, TODO, docs/ROADMAP, README status —
+all now reflect T08–T12 COMPLETE) and **docs/REVIEW_CHECKLIST.md** (the
+owner's external review converted to strict pass/fail gates). T11 and
+T12 COMPLETE earlier the same day. See console.md session-5/6 entries
+and §9).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
@@ -113,8 +119,21 @@ FFI 7 → 10 primitives, 6 → 9 unsafe occurrences of pin 12)**; **T12 ✅ COMP
 binding registry, slots 215/216, the walk consult) + 12c (the
 ACC_NATIVE call-through emission, the verifier skip, the acceptance
 three-channel e2e with byte-identical UnsatisfiedLinkError headers)
-LANDED at 440 green**; remaining wave 2: T13 (C harness + attach
-lifecycle + primitive 11, the foreign-call thunk). Then T14–T16
+LANDED at 440 green**; **T13 13a+13b LANDED (session 6)** — docs/M5_JNI_HARNESS.md
+(design of record) + primitive 11 `call_foreign_native` (the fixed SysV
+register-window call; return read as BOTH channels; beyond the window =
+LOUD) + gate-10 amended in the same commit (occurrences 9 → 10, pin ≤
+12) + `invoke_binding`/`foreign_call` (descriptor-driven marshal, the
+jclass-as-second-slot static convention) + the register-window loudness
+pinned through call_native → invoke_binding → foreign_call → primitive
+11 + the REAL C probe (build.rs compiles it with the platform compiler,
+links into TEST binaries only — vendored generated projects never see
+it; the `cc` crate rejected because a build-dep would break their
+`--offline` builds); 444 green (jni-ffi 13 incl. 2 real-C integration
+tests), diff_suite 454.98 s + cfg_equiv 353.99 s zero divergences.
+Remaining wave 2: 13c (the harness C source + the Temurin driver + the
+j2r loading story + the three-channel parity runner) and 13d (the
+attach-lifecycle battery + the CI gate). Then T14–T16
 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
 M4 completion package still awaits owner review in parallel.
 
@@ -385,8 +404,23 @@ by the per-crate budget K.
   declaration `'int NativeProbe.add(int, int)'`), which surfaced and
   fixed two root defects (the message shape + the missing
   linkage-error builtin parent chain). 2 e2e tests + 1 builtin unit
-  test; 440 green, full battery — zero divergences. NEXT: T13 (the C
-  harness .so + attach lifecycle + primitive 11).
+  test; 440 green, full battery — zero divergences. **T12 ✅ COMPLETE.**
+- [~] **T13** — 13a design note docs/M5_JNI_HARNESS.md LANDED (724e839).
+  13b LANDED (session 6): primitive 11 `call_foreign_native` (the fixed
+  SysV register-window call, both return channels, LOUD beyond the
+  window); gate-10 amended 9 → 10 occurrences of pin 12 in the same
+  commit; the `Binding::Foreign` path switch (`invoke_binding` /
+  `foreign_call`: descriptor-driven marshal, rooted receiver, jclass for
+  statics); the window loudness pinned through the full runtime path
+  (fixed the in-flight test's dead-code tail); the REAL C probe via
+  build.rs + `tests/c_probe.rs` (the first C in the repo — platform
+  compiler, TEST binaries only, the `cc` crate rejected to protect the
+  generated projects' `--offline` builds); 444 green, full battery zero
+  divergences. REMAINING: 13c the harness C source + the Temurin driver
+  + the j2r loading story + the three-channel parity runner; 13d the
+  attach-lifecycle battery + the CI gate — wave 2 closes at 13d. ALSO:
+  docs/REVIEW_CHECKLIST.md (G0–G6) now governs milestone-completion
+  claims — the external review's P0–P2 as pass/fail gates.
 - [ops] Session 5 (2026-11-10): reset #6 survived via §9 (tree back at
   pre-M3 `b4badea`, toolchain wiped); baseline re-proven 398 green at
   6e9805a, then slice 3b landed at 414. Reset #7 also survived via §9
