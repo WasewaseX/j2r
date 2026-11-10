@@ -632,3 +632,37 @@ getrusage max single child, mistake-list #2).
     Call*Method throwing = zero return + pending throwable, JNI-faith.
 - Slice order: 11a this note → 11b pending cell + A-forms → 11c
   V-forms + gate-10 amendment. T13's C-harness bar unchanged.
+
+### [2026-11-10 ~10:50 UTC] session 5 cont. 2 — T11 slice 11b part 1: pending-exception cell + method-ID registry + the ten virtual Call*MethodA slots (418 green)
+- Landed (docs/M5_JNI_CALLS.md §3 decision 1/4 is now code):
+  * **bridge::pend_exception / take_pending_exception /
+    has_pending_exception / pending_exception_local** — the per-thread
+    pending-exception cell (JNI §The Exception Process). The first
+    faithful exception transport across the boundary.
+  * **classes: the method-ID registry** — bit-62-marked tags (disjoint
+    from field IDs' bit 63 and from handle tags), permanent + deduped,
+    `slot_get_method_id` walks owner + ancestors (the JNI search law)
+    and PENDS NoSuchMethodError on miss — the first T10-era NPE-shaped
+    gap migrated to the faithful pending shape.
+  * **jni::calls: the A-form invoke core** — `decode_jvalue` per
+    descriptor (sub-word kinds ride the LOW bytes; F = low 4 bytes;
+    the pointer word IS the tag), `zero_value` per return descriptor,
+    virtual dispatch by the RECEIVER's runtime class; null receiver /
+    null args-with-demanding-descriptor pends NPE; a thrown answer is
+    PENDED and the zero value returned — the wrapper CANNOT fail.
+  * generator: 15 slots wired (91 → 106 real): ExceptionOccurred/Clear/
+    Check (15/17/228) + GetMethodID/GetStaticMethodID (33/113) + the
+    ten Call*MethodA (36..63 step 3, verified vs the offset_of table);
+    regenerate+fmt byte-idempotent.
+- 4 new unit tests (jvalue decode per kind incl. the tag-crossing
+  check, zero values, method-ID dedupe/marks/disjointness with the
+  field-ID-passed-as-method-ID loud law, the pending-cell round-trip
+  incl. the REPEATABLE ExceptionOccurred law). runtime 217 → 221;
+  fmt clean, clippy `-D warnings` clean.
+- **NOT yet claimed**: the mock-dispatch invoke tests (virtual override
+  vs declared-class semantics), the static/nonvirtual families (same
+  core — the CallFamily enum is the next slice's first edit), the
+  V-form save-area walk (slice 11c + the gate-10 amendment), and the
+  full battery re-run — all land with 11b part 2 / 11c. No codegen
+  change in this part (tables.rs is runtime-side) — the battery rides
+  with part 2 per the standing law.

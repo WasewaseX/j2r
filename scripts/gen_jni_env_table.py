@@ -307,6 +307,23 @@ REAL_SLOTS = {
     "SetDoubleArrayRegion": "jni_set_double_array_region",
     "GetPrimitiveArrayCritical": "jni_get_primitive_array_critical",
     "ReleasePrimitiveArrayCritical": "jni_release_primitive_array_critical",
+    # ---- T11 slice 11b: the pending-exception trio, the method-ID pair,
+    # and the ten virtual Call*MethodA slots (docs/M5_JNI_CALLS.md §3).
+    "ExceptionOccurred": "jni_exception_occurred",
+    "ExceptionClear": "jni_exception_clear",
+    "ExceptionCheck": "jni_exception_check",
+    "GetMethodID": "jni_get_method_id",
+    "GetStaticMethodID": "jni_get_static_method_id",
+    "CallObjectMethodA": "jni_call_object_method_a",
+    "CallBooleanMethodA": "jni_call_boolean_method_a",
+    "CallByteMethodA": "jni_call_byte_method_a",
+    "CallCharMethodA": "jni_call_char_method_a",
+    "CallShortMethodA": "jni_call_short_method_a",
+    "CallIntMethodA": "jni_call_int_method_a",
+    "CallLongMethodA": "jni_call_long_method_a",
+    "CallFloatMethodA": "jni_call_float_method_a",
+    "CallDoubleMethodA": "jni_call_double_method_a",
+    "CallVoidMethodA": "jni_call_void_method_a",
 }
 
 # Wrapper bodies, emitted verbatim (doc comment + fn) after the stubs.
@@ -621,6 +638,96 @@ WRAPPER_BODIES: dict[str, list[str]] = {
         "    crate::jni::arrays::slot_release_primitive_array_critical(ptr as usize, mode);",
         "}",
     ],
+    # ---- T11 slice 11b: the pending-exception trio + the method-ID
+    # pair (docs/M5_JNI_CALLS.md §3/§4). The ten Call*MethodA bodies are
+    # loop-generated after this dict.
+    "ExceptionOccurred": [
+        "/// `ExceptionOccurred` (slot 15): the pending throwable as a",
+        "/// FRESH local ref, or JNI null — the first faithful exception",
+        "/// transport across the boundary (T11 slice 11b, the per-thread",
+        "/// cell in the bridge). The cell itself is left untouched.",
+        'extern "system" fn jni_exception_occurred(_env: JNIEnv) -> jobject {',
+        "    match crate::jni::bridge::pending_exception_local() {",
+        "        Some(tag) => crate::jni::bridge::tag_to_jobject(tag),",
+        "        None => std::ptr::null_mut(),",
+        "    }",
+        "}",
+    ],
+    "ExceptionClear": [
+        "/// `ExceptionClear` (slot 17): drops the pending throwable from",
+        "/// the current thread's cell (T11 slice 11b).",
+        'extern "system" fn jni_exception_clear(_env: JNIEnv) {',
+        "    crate::jni::bridge::take_pending_exception();",
+        "}",
+    ],
+    "ExceptionCheck": [
+        "/// `ExceptionCheck` (slot 228): JNI_TRUE iff a throwable is",
+        "/// pending on the current thread (T11 slice 11b) — the cheap",
+        "/// guard that avoids materializing a local ref.",
+        'extern "system" fn jni_exception_check(_env: JNIEnv) -> jboolean {',
+        "    crate::jni::bridge::has_pending_exception() as jboolean",
+        "}",
+    ],
+    "GetMethodID": [
+        "/// `GetMethodID` (slot 33): walk the class and its ancestors for",
+        "/// a declared INSTANCE method with the exact name+descriptor —",
+        "/// T11 slice 11b. Not found (including builtin classes, which",
+        "/// have no compiled method table — the v1 gap T12 owns): JNI",
+        "/// null with a PENDING NoSuchMethodError, the oracle's shape.",
+        'extern "system" fn jni_get_method_id(',
+        "    _env: JNIEnv,",
+        "    clazz: jobject,",
+        "    name: *const c_char,",
+        "    sig: *const c_char,",
+        ") -> jmethodID {",
+        "    let (Some(name_bytes), Some(sig_bytes)) = (",
+        "        j2r_jni_ffi::ffi::read_caller_str(name),",
+        "        j2r_jni_ffi::ffi::read_caller_str(sig),",
+        "    ) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    let (Ok(name), Ok(sig)) = (String::from_utf8(name_bytes), String::from_utf8(sig_bytes)) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    let tag = crate::jni::bridge::jobject_to_tag(clazz);",
+        "    if tag == 0 {",
+        "        return std::ptr::null_mut();",
+        "    }",
+        "    match crate::jni::classes::slot_get_method_id(tag, &name, &sig, false) {",
+        "        Some(id) => crate::jni::classes::method_id_to_ptr(id),",
+        "        None => std::ptr::null_mut(),",
+        "    }",
+        "}",
+    ],
+    "GetStaticMethodID": [
+        "/// `GetStaticMethodID` (slot 113): the STATIC twin of",
+        "/// `GetMethodID` — T11 slice 11b. Same not-found law: JNI null",
+        "/// with a pending NoSuchMethodError.",
+        'extern "system" fn jni_get_static_method_id(',
+        "    _env: JNIEnv,",
+        "    clazz: jobject,",
+        "    name: *const c_char,",
+        "    sig: *const c_char,",
+        ") -> jmethodID {",
+        "    let (Some(name_bytes), Some(sig_bytes)) = (",
+        "        j2r_jni_ffi::ffi::read_caller_str(name),",
+        "        j2r_jni_ffi::ffi::read_caller_str(sig),",
+        "    ) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    let (Ok(name), Ok(sig)) = (String::from_utf8(name_bytes), String::from_utf8(sig_bytes)) else {",
+        "        return std::ptr::null_mut();",
+        "    };",
+        "    let tag = crate::jni::bridge::jobject_to_tag(clazz);",
+        "    if tag == 0 {",
+        "        return std::ptr::null_mut();",
+        "    }",
+        "    match crate::jni::classes::slot_get_method_id(tag, &name, &sig, true) {",
+        "        Some(id) => crate::jni::classes::method_id_to_ptr(id),",
+        "        None => std::ptr::null_mut(),",
+        "    }",
+        "}",
+    ],
 }
 
 # ---------------------------------------------------------------- T10 slice 3b: the per-primitive array families (programmatic)
@@ -755,6 +862,75 @@ for _name, _cty, _kind, _note in _ARRAY_PRIMS:
         "        len,",
         "        buf.cast::<u8>(),",
         "    );",
+        "}",
+    ]
+
+
+# ---------------------------------------------------------------- T11 slice 11b: the virtual Call*MethodA family (programmatic)
+# Ten slots (36..63, step 3 — verified against the generated offset_of!
+# assertion table) share ONE shape; the per-kind differences are the C
+# return type and the slot body name. Semantics live in jni::calls;
+# these are thin, documented casts.
+
+# A-form slot numbers, verified against the generated offset_of!
+# assertion table (Object 36, then step 3 through Void 63).
+_A_SLOT_NOS = {
+    "Object": 36, "Boolean": 39, "Byte": 42, "Char": 45, "Short": 48,
+    "Int": 51, "Long": 54, "Float": 57, "Double": 60, "Void": 63,
+}
+
+_CALL_A_KINDS = [
+    ("Object", "jobject", "slot_call_object_method_a"),
+    ("Boolean", "jboolean", "slot_call_boolean_method_a"),
+    ("Byte", "jbyte", "slot_call_byte_method_a"),
+    ("Char", "jchar", "slot_call_char_method_a"),
+    ("Short", "jshort", "slot_call_short_method_a"),
+    ("Int", "jint", "slot_call_int_method_a"),
+    ("Long", "jlong", "slot_call_long_method_a"),
+    ("Float", "jfloat", "slot_call_float_method_a"),
+    ("Double", "jdouble", "slot_call_double_method_a"),
+    ("Void", None, "slot_call_void_method_a"),
+]
+
+for _name, _ret_cty, _slot_fn in _CALL_A_KINDS:
+    _ret_decl = f" -> {_ret_cty}" if _ret_cty else ""
+    # The Object kind answers a handle-table TAG: the wrapper dresses it
+    # as a jobject on the way out (tag_to_jobject), the C-kind slots
+    # return the number directly.
+    WRAPPER_BODIES[f"Call{_name}MethodA"] = [
+        f"/// `Call{_name}MethodA` (slot {_A_SLOT_NOS[_name]}): the A-form — the v1",
+        "/// workhorse (design of record: docs/M5_JNI_CALLS.md §3): the",
+        "/// jvalue words are decoded per the method's own descriptor and",
+        "/// the call dispatches by the receiver's runtime class. A thrown",
+        "/// answer is PENDED (ExceptionOccurred/Check/Clear) and the zero",
+        "/// value returned — the JNI-faithful shape. A null mid is a",
+        "/// loud foreign-side bug (the T09 registry law).",
+        f'extern "system" fn jni_call_{_name.lower()}_method_a(',
+        "    _env: JNIEnv,",
+        "    obj: jobject,",
+        "    mid: jmethodID,",
+        "    args: *const c_void,",
+        f"){_ret_decl} {{",
+        "    let tag = crate::jni::bridge::jobject_to_tag(obj);",
+        *(
+            [
+                f"    crate::jni::calls::{_slot_fn}(",
+                "        crate::jni::classes::method_id_from_ptr(mid),",
+                "        tag,",
+                "        args as usize,",
+                "    )",
+            ]
+            if _ret_cty != "jobject"
+            else [
+                "    crate::jni::bridge::tag_to_jobject(",
+                f"        crate::jni::calls::{_slot_fn}(",
+                "            crate::jni::classes::method_id_from_ptr(mid),",
+                "            tag,",
+                "            args as usize,",
+                "        ),",
+                "    )",
+            ]
+        ),
         "}",
     ]
 

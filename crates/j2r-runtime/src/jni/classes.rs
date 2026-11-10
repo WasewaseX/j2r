@@ -360,6 +360,134 @@ pub fn loud_field_mismatch(slot: &str, v: &Value) -> ! {
 }
 
 // ---------------------------------------------------------------------------
+// The method-ID table (T11 slice 11b, design of record: M5_JNI_CALLS.md §3/§4)
+// ---------------------------------------------------------------------------
+
+/// Bit 62 marks a method-ID tag — disjoint from the field-ID mark
+/// (bit 63), from handle-table `jobject` tags, and from each other for
+/// every realistic program (same argument as the field-ID mark).
+const METHOD_ID_MARK: u64 = 1 << 62;
+
+/// One resolved method fact — everything the Call*MethodA core needs.
+#[derive(Debug, Clone)]
+pub struct MethodId {
+    /// Internal name of the class the walk FOUND the method in (the
+    /// GetMethodID search walks owner + ancestors, JNI-faithful).
+    pub owner: String,
+    pub name: String,
+    /// Method descriptor `"(II)V"` — arity and kinds ride it.
+    pub sig: String,
+    pub is_static: bool,
+}
+
+#[derive(Default)]
+struct MethodRegistry {
+    seq: u64,
+    by_triple: HashMap<(String, String, String, bool), u64>,
+    by_id: HashMap<u64, MethodId>,
+}
+
+static METHOD_IDS: LazyLock<Mutex<MethodRegistry>> =
+    LazyLock::new(|| Mutex::new(MethodRegistry::default()));
+
+fn mint_method_id(owner: &str, name: &str, sig: &str, is_static: bool) -> u64 {
+    let mut reg = METHOD_IDS.lock().unwrap_or_else(|e| e.into_inner());
+    let key = (
+        owner.to_string(),
+        name.to_string(),
+        sig.to_string(),
+        is_static,
+    );
+    if let Some(id) = reg.by_triple.get(&key) {
+        return *id;
+    }
+    let id = METHOD_ID_MARK | reg.seq;
+    reg.seq += 1;
+    reg.by_triple.insert(key.clone(), id);
+    reg.by_id.insert(
+        id,
+        MethodId {
+            owner: owner.to_string(),
+            name: name.to_string(),
+            sig: sig.to_string(),
+            is_static,
+        },
+    );
+    id
+}
+
+/// Test-only: mint through the same registry the slot fns use.
+#[cfg(test)]
+pub fn mint_for_test(owner: &str, name: &str, sig: &str, is_static: bool) -> u64 {
+    mint_method_id(owner, name, sig, is_static)
+}
+
+/// The tag behind a `jmethodID` pointer (the safe int→ptr law).
+pub fn method_id_from_ptr(p: crate::jni::tables::jmethodID) -> u64 {
+    p as usize as u64
+}
+
+/// The `jmethodID` pointer for a minted tag.
+pub fn method_id_to_ptr(tag: u64) -> crate::jni::tables::jmethodID {
+    tag as usize as *mut std::os::raw::c_void
+}
+
+/// Looks the ID up — a foreign or corrupted pointer is a LOUD registry
+/// miss (the T09 law); a FIELD id passed where a METHOD id belongs is
+/// loud too (the marker disambiguates the two spaces by construction).
+pub fn resolve_method_id(id: u64) -> MethodId {
+    if id & METHOD_ID_MARK == 0 {
+        panic!(
+            "j2r JNI bridge: jmethodID 0x{id:x} lacks the method-ID marker — \
+             not a pointer this bridge minted"
+        );
+    }
+    METHOD_IDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .by_id
+        .get(&id)
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!("j2r JNI bridge: jmethodID 0x{id:x} is not registered — foreign-side bug")
+        })
+}
+
+/// `GetMethodID` (slot 33) / `GetStaticMethodID` (slot 113) body: walk
+/// the class and its ancestors for a declared method with the exact
+/// name+descriptor and the requested staticness (the JNI search law);
+/// mint the permanent, deduplicated ID. `None` = not found — the wrapper
+/// returns JNI null with a pending `NoSuchMethodError` (the oracle's
+/// shape, now that the pending-exception cell exists). Builtin classes
+/// have no compiled method table — v1 gap (T12 RegisterNatives owns
+/// native bindings; registered in M5_JNI_CALLS.md §4).
+pub fn slot_get_method_id(class_tag: u64, name: &str, sig: &str, want_static: bool) -> Option<u64> {
+    let owner = class_name_from_tag(class_tag)?;
+    let ctx = crate::jni::host_dispatch();
+    let mut cur = Some(owner);
+    while let Some(c) = cur {
+        if let Some(info) = ctx.class_info(&c) {
+            if info
+                .methods
+                .iter()
+                .any(|mm| mm.name == name && mm.desc == sig && mm.is_static == want_static)
+            {
+                return Some(mint_method_id(&c, name, sig, want_static));
+            }
+        }
+        cur = ctx.parent_of(&c).map(|s| s.to_string());
+    }
+    // Not found (including builtin classes — no compiled method table):
+    // the oracle pends NoSuchMethodError and answers null (T11 11b —
+    // the first T10-era NPE-shaped gap to migrate to the faithful shape).
+    crate::jni::bridge::pend_exception(crate::throw_new(
+        "java/lang/NoSuchMethodError",
+        Some(&format!("{name} {sig}")),
+    ));
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Tests — safe, no FFI: the wrappers are thin casts over these bodies.
 // ---------------------------------------------------------------------------
 

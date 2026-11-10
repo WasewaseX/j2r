@@ -67,6 +67,7 @@
 
 pub mod arrays;
 pub mod bridge;
+pub mod calls;
 pub mod classes;
 pub mod strings;
 pub mod tables;

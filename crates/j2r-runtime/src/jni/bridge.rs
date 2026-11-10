@@ -394,6 +394,57 @@ pub fn critical_release(addr: usize) {
     }
 }
 
+// -------------------------------------------------- pending exceptions
+
+/// The per-thread pending throwable (JNI §The Exception Process: a
+/// pending exception is per-thread state, not a return value). T11
+/// slice 11b — Call*Method is the first slot family that throws AND
+/// continues: the call returns the zero value, the throwable waits in
+/// this cell, and `ExceptionOccurred`/`ExceptionCheck`/`ExceptionClear`
+/// (slots 15/228/17) report and clear it.
+fn pending() -> &'static Mutex<HashMap<ThreadId, Option<crate::Throw>>> {
+    static PENDING: OnceLock<Mutex<HashMap<ThreadId, Option<crate::Throw>>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Records the throwable as pending on the CURRENT thread (replacing
+/// any previous one — the JNI law for nested throws).
+pub fn pend_exception(t: crate::Throw) {
+    let mut map = pending().lock().unwrap_or_else(|e| e.into_inner());
+    map.insert(current_thread(), Some(t));
+}
+
+/// Takes the pending throwable off the current thread (the
+/// `ExceptionClear` shape: report-and-clear can't share one call, so
+/// `ExceptionOccurred` CLONES the handle out and the caller clears).
+pub fn take_pending_exception() -> Option<crate::Throw> {
+    let mut map = pending().lock().unwrap_or_else(|e| e.into_inner());
+    map.remove(&current_thread()).flatten()
+}
+
+/// Is a throwable pending on the current thread? (`ExceptionCheck`.)
+pub fn has_pending_exception() -> bool {
+    pending()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&current_thread())
+        .is_some_and(|t| t.is_some())
+}
+
+/// The pending throwable as a FRESH local ref (`ExceptionOccurred`
+/// returns a new local ref to the same object each call — JNI-faithful),
+/// leaving the cell untouched.
+pub fn pending_exception_local() -> Option<u64> {
+    // Clone the Throw out (the cell is untouched — ExceptionOccurred is
+    // repeatable), then mint a FRESH local ref from its heap object.
+    let t = pending()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&current_thread())
+        .and_then(|opt| opt.clone())?;
+    Some(new_local(t.obj))
+}
+
 // ------------------------------------------------------------- GC roots
 
 /// Collector hook (heap::collect root source 5): every live entry —
