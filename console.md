@@ -610,3 +610,25 @@ getrusage max single child, mistake-list #2).
   (README 398 → 414); M5_PLAN T10 → [x] COMPLETE.
 - Next: **T11** — the arity-shim trade-off note (variadic Call*Method
   ABI) + the Call*Method/CallStatic*Method families (wave 2 continues).
+
+### [2026-11-10 ~09:40 UTC] session 5 cont. — T11 slice 11a: the F-J2 resolution design note committed first
+- docs/M5_JNI_CALLS.md is T11's design of record (the slice-3a
+  pattern: note BEFORE code). It resolves flagged-open finding **F-J2**
+  with the measured ABI reasoning:
+  * **A-forms (Call*MethodA, 30 slots) = the v1 workhorse** — a plain
+    jvalue* array; descriptor-driven marshalling via the slice-3a
+    method-ID registry + host-dispatch invoke. Fully faithful, zero
+    unsafe, no approximation.
+  * **V-forms** via the documented SysV __va_list_tag save-area walk
+    through new audited j2r-jni-ffi primitives; gate-10 count amended
+    in the same commit (6 used of pin 12 today).
+  * **Bare C-variadic forms: LOUD aborts, honestly typed** — no safe
+    stable-Rust way to read varargs (VaList is nightly; libffi breaks
+    both standing laws; integer-only max-arity shims silently corrupt
+    SSE-class args — the failure class this project exists to make
+    impossible). Registered for M6: which forms LWJGL3 emits.
+  * The **pending-exception cell** (ExceptionOccurred 15 / Clear 17 /
+    Check 228 become real) — the first faithful exception transport;
+    Call*Method throwing = zero return + pending throwable, JNI-faith.
+- Slice order: 11a this note → 11b pending cell + A-forms → 11c
+  V-forms + gate-10 amendment. T13's C-harness bar unchanged.
