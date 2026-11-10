@@ -148,10 +148,30 @@ fmt, clippy `-D warnings`, doc-count sync, full battery, boards + push.
 
 - **12a** — this note.
 - **12b** — `jni::natives` registry + slots 215/216 + the unit-test
-  battery + the dispatch-walk consult.
-- **12c** — the `UserMethod.is_native` amendment + codegen call-through
-  emission + the Java fixture round-trip (the acceptance demo) + the
-  full battery.
+  battery + the dispatch-walk consult. LANDED. 12b precision of
+  record (§2 shape law, refined): the C-array slot path stores
+  FOREIGN fn pointers ONLY — the C ABI gives no way to distinguish a
+  Rust `MethodFn` from a C fn, and reconstructing a Rust fn from a
+  word would take an unsafe transmute the runtime forbids. Rust-shape
+  bindings ride the Rust API (`bind`, used by the emitted glue and
+  the tests); a Foreign binding call LOUDLY aborts naming T13's
+  primitive 11.
+- **12c** — the codegen half + the acceptance e2e. LANDED:
+  `plan_methods` accepts `ACC_NATIVE` (no body) with the metadata row
+  (`is_native: true`) and the emitted call-through body (FrameGuard +
+  `call_native`); the verifier skips native plans (nothing to verify —
+  the body is correct by construction); BOTH lookup layouts map the
+  native triple to the call-through fn (a real `MethodFn` — the
+  dispatch stays uniform; the 12b walk consult remains as the
+  no-metadata fallback). The acceptance e2e (`tests/native_e2e.rs`)
+  is a REAL three-channel differential: javac compiles the fixture,
+  Temurin runs it (unbound native), j2r runs it, and stdout + exit +
+  the stderr HEADER are byte-identical — our `UnsatisfiedLinkError`
+  message reproduces the oracle's quoted Java declaration
+  (`'int NativeProbe.add(int, int)'`, probed live 2026-11-10), which
+  needed the linkage-error family in the builtin parent table (the
+  builtin toString dispatch). The frame-level parity pin and the
+  bound-C-native direction (primitive 11) belong to T13's C harness.
 
 T13 keeps the C-harness bar and owns primitive 11 (the foreign-call
 thunk) per §2.

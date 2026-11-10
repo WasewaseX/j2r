@@ -812,11 +812,31 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
             if m.is_abstract() {
                 continue; // abstract: no body to compile
             }
+            if m.access & j2r_classfile::flags::ACC_NATIVE != 0 {
+                // T12 12c (docs/M5_JNI_NATIVES.md §4/§5): a native method
+                // has no bytecode body; its implementation arrives via
+                // the binding registry. Plan it WITHOUT instrs (the
+                // emitter's native branch emits the call-through body;
+                // the lookup table omits it) and record the metadata row.
+                methods.push(MethodPlan {
+                    name: m.name.clone(),
+                    desc: m.descriptor.clone(),
+                    is_static: m.is_static(),
+                    is_native: true,
+                    is_sync: false,
+                    fn_name: method_fn_name(&m.name, &m.descriptor),
+                    instrs: Vec::new(),
+                    exception_table: Vec::new(),
+                    max_locals: 0,
+                    max_stack: 0,
+                });
+                continue;
+            }
             return Err(CodegenError::Unsupported {
                 class: c.name.clone(),
                 method: format!("{}{}", m.name, m.descriptor),
                 pc: 0,
-                what: "native methods are not supported".to_string(),
+                what: "method has no Code attribute and is neither abstract nor native".to_string(),
             });
         }
         let code = m.code().map_err(cf_err)?;

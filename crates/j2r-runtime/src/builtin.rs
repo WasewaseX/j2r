@@ -75,6 +75,15 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         // Throwable.
         "java/lang/InternalError" => "java/lang/VirtualMachineError",
         "java/lang/AssertionError" => "java/lang/Error",
+        // T12 (M5_JNI_NATIVES.md §3.6/§6): the linkage-error family the
+        // native-binding surface throws. UnsatisfiedLinkError's
+        // uncaught-header parity (the 12c e2e) needs the parent chain
+        // for the builtin toString dispatch; NoSuchMethodError rides
+        // the same family (the T11 pending shape).
+        "java/lang/UnsatisfiedLinkError" => "java/lang/LinkageError",
+        "java/lang/NoSuchMethodError" => "java/lang/IncompatibleClassChangeError",
+        "java/lang/IncompatibleClassChangeError" => "java/lang/LinkageError",
+        "java/lang/LinkageError" => "java/lang/Error",
         // M3 Wave 5: reflection subset (M3_PLAN §8). The reflective failure
         // classes hang off `ReflectiveOperationException` exactly like the
         // JDK so exception-handler matching (`catch (NoSuchFieldException)`
@@ -471,6 +480,39 @@ pub fn builtin_field_slot(class: &str, field: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linkage_error_family_parent_chain() {
+        // T12 (M5_JNI_NATIVES.md §3.6): the native-binding surface's
+        // error family must resolve through the builtin chain for the
+        // builtin toString dispatch (the uncaught-header parity) and
+        // for catch-type matching.
+        assert_eq!(
+            builtin_parent_of("java/lang/UnsatisfiedLinkError"),
+            Some("java/lang/LinkageError")
+        );
+        assert_eq!(
+            builtin_parent_of("java/lang/LinkageError"),
+            Some("java/lang/Error")
+        );
+        assert_eq!(
+            builtin_parent_of("java/lang/NoSuchMethodError"),
+            Some("java/lang/IncompatibleClassChangeError")
+        );
+        assert_eq!(
+            builtin_parent_of("java/lang/IncompatibleClassChangeError"),
+            Some("java/lang/LinkageError")
+        );
+        // ...and the chain reaches Throwable for the toString dispatch.
+        assert_eq!(
+            builtin_parent_of("java/lang/Error"),
+            Some("java/lang/Throwable")
+        );
+        assert_eq!(
+            builtin_total_slots("java/lang/UnsatisfiedLinkError"),
+            Some(3)
+        );
+    }
 
     #[test]
     fn exception_slot_counts() {

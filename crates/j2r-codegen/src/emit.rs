@@ -943,25 +943,62 @@ fn emit_method(
     emit_cfg: bool,
     emit_typed: bool,
 ) -> String {
-    // The typed-operand body (the registered lever, off by default) is a
-    // complete function — its own preamble, 'run loop and dispatch. Any
-    // unsupported shape falls back to the approved default body below,
-    // with a loud machine-countable marker comment.
-    if emit_typed {
+    // The native call-through body (T12 12c, docs/M5_JNI_NATIVES.md §4):
+    // a `native` method has no bytecode — the implementation arrives via
+    // the binding registry (RegisterNatives / the Rust bind API). The
+    // body is ONE call into the runtime under the SAME MethodFn
+    // contract as every generated body, so the ordinary
+    // zero-on-throw/UnsatisfiedLinkError machinery applies unchanged.
+    // The FrameGuard stays: a native call is a Java frame (the
+    // catchable-SOE law counts it).
+    if m.is_native {
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "pub fn {}(recv: ::core::option::Option<&{RT}::JRef>, args: &[{RT}::Value]) -> ::core::result::Result<{RT}::Value, {RT}::Throw> {{",
+            m.fn_name
+        );
+        let _ = writeln!(
+            out,
+            "    let __frame = match {RT}::frame::FrameGuard::enter() {{"
+        );
+        let _ = writeln!(out, "        ::core::result::Result::Ok(f) => f,");
+        let _ = writeln!(
+            out,
+            "        ::core::result::Result::Err(t) => return ::core::result::Result::Err(t),"
+        );
+        let _ = writeln!(out, "    }};");
+        let _ = writeln!(
+            out,
+            "    {RT}::jni::natives::call_native({:?}, {:?}, {:?}, recv, args)",
+            c.name, m.name, m.desc
+        );
+        let _ = writeln!(out, "}}");
+        out
+    } else if emit_typed {
+        // The typed-operand body (the registered lever, off by default) is a
+        // complete function — its own preamble, 'run loop and dispatch. Any
+        // unsupported shape falls back to the approved default body below,
+        // with a loud machine-countable marker comment.
         match crate::typed::try_emit(prog, c, m) {
             Ok(mut body) => {
                 body.push('\n');
-                return body;
+                body
             }
             Err(reason) => {
-                return format!(
+                format!(
                     "// j2r: typed fallback ({})\n{}",
                     reason.name(),
                     emit_method(prog, c, m, emit_cfg, false)
                 )
             }
         }
+    } else {
+        emit_default_body(prog, c, m, emit_cfg)
     }
+}
+
+fn emit_default_body(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) -> String {
     let mut out = String::new();
     let instance = !m.is_static;
     let unmarshal_start = if instance { 1usize } else { 0usize };

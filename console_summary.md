@@ -1,10 +1,9 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 5 cont. 5 — **T12 12b landed: the
-native-binding registry + slots 215/216 + the dispatch-walk consult;
-437 green**. T11 is COMPLETE (the A/V forms of all three call
-families + the pending cell + method IDs). See console.md session-5
-entries and §9).
+Updated 2026-11-10 (session 5 cont. 5 — **T12 COMPLETE: 12c landed
+the codegen call-through + the acceptance e2e (three-channel vs
+Temurin, byte-identical headers); 440 green**. T11 COMPLETE earlier
+the same day. See console.md session-5 entries and §9).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
@@ -110,12 +109,12 @@ record: the critical pair is 222/223 (217/218 are MonitorEnter/Exit);
 zero divergences. **T11 (Call*Method) ✅ COMPLETE — 11a design note +
 11b (the pending cell, the method-ID registry, all thirty
 Call*MethodA) + 11c (the SysV save-area walk, all thirty Call*MethodV,
-FFI 7 → 10 primitives, 6 → 9 unsafe occurrences of pin 12)**; **T12
-IN PROGRESS — 12a design note (docs/M5_JNI_NATIVES.md) + 12b (the
-binding registry, slots 215/216, the dispatch-walk consult) LANDED at
-437 green**; remaining: 12c (the ACC_NATIVE codegen call-through +
-the Java fixture round-trip — the acceptance demo) and T13 (C harness
-+ attach lifecycle + primitive 11). Then T14–T16
+FFI 7 → 10 primitives, 6 → 9 unsafe occurrences of pin 12)**; **T12 ✅ COMPLETE — 12a design note + 12b (the
+binding registry, slots 215/216, the walk consult) + 12c (the
+ACC_NATIVE call-through emission, the verifier skip, the acceptance
+three-channel e2e with byte-identical UnsatisfiedLinkError headers)
+LANDED at 440 green**; remaining wave 2: T13 (C harness + attach
+lifecycle + primitive 11, the foreign-call thunk). Then T14–T16
 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
 M4 completion package still awaits owner review in parallel.
 
@@ -152,6 +151,8 @@ M4 completion package still awaits owner review in parallel.
    runtime 232; cfg_equiv 337.91 s + diff_suite 442.93 s, zero
    divergences). Re-proven at **437** after T12 12b (runtime 237;
    cfg_equiv 350.90 s + diff_suite 447.79 s, zero divergences).
+   Re-proven at **440** after T12 12c (runtime 238, cli 28;
+   cfg_equiv 351.47 s + diff_suite 451.36 s, zero divergences).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -360,7 +361,7 @@ by the per-crate budget K.
   asserted mechanically); 5 hand-built-save-area tests + 3 primitive
   tests; 432 green, full battery re-run — zero divergences. The bare
   C-variadic forms stay LOUD aborts (design-note decision 3).
-- [~] **T12** — design note docs/M5_JNI_NATIVES.md LANDED (12a, the
+- [x] **T12** — design note docs/M5_JNI_NATIVES.md LANDED (12a, the
   12a-before-code pattern: the v1 binding shape = the runtime's
   MethodFn; the registry laws; the dispatch-walk consult; the
   UserMethod.is_native metadata decision; foreign C fnPtrs wait for
@@ -374,9 +375,18 @@ by the per-crate budget K.
   Derived receiver — pinned); UserMethod.is_native landed with the
   generated rows emitting it (MethodPlan carries it, 12b = false
   everywhere). 5 tests; 437 green, full battery — zero divergences.
-  NEXT (12c): plan_methods accepts ACC_NATIVE with the call-through
-  emission + metadata rows; the Java fixture round-trip (the
-  acceptance demo) + full battery. Then T13.
+  Part 2 LANDED (12c) — **T12 ✅ COMPLETE**: plan_methods accepts
+  ACC_NATIVE (the loud error is gone) with the metadata row + the
+  emitted call-through body (FrameGuard + call_native); the verifier
+  skips native plans; both lookup layouts map natives to the
+  call-through fn (uniform dispatch); the acceptance e2e is a REAL
+  three-channel differential (stdout/exit/stderr-header byte-identical
+  vs Temurin — our message reproduces the oracle's quoted Java
+  declaration `'int NativeProbe.add(int, int)'`), which surfaced and
+  fixed two root defects (the message shape + the missing
+  linkage-error builtin parent chain). 2 e2e tests + 1 builtin unit
+  test; 440 green, full battery — zero divergences. NEXT: T13 (the C
+  harness .so + attach lifecycle + primitive 11).
 - [ops] Session 5 (2026-11-10): reset #6 survived via §9 (tree back at
   pre-M3 `b4badea`, toolchain wiped); baseline re-proven 398 green at
   6e9805a, then slice 3b landed at 414. Reset #7 also survived via §9

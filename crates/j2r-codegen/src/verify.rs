@@ -375,6 +375,14 @@ pub fn verify_method_shapes(
     concats: &BTreeMap<u16, ConcatPlan>,
     lambdas: &BTreeMap<u16, crate::lambda::LambdaPlan>,
 ) -> std::result::Result<MethodShapes, VerifyError> {
+    if m.is_native {
+        // T12 12c (docs/M5_JNI_NATIVES.md §4): a native method has no
+        // bytecode to verify — its body is the emitted call-through to
+        // the binding registry, correct by construction. There is no
+        // abstract/native distinction here: abstract methods never
+        // reach a MethodPlan.
+        return Ok(MethodShapes::default());
+    }
     if m.instrs.is_empty() {
         return Err(err(0, "method body has no instructions"));
     }

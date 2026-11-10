@@ -823,3 +823,51 @@ getrusage max single child, mistake-list #2).
 - Next (12c): plan_methods accepts ACC_NATIVE (no body) with the
   call-through emission + the metadata rows; the Java fixture
   round-trip (the M5_PLAN acceptance demo) + full battery.
+
+### [2026-11-10 ~16:45 UTC] session 5 cont. 5 (cont.) — T12 slice 12c: the codegen call-through + the acceptance e2e (440 green) — T12 COMPLETE
+- **plan_methods accepts `ACC_NATIVE`** (the old loud error is gone):
+  the method plans with NO instrs, `is_native: true`, and the metadata
+  row rides the generated registry (emit + partition layouts emit
+  `is_native` from the plan). The verifier SKIPS native plans (no
+  bytecode to verify — the body is correct by construction).
+- **The emitted call-through body** (M5_JNI_NATIVES.md §4): the
+  native method's fn is FrameGuard + ONE call to
+  `j2r_runtime::jni::natives::call_native(owner, name, desc, recv,
+  args)` — the same MethodFn contract as every generated body, so the
+  ordinary zero-on-throw machinery applies; the FrameGuard stays (a
+  native call is a Java frame — the catchable-SOE law counts it).
+  BOTH lookup layouts map the native triple to the call-through fn (a
+  real `MethodFn` — the dispatch stays uniform; the 12b walk consult
+  remains as the no-metadata fallback). Intra-Java direct calls reach
+  it by module+fn_name — no new machinery anywhere.
+- **The acceptance e2e is a REAL three-channel differential**
+  (`tests/native_e2e.rs`): javac compiles NativeProbe (a `native int
+  add(int,int)` + a caller), Temurin runs it, j2r runs it — stdout
+  ("before" only), exit (1), and the stderr HEADER are byte-identical.
+  Making that true surfaced TWO real defects, both fixed at the root:
+  1. our `UnsatisfiedLinkError` message was `{owner}::{name}{desc}`;
+     the oracle's is the quoted Java declaration
+     **`'int NativeProbe.add(int, int)'`** (probed live on Temurin
+     21.0.13+9) — `unbound_link_error` now renders the descriptor in
+     Java-source form (primitives lowercase, dotted classes, `[]`
+     arrays) with the metadata simple_name;
+  2. the linkage-error family was MISSING from the builtin parent
+     table — the builtin toString dispatch fell back to the internal
+     name with no message. Added: UnsatisfiedLinkError → LinkageError
+     → Error → Throwable, NoSuchMethodError →
+     IncompatibleClassChangeError → LinkageError (pinned by a new
+     builtin unit test). runtime 237 → 238.
+- 2 new e2e tests (the three-channel differential + the emitted-source
+  assertions: `is_native: true` in the registry row, the call-through
+  body present). cli 26 → 28.
+- Evidence — full battery re-run (the standing law): fmt clean; clippy
+  `-D warnings` clean; **440 tests, 0 failures** — classfile 38 ·
+  jni-ffi 11 · runtime 238 · codegen 125 · cli 28; walls: cfg_equiv
+  351.47 s + diff_suite 451.36 s (**zero divergences**), partition
+  25.83 s, corpus 39.93 s, soe 10.47 s, jar 18.90 s, lambda 1.18 s.
+- **T12 COMPLETE** (12a note → 12b registry/slots/consult → 12c
+  codegen + the acceptance e2e). The M5_PLAN §3 wave-2 acceptance bar
+  now stands at: RegisterNatives round-trip demonstrated (the unbound
+  direction three-channel vs Temurin; the bound-Rust direction
+  unit-pinned). Remaining wave 2: T13 (the C harness `.so` + attach
+  lifecycle + primitive 11 the foreign-call thunk).

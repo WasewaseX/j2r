@@ -23,6 +23,7 @@
 //! an unbound native call pends `java/lang/UnsatisfiedLinkError` and
 //! answers the zero value.
 
+use crate::desc::TypeDesc;
 use crate::jni::classes::class_name_from_tag;
 use crate::{Throw, Value};
 use std::collections::HashMap;
@@ -133,6 +134,78 @@ pub fn as_method_fn(class: &str, name: &str, desc: &str, b: Binding) -> crate::M
     }
 }
 
+/// The Java-source rendering of a descriptor type — the shape Temurin's
+/// own `UnsatisfiedLinkError` message uses (probed live on Temurin
+/// 21.0.13+9: `'int NativeProbe.add(int, int)'`): primitives lowercase,
+/// classes dotted, arrays suffixed `[]`.
+fn java_source_type(t: &TypeDesc) -> String {
+    match t {
+        TypeDesc::Boolean => "boolean".into(),
+        TypeDesc::Byte => "byte".into(),
+        TypeDesc::Short => "short".into(),
+        TypeDesc::Char => "char".into(),
+        TypeDesc::Int => "int".into(),
+        TypeDesc::Long => "long".into(),
+        TypeDesc::Float => "float".into(),
+        TypeDesc::Double => "double".into(),
+        TypeDesc::Object(n) => n.replace('/', "."),
+        TypeDesc::Array(d) => {
+            // `[I` → int[], `[[J` → long[][], `[Ljava/lang/String;` →
+            // java.lang.String[] — peel the leading brackets, render the
+            // element type, append one `[]` per dimension.
+            let depth = d.len() - d.trim_start_matches('[').len();
+            let elem = &d[depth..];
+            let elem_name = match elem {
+                "Z" => "boolean".to_string(),
+                "B" => "byte".to_string(),
+                "S" => "short".to_string(),
+                "C" => "char".to_string(),
+                "I" => "int".to_string(),
+                "J" => "long".to_string(),
+                "F" => "float".to_string(),
+                "D" => "double".to_string(),
+                other if other.starts_with('L') && other.ends_with(';') => {
+                    other[1..other.len() - 1].replace('/', ".")
+                }
+                other => other.to_string(),
+            };
+            format!("{elem_name}{}", "[]".repeat(depth))
+        }
+        TypeDesc::Void => "void".into(),
+    }
+}
+
+/// The unbound law, BYTE-EXACT vs the oracle: Temurin's message is the
+/// quoted Java declaration `'int NativeProbe.add(int, int)'` (probed
+/// live, 2026-11-10). The display class name is the metadata
+/// `simple_name` when compiled facts exist, else the owner's last path
+/// segment (identical for top-level classes).
+fn unbound_link_error(owner: &str, name: &str, desc: &str) -> Throw {
+    let (params, ret) =
+        crate::desc::parse_method_desc(desc).unwrap_or((Vec::new(), TypeDesc::Void));
+    let params_src = params
+        .iter()
+        .map(java_source_type)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ctx = super::host_dispatch();
+    let display = ctx
+        .class_info(owner)
+        .and_then(|i| i.simple_name)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| owner.rsplit('/').next().unwrap_or(owner).to_string());
+    crate::throw_new(
+        "java/lang/UnsatisfiedLinkError",
+        Some(&format!(
+            "'{} {}.{}({})'",
+            java_source_type(&ret),
+            display,
+            name,
+            params_src
+        )),
+    )
+}
+
 /// The emitted call-through body for `ACC_NATIVE` methods (M5_JNI_NATIVES.md
 /// §4): consult the registry for the DECLARING class's binding and
 /// invoke it, or pend `UnsatisfiedLinkError` (the unbound law — the
@@ -151,10 +224,7 @@ pub fn call_native(
             let f = as_method_fn(owner, name, desc, b);
             f(recv, args)
         }
-        None => Err(crate::throw_new(
-            "java/lang/UnsatisfiedLinkError",
-            Some(&format!("{owner}::{name}{desc}")),
-        )),
+        None => Err(unbound_link_error(owner, name, desc)),
     }
 }
 
