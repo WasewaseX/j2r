@@ -205,3 +205,36 @@ concurrency differential fixtures in the standing suite; none of this counts unt
 | R3 | JNI | Not started | M5 blocker | Registered |
 | R4 | Threads + memory ordering | Single-threaded only | M4 concurrency wave | Registered |
 | R5 | Benchmarks | None; policy set | Post-corpus wave | Policy locked |
+
+---
+
+**Addendum (2026-11-10, the doc-reconciliation pass — the per-section
+"Current state" texts and the table above are kept verbatim as their
+dated registration records; this addendum is the live pointer):**
+
+* **R3 — CLOSED at the v1 evidence bar.** T08–T13 complete: the JNIEnv
+  table emulation (235 slots, 162 real), the audited `j2r-jni-ffi`
+  crate (12 primitives, 11 `unsafe` occurrences of pin 12), the ONE C
+  harness `.so` with three-channel parity vs Temurin both directions,
+  and the MEASURED attach lifecycle — REVIEW_CHECKLIST G1.1–G1.6 all
+  checked, gate-22 pins the parity in CI (docs/M5_PLAN.md §3,
+  docs/M5_JNI_HARNESS.md; the §R3.4 evidence bar — "a C-compiled test
+  `.so` exercising every v1 function, run against both Temurin and the
+  j2r binary, with identical observable results" — is met and
+  CI-pinned). LWJGL bring-up itself remains gated on the
+  REVIEW_CHECKLIST ordering (G2 next; ecosystem work G5.4).
+* **R4 — waves LANDED, owner review pending.** All four M4 waves
+  implemented and CI-verified (real threads, monitors/wait-notify,
+  interrupt + daemon shutdown, JMM-lite + stress; gate-13). The memory
+  model is documented, not faked: docs/RUNTIME_SAFETY.md §6 is the
+  live contract (no volatile, no final-field freeze — the boundary
+  G4.2 will enforce). docs/M4_EVIDENCE.md §completion package awaits
+  the owner verdict.
+* **R2 — unchanged** (static subset, no metadata generator; the
+  generator is registered post-M4 scope in TODO.md).
+* **R1 — unchanged** (not started: T17–T21; the design answer and the
+  flagged class-identity question stand as written; no rewrite rule
+  before T17).
+* **R5 — policy unchanged** (benchmarks observe, never gate; the
+  harness landed 2026-11-05 and the steady-state rows carry their
+  protocols in docs/BENCHMARKS.md).

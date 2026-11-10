@@ -1246,3 +1246,77 @@ getrusage max single child, mistake-list #2).
 - Session 9 task (user directive): **read ALL .md files** (28 tracked top
   files + boards), build the drift matrix, reconcile any drift found.
   In progress at entry time; results appended below when done.
+
+### [2026-11-10 session 9 cont.] ALL .md files read; drift matrix built; 6 drifts FIXED in one docs commit; toolchain anomaly (root-owned rustup home) recovered
+- **Read complete** (user directive "read all .md files"): 19 files fully
+  read (README, TODO 1,621 l, ROADMAP, docs/ROADMAP, REVIEW_CHECKLIST,
+  M5_PLAN, M5_SCALE, all five M5_JNI_* docs, STRATEGIC_GAPS,
+  EXTERNAL_V12_MINICRAFT_ANALYSIS, TYPED_REGISTER_READINESS,
+  RUNTIME_SAFETY, the three small READMEs); the 12 historical records
+  (M2/M3/M4 plans + evidence, M2_SHAPE, M2_CFG, HARDENING,
+  AUDIT_VERIFICATION, BENCHMARKS, CORPUS_WAVE) structure-surveyed with
+  every status-bearing line checked. console.md + console_summary.md
+  head/tail + §9/F1–F5 sections read.
+- **The drift matrix (6 candidates, all fixed in this commit):**
+  1. README status line said "next T14–T16 mappings" — the boards'
+     session-8 record says G2 (the 70k path) is the remaining P0 and G5
+     is gated on G1 AND G2 (REVIEW_CHECKLIST ordering). FIXED: G2-first
+     wording.
+  2. docs/ROADMAP M5 row + header date — same next-pointer nuance;
+     header said 2026-11-08 while content was 2026-11-10-current.
+     FIXED both.
+  3. TODO.md §M5 JNI bullet's "Next:" line — same nuance. FIXED
+     (verbatim G2-first wording from the session-8 console record).
+  4. docs/M5_JNI_FFI.md §3/§4 — "complete list, v1" stopped at 7
+     primitives; the real audited surface is 12 (T11 11c ×3, T13 13b
+     call_foreign_native, T13 13c load_foreign_jni_library; 11 unsafe
+     occurrences of pin 12). The sibling docs (CALLS/HARNESS) and
+     gate-10 had the truth; the FFI design-of-record note did not.
+     FIXED: §3 amended + §4 entries 8–12 added with design-of-record
+     pointers.
+  5. docs/RUNTIME_SAFETY.md — §5's "No threads / monitors ... compile
+     errors" bullet contradicted the landed M4 surface (and §6, which
+     T16 added); §2's "single-threaded milestone" heading had no
+     revision note. FIXED: the bullet got the same strikethrough +
+     resolution treatment the GC/SOE bullets already had; §2 got a
+     dated reconciliation note pointing at §6 as the live contract.
+  6. docs/STRATEGIC_GAPS.md — R3 "Not started. Zero JNI surface" and
+     R4 "Single-threaded only" were the 2026-11-05 registration states,
+     now superseded. FIXED with a dated addendum (registration texts
+     kept verbatim; R3 CLOSED at the v1 evidence bar, R4 waves LANDED
+     with owner review pending, R1/R2/R5 pointers).
+- Verified NOT drift (left untouched): README "241 unit and integration
+  tests" is machine-checked by gate-11 (fixtures=109, tests=452 in
+  sync — hand-editing counts is banned, G0.4); docs/ROADMAP §2/§3
+  historical rows are dated records; M2/M3/M4 evidence records are
+  internally consistent; the corpus count discrepancy (ROADMAP "entries
+  1–2" vs board's four names) is resolved — java-string-similarity and
+  JAMA are corpus waves 3–4 recorded in TODO.md, ROADMAP's M3.7 section
+  predates them and is labeled as its own dated record.
+- **Toolchain anomaly (reset #10, new lesson candidate #12):**
+  `/home/z/my-project/tools/rustup/` came back ROOT-OWNED 700
+  (unreadable by user z; chmod without root fails; sudo unavailable) —
+  the persistent layer's EXISTENCE check passed but the toolchain was
+  unreachable. Recovered: rustup-init (z-owned, survived) bootstrapped
+  the pinned 1.99.1 toolchain into `/home/z/my-project/tools/rustup2`
+  (z-owned); `env.sh` now points RUSTUP_HOME there. CARGO_HOME
+  (tools/cargo) and the JDK survived intact — only rustup's directory
+  was damaged. **Lesson: the §9 preflight must stat -c '%U %a' the
+  persistent-layer dirs, not just test -e — permissions rot is a
+  separate failure mode from deletion.**
+- Gates run locally, pre- AND post-fix: gate-11 doc-counts
+  (fixtures=109 tests=452), gate-19 doc-links (all resolve), gate-20
+  code-integrity (zero stubs) — all green both times. This commit is
+  docs-only (no Rust source touched; the full battery is not owed on a
+  prose reconciliation, and G0.2's trigger — runtime/FFI/behavioral
+  change — does not fire).
+- Stale-belief audit closed: generator JDK path + child-process
+  loud-gap tests were ALREADY FIXED on origin (verified in the first
+  session-9 entry); todo closed, not redone.
+- **Next work (unchanged, per REVIEW_CHECKLIST ordering): G2 — the 70k
+  path.** G2.6's either-arm bar (the fat-method F6: split-table/
+  smaller-function emission OR the machine-bound registration + the
+  CI-visible emitter-side proxy test) and G2.1–G2.4 (F3 split-table,
+  F2 mtime fast path, F1 emit profile, F4 release trio) are the next
+  coding sessions, each ≤ 10-min chunks, full battery on landings that
+  touch codegen.

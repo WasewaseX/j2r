@@ -62,11 +62,13 @@ The standing law "zero `unsafe` in the workspace" becomes:
 
 > Zero `unsafe` in every crate EXCEPT `j2r-jni-ffi`, where every
 > `unsafe` occurrence (a) carries a `// SAFETY:` comment naming the JNI
-> contract that justifies it, (b) is inside one of the ≤ 7 audited
-> primitive functions listed in §4 (T09: six; T10 slice 2 amended to
-> seven with `write_u8_out` — see §4 entry 7 — the audited-surface
-> growth is registered for the M5 completion review alongside the
-> original amendment), and (c) is counted and pinned by
+> contract that justifies it, (b) is inside one of the audited primitive
+> functions listed in §4 (the surface grew 6 → 7 in T10 slice 2 with
+> `write_u8_out`, → 10 in T11 11c, → 11 in T13 13b, → 12 in T13 13c —
+> see §4 entries 8–12; every amendment landed with its same-commit
+> gate-10 count change, per the original amendment's law — the
+> audited-surface growth is registered for the M5 completion review
+> alongside the original amendment), and (c) is counted and pinned by
 > gate-10, which is amended from "grep finds no unsafe in crates/" to:
 > grep finds no unsafe in crates/ EXCEPT `crates/j2r-jni-ffi/src/ffi.rs`,
 > whose `unsafe` occurrence count is asserted ≤ 12 (the count lives in
@@ -114,6 +116,32 @@ null handling in a safe wrapper in `j2r-runtime::jni`:
    a required write, and the latter is a wrong answer by definition.
    SAFETY: caller guarantees one writable `jboolean` out-slot per the
    JNI spec; total (null slot = no-op, the spec's "caller doesn't ask").
+
+8. `read_word_at` / 9. `read_fp_word_at` / 10. `read_u32_at` — **the
+   T11 11c amendments**: the three save-area read primitives the
+   `Call*MethodV` SysV `__va_list_tag` walk needs (GP word, FP word,
+   overflow-area u32). Design + evidence of record:
+   `docs/M5_JNI_CALLS.md` §3/§6 (unsafe occurrences 6 → 9, same-commit
+   gate-10 amendment; the walk consumes into a LOCAL cursor, the
+   caller's record untouched).
+11. `call_foreign_native` — **the T13 13b amendment**: the fixed SysV
+   register-window outbound call thunk (`(env, recv, usize × 4,
+   f64 × 8)`; beyond the window = LOUD). Design of record:
+   `docs/M5_JNI_HARNESS.md` §2 (occurrences 9 → 10, same-commit
+   gate-10 amendment).
+12. `load_foreign_jni_library` — **the T13 13c amendment**: dlopen
+   (RTLD_NOW | RTLD_LOCAL) + dlsym("JNI_OnLoad") + the ABI-fixed
+   `jint (*)(void*, void*)` call; the handle is NEVER dlclosed (a JNI
+   library lives for the process). Design of record:
+   `docs/M5_JNI_HARNESS.md` §7 (occurrences 10 → 11 of pin 12 — one
+   headroom slot left, tracked).
+
+**Total audited surface as of T13 completion: 12 primitives, 11 `unsafe`
+occurrences of pin 12 (G1.6's register; the count is asserted by the
+gate script and mirrored by an in-crate test).** Entries 1–7 above are
+the T09/T10-era first draft, kept verbatim; entries 8–12 record the
+amendments so this note stays the single design-of-record pointer for
+the crate.
 
 Everything else in the bridge stays in `j2r-runtime::jni` under
 `#![forbid(unsafe_code)]`: handle tags, local/global/pinned-ref tables,

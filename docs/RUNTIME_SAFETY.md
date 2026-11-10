@@ -51,7 +51,15 @@ heap:  thread_local Vec<Option<Entry>>    // non-moving arena, mark-sweep GC
   matching constant-pool identity; the cache is `thread_local` and is
   scanned as a permanent root set.
 
-## 2. What is safe to claim today (single-threaded milestone)
+## 2. What is safe to claim today (single-threaded milestone — the M2-era record)
+
+> **2026-11-10 reconciliation note:** this section records the
+> M2-era single-threaded claims verbatim. M4 landed the
+> threads/concurrency surface (real threads, monitors, `wait`/`notify`,
+> interrupt, daemon shutdown) — **§6 below is the live contract** for
+> everything the suite cannot see. The claims were widened by four M4
+> waves with their own evidence and CI gates, exactly the "revised —
+> not silently widened" revision this document promises above.
 
 1. **Memory safety.** No `unsafe` anywhere in generated code or in
    `j2r-runtime`; all interior mutability is `RefCell`-checked. There is no
@@ -167,11 +175,15 @@ lambdas and Wave 4 monitors are the next scheduled re-issues).
   recursion throws a catchable `StackOverflowError`; the frame registry's
   hard ceiling is derived from the measured per-frame native-stack
   footprint (`frame.rs`, M2_PLAN §3.1.1).
-* **No threads / monitors** — `Thread`, `synchronized` (blocks and
-  methods), `wait`/`notify` are compile errors with precise messages. M2
-  delivers no concurrency and claims none (M2_PLAN §7); the M3 migration
-  checklist (shared heap, shared statics, stop-the-world coordination,
-  per-thread root registration) is a plan for future review.
+* ~~**No threads / monitors** — `Thread`, `synchronized` (blocks and
+  methods), `wait`/`notify` are compile errors with precise messages~~ —
+  **resolved in M4**: all four waves landed and CI-verified (real
+  threads, monitor contention, `wait`/`notify`, interrupt, daemon
+  shutdown, the JMM-lite statement of §6, gate-13-concurrency in the CI
+  aggregate; the M2 migration checklist was delivered as M4_PLAN and
+  executed — docs/M4_EVIDENCE.md). The owner completion review remains
+  pending; §6 is the concurrency contract of record.
+  `java.util.concurrent` remains out of scope (M5_PLAN §0).
 * **Uncaught-exception reporting** prints the type and message exactly, but
   not JVM stack frames (no `LineNumberTable` support yet); the
   differential harness normalizes frame lines and nothing else.

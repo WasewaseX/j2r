@@ -1538,8 +1538,10 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       GetStringUTFRegion abort naming the slot), and the dedicated CI
       gate gate-22-jni-c-harness-parity wired into the all-gates
       aggregate (17 upstream gates). REVIEW_CHECKLIST G1.1–G1.6 ALL
-      checked; 452 green. Next: T14–T16 mappings (G5, ordered after
-      G1/G2 per the review).
+      checked; 452 green. Next per REVIEW_CHECKLIST ordering: G2 (the
+      70k path — F1/F2/F3/F4 + the G2.6 fat-method F6 either-arm bar)
+      is the remaining P0; T14–T16 mappings (G5) start only after G1
+      AND G2 are checked.
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)
 - [ ] mixin application at the bytecode level before j2r (R1; §4,

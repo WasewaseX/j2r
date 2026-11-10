@@ -8,7 +8,7 @@ mods, to native code.
 [![CI](https://github.com/WasewaseX/j2r/actions/workflows/ci.yml/badge.svg)](https://github.com/WasewaseX/j2r/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Status: Milestone 5 (Minecraft readiness) — wave 1 (scale) CLOSED at 20k; wave 2 (JNI) CLOSED: T08–T13 complete, the C-harness parity + attach lifecycle proven vs Temurin (G1.1–G1.6); next T14–T16 mappings
+## Status: Milestone 5 (Minecraft readiness) — wave 1 (scale) CLOSED at 20k; wave 2 (JNI) CLOSED: T08–T13 complete, the C-harness parity + attach lifecycle proven vs Temurin (G1.1–G1.6); next per REVIEW_CHECKLIST ordering: G2 (the 70k-class path — findings F1–F4 + the G2.6 fat-method bar) is the remaining P0; T14–T16 mappings (G5) start only after G1 AND G2 are checked
 
 Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM (Temurin 21), compiled with J2R, run natively,

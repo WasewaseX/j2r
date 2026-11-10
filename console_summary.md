@@ -5,10 +5,19 @@ stale again at pre-M3 `b4badea`; ff-only merge → `6521597` (13d, wave 2
 JNI CLOSED, 452 green) == origin/main, nothing lost. Stale-belief audit:
 the generator JDK path + the child-process loud-gap tests were verified
 ALREADY FIXED on origin (prior-session memory was a stale snapshot; the
-board wins). Genuinely open: G2 = the 70k path (F1–F4 + the G2.6
-fat-method F6 either-arm bar) and the pending M4 owner review. Session 9
-task: read ALL .md files and reconcile any drift — in progress**. See
-console.md session-9 entries).
+board wins). Then: ALL .md files read (19 fully + 12 historical
+surveyed), the drift matrix built, and 6 drifts FIXED in one docs
+commit — the README/ROADMAP/TODO "next" pointers now name G2 (the 70k
+path) as the remaining P0 with mappings gated on G1 AND G2;
+M5_JNI_FFI's primitive register completed to the real 12;
+RUNTIME_SAFETY's stale no-threads bullet resolved with §6 as the live
+contract; STRATEGIC_GAPS given a dated R1–R5 status addendum. Gates
+11/19/20 green pre- and post-fix. New anomaly: reset #10 left
+`tools/rustup` ROOT-OWNED 700 — toolchain re-bootstrapped pinned 1.99.1
+into `tools/rustup2`, env.sh updated (lesson candidate #12: stat
+permissions in the §9 preflight, not just existence). Genuinely open:
+G2 = the 70k path (F1–F4 + the G2.6 fat-method F6 either-arm bar) and
+the pending M4 owner review**. See console.md session-9 entries).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
