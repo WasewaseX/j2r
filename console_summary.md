@@ -5,14 +5,14 @@ tree was back at pre-M3 `b4badea`; ff-only merge → `2722bf9` (13c,
 448 green) == origin/main, nothing lost. Toolchain recovered with NO
 re-download — the persistent layer already held the full rustup install
 (`tools/cargo` + `tools/rustup`); `env.sh` now exports CARGO_HOME and
-RUSTUP_HOME so future resets keep the toolchain. Boards + docs re-read
-in full before acting; next 13d**. Session 7 landed 13c: the ONE C
-harness `.so` + the loading story (VM GetEnv/GetJavaVM wired,
-`System.loadLibrary` over audited primitive 12, gate-10 10 → 11,
-GetVersion corrected to the MEASURED 0x0015_0000) + the three-channel
-parity runner — Temurin vs j2r BYTE-IDENTICAL on the full v1 battery;
-REVIEW_CHECKLIST G1.1–G1.3 checked; 448 green. See console.md
-session-7/8 entries and M5_JNI_HARNESS.md §7/§8).
+RUSTUP_HOME so future resets keep the toolchain. Then T13 slice 13d
+LANDED: the MEASURED attach lifecycle (VM slots 4/5/7 real — 162
+slots; GetEnv attach-aware; main_run marks main attached at birth;
+the pthread battery verdict 2047 byte-identical three-channel vs
+Temurin; the loud-gap child-process pins; the dedicated gate-22 CI
+parity job) — **T13 COMPLETE, WAVE 2 (JNI) CLOSED**, REVIEW_CHECKLIST
+G1.1–G1.6 all checked; 452 green**. See console.md session-8 entries
+and M5_JNI_HARNESS.md §9).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
@@ -139,6 +139,26 @@ j2r loading story + the three-channel parity runner) and 13d (the
 attach-lifecycle battery + the CI gate). Then T14–T16
 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
 M4 completion package still awaits owner review in parallel.
+**13d LANDED (session 8) — WAVE 2 (JNI) CLOSED**: the MEASURED attach
+contract (the C probe in scripts/evidence/attach_lifecycle_probe/ —
+fresh-thread GetEnv = JNI_EDETACHED pre-attach AND post-detach;
+attach/re-attach/AsDaemon = JNI_OK idempotent; detach = JNI_OK ALWAYS,
+three consecutive detaches measured JNI_OK — the oracle tolerates, it
+does not punish) → VM AttachCurrentThread (4) / DetachCurrentThread
+(5) / AttachCurrentThreadAsDaemon (7) real (**162 real slots**;
+DestroyJavaVM stays loud), GetEnv attach-aware (ERR → EVERSION →
+EDETACHED check order), main_run marks the main thread attached at
+birth, the harness pthread battery (verdict 2047: every measured arm +
+the self-checking battery on the attached env in BOTH attach cycles)
+byte-identical three-channel vs Temurin (Temurin measured standalone
+FIRST), the loud-gap child-process pins (NewGlobalRef/MonitorEnter/
+MonitorExit/GetStringUTFRegion abort naming the slot; InvokeInterface
+corrected of record — NOT in the Temurin 21 jni.h at all), and the
+dedicated CI gate **gate-22-jni-c-harness-parity** wired into the
+all-gates aggregate (17 upstream gates). 452 green, full battery
+(cfg_equiv 370.05 s + diff_suite 491.11 s) zero divergences.
+Next: G2 (the 70k path) is the remaining P0; G5 mappings (T14–T16)
+starts only after G1 AND G2 are checked.
 
 ### 3.1 T08 preconditions — the wave-2 entry checklist (all must be green before T08 code)
 
@@ -416,7 +436,7 @@ by the per-crate budget K.
   fixed two root defects (the message shape + the missing
   linkage-error builtin parent chain). 2 e2e tests + 1 builtin unit
   test; 440 green, full battery — zero divergences. **T12 ✅ COMPLETE.**
-- [~] **T13** — 13a design note docs/M5_JNI_HARNESS.md LANDED (724e839).
+- [x] **T13** — 13a design note docs/M5_JNI_HARNESS.md LANDED (724e839).
   13b LANDED (session 6): primitive 11 `call_foreign_native` (the fixed
   SysV register-window call, both return channels, LOUD beyond the
   window); gate-10 amended 9 → 10 occurrences of pin 12 in the same
@@ -445,6 +465,12 @@ by the per-crate budget K.
   wave 2 closes at 13d. ALSO:
   docs/REVIEW_CHECKLIST.md (G0–G6) now governs milestone-completion
   claims — the external review's P0–P2 as pass/fail gates.
+  **13d LANDED (session 8) — T13 COMPLETE, WAVE 2 (JNI) CLOSED, G1.1–
+  G1.6 ALL checked**: the measured attach contract → VM slots 4/5/7
+  real (162 slots), GetEnv attach-aware, main_run attach-mark, the
+  pthread battery verdict 2047 byte-identical both runtimes, the
+  loud-gap pins, gate-22 wired into the aggregate (17 gates); 452
+  green. The checklist's G1 section is fully discharged.
 - [ops] Session 8 (2026-11-10): reset #9 survived via §9 (tree back at
   pre-M3 `b4badea`; ff-only merge → `2722bf9` == origin/main, 0 ahead /
   138 behind, nothing lost); toolchain recovered from the persistent
