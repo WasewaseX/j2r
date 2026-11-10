@@ -536,3 +536,77 @@ getrusage max single child, mistake-list #2).
   object element pair 173/174, New*Array 175–182, Get/Release*
   ArrayElements 183–198, region pairs 199–214, critical pair 217/218)
   per M5_JNI_CLASSES.md §5 — then T10 is COMPLETE.
+
+### [2026-11-10 ~09:00–10:30 UTC] session 5 (cron cont.) — reset #6 survived; T10 slice 3b landed: the 46 array slots — T10 COMPLETE (414 green)
+- Sandbox reset #6 on session start: toolchain wiped again (cargo, JDK,
+  env.sh all gone), local tree back at `b4badea` (pre-M3) — the §9
+  protocol ran first: `git fetch origin && git reset --hard origin/main`
+  → HEAD `6e9805a` verified == origin/main (the boards' session-4 work —
+  slice 2 AND slice 3a — was already pushed and is the truth).
+- Toolchain rebootstrap (§3.1 item 1, the session-3/4 protocol): rustup
+  → exact pins rustc/cargo 1.99.1 + rustfmt 1.10.0 + clippy 0.1.99;
+  Temurin 21.0.13+9 → `/home/z/my-project/tools/jdk-21.0.13+9` (tarball
+  207,858,352 B ≈ the recorded 199 MB); `env.sh` recreated (J2R_JAVAC,
+  JAVA_HOME, PATH, CARGO_PROFILE_DEV_DEBUG=0). `target/` (509 MB)
+  survived → fast rebuilds.
+- Full baseline re-proven BEFORE any slice-3b code (T05's law): **398
+  tests, 0 failures** — classfile 38 · jni-ffi 8 · runtime 201 · codegen
+  125 · cli 26; walls: cfg_equiv 336.24 s, diff_suite 425.97 s, corpus
+  36.94 s, partition 24.19 s, soe 17.93 s, jar 10.05 s — fmt clean,
+  clippy `-D warnings` clean. Correction of record: the per-suite cli
+  labels in the session-4 entry were transposed — **soe_e2e = 1 test,
+  jar_suite = 3** (counted with --list this session); the total 26 and
+  workspace 398 were correct.
+- **T10 slice 3b landed** (docs/M5_JNI_CLASSES.md §5 is the design of
+  record): the 46 array slots through the generator real-slot registry
+  (45 → 91 real slots):
+  * 171 GetArrayLength (null → 0, the §5-conceded law) · 172
+    NewObjectArray (element class FROM the jclass mirror via
+    `class_name_of`; init resolves ONCE, every slot stores a copy) ·
+    173/174 Get/SetObjectArrayElement (the store's ArrayStoreException
+    check rides the host dispatch).
+  * 175–182 New<Prim>Array — each slot IS one primitive (no descriptor
+    parsing); negative length aborts loudly (NASE name in the message).
+  * 183–190 Get<Prim>ArrayElements — caller-owned COPY, registry-pinned
+    `(buf, array JRef, len, kind)` by the handed-out address; isCopy =
+    JNI_TRUE through audited primitive 7 (write_u8_out).
+  * 191–198 Release<Prim>ArrayElements — the mode law (JNI_COMMIT 1 =
+    copy back + keep; 0 = copy + free; JNI_ABORT 2 = free only); copy
+    back rides the raw store accessors. **Validate-before-remove
+    discipline**: wrong family / foreign pointer / wrong array handle
+    panic loudly WITHOUT mutating the registry, so a caught loud miss
+    never breaks a later valid release (a test proved the naive
+    remove-first order wrong — fixed at the source).
+  * 199–206/207–214 Get/Set<Prim>ArrayRegion — bounds checked UP FRONT
+    (violation = loud AIOOBE), bulk copy through the audited
+    copy_to_caller/copy_from_caller + raw accessors, narrowing per the
+    ARRAY descriptor.
+  * 222/223 Get/ReleasePrimitiveArrayCritical — the existing critical
+    registry; the handed address IS the live payload (arena never moves,
+    payloads never realloc — the M2 advantage); isCopy = JNI_FALSE.
+    **Design-note correction**: M5_JNI_CLASSES.md §5 said 217/218 for
+    the critical pair — those are MonitorEnter/MonitorExit; the
+    offset_of!-pinned table (verified vs Temurin jni.h) is authoritative:
+    222/223. Note fixed in the same commit; mod.rs module doc's "slot
+    213" claim fixed too.
+- New module `jni::arrays` (slot-level API, `PrimKind` one-variant-per-
+  slot) + 15 tests; +1 child-process test in jni/mod.rs
+  (J2R_JNI_ARRAY_RELEASE_ABORT_CHILD: a real array handle + a pointer we
+  never handed out through the generated ReleaseIntArrayElements wrapper
+  → SIGABRT with the slot named — the §5 law "pinned again by a
+  child-process test" made true). No new FFI primitives (gate-10
+  unchanged); zero `unsafe` in j2r-runtime (forbid holds).
+- Generator: 46 REAL_SLOTS entries + 6 hand-written + 40 loop-generated
+  wrapper bodies; regenerate+fmt **idempotent byte-for-byte** (two-pass
+  diff empty). Clippy drove two generator fixes at the SOURCE: emitted
+  wrappers omit the unit `-> ()`; region buffers cast via
+  `buf.cast::<u8>()` (never a redundant same-type `as`).
+- Evidence — full battery re-run anyway (the boards' standing law):
+  fmt clean; clippy `-D warnings` clean; **414 tests, 0 failures** —
+  classfile 38 · jni-ffi 8 · runtime 217 · codegen 125 (lib 101 + e2e 1
+  + malformed 12 + manifest 10 + wide_ids 1) · cli bin 15 + soe_e2e 1 +
+  lambda 2 + partition 1 + jar 3 + corpus 1 + cfg_equiv 1 (339.36 s) +
+  diff_suite 2 (438.24 s) — **zero divergences**; doc gate in sync
+  (README 398 → 414); M5_PLAN T10 → [x] COMPLETE.
+- Next: **T11** — the arity-shim trade-off note (variadic Call*Method
+  ABI) + the Call*Method/CallStatic*Method families (wave 2 continues).

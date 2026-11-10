@@ -1,7 +1,7 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 4 cont. — **T10 slice 3a landed, 398 green**;
-see console.md session-4 entries and §9). Raw log: `console.md`.
+Updated 2026-11-10 (session 5 — **T10 slice 3b landed → T10 COMPLETE,
+414 green**; see console.md session-5 entry and §9). Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
 
@@ -90,9 +90,21 @@ proof); jclass = the interned Class mirror; jfieldID registry with the
 inherited-field walk + 36 programmatic accessor wrappers; the T08
 bare-`c_void` jfieldID stand-in amended to the ABI-faithful pointer;
 398 green, full battery (partition + cfg_equiv 348 s + diff_suite
-422 s) zero divergences. Remaining wave 2: T10 slice 3b (array
-families, M5_JNI_CLASSES.md §5) · T11 (Call*Method + arity note) · T12
-(RegisterNatives) · T13 (C harness + attach lifecycle). Then T14–T16
+422 s) zero divergences. **T10 slice 3b ✅ LANDED (session 5) —
+T10 COMPLETE** — the 46 array slots (91 real slots total): 171 length
+(null → 0 conceded), 172–174 object arrays (element class FROM the
+jclass mirror; ASE check rides the host dispatch), 175–182
+New<Prim>Array (one primitive per slot, loud NASE), 183–190 elements
+(registry-pinned caller copy, isCopy=TRUE via primitive 7), 191–198
+release mode law (COMMIT/ABORT/0) with validate-before-remove registry
+discipline, 199–214 regions (up-front bounds, loud AIOOBE), 222/223
+criticals via the existing registry (isCopy=FALSE, the address IS the
+payload); 15 arrays tests + the child-process release-miss abort pin;
+no new FFI primitives (gate-10 unchanged); design-note correction of
+record: the critical pair is 222/223 (217/218 are MonitorEnter/Exit);
+414 green, full battery re-run (cfg_equiv 339 s + diff_suite 438 s)
+zero divergences. Remaining wave 2: T11 (Call*Method + arity note) ·
+T12 (RegisterNatives) · T13 (C harness + attach lifecycle). Then T14–T16
 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
 M4 completion package still awaits owner review in parallel.
 
@@ -102,10 +114,11 @@ M4 completion package still awaits owner review in parallel.
    law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 →
    `/home/z/my-project/tools/jdk-21.0.13+9` (session 3 moved the JDK to
    the persistent layer; /tmp is not trusted), `source
-   /home/z/my-project/env.sh`. Status: **DONE (session 4; was session
-   3)** — exact pinned versions restored twice in one session (resets
-   #4/#5 both reverted the persistent layer); rebootstrap download
-   measured: rustup-init 21 MB + Temurin tarball 199 MB.
+   /home/z/my-project/env.sh`. Status: **DONE (session 5; was session
+   4)** — exact pinned versions restored again (reset #6 reverted the
+   persistent layer; tarball 207,858,352 B ≈ the recorded 199 MB);
+   rebootstrap download measured: rustup-init 21 MB + Temurin tarball
+   199 MB.
 2. **Full local baseline green before the first T08 commit**: unit tests
    across all four crates + `diff_suite` (three-channel vs Temurin) +
    corpus suite; test counts re-synced per gate-11. Status: **DONE
@@ -116,7 +129,10 @@ M4 completion package still awaits owner review in parallel.
    **390** after T10 slice 2 (runtime 193, jni-ffi 8, cli 26;
    cfg_equiv 347 s + diff_suite 430 s, zero divergences). Re-proven at
    **398** after T10 slice 3a (runtime 201; partition 24.5 s,
-   cfg_equiv 348 s + diff_suite 422 s, zero divergences).
+   cfg_equiv 348 s + diff_suite 422 s, zero divergences). Re-proven at
+   **414** after T10 slice 3b (runtime 217; cfg_equiv 339.36 s +
+   diff_suite 438.24 s, zero divergences; cli per-suite labels
+   corrected: soe_e2e 1, jar_suite 3).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -276,26 +292,29 @@ by the per-crate budget K.
   (13 bridge + 7 ffi); gate-10 amended in the same commit (5 unsafe
   occurrences, pin ≤ 12); vendoring ships both crates (e2e-proven);
   379 green. Evidence: console.md session-3 T09 entry; M5_PLAN §6.
-- [~] **T10** v1 surface — IN PROGRESS. Slice 1 LANDED (session 3):
-  `jni::strings` modified-UTF-8 marshal + string-family slot bodies +
-  9 tests (workspace 388 green). Slice 2 LANDED (session 4 cont.):
-  generator `REAL_SLOTS` registry wires the five string slots;
+- [x] **T10** v1 surface — COMPLETE (sessions 3–5). Slice 1 LANDED
+  (session 3): `jni::strings` modified-UTF-8 marshal + string-family
+  slot bodies + 9 tests (workspace 388 green). Slice 2 LANDED (session
+  4): generator `REAL_SLOTS` registry wires the five string slots;
   generator default path pinned to `$JAVA_HOME` (lesson #5);
   regenerate+fmt idempotent byte-for-byte; audited FFI 6 → 7
-  primitives; abort shape pinned by a child-process test; full battery
-  re-run incl. diff_suite/cfg_equiv — 390 green, zero divergences.
-  Next: slice 3 — GetObjectClass/FindClass/field IDs/arrays (the
-  global-dispatch registration decision first). Slice 3a LANDED
-  (session 4 cont. 2): design note docs/M5_JNI_CLASSES.md committed
-  first; host dispatch + codegen install (both layouts);
-  jclass = interned Class mirror; jfieldID registry + walk + 36
-  accessor wrappers; the jfieldID c_void→pointer amendment; 398 green
-  with the FULL battery (codegen changed — mandatory). Next: slice 3b
-  — array families (171–218) per M5_JNI_CLASSES.md §5 → T10 COMPLETE.
-- [ops] Session 4 (2026-11-10): resets #4/#5 survived via §9; baseline
-  re-proven 388 green at 84734d6; second lesson-#12 near-miss (duplicate
-  uppercase CONSOLE files from a stale tree) caught before push — rule
-  re-confirmed: §9-pin FIRST, then read the boards, then act.
+  primitives; abort shape pinned by a child-process test; 390 green,
+  zero divergences. Slice 3a LANDED (session 4 cont. 2): host dispatch
+  + codegen install (both layouts); jclass = interned Class mirror;
+  jfieldID registry + walk + 36 accessor wrappers; the jfieldID
+  c_void→pointer amendment; 398 green with the FULL battery. Slice 3b
+  LANDED (session 5): the 46 array slots per M5_JNI_CLASSES.md §5
+  (see §3 above for the full list), 15 arrays tests + the child-process
+  array-release-miss abort pin (J2R_JNI_ARRAY_RELEASE_ABORT_CHILD);
+  validate-before-remove registry discipline (a caught loud miss never
+  breaks a later valid release); critical-pair slot correction
+  217/218 → 222/223 in the design note + mod.rs doc; 414 green, full
+  battery re-run — zero divergences. **T10 DONE.**
+- [ops] Session 5 (2026-11-10): reset #6 survived via §9 (tree back at
+  pre-M3 `b4badea`, toolchain wiped); baseline re-proven 398 green at
+  6e9805a, then slice 3b landed at 414. Correction of record: the
+  session-4 cli per-suite labels were transposed — soe_e2e = 1,
+  jar_suite = 3 (totals unchanged).
 - [hygiene] Two open dependabot PRs: #1 `actions/checkout` 4.4.0→7.0.1,
   #2 `actions/setup-java` 4.9.1→6.1.0 (2026-11-05) — review after the
   baseline is re-proven; 21 open code-scanning alerts (zizmor
