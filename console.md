@@ -1612,3 +1612,38 @@ getrusage max single child, mistake-list #2).
 - Next: **G2.4** (release-profile 20k trio, disk-guarded), G2.1b (the
   link wall), G2.5 (the honest 35k→50k→70k ladder), G2.7 (budget
   framing) — then G4 (M4 owner review + volatile/final boundary).
+
+### [2026-11-10 20:13 UTC session 12] reset #12 survived via §9; ff to `c4c45cf` (G2.3 closure, 167 commits); toolchain rebootstrap byte-exact; baseline re-proven 462 green; README 452→462 drift fixed (gate-11)
+- Reset #12 (sandbox recycled; toolchain + `tools/` + `env.sh` wiped,
+  tree back at pre-M3 `b4badea`): the §9 recipe — fetch + ff-only merge
+  → HEAD `c4c45cf` == origin/main (167 commits; the G2.1 split +
+  re-measure `4a44cfd`/`a221aff`, G2.6 peephole `36b0738`, G2.2
+  manifest v2 `ba5f007`, G2.3 stage profile `c4c45cf` — all four
+  closures verified ON origin, nothing lost).
+- Toolchain rebootstrap (§3.1 item 1, full download route): rustup-init
+  21.3 MB → pinned **cargo/rustc 1.99.1 + rustfmt 1.10.0 + clippy
+  0.1.99** into `tools/cargo` (CARGO_HOME) + `tools/rustup2`
+  (RUSTUP_HOME); Temurin **jdk-21.0.13+9** tarball **207,858,352 B
+  byte-exact** vs the recorded size (the GitHub releases-asset route,
+  as recorded in session 7) → `tools/jdk-21.0.13+9` (javac/java 21.0.13
+  verified); `env.sh` recreated (JAVA_HOME, J2R_JAVAC, CARGO_HOME,
+  RUSTUP_HOME, PATH, CARGO_PROFILE_DEV_DEBUG=0). `target/` (509 MB)
+  survived → warm builds (j2r-cli 13.29 s).
+- **Full baseline re-proven BEFORE any G2.4 code (T05's law):
+  462 tests, 0 failures** — classfile 38 · codegen 135 (lib 110 + e2e 1
+  + malformed 12 + manifest 11 + wide_ids 1) · jni-ffi 15 · runtime 243
+  (20.24 s) · cli 29 (bin 15, corpus 1 @30.63 s, jar 3 @19.57 s,
+  partition 1 @25.49 s, soe 1 @10.54 s, jni_parity 1, lambda 2,
+  native_e2e 2, cfg_equiv 1 @342.90 s, diff_suite 2 @461.36 s — 109
+  fixtures, zero divergences); fmt clean; clippy `-D warnings` clean.
+- **Drift found + fixed (gate-11)**: README still said the 452
+  aggregate (the 13d number) while the G2.x closures added 10 tests
+  (peephole 8, manifest fast-path 1, stage instrumentation 1) — gate-11
+  flagged `README 452 vs measured 462`; README overview + Testing
+  updated to the measured 462 with the G2.x additions named; dated
+  452 mentions in TODO/console history deliberately left (they record
+  what was true then). Gates re-run green: gate-11 `fixtures=109
+  tests=462` ✓, gate-19 links ✓, gate-20 stubs ✓, gate-12 seams ✓.
+- Next: **G2.4** (release-profile 20k trio, disk-guarded — 6.3 GB free
+  after the rebootstrap; target/ budgeted), G2.1b rides with the next
+  20k/70k protocol run, G2.5 ladder, G2.7 framing — then G4.

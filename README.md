@@ -28,7 +28,7 @@ classpath/JAR loading, lambdas and method references, `synchronized`
 monitors, and a reflection subset (`X.class`, `Field.get/set`,
 `Method.invoke`) — all green, plus the workspace unit and integration
 suites (241 tests at the build-manifest wave that introduced them; the
-measured aggregate is 452 — see Testing below for the full scope;
+measured aggregate is 462 — see Testing below for the full scope;
 gate-11 measures the live counts, hand-edited ones are banned), incl.
 the build-manifest suite (per-class reuse, body-edit isolation,
 surface/layout invalidation, corrupt-manifest fallback),
@@ -289,7 +289,7 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 452 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests + the T10 JNI string-marshalling, class/field-ID, field-accessor array-family tests + the pending-exception machinery + the T11 mock-dispatch invoke tests (all thirty Call*MethodA + all thirty Call*MethodV slots, virtual/static/nonvirtual) + the T12 native-binding registry and ACC_NATIVE call-through tests + the T13 foreign-call thunk tests (a real C-compiled probe, linked into its test binary only) + the T13 13c C-harness parity battery (the ONE harness .so, compiled once, three-channel vs Temurin on both runtimes) + the T13 13d attach-lifecycle tests (the MEASURED oracle contract: EDETACHED/attach/detach/re-attach, plus the loud-v1-gap abort pins)
+$ cargo test                       # 462 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the G2.6 array-literal peephole tests + the G2.2 manifest fast-path behavioral test + the G2.3 stage-instrumentation test + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests + the T10 JNI string-marshalling, class/field-ID, field-accessor array-family tests + the pending-exception machinery + the T11 mock-dispatch invoke tests (all thirty Call*MethodA + all thirty Call*MethodV slots, virtual/static/nonvirtual) + the T12 native-binding registry and ACC_NATIVE call-through tests + the T13 foreign-call thunk tests (a real C-compiled probe, linked into its test binary only) + the T13 13c C-harness parity battery (the ONE harness .so, compiled once, three-channel vs Temurin on both runtimes) + the T13 13d attach-lifecycle tests (the MEASURED oracle contract: EDETACHED/attach/detach/re-attach, plus the loud-v1-gap abort pins)
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar
