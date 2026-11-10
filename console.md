@@ -958,3 +958,44 @@ getrusage max single child, mistake-list #2).
 - Next: **13c** — the harness C source + the Temurin driver + the j2r
   loading story + the three-channel parity runner; then **13d** — the
   attach lifecycle battery + the CI gate; wave 2 closes.
+
+### [2026-11-10 ~08:25 UTC] session 7 — reset #8 survived via §9; toolchain re-proven (byte-exact); the cron schedule completed (0 jobs); next 13c
+- Reset #8 (sandbox recycled between sessions; persistent layer back at
+  pre-M3 `b4badea`, toolchain + `tools/` + `env.sh` wiped): the §9
+  recipe — `git fetch && git merge --ff-only origin/main` → HEAD
+  `754ae40` verified == origin/main (the boards' truth: session-6's
+  T13 slice 13b + docs/REVIEW_CHECKLIST.md already pushed and are the
+  law). `j2r-audit` (the unrelated 4-commit early workspace) untouched.
+- **The owner's 8-hour schedule COMPLETED and verified**: the four
+  one-time "continue never stop" jobs (Asia/Shanghai 06:52 / 08:52 /
+  10:52 / 12:52) all fired — the 12:52 firing delivered this session —
+  and a live listing shows **0 jobs remain**. The schedule stopped
+  completely, exactly as directed.
+- Toolchain rebootstrap (§3.1 item 1, the session-3/5/7 protocol):
+  rustup → exact pins cargo/rustc 1.99.1 + rustfmt 1.10.0 + clippy
+  0.1.99; Temurin jdk-21.0.13+9 → the persistent
+  `/home/z/my-project/tools/jdk-21.0.13+9` path, tarball **207,858,352 B
+  byte-exact** vs the recorded size (javac/java 21.0.13 verified);
+  `env.sh` recreated (J2R_JAVAC, JAVA_HOME, PATH,
+  CARGO_PROFILE_DEV_DEBUG=0); `target/` (509 MB) survived → warm
+  builds. **Download-route precision for the next reset**: the
+  Adoptium `/v3/binary/version/...` and `/v3/assets/version/...`
+  routes 404'd for `jdk-21.0.13+9` this time (release_names still
+  lists it) — the working route is the GitHub releases asset
+  `adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/
+  OpenJDK21U-jdk_x64_linux_hotspot_21.0.13_9.tar.gz`.
+- The owner's "read all .md files" directive executed on the fresh
+  tree: README / console_summary / TODO / docs/M5_JNI_HARNESS (the
+  13a design of record) read in full relevant depth. Stale-memory
+  audit: "T10 slice 2 pending", "generator /tmp path bug", "missing
+  child-process test" are all DISPROVEN by the boards — those landed
+  in sessions 4–5 (generator pinned to $JAVA_HOME, the abort shapes
+  pinned by child-process tests). The board wins over memory, as
+  written.
+- Next (unchanged from §8): baseline re-proof (fmt, clippy
+  `-D warnings`, unit tests, then the heavy suites chunked), then
+  **13c** — the harness C source + the Temurin driver + the j2r-side
+  loading story + the three-channel parity runner; then **13d** — the
+  attach-lifecycle battery + the CI gate; wave 2 closes at 13d.
+- Boards pushed immediately after this entry (the recovery itself is
+  now protected).
