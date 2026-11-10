@@ -64,7 +64,7 @@ The standing law "zero `unsafe` in the workspace" becomes:
 > `unsafe` occurrence (a) carries a `// SAFETY:` comment naming the JNI
 > contract that justifies it, (b) is inside one of the audited primitive
 > functions listed in §4 (the surface grew 6 → 7 in T10 slice 2 with
-> `write_u8_out`, → 10 in T11 11c, → 11 in T13 13b, → 12 in T13 13c —
+> `write_u8_out`, → 9 in T11 11c, → 10 in T13 13b, → 11 in T13 13c —
 > see §4 entries 8–12; every amendment landed with its same-commit
 > gate-10 count change, per the original amendment's law — the
 > audited-surface growth is registered for the M5 completion review

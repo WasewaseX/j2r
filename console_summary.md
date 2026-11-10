@@ -1,33 +1,34 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 9 — **reset #10 survived via §9: the tree was
-stale again at pre-M3 `b4badea`; ff-only merge → `6521597` (13d, wave 2
-JNI CLOSED, 452 green) == origin/main, nothing lost. Stale-belief audit:
-the generator JDK path + the child-process loud-gap tests were verified
-ALREADY FIXED on origin (prior-session memory was a stale snapshot; the
-board wins). Then: ALL .md files read (19 fully + 12 historical
-surveyed), the drift matrix built, and 6 drifts FIXED in one docs
-commit — the README/ROADMAP/TODO "next" pointers now name G2 (the 70k
-path) as the remaining P0 with mappings gated on G1 AND G2;
-M5_JNI_FFI's primitive register completed to the real 12;
-RUNTIME_SAFETY's stale no-threads bullet resolved with §6 as the live
-contract; STRATEGIC_GAPS given a dated R1–R5 status addendum. Gates
-11/19/20 green pre- and post-fix. New anomaly: reset #10 left
-`tools/rustup` ROOT-OWNED 700 — toolchain re-bootstrapped pinned 1.99.1
-into `tools/rustup2`, env.sh updated (lesson candidate #12: stat
-permissions in the §9 preflight, not just existence). Genuinely open:
-G2 = the 70k path (F1–F4 + the G2.6 fat-method F6 either-arm bar) and
-the pending M4 owner review**. See console.md session-9 entries).
-Raw log: `console.md`.
+Updated 2026-11-10 (session 10 — the stale-tree discipline fired again:
+tree at pre-M3 `b4badea`, ff-only → `0552cba` (161 commits, 0 ahead,
+nothing lost). The updated external review's five doc-drift candidates
+all verified against the tree and fixed docs-only: the M5 milestone row
+"nearly closed" → wave 1 + wave 2 CLOSED; §8 open items rebuilt as the
+full G2.1–G2.7 ladder (F1–F4 mapped into G2.1–G2.4, the G2.6 either-arm
+bar and G2.5/G2.7 spelled out); the zero-`unsafe` one-liners here, in
+console.md and TODO.md now carry the audited-FFI exception (11
+occurrences, pin ≤ 12, machine-counted this session, none outside
+ffi.rs); README's stale 241 era-scoped to the build-manifest wave
+(6f79a10) with the measured 452 aggregate — gate-11 never checked 241
+(correcting session 9's verification line). Plus a SIXTH drift the
+review missed: M5_JNI_FFI §3's growth sentence ("→ 12 in T13 13c")
+contradicted its own §4 register and the gate count — fixed to
+11 of pin 12. Gates 11/19 green post-fix. Open: G2 = the 70k path
+(G2.1–G2.7, §8) and the pending M4 owner review. Session-9 detail
+(reset #10, the all-.md read, its 6 fixes, the rustup-home recovery)
+lives in console.md. Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
 
 ## 1. What the project is
 
-j2r: a Java → Rust compiler written in safe Rust (zero `unsafe`,
-compiler-enforced). Input is compiled Java `.class` bytecode (not Java
-source); output is Rust source that is compiled by rustc into a native
-binary. Correctness law: three-channel differential testing (stdout /
+j2r: a Java → Rust compiler written in safe Rust — zero `unsafe` in
+every crate EXCEPT the audited `j2r-jni-ffi` FFI core (11 occurrences,
+gate-10-pinned ≤ 12, docs/M5_JNI_FFI.md §3; the count is asserted by
+CI and mirrored by an in-crate test). Input is compiled Java `.class`
+bytecode (not Java source); output is Rust source that is compiled by
+rustc into a native binary. Correctness law: three-channel differential testing (stdout /
 stderr / exit) against Temurin 21 — never "similar behavior", byte-identical
 output. North star: compile Minecraft Java Edition (~70,000 classes) and
 its mod ecosystem.
@@ -44,7 +45,7 @@ its mod ecosystem.
 | M3.6 | Strategic gap register | ✅ registered |
 | M3.7 | Real-world corpus wave | in progress (minimal-json, JZlib, java-string-similarity, Jama waves) |
 | M4 | Threads & concurrency | all 4 waves landed, CI-verified — **owner review pending** |
-| **M5** | **Minecraft readiness** | **STARTED 2026-11-08** — wave 1 nearly closed |
+| **M5** | **Minecraft readiness** | **STARTED 2026-11-08** — wave 1 (20k scale) + wave 2 (JNI v1 + C-harness parity) CLOSED; remaining P0: G2 (the 70k path) |
 | M6 | Mod ecosystem | future |
 
 ## 3. M5 register — where it stands
@@ -344,14 +345,32 @@ by the per-crate budget K.
 
 - [x] 20k census-jar confirmation — LANDED (session 1), wave 1 closed;
   state survived sandbox reset #2 via these boards (session 2, §9).
-- [F1] emit-stage super-linearity at 20k — needs a profile (34.12 s vs
-  T03's near-linear 2.02 s @ 5k).
-- [F2] no-op emit SHA-256-rehash-bound (~38 s @ 20k) — (mtime,size) fast
-  path registered.
-- [F3] app/Dispatch composite = rustc near-wall at 20k (3.49 GB) —
-  split-table emission registered (same follow-up family as the JZlib
-  mega-functions).
-- [F4] release-profile 20k trio — registered (disk-guarded).
+- [G2.1 = F3] split the app/Dispatch composite (rustc near-wall at 20k,
+  3.49 GB) — no single generated compilation unit may scale with TOTAL
+  class count; the 20k peak-rustc number re-measured and drops
+  materially; the partition differential stays byte-identical
+  (REVIEW_CHECKLIST §G2).
+- [G2.2 = F2] no-op rebuild fast path — (mtime,size) fast path; the
+  manifest stays a CACHE (corrupt/tampered → full re-emit, loud); the
+  20k no-op number re-measured, raw files in scripts/evidence/.
+- [G2.3 = F1] emission-stage profile at 20k — a named hot function
+  (34.12 s vs T03's near-linear 2.02 s @ 5k); a fix lands OR the
+  super-linearity is accepted in writing with its measured constant.
+- [G2.4 = F4] release-profile 20k trio — cold/no-op/one-edit under
+  --release, disk-guarded, raw evidence committed.
+- [G2.5] the honest ladder — 35k → 50k → 70k on this 4 GB box class,
+  end-to-end, three-channel parity, no OOM/SIGKILL, per-stage peak
+  memory, raw files committed. Extrapolation does NOT count.
+- [G2.6 = F6] the JZlib fat-method regression — EITHER split-table/
+  smaller-function emission lets the JZlib generated crate complete
+  --release -O3 byte-identical on this box, OR the limit is registered
+  as a machine-bound boundary + a CI-visible emitter-side census test
+  (per-method instruction/switch-table ceiling). "Partitioning fixed
+  it" does NOT count (it did not).
+- [G2.7] the 70k acceptance names the 4 GB/process budget up front and
+  is measured against it.
+- Implementation order (2026-11-10 external review): G2.1 → G2.6 →
+  G2.2–G2.4 → G2.5; no mappings/mod-loader work until G2 passes.
 - [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
   (run 42616529578, all 21 gates + CodeQL/OSV/Scorecard success):
   generated static tables, const offset_of! assertions, loud-abort

@@ -26,8 +26,11 @@ across GC churn, `System.err`,
 `java.util` collections with **byte-identical `HashMap` iteration order**,
 classpath/JAR loading, lambdas and method references, `synchronized`
 monitors, and a reflection subset (`X.class`, `Field.get/set`,
-`Method.invoke`) — all green, plus 241 unit and integration tests
-(incl. the build-manifest suite: per-class reuse, body-edit isolation,
+`Method.invoke`) — all green, plus the workspace unit and integration
+suites (241 tests at the build-manifest wave that introduced them; the
+measured aggregate is 452 — see Testing below for the full scope;
+gate-11 measures the live counts, hand-edited ones are banned), incl.
+the build-manifest suite (per-class reuse, body-edit isolation,
 surface/layout invalidation, corrupt-manifest fallback),
 12 malformed-classfile tests and JDK-free end-to-end tests.
 

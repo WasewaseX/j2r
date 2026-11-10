@@ -5,7 +5,9 @@ runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
 fix the board. Last updated: 2026-11-10.
 
-Project: J2R — Java → Rust compiler, 100% safe Rust (zero `unsafe`).
+Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
+the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
+docs/M5_JNI_FFI.md §3).
 North star: compile Minecraft Java Edition + mods (Fabric/Forge/NeoForge,
 Mixin, LWJGL). Sole contributor: wasewasex.
 
@@ -1558,7 +1560,9 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
 
 ## 4. Standing law (always, no exceptions)
 
-- Zero `unsafe` — compiler-enforced forbid + gate-10 grep.
+- Zero `unsafe` outside the audited `j2r-jni-ffi` FFI core (11
+  occurrences, pin ≤ 12, docs/M5_JNI_FFI.md §3) — compiler-enforced
+  forbid (every other crate root) + amended gate-10 grep.
 - Every commit passes all gates; gates run locally before push.
 - Never claim "done" without runnable evidence; never claim Minecraft
   compatibility without milestone evidence.

@@ -11,7 +11,9 @@ file disagrees with memory, this file wins.
 
 ## STATE AT A GLANCE (kept true by every session)
 
-- **Project:** j2r — Java → Rust compiler, zero `unsafe`. Repo:
+- **Project:** j2r — Java → Rust compiler, zero `unsafe` outside the
+  audited `j2r-jni-ffi` FFI core (11 occurrences, gate-10-pinned ≤ 12,
+  docs/M5_JNI_FFI.md §3). Repo:
   `github.com/WasewaseX/j2r` (authoritative). Local working tree:
   `/home/z/my-project/work/j2r-fresh` (reset to `origin/main` after
   sandbox reset #2; `work/j2r-gh` was lost in that reset — the tree name
@@ -1320,3 +1322,53 @@ getrusage max single child, mistake-list #2).
   F2 mtime fast path, F1 emit profile, F4 release trio) are the next
   coding sessions, each ≤ 10-min chunks, full battery on landings that
   touch codegen.
+
+### [2026-11-10 session 10] stale tree re-synced (b4badea → 0552cba, 161 commits); the external review's 5 drifts confirmed + a 6th found (FFI count sentence); all fixed docs-only; gates re-run
+- Sandbox reset #11 on session start: the tree was stale at pre-M3
+  `b4badea` again (16 commits, clean, strict behind, boards missing —
+  the §9 shape). `git fetch origin` + `git merge --ff-only origin/main`
+  → HEAD `0552cba`, 161 commits, 0 ahead, clean. NOTHING lost (nothing
+  local existed to lose).
+- Revision truth (the reviewer's sync item): session 9 recorded 159
+  commits at `6521597`; the two subsequent commits are `f516382`
+  (session-9 board record) + `0552cba` (the 6-drift docs commit), both
+  docs-only — GitHub's 161 == local 161 as of this entry.
+- The updated external review (2026-11-10) internalized: G1 CLOSED
+  (JNI wave 2, 452 green, gate-22 C-harness parity), 20k demonstrated,
+  verdict "serious compiler project, not Minecraft-ready yet", next
+  major achievement = G2. Its five §4 drift candidates each verified
+  against the tree and FIXED in this docs-only commit:
+  1. console_summary.md milestone table said "wave 1 nearly closed"
+     while its own §3 says wave 1 CLOSED — FIXED (row now records
+     wave 1 + wave 2 CLOSED, remaining P0 = G2).
+  2. console_summary.md §8 listed [F1]–[F4] without the G2.5/G2.6/
+     G2.7 acceptance gates — FIXED (rewritten as the full G2.1–G2.7
+     ladder, F1–F4 mapped into G2.1–G2.4, the G2.6 either-arm bar and
+     the review's implementation order G2.1 → G2.6 → G2.2–G2.4 → G2.5).
+  3. Zero-`unsafe` one-liners in console_summary.md §1, console.md
+     STATE-AT-A-GLANCE, TODO.md header + TODO.md standing-law bullet
+     contradicted the registered amendment — FIXED all four to carry
+     the audited-FFI exception. Machine truth re-run this session with
+     the gate-10 expression: 11 occurrences in ffi.rs, none outside.
+  4. README "241 unit and integration tests" — unmeasured prose from
+     the T06/T07 build-manifest wave (`git log -S` → 6f79a10); gate-11
+     does NOT assert it (its patterns cover 109 fixtures / 452 total /
+     cfg-equivalence only) — FIXED with era scoping + pointer to the
+     measured 452 aggregate in README Testing.
+  5. Revision sync (159 vs 161) — resolved as recorded above.
+- SIXTH drift found by this session (the reviewer's own count matched
+  the machine): docs/M5_JNI_FFI.md §3's growth sentence said "→ 10 in
+  T11 11c, → 11 in T13 13b, → 12 in T13 13c", contradicting the SAME
+  doc's §4 register (6 → 9 in 11c, 9 → 10 in 13b, 10 → 11 in 13c),
+  REVIEW_CHECKLIST G1.6, and the gate count (11 of pin 12). FIXED §3
+  to match §4 + the machine.
+- Correction to the session-9 record (append-only; the board wins):
+  its "241 is machine-checked by gate-11" verification line was WRONG
+  — the direct script read this session settles it; the prose is now
+  era-scoped instead of unmeasured.
+- Gates re-run post-fix: gate-11 doc-counts, gate-19 doc-links — green
+  (docs-only commit; no Rust source touched, G0.2's heavy battery does
+  not fire).
+- Next: G2.1 (split the app/Dispatch composite) — emission code
+  investigation started; the split must keep the partition differential
+  byte-identical and drop the 20k peak-rustc number materially.
