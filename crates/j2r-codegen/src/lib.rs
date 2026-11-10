@@ -45,6 +45,63 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::PathBuf;
 
+// G2.3 stage profiler (F1): J2R_PROFILE_STAGES=1 turns on coarse
+// wall-clock stage accumulation; `stages_report()` renders the table
+// after `compile_to_crate_stats`. Off by default (one bool check per
+// stage); the machine-checked answer to "where does the 20k emit
+// residual go" — names the hot stage, never adjectives.
+static STAGES: std::sync::Mutex<Option<Vec<(String, f64)>>> = std::sync::Mutex::new(None);
+
+pub fn stages_enabled() -> bool {
+    std::env::var_os("J2R_PROFILE_STAGES").is_some()
+}
+
+/// Accumulates wall time for one named stage while alive. `None` when
+/// profiling is disabled (the guard costs nothing).
+pub struct StageGuard {
+    name: &'static str,
+    t0: std::time::Instant,
+}
+
+impl StageGuard {
+    pub fn enter(name: &'static str) -> Option<StageGuard> {
+        if !stages_enabled() {
+            return None;
+        }
+        Some(StageGuard {
+            name,
+            t0: std::time::Instant::now(),
+        })
+    }
+}
+
+impl Drop for StageGuard {
+    fn drop(&mut self) {
+        let w = self.t0.elapsed().as_secs_f64();
+        if let Ok(mut g) = STAGES.lock() {
+            let v = g.get_or_insert_with(Vec::new);
+            match v.last_mut() {
+                Some(last) if last.0 == self.name => last.1 += w,
+                _ => v.push((self.name.to_string(), w)),
+            }
+        }
+    }
+}
+
+/// The accumulated stage table, or `None` when profiling never engaged.
+pub fn stages_report() -> Option<String> {
+    let g = STAGES.lock().ok()?;
+    let v = g.as_ref()?;
+    if v.is_empty() {
+        return None;
+    }
+    let mut s = String::from("stage-profile (J2R_PROFILE_STAGES=1):\n");
+    for (name, w) in v {
+        s.push_str(&format!("  stage={name} wall={w:.2}s\n"));
+    }
+    Some(s)
+}
+
 // ---------------------------------------------------------------- errors
 
 #[derive(Debug)]
@@ -421,6 +478,8 @@ fn parse_and_add(
     classes: &mut Vec<ClassPlan>,
     user_index: &mut BTreeMap<String, usize>,
     static_slots: &mut u32,
+    referer_of: &mut BTreeMap<String, String>,
+    module_index: &mut BTreeMap<String, usize>,
     source: &str,
 ) -> Result<()> {
     use crate::sha256::sha256_hex;
@@ -443,7 +502,11 @@ fn parse_and_add(
     // T03 closure cache: extract the referenced-user-class set once, here,
     // so the closure worklist never re-walks a constant pool.
     let refs = classpath::referenced_user_classes(&cf);
-    if classes.iter().any(|c| c.module == module) {
+    // G2.3 (F1): the module-collision check indexes instead of scanning —
+    // the old `classes.iter().any(...)` was the second O(N²) term in the
+    // measured 20k stage1 profile. Same semantics: duplicate module →
+    // loud error naming the colliding class.
+    if module_index.contains_key(&module) {
         return Err(CodegenError::Semantic {
             class: name.clone(),
             message: format!("module name collision for {name} (two classes sanitize to {module})"),
@@ -478,6 +541,17 @@ fn parse_and_add(
     }
 
     user_index.insert(name.clone(), classes.len());
+    module_index.insert(module.clone(), classes.len());
+    // G2.3 (F1): the closure worklist's referer attribution — a class's
+    // FIRST referer in class order, exactly what the old linear
+    // `classes.iter().find(...)` scan returned, but built in O(refs) here
+    // instead of O(N × refs) per wanted name (the measured 20k
+    // super-linearity: 26.09 s of the 29.93 s no-op emit).
+    for ref_name in &refs {
+        referer_of
+            .entry(ref_name.clone())
+            .or_insert_with(|| name.clone());
+    }
     classes.push(ClassPlan {
         name: name.clone(),
         super_name: cf.super_class.clone(),
@@ -511,9 +585,14 @@ pub fn compile(opts: &Options) -> Result<Program> {
     }
 
     // 1. parse ---------------------------------------------------------
+    let _sp_load = crate::StageGuard::enter("stage1_load_parse_hash");
     let mut classes: Vec<ClassPlan> = Vec::new();
     let mut user_index: BTreeMap<String, usize> = BTreeMap::new();
     let mut static_slots = 0u32;
+    // G2.3: wanted-name -> first referer (class order), built at parse
+    // time; replaces the closure loop's O(N × refs) linear attribution.
+    let mut referer_of: BTreeMap<String, String> = BTreeMap::new();
+    let mut module_index: BTreeMap<String, usize> = BTreeMap::new();
 
     for path in &opts.inputs {
         let bytes = std::fs::read(path).map_err(CodegenError::Io)?;
@@ -522,6 +601,8 @@ pub fn compile(opts: &Options) -> Result<Program> {
             &mut classes,
             &mut user_index,
             &mut static_slots,
+            &mut referer_of,
+            &mut module_index,
             &format!("input file {}", path.display()),
         )?;
     }
@@ -558,6 +639,8 @@ pub fn compile(opts: &Options) -> Result<Program> {
                 &mut classes,
                 &mut user_index,
                 &mut static_slots,
+                &mut referer_of,
+                &mut module_index,
                 &format!("classpath source {src}"),
             )?;
         }
@@ -578,10 +661,13 @@ pub fn compile(opts: &Options) -> Result<Program> {
                 break;
             }
             for name in wanted {
-                let referer = classes
-                    .iter()
-                    .find(|c| c.refs.contains(&name))
-                    .map(|c| c.name.clone())
+                // G2.3 (F1): the referer map (built at parse time) replaces
+                // the old linear `classes.iter().find(...)` scan — the
+                // measured super-linear term at 20k. Same semantics: the
+                // FIRST referer in class order, diagnostics-only.
+                let referer = referer_of
+                    .get(&name)
+                    .cloned()
                     .unwrap_or_else(|| "<unknown>".to_string());
                 let src = cp.find(&name).ok_or_else(|| CodegenError::Semantic {
                     class: referer.clone(),
@@ -598,6 +684,8 @@ pub fn compile(opts: &Options) -> Result<Program> {
                     &mut classes,
                     &mut user_index,
                     &mut static_slots,
+                    &mut referer_of,
+                    &mut module_index,
                     &format!("classpath source {src}"),
                 )?;
             }
@@ -610,6 +698,7 @@ pub fn compile(opts: &Options) -> Result<Program> {
             }
         }
     }
+    drop(_sp_load);
 
     let mut prog = Program {
         classes,
@@ -659,6 +748,7 @@ pub fn compile(opts: &Options) -> Result<Program> {
     let mut static_monitor_count: u32 = 0;
 
     // 4. decode + synthesize clinit ----------------------------------------
+    let _sp_plan = crate::StageGuard::enter("stage3_plan_methods_peephole");
     for ci in 0..prog.classes.len() {
         let (methods, clinit_fn, concats, lambdas) = plan_methods(&prog, ci)?;
         let plan = &mut prog.classes[ci];
@@ -681,10 +771,12 @@ pub fn compile(opts: &Options) -> Result<Program> {
             static_monitor_count += 1;
         }
     }
+    drop(_sp_plan);
 
     // 5. verify every method body (before emitting any code) ---------------
     // Malformed bytecode must fail here with a structured diagnostic, not
     // reach the panic paths of the generated code or runtime.
+    let _sp_verify = crate::StageGuard::enter("stage4_verify_validate");
     for c in &prog.classes {
         verify::verify_class(&prog, c)?;
     }

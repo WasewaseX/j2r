@@ -67,6 +67,7 @@ pub fn emit_crate(prog: &Program, opts: &Options) -> crate::Result<EmitStats> {
     let surface = crate::manifest::surface_hash(prog, opts.emit_cfg, opts.emit_typed);
     let prior = Manifest::load(out);
     stats.had_manifest = prior.is_some();
+    let _sp_gate = crate::StageGuard::enter("emit_gate_reuse");
     let gate_ok = prior
         .as_ref()
         .map(|m| {
@@ -91,8 +92,11 @@ pub fn emit_crate(prog: &Program, opts: &Options) -> crate::Result<EmitStats> {
     }
 
     // vendored runtime ------------------------------------------------------
+    drop(_sp_gate);
+    let _sp_glue = crate::StageGuard::enter("emit_runtime_glue");
     copy_runtime(out)?;
     record_runtime_glue_pub(out, &mut glue, prior.as_ref(), &mut stats);
+    drop(_sp_glue);
 
     // Cargo.toml -----------------------------------------------------------
     let mut cargo = String::new();
@@ -294,6 +298,7 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
     // Reuse path (M5 T06/T07): a verified-current class is kept
     // byte-for-byte and its rendering skipped; the manifest record is
     // refreshed with the hashes that were just verified.
+    let _sp_render = crate::StageGuard::enter("emit_render_write");
     for c in &prog.classes {
         if let Some(emitted_sha) = reuse.get(&c.name) {
             let emitted_path = out.join(class_file_rel(&c.module));
@@ -326,6 +331,7 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
         );
         stats.classes_reemitted += 1;
     }
+    drop(_sp_render);
 
     // main.rs -----------------------------------------------------------------
     if let (true, Some(m)) = (has_main, &main_info) {

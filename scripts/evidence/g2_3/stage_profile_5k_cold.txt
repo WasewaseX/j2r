@@ -1,0 +1,5 @@
+# G2.3 stage profile — 5k farm COLD emit (post-G2.3 reference point)
+  stage=stage1_load_parse_hash wall=0.40s
+  stage=stage3_plan_methods_peephole wall=0.10s
+  stage=stage4_verify_validate wall=0.39s
+  stage=emit_render_write wall=1.59s

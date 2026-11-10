@@ -1,0 +1,10 @@
+# G2.3 stage profile — 20k farm no-op emit (N=20000, k=250, warm)
+# binary: post-G2.3 (referer map + module index); J2R_PROFILE_STAGES=1
+incremental: 20003 reused, 0 re-emitted, 286 files unchanged, 0 written, 0 orphans removed
+  stage=stage1_load_parse_hash wall=2.22s
+  stage=stage3_plan_methods_peephole wall=0.40s
+  stage=stage4_verify_validate wall=1.54s
+  stage=emit_gate_reuse wall=0.08s
+  stage=emit_runtime_glue wall=0.01s
+  stage=emit_render_write wall=0.52s
+  stage=emit_manifest_save wall=0.01s

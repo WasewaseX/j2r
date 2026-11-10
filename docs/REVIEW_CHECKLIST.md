@@ -164,10 +164,29 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
   input-side `.class` hashing + glue IO — the emitted-side rehash (the
   measured 854 MB term) is gone; the residual is exactly what G2.3's
   profile must name.
-- [ ] **G2.3 — emission-stage profile (F1).**
-  PASS: a profile of the 20k emit stage exists (named hot function, not
-  adjectives) and either a fix lands or the super-linearity is accepted in
-  writing with its measured constant.
+- [x] **G2.3 — emission-stage profile (F1).** CLOSED session 11, both
+  arms of the bar: the profile exists (new `J2R_PROFILE_STAGES=1`
+  instrumentation — `StageGuard`/`stages_report`, off by default) and
+  it NAMES the hot stage with two named hot functions inside it, and
+  fixes landed. The 20k no-op emit profile: `stage1_load_parse_hash`
+  = **26.09 s of 29.93 s (87 %)** — inside it, (1) the closure
+  worklist's referer attribution `classes.iter().find(|c|
+  c.refs.contains(&name))` (O(wanted × N × refs)) and (2) the module-
+  collision check `classes.iter().any(|c| c.module == module)`
+  (O(N²) string compares). Both replaced with parse-time maps (referer
+  index + module index — identical first-hit semantics,
+  diagnostics-only, byte-identical emission). Measured constants:
+  stage1 per-class 20k **1.30 ms → 0.111 ms** (5k reference 0.080 ms —
+  per-class now FLAT across 4× N; the F1 super-linearity is gone);
+  20k no-op emit 29.93 s → **≈5 s** (and 41.74 s pre-G2.2); 20k full
+  render 34.30 s → 18.4 s (emit_render_write 14.58 s = 0.73 ms/class,
+  now the largest stage — linear). Battery green end-to-end (partition
+  k=2, corpus, jar, diff_suite 109 zero divergences, cfg_equiv,
+  fmt+clippy). Evidence: `scripts/evidence/g2_3/` (5k/20k stage
+  tables). Honest residual: emit_render_write at cold is the next
+  largest stage (linear, 0.73 ms/class — accepted as measured-constant
+  work); a no-prior-manifest run's `files_written` stat over-counts
+  glue (cosmetic stats accounting, mtime-verified no spurious writes).
 - [ ] **G2.4 — release-profile 20k trio (F4).**
   PASS: the cold/no-op/one-edit trio re-measured under `--release` on a
   disk-guarded protocol, raw evidence committed.

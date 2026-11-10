@@ -400,6 +400,9 @@ fn cmd_compile(
         Ok((dir, stats)) => {
             println!("generated Rust crate: {}", dir.display());
             println!("{}", stats.summary());
+            if let Some(report) = j2r_codegen::stages_report() {
+                println!("{report}");
+            }
             println!(
                 "build it with: cargo build --manifest-path {}/Cargo.toml",
                 dir.display()

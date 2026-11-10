@@ -256,7 +256,7 @@ single crate (M5_SCALE.md §2b, with the measured reason). Inline caches
 | 70k in one process | ~300 GB (transient build memory) | T01 derivation |
 | emitted source size | ~48 KB / class → 70k ≈ **3.2 GiB source**, binary smaller | T01 + manifest |
 | partitioned peak RSS | 1.91 GB @ 1k k=500; 1.89 GB @ 5k k=300 | T05 |
-| no-op rebuild | 357.5 s → 0.535 s (668×), 1k release | T06/T07 |
+| no-op rebuild | 357.5 s → 0.535 s (668×), 1k release; 20k emit 41.74 → 29.93 (G2.2 fast path) → ≈5 s (G2.3 profile fix) | T06/T07 + g2_2 + g2_3 |
 | one-body-edit rebuild | 71.0 s (5×), only its partition + app recompile | T06/T07 |
 | closure-cache effect | compile stage 7.98 → 2.02 s @ 5k (−75 %) | T03 |
 | **20k end-to-end (this session)** | cold ≈ **17.1 min**; no-op **38.8 s** (~26×); one-edit **55.3 s**; parity PASS | farm20k/*.time |
@@ -374,9 +374,19 @@ by the per-crate budget K.
   suites green. Evidence: scripts/evidence/g2_2/. Honest residual
   (measured): the remaining ~30 s = parse/plan + input hashing + glue
   IO → G2.3's profile names it.
-- [G2.3 = F1] emission-stage profile at 20k — a named hot function
-  (34.12 s vs T03's near-linear 2.02 s @ 5k); a fix lands OR the
-  super-linearity is accepted in writing with its measured constant.
+- [x] **G2.3 = F1** emission-stage profile at 20k — **CLOSED session
+  11, fix landed**: new J2R_PROFILE_STAGES instrumentation names
+  stage1_load_parse_hash = 26.09 s of the 29.93 s no-op emit (87 %);
+  inside it two named hot functions — the closure worklist's linear
+  referer attribution and the O(N²) module-collision scan — replaced
+  with parse-time maps (same first-hit semantics, diagnostics-only).
+  Per-class stage1: 20k 1.30 → 0.111 ms (5k 0.080 ms — FLAT across 4×
+  N, the super-linearity is gone); 20k no-op emit ≈ 5 s (from 41.74 s
+  pre-G2.2); full render 34.30 → 18.4 s. Battery green (diff 109 zero
+  divergences, cfg_equiv, partition, corpus, jar). Evidence:
+  scripts/evidence/g2_3/. Honest residual: cold emit_render_write
+  (14.58 s, 0.73 ms/class) is now the largest stage — linear, accepted
+  with its measured constant.
 - [G2.4 = F4] release-profile 20k trio — cold/no-op/one-edit under
   --release, disk-guarded, raw evidence committed.
 - [G2.5] the honest ladder — 35k → 50k → 70k on this 4 GB box class,
@@ -397,9 +407,9 @@ by the per-crate budget K.
 - [G2.7] the 70k acceptance names the 4 GB/process budget up front and
   is measured against it.
 - Implementation order (2026-11-10 external review): ~~G2.1~~ DONE; ~~G2.6~~
-  DONE; ~~G2.2~~ DONE (all session 11) → G2.3 (profile the 20k emit
-  residual) → G2.4 (release 20k trio) → G2.5; G2.1b rides with the next
-  20k/70k protocol run; no mappings/mod-loader work until G2 passes.
+  DONE; ~~G2.2~~ DONE; ~~G2.3~~ DONE (all session 11) → G2.4 (release
+  20k trio) → G2.5; G2.1b rides with the next 20k/70k protocol run; no
+  mappings/mod-loader work until G2 passes.
 - [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
   (run 42616529578, all 21 gates + CodeQL/OSV/Scorecard success):
   generated static tables, const offset_of! assertions, loud-abort

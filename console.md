@@ -1571,3 +1571,44 @@ getrusage max single child, mistake-list #2).
 - Next: **G2.3** — profile the 20k emit residual (parse/plan/input-
   hash/glue — name the hot function), then G2.4 (release 20k trio),
   G2.1b (link wall), G2.5 (ladder).
+
+### [2026-11-10 session 11 cont. 3] G2.3 CLOSED, fix landed — the stage profile names two O(N²) hot functions in the load stage; per-class 1.30 → 0.111 ms (FLAT across 4× N); 20k no-op emit ≈ 5 s (from 41.74 s); full battery green
+- Instrumentation first (committed, off by default):
+  `J2R_PROFILE_STAGES=1` + `StageGuard`/`stages_report()` in
+  j2r-codegen (compile stages + both emit paths + the CLI report line)
+  — the machine-checked "named hot stage, not adjectives" answer.
+- The 20k no-op emit profile (N=20000, k=250, warm):
+  **stage1_load_parse_hash = 26.09 s of 29.93 s (87 %)**; everything
+  else ≤ 1.6 s. Inside stage1, TWO named hot functions, both O(N²)
+  family: (1) the closure worklist's referer attribution
+  `classes.iter().find(|c| c.refs.contains(&name))` — O(wanted × N ×
+  refs) per round (T03 fixed the constant-pool re-walk but left this
+  scan); (2) the module-collision check
+  `classes.iter().any(|c| c.module == module)` in parse_and_add —
+  O(N²) string compares.
+- The fixes (both diagnostics-only, byte-identical emission, same
+  first-hit semantics): a parse-time `referer_of` map (wanted-name →
+  first referer in class order) and a `module_index` map — the closure
+  loop and the collision check now O(log n) lookups. Full-render
+  no-prior-manifest run verified: all 20,003 class files byte-stable
+  (mtime + no-op reuse after manifest restore).
+- Measured constants (the bar's "measured constant" arm):
+  stage1 per-class at 20k **1.30 ms → 0.111 ms**; 5k reference post-fix
+  **0.080 ms** — per-class FLAT across 4× N (was 16× worse at 20k than
+  5k; the F1 super-linearity is gone). 20k no-op emit total ≈ **5 s**
+  (41.74 s pre-G2.2 → 29.93 s G2.2 → 5 s); 20k full render 34.30 s →
+  **18.4 s** (emit_render_write 14.58 s = 0.73 ms/class — now the
+  largest stage, LINEAR, accepted with its measured constant).
+- Battery (zero divergences everywhere): codegen 110 lib + manifest 11
+  + e2e ✓; partition differential k=2 29.08 s ✓; corpus_suite 34.71 s ✓;
+  jar_suite 3 ✓; diff_suite 109 fixtures 519.52 s ✓; cfg_equiv
+  372.28 s ✓; fmt + clippy `-D warnings` ✓.
+- Minor honest observation: a no-prior-manifest run's `files_written`
+  stat over-counts glue (prior-absent entries counted without a real
+  write; mtime-verified no spurious file writes) — cosmetic stats
+  accounting, registered for a future tidy, not a correctness issue.
+- Evidence: `scripts/evidence/g2_3/` — the 5k/20k stage tables (no-op,
+  full render, cold 5k reference).
+- Next: **G2.4** (release-profile 20k trio, disk-guarded), G2.1b (the
+  link wall), G2.5 (the honest 35k→50k→70k ladder), G2.7 (budget
+  framing) — then G4 (M4 owner review + volatile/final boundary).

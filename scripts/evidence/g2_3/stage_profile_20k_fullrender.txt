@@ -1,0 +1,9 @@
+# G2.3 stage profile — 20k farm FULL render (no prior manifest), same tree
+incremental: 0 reused, 20003 re-emitted, 20255 files unchanged, 34 written, 0 orphans removed (no prior manifest)
+  stage=stage1_load_parse_hash wall=2.27s
+  stage=stage3_plan_methods_peephole wall=0.42s
+  stage=stage4_verify_validate wall=1.54s
+  stage=emit_gate_reuse wall=0.00s
+  stage=emit_runtime_glue wall=0.01s
+  stage=emit_render_write wall=14.58s
+  stage=emit_manifest_save wall=0.01s

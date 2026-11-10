@@ -1546,7 +1546,13 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       rust-lld 3.09 GB registered as G2.1b; G2.6 CLOSED session 11 via
       arm (a): the array-literal peephole — JZlib release SIGKILL at
       3.25 GB → rc=0 in 50.34 s / 678 MB, byte-identical vs Temurin;
-      remaining G2.2–G2.5 + G2.7) is the remaining P0; T14–T16
+      G2.2 CLOSED session 11: manifest v2 (mtime,size) fast path — 20k
+      no-op emit 41.74 → 29.93 s, 20,003 reused / 0 written; G2.3
+      CLOSED session 11: the stage profile named two O(N²) hot
+      functions in the load stage (referer attribution + module
+      collision scan), both fixed — per-class 1.30 → 0.111 ms (FLAT
+      across 4× N), 20k no-op emit ≈ 5 s; remaining G2.4–G2.5 + G2.7)
+      is the remaining P0; T14–T16
       mappings (G5) start only after G1 AND G2 are checked.
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)
