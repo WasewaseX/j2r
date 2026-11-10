@@ -341,12 +341,16 @@ by the per-crate budget K.
   table + remeasure log). Honest caveat: the baseline "3.49 GB app-bin
   rustc" label conflated rustc with its lld child — the new
   scripts/proc_peak_sampler.py separates them.
-- [G2.1b] the link-stage wall — with every rustc bounded, the 20k peak
-  is rust-lld 3.09 GB linking the ≈1.08 GiB debug=0 binary (still
-  total-class-scaled via binary size). PASS: measured under the 4 GB
-  budget AND either a measured link mitigation (linker choice/flags or
-  binary-size reduction) with re-measure, or a written accepted boundary
-  + the per-process sampler wired into the standing 20k/70k protocol.
+- [x] **G2.1b — the link-stage wall — CLOSED session 13 via arm (b)**:
+  the boundary is accepted in writing with the measured number + the
+  sampler wired into the standing protocol. G2.4 release trio: 20k
+  RELEASE link peak **3.29/4.0 GB VmHWM** (1.01 GiB binary, final
+  chunk sampler-wrapped); one-edit relink 3.30 GB; debug=0 cold stands
+  at rust-lld 3.09 GB. Written boundary: link memory scales with
+  BINARY size (still total-class-scaled, different process); no
+  mitigation attempted; a ~70k release link is EXPECTED to exceed the
+  4 GB budget and the G2.5 ladder records that wall if it fires —
+  measured, not extrapolated. Evidence: scripts/evidence/g2_4/.
 - [x] **G2.2 = F2** no-op rebuild fast path — **CLOSED session 11**:
   manifest v2 records the emitted file's (mtime_ns,size);
   verify_reuse fast-paths on a stat match (content-hash fallback on any
@@ -370,8 +374,16 @@ by the per-crate budget K.
   scripts/evidence/g2_3/. Honest residual: cold emit_render_write
   (14.58 s, 0.73 ms/class) is now the largest stage — linear, accepted
   with its measured constant.
-- [G2.4 = F4] release-profile 20k trio — cold/no-op/one-edit under
-  --release, disk-guarded, raw evidence committed.
+- [x] **G2.4 = F4** release-profile 20k trio — **CLOSED session 13**:
+  cold/no-op/one-edit under `--release` on the disk-guarded staged
+  protocol (scripts/g2_4_release_trio.sh, sampler on every cargo
+  chunk). Cold release cargo **7537.36 s over 14 chunks, peak VmHWM
+  3.29/4.0 GB** (final link, no OOM/SIGKILL); release binary 1.01 GiB;
+  emit cold 11.63 / no-op 5.83 / one-edit 5.81 s; no-op release cargo
+  **0.36 s** (G2.2 stat fast path carries into release); one-edit
+  release cargo **100.88 s** (relink-dominated, peak 3.30 GB); parity
+  vs Temurin PASS (stdout+stderr+exit identical). Raw evidence:
+  scripts/evidence/g2_4/ (chunk tables + times + parity stdouts + log).
 - [G2.5] the honest ladder — 35k → 50k → 70k on this 4 GB box class,
   end-to-end, three-channel parity, no OOM/SIGKILL, per-stage peak
   memory, raw files committed. Extrapolation does NOT count.
@@ -389,10 +401,11 @@ by the per-crate budget K.
   sampler + census = the standing regression probe.
 - [G2.7] the 70k acceptance names the 4 GB/process budget up front and
   is measured against it.
-- Implementation order (2026-11-10 external review): ~~G2.1~~ DONE; ~~G2.6~~
-  DONE; ~~G2.2~~ DONE; ~~G2.3~~ DONE (all session 11) → G2.4 (release
-  20k trio) → G2.5; G2.1b rides with the next 20k/70k protocol run; no
-  mappings/mod-loader work until G2 passes.
+- Implementation order (2026-11-10 external review): ~~G2.1~~ DONE;
+  ~~G2.6~~ DONE; ~~G2.2~~ DONE; ~~G2.3~~ DONE; ~~G2.4~~ DONE; ~~G2.1b~~
+  DONE (all sessions 11–13) → **G2.5** (the honest 35k → 50k → 70k
+  ladder) with G2.7's budget framing; no mappings/mod-loader work until
+  G2 passes.
 - [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
   (run 42616529578, all 21 gates + CodeQL/OSV/Scorecard success):
   generated static tables, const offset_of! assertions, loud-abort
@@ -517,6 +530,16 @@ by the per-crate budget K.
   pthread battery verdict 2047 byte-identical both runtimes, the
   loud-gap pins, gate-22 wired into the aggregate (17 gates); 452
   green. The checklist's G1 section is fully discharged.
+- [ops] Session 13 (2026-11-10 ~22:30 UTC): **G2.4 CLOSED + G2.1b
+  CLOSED (arm b)** — release-profile 20k trio measured end-to-end:
+  cold release cargo 7537.36 s across 14 chunked stages (550 s cap,
+  fingerprints resume), peak VmHWM 3.29/4.0 GB (final rust-lld link,
+  no OOM/SIGKILL), release binary 1.01 GiB, parity vs Temurin PASS
+  three-channel; no-op release cargo 0.36 s, one-edit 100.88 s; the
+  G2.2 stat fast path carries into release. Disk guard ≥1.2 GB held
+  (840 MB stale target/debug freed first; release target 3.1 GB).
+  Raw evidence scripts/evidence/g2_4/ committed. Next: **G2.5** (35k →
+  50k → 70k ladder) with G2.7 budget framing.
 - [ops] Session 12 (2026-11-10 ~20:13 UTC): reset #12 survived via §9
   (tree back at pre-M3 `b4badea`; ff-only merge → `c4c45cf` ==
   origin/main, 167 commits — all four G2 closures verified ON origin);

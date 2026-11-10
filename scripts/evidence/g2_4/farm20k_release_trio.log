@@ -1,0 +1,201 @@
+[2026-11-10T20:16:52Z] ================ G2.4 RELEASE TRIO START (N=20000 k=250 --release -j2 CI=0)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  3.8G  5.6G  41% /
+[2026-11-10T20:17:21Z] j2r release rebuild WALL_S PEAK_KB = 28.91 380804
+j2r 0.1.0
+[2026-11-10T20:17:21Z] stageR OK
+[2026-11-10T20:17:35Z] == [0] farm gen + javac + jar (fresh after reset #12)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  3.8G  5.6G  41% /
+farm: 20000 classes + Base + Op + Main, 1200370 total LOC -> /home/z/my-project/work/m5invest/farm20k/farm_src
+[2026-11-10T20:18:02Z] javac WALL_S PEAK_RSS_KB = 26.20 951088
+[2026-11-10T20:18:04Z] stage0 OK: jar 25M, src 79M, classes 79M
+[2026-11-10T20:18:07Z] == [1/5] COLD emit --release crate layout (fresh out20krel)
+[2026-11-10T20:18:07Z] disk guard OK (5632840 kB free)
+[2026-11-10T20:18:18Z] cold emit WALL_S PEAK_RSS_KB = 11.63 902016
+[2026-11-10T20:18:19Z] out20krel sources: 857M
+[2026-11-10T20:18:29Z] disk guard OK (4755820 kB free)
+[2026-11-10T20:18:29Z] == [2/5] COLD release cargo chunk #1 (fingerprints resume; sampler wired)
+[2026-11-10T20:27:39Z] chunk #1 rc=124 sampler: 550.06 1422616
+[2026-11-10T20:27:39Z] chunk #1 killed by the 550 s cap (expected mid-build; fingerprints resume)
+377740 27763 rustc
+169496 27772 rustc
+151124 27757 rustc
+148704 935 python
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.0G  4.4G  53% /
+[2026-11-10T20:27:47Z] disk guard OK (4579516 kB free)
+[2026-11-10T20:27:47Z] == [2/5] COLD release cargo chunk #2 (fingerprints resume; sampler wired)
+[2026-11-10T20:36:57Z] chunk #2 rc=124 sampler: 550.04 1425260
+[2026-11-10T20:36:57Z] chunk #2 killed by the 550 s cap (expected mid-build; fingerprints resume)
+148704 935 python
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.1G  4.3G  55% /
+[2026-11-10T20:37:02Z] disk guard OK (4411208 kB free)
+[2026-11-10T20:37:02Z] == [2/5] COLD release cargo chunk #3 (fingerprints resume; sampler wired)
+[2026-11-10T20:46:12Z] chunk #3 rc=124 sampler: 550.04 1423292
+[2026-11-10T20:46:12Z] chunk #3 killed by the 550 s cap (expected mid-build; fingerprints resume)
+148704 935 python
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.3G  4.1G  57% /
+[2026-11-10T20:46:15Z] disk guard OK (4239632 kB free)
+[2026-11-10T20:46:15Z] == [2/5] COLD release cargo chunk #4 (fingerprints resume; sampler wired)
+[2026-11-10T20:55:25Z] chunk #4 rc=124 sampler: 550.09 1419572
+[2026-11-10T20:55:25Z] chunk #4 killed by the 550 s cap (expected mid-build; fingerprints resume)
+356932 935 python
+342148 29156 python
+341224 29100 python
+337928 29105 python
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.5G  3.9G  59% /
+[2026-11-10T20:55:59Z] disk guard OK (4939684 kB free)
+[2026-11-10T20:55:59Z] == [2/5] COLD release cargo chunk #5 (fingerprints resume; sampler wired)
+[2026-11-10T21:05:09Z] chunk #5 rc=124 sampler: 550.03 1394460
+[2026-11-10T21:05:09Z] chunk #5 killed by the 550 s cap (expected mid-build; fingerprints resume)
+42340 2 caddy
+33088 894 uv
+24040 29262 cargo
+13780 29260 python3
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  4.7G  4.7G  51% /
+[2026-11-10T21:05:33Z] disk guard OK (4825996 kB free)
+[2026-11-10T21:05:33Z] == [2/5] COLD release cargo chunk #6 (fingerprints resume; sampler wired)
+[2026-11-10T21:14:07Z] chunk #6 rc=101 sampler: 514.13 1391256
+[2026-11-10T21:14:07Z] chunk #6 killed by the 550 s cap (expected mid-build; fingerprints resume)
+42340 2 caddy
+33088 894 uv
+24080 29529 cargo
+13800 29527 python3
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  4.9G  4.5G  52% /
+[2026-11-10T21:14:12Z] disk guard OK (4689112 kB free)
+[2026-11-10T21:14:12Z] == [2/5] COLD release cargo chunk #7 (fingerprints resume; sampler wired)
+[2026-11-10T21:23:22Z] chunk #7 rc=124 sampler: 550.07 1408616
+[2026-11-10T21:23:22Z] chunk #7 killed by the 550 s cap (expected mid-build; fingerprints resume)
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.0G  4.4G  54% /
+[2026-11-10T21:23:28Z] disk guard OK (4520648 kB free)
+[2026-11-10T21:23:28Z] == [2/5] COLD release cargo chunk #8 (fingerprints resume; sampler wired)
+[2026-11-10T21:32:38Z] chunk #8 rc=124 sampler: 550.03 1411520
+[2026-11-10T21:32:38Z] chunk #8 killed by the 550 s cap (expected mid-build; fingerprints resume)
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.2G  4.2G  56% /
+[2026-11-10T21:32:51Z] disk guard OK (4355124 kB free)
+[2026-11-10T21:32:51Z] == [2/5] COLD release cargo chunk #9 (fingerprints resume; sampler wired)
+[2026-11-10T21:42:01Z] chunk #9 rc=124 sampler: 550.02 1384320
+[2026-11-10T21:42:01Z] chunk #9 killed by the 550 s cap (expected mid-build; fingerprints resume)
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.3G  4.0G  57% /
+[2026-11-10T21:42:04Z] disk guard OK (4190600 kB free)
+[2026-11-10T21:42:04Z] == [2/5] COLD release cargo chunk #10 (fingerprints resume; sampler wired)
+[2026-11-10T21:51:14Z] chunk #10 rc=124 sampler: 550.03 1402264
+[2026-11-10T21:51:14Z] chunk #10 killed by the 550 s cap (expected mid-build; fingerprints resume)
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.5G  3.9G  59% /
+[2026-11-10T21:51:17Z] disk guard OK (4027936 kB free)
+[2026-11-10T21:51:17Z] == [2/5] COLD release cargo chunk #11 (fingerprints resume; sampler wired)
+[2026-11-10T22:00:27Z] chunk #11 rc=124 sampler: 550.06 1411168
+[2026-11-10T22:00:27Z] chunk #11 killed by the 550 s cap (expected mid-build; fingerprints resume)
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.7G  3.7G  61% /
+[2026-11-10T22:00:33Z] disk guard OK (3860548 kB free)
+[2026-11-10T22:00:33Z] == [2/5] COLD release cargo chunk #12 (fingerprints resume; sampler wired)
+[2026-11-10T22:09:43Z] chunk #12 rc=124 sampler: 550.03 1407744
+[2026-11-10T22:09:43Z] chunk #12 killed by the 550 s cap (expected mid-build; fingerprints resume)
+938800 31402 rustc
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  5.8G  3.6G  63% /
+[2026-11-10T22:09:46Z] disk guard OK (3698984 kB free)
+[2026-11-10T22:09:46Z] == [2/5] COLD release cargo chunk #13 (fingerprints resume; sampler wired)
+[2026-11-10T22:18:56Z] chunk #13 rc=124 sampler: 550.03 1409196
+[2026-11-10T22:18:56Z] chunk #13 killed by the 550 s cap (expected mid-build; fingerprints resume)
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  6.0G  3.4G  64% /
+[2026-11-10T22:18:59Z] disk guard OK (3542120 kB free)
+[2026-11-10T22:18:59Z] == [2/5] COLD release cargo chunk #14 (fingerprints resume; sampler wired)
+[2026-11-10T22:26:02Z] chunk #14 rc=0 sampler: 422.70 3289116
+[2026-11-10T22:26:02Z] cold release cargo DONE in chunks (final chunk table: 422.70 3289116)
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  7.1G  2.3G  76% /
+[2026-11-10T22:26:10Z] == [3/5] NO-OP rebuild (nothing changed)
+[2026-11-10T22:26:10Z] disk guard OK (2376244 kB free)
+[2026-11-10T22:26:16Z] no-op emit WALL_S PEAK_RSS_KB = 5.83 901224
+[2026-11-10T22:26:16Z] no-op release cargo WALL_S MAX_VMHWM_KB = 0.36 356932
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+37232 32284 cargo
+33088 894 uv
+13688 32282 python3
+4136 32265 su
+3236 32268 bash
+3180 32267 bash
+2264 909 bash
+1100 32264 sh
+1088 32283 timeout
+[2026-11-10T22:26:25Z] == [4/5] ONE-CLASS BODY EDIT (C00042 constant tweaked, same signature)
+[2026-11-10T22:26:25Z] disk guard OK (2376228 kB free)
+[2026-11-10T22:26:39Z] one-edit emit WALL_S PEAK_RSS_KB = 5.81 901268
+[2026-11-10T22:28:20Z] one-edit release cargo WALL_S MAX_VMHWM_KB = 100.88 3298716
+3298716 32436 rust-lld
+1275660 32378 rustc
+356932 935 python
+226200 32426 rustc
+208880 32384 rustc
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+26252 32372 cargo
+13916 32370 python3
+4140 32314 su
+3324 32317 bash
+[2026-11-10T22:28:24Z] == [5/5] parity vs Temurin + footprint + disk table + evidence copy
+[2026-11-10T22:28:24Z] binary: /home/z/my-project/work/m5invest/farm20k/out20krel/target/release/farm20000 (1060961000 B)
+[2026-11-10T22:28:25Z] exit codes: rust=0 java=0
+[2026-11-10T22:28:25Z] PARITY: PASS (stdout+stderr+exit identical)
+[2026-11-10T22:28:26Z] cold release cargo TOTAL wall across chunks = 7537.36s ; PEAK single-process VmHWM = 3289116 KB
+[2026-11-10T22:28:26Z] out20krel sources: 857M  release target: 3.1G
+[2026-11-10T22:28:26Z] emit: cold 11.63 902016  no-op 5.83 901224  one-edit 5.81 901268
+[2026-11-10T22:28:26Z] cargo release: no-op 0.36 356932
+356932 935 python
+61972 925 MainThread
+42340 2 caddy
+37232 32284 cargo
+33088 894 uv
+13688 32282 python3
+4136 32265 su
+3236 32268 bash
+3180 32267 bash
+2264 909 bash
+1100 32264 sh
+1088 32283 timeout  one-edit 100.88 3298716
+3298716 32436 rust-lld
+1275660 32378 rustc
+356932 935 python
+226200 32426 rustc
+208880 32384 rustc
+61972 925 MainThread
+42340 2 caddy
+33088 894 uv
+26252 32372 cargo
+13916 32370 python3
+4140 32314 su
+3324 32317 bash
+c-6af37590-140d72b5-299db051eb34-rootfs  9.9G  7.1G  2.3G  76% /

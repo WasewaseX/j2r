@@ -1551,7 +1551,15 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       CLOSED session 11: the stage profile named two O(N²) hot
       functions in the load stage (referer attribution + module
       collision scan), both fixed — per-class 1.30 → 0.111 ms (FLAT
-      across 4× N), 20k no-op emit ≈ 5 s; remaining G2.4–G2.5 + G2.7)
+      across 4× N), 20k no-op emit ≈ 5 s; G2.4 CLOSED session 13:
+      release-profile 20k trio — cold release cargo 7537.36 s over 14
+      chunks, peak VmHWM 3.29/4.0 GB (final link), 1.01 GiB binary,
+      parity PASS vs Temurin, no-op release cargo 0.36 s, one-edit
+      100.88 s; G2.1b CLOSED session 13 via arm (b) — the link-stage
+      boundary accepted in writing (3.29/4.0 GB measured, sampler
+      wired into the standing protocol, a ~70k release link EXPECTED
+      to exceed the budget and recorded if it fires); remaining
+      G2.5 + G2.7)
       is the remaining P0; T14–T16
       mappings (G5) start only after G1 AND G2 are checked.
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +

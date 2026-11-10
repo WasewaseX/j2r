@@ -1647,3 +1647,48 @@ getrusage max single child, mistake-list #2).
 - Next: **G2.4** (release-profile 20k trio, disk-guarded — 6.3 GB free
   after the rebootstrap; target/ budgeted), G2.1b rides with the next
   20k/70k protocol run, G2.5 ladder, G2.7 framing — then G4.
+
+## Session 13 — 2026-11-10 (G2.4 CLOSED, G2.1b CLOSED, G2.5 next)
+
+- Context on resume: tree at `9b2ff9b` (169 commits, clean except the
+  staged `scripts/g2_4_release_trio.sh`); the G2.4 cold emit + cargo
+  chunks 1–3 were already recorded in `m5invest/farm20k/release_trio.log`
+  (each capped at 550 s, fingerprints resuming) — the run resumed at
+  chunk 4. Chunk plan rule held: every stage ≤ 550 s wall.
+- Disk discipline (the ENOSPC lesson): 3.9 GB free on resume; freed the
+  stale `target/debug` (840 MB, dev artifacts only — the release j2r
+  binary survived) → 4.8 GB free before the build; the script's own
+  guard (≥1.2 GB) held at every cargo stage (min observed 2,376,228 kB
+  before stage5); release target ended at 3.1 GB.
+- **G2.4 measured (release profile, opt-level 3, N=20000 k=250, -j 2,
+  CI=0)**: cold release cargo **7537.36 s across 14 chunks**, peak
+  single-process VmHWM **3,289,116 KB (3.29/4.0 GB)** — the final
+  rust-lld link, no OOM/SIGKILL at any stage; release binary
+  **1,060,961,000 B (1.01 GiB)**; emit tier cold 11.63 s / no-op
+  5.83 s / one-edit 5.81 s (each ≈0.9 GB peak); no-op release cargo
+  **0.36 s** — the G2.2 manifest stat fast path carries into release
+  (20,003 reused / 0 re-emitted); one-edit release cargo **100.88 s,
+  peak 3,298,716 KB** (relink-dominated); **parity vs Temurin PASS**
+  (stdout + stderr + exit identical). Chunk VmHWM band 1.38–1.43 GB
+  for rustc crates, 3.29 GB only at the final link.
+- **G2.1b CLOSED via arm (b)**: the link-stage boundary accepted in
+  writing — link memory scales with BINARY size (still total-class-
+  scaled, different process); no mitigation attempted; a ~70k release
+  link (~3.5× binary) is EXPECTED to exceed the 4 GB/process budget on
+  this box class, and the G2.5 ladder records that wall if it fires,
+  measured, not extrapolated. `proc_peak_sampler.py` wraps every cargo
+  chunk in `scripts/g2_4_release_trio.sh` — now part of the standing
+  20k/70k protocol.
+- Evidence committed: `scripts/evidence/g2_4/` — 14 chunk .time tables
+  (wall + VmHWM), emit/cargo times, j2r rebuild + javac times, parity
+  stdouts (84 B identical), trio log, disk_after, out20krel_size.
+- Docs updated: REVIEW_CHECKLIST.md G2.4 + G2.1b → [x] with the
+  measured numbers; console_summary.md §8 rows + implementation order +
+  session-13 ops line. No compiler code changed this session (the
+  standing 462-green baseline at `93ed921`/`c4c45cf` covers the tree;
+  G2.4 is a measurement closure).
+- Next: **G2.5** — the honest ladder 35k → 50k → 70k under the G2.7
+  budget framing (4 GB/process, disk-guarded); per-step stage tables,
+  three-channel parity, raw files committed; extrapolation does NOT
+  count. Disk budget planning happens first (the 20k release target
+  alone was 3.1 GB).

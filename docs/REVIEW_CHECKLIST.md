@@ -136,18 +136,22 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
   Honest caveat recorded: the baseline "3.49 GB app-bin rustc" label
   conflated rustc with its lld child (RUSAGE_CHILDREN); the new
   `scripts/proc_peak_sampler.py` separates them.
-- [ ] **G2.1b — the link-stage wall (registered session 11 from the
-  G2.1 re-measure).**
-  With every rustc bounded, the 20k build peak is `rust-lld` at
-  3.09 GB linking the ≈1.08 GiB debug=0 binary — link memory scales
-  with BINARY size, i.e. still with TOTAL class count, in a different
-  process. PASS: the 20k link peak is measured under the 4 GB budget
-  (now 3.09/4.0 GB) AND either (a) a link-memory mitigation lands
-  (linker choice/flags measured, or binary-size reduction) with the 20k
-  link peak re-measured, or (b) the boundary is accepted in writing
-  with the measured number and the per-process sampler wired into the
-  standing 20k/70k protocol. FAIL: silence, or running the G2.5 ladder
-  into this wall unmeasured.
+- [x] **G2.1b — the link-stage wall (registered session 11 from the
+  G2.1 re-measure).** CLOSED session 13 via arm (b) — the boundary is
+  accepted in writing with the measured number and the per-process
+  sampler wired into the standing protocol: the G2.4 release trio
+  measured the 20k RELEASE link peak at **3,289,116 KB VmHWM
+  (3.29/4.0 GB budget)** for the 1.01 GiB release binary (final cargo
+  chunk, sampler-wrapped), and the one-edit relink at 3,298,716 KB;
+  the debug=0 cold number stands at rust-lld 3.09 GB. The boundary:
+  link memory scales with BINARY size, i.e. still with TOTAL class
+  count, in a different process — no mitigation attempted; a ~70k
+  release link (~3.5× the binary) is therefore EXPECTED to exceed the
+  4 GB/process budget on this box class, and the G2.5 ladder records
+  that wall if it fires, measured, not extrapolated.
+  scripts/proc_peak_sampler.py wraps every cargo chunk in
+  scripts/g2_4_release_trio.sh and stays in the standing 20k/70k
+  protocol. Evidence: scripts/evidence/g2_4/ (chunk table).
 - [x] **G2.2 — no-op rebuild fast path (F2).** CLOSED session 11: the
   manifest gains the emitted file's `(mtime_ns, size)` (format v2,
   EMITTER_VERSION 2 — the peephole changed emitted bytes; legacy v1
@@ -187,9 +191,22 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
   largest stage (linear, 0.73 ms/class — accepted as measured-constant
   work); a no-prior-manifest run's `files_written` stat over-counts
   glue (cosmetic stats accounting, mtime-verified no spurious writes).
-- [ ] **G2.4 — release-profile 20k trio (F4).**
-  PASS: the cold/no-op/one-edit trio re-measured under `--release` on a
-  disk-guarded protocol, raw evidence committed.
+- [x] **G2.4 — release-profile 20k trio (F4).** CLOSED session 13: the
+  cold/no-op/one-edit trio re-measured under `--release` (opt-level 3 —
+  the regime that killed JZlib pre-G2.6) on the disk-guarded staged
+  protocol (scripts/g2_4_release_trio.sh, N=20000 k=250, cargo -j 2,
+  CARGO_INCREMENTAL=0, sampler on every cargo chunk):
+  **cold release cargo 7537.36 s across 14 chunks, peak single-process
+  VmHWM 3,289,116 KB (3.29/4.0 GB budget) — the final link, no OOM/
+  SIGKILL**; release binary 1,060,961,000 B (1.01 GiB); emit tier
+  cold 11.63 s / no-op 5.83 s / one-edit 5.81 s (each ≈0.9 GB peak);
+  no-op release cargo **0.36 s** (the G2.2 stat fast path carries into
+  release: 20,003 reused); one-edit release cargo **100.88 s, peak
+  3,298,716 KB** (relink-dominated); parity vs Temurin **PASS
+  (stdout+stderr+exit identical)**. Disk guard (≥1.2 GB free) checked
+  before every cargo stage; release target dir 3.1 GB. Raw evidence:
+  scripts/evidence/g2_4/ (14 chunk .time tables + emit/cargo times +
+  parity stdouts + trio log + disk record).
 - [ ] **G2.5 — progressive scaling, honest ladder.**
   PASS: N is raised stepwise (e.g. 35k → 50k → 70k) with per-step stage
   tables; the 70k target is claimed ONLY when a reproducible run on THIS
