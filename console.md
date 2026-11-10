@@ -879,7 +879,7 @@ getrusage max single child, mistake-list #2).
   unit-pinned). Remaining wave 2: T13 (the C harness `.so` + attach
   lifecycle + primitive 11 the foreign-call thunk).
 
-### [2026-11-10 ~17:30 UTC] session 6 — T13 slice 13b LANDED: primitive 11, the Foreign path, and the REAL C probe (444 green)
+### [2026-11-10 ~06:30 UTC] session 6 — T13 slice 13b LANDED: primitive 11, the Foreign path, and the REAL C probe (444 green)
 - Session opened on the owner's external readiness review (P0–P2
   priorities) + "check the repo state and read all .md files". Read the
   full doc set: both boards, README, TODO (structure + M5 section),
