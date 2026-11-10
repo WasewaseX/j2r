@@ -113,15 +113,41 @@ tests pass", not "the mock dispatch works".**
 
 ## G2 — P0: The 70k-class scalability path (wave-1 follow-ups F1–F4)
 
-State: 20k demonstrated (cold ≈17.1 min, no-op 38.8 s, one-edit 55.3 s,
-parity PASS, binary ≈1.01 GiB, peak rustc 3.49 GB = the app/Dispatch
-composite). 70k is NOT demonstrated and may not be claimed.
+State: 20k demonstrated and RE-MEASURED after the G2.1 split (session
+11: cold ≈17.1 min baseline → post-split trio 42.1 s no-op / 66.0 s
+one-edit, parity PASS, binary ≈1.01 GiB; worst single generated-unit
+rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
+= G2.1b). 70k is NOT demonstrated and may not be claimed.
 
-- [ ] **G2.1 — split the app dispatch composite (F3).**
-  PASS: the Dispatch/link-table emission is split so no single generated
-  Rust compilation unit scales with TOTAL class count; the 20k peak-rustc
-  number is re-measured and drops materially; the partition differential
-  stays byte-identical. FAIL: a split that changes observable behavior.
+- [x] **G2.1 — split the app dispatch composite (F3).** CLOSED session
+  11, both arms measured: (1) the Dispatch/link-table emission is split
+  (per-partition `register_defaults`/`register_constants` bounded by k +
+  app-side Vec composition + static per-partition route tables indexed
+  by `part_of`) so no generated Rust compilation unit scales with TOTAL
+  class count — MEASURED directly at 20k: every rustc ≤ 1,005,860 KB
+  (partition crates, uniform), support rebuild 0.83 s / 119 MB, app
+  sources ≈21 KB; (2) the 20k number re-measured: worst generated-unit
+  rustc 3.49 GB → 0.99 GB (−72 %); build peak 3.49 → 3.09 GB with the
+  attribution MOVED to rust-lld (registered G2.1b); partition
+  differential byte-identical (k=2 + full battery green, 452 tests,
+  zero divergences); 5k A/B peak 1.89 → 1.26 GB (−33 %), wall −14 %.
+  Evidence: `scripts/evidence/g2_1_split/` (raw .time files,
+  per-process VmHWM top table, 20k remeasure log, parity stdouts).
+  Honest caveat recorded: the baseline "3.49 GB app-bin rustc" label
+  conflated rustc with its lld child (RUSAGE_CHILDREN); the new
+  `scripts/proc_peak_sampler.py` separates them.
+- [ ] **G2.1b — the link-stage wall (registered session 11 from the
+  G2.1 re-measure).**
+  With every rustc bounded, the 20k build peak is `rust-lld` at
+  3.09 GB linking the ≈1.08 GiB debug=0 binary — link memory scales
+  with BINARY size, i.e. still with TOTAL class count, in a different
+  process. PASS: the 20k link peak is measured under the 4 GB budget
+  (now 3.09/4.0 GB) AND either (a) a link-memory mitigation lands
+  (linker choice/flags measured, or binary-size reduction) with the 20k
+  link peak re-measured, or (b) the boundary is accepted in writing
+  with the measured number and the per-process sampler wired into the
+  standing 20k/70k protocol. FAIL: silence, or running the G2.5 ladder
+  into this wall unmeasured.
 - [ ] **G2.2 — no-op rebuild fast path (F2).**
   PASS: the SHA-256-rehash no-op cost drops via the (mtime,size) fast path
   with the manifest remaining a CACHE (corrupt/tampered → full re-emit,

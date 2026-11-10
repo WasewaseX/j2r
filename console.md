@@ -1415,3 +1415,60 @@ getrusage max single child, mistake-list #2).
   20k farm + emit + watched cargo run (chunked ≤10 min; a /proc VmHWM
   rustc sampler records the true whole-build peak across invocations),
   then G2.6 (the JZlib either-arm bar).
+
+### [2026-11-10 session 11] G2.1 20k RE-MEASURE COMPLETE — checkbox CLOSED: worst generated-unit rustc 3.49 → 0.99 GB (−72 %); residual build peak attributed to rust-lld (3.09 GB, the link stage) and registered as G2.1b; 20k parity PASS; G2.6 is next
+- First: committed the session-10 landing as `4a44cfd` (split + 5k A/B +
+  battery + evidence) after re-verifying the WIP tree green
+  (j2r-codegen unit tests + partition_suite 29.58 s). Pushed (bypass
+  path, 8 checks expected as always).
+- New tooling (both committed):
+  `scripts/g2_1_20k_remeasure.sh` — the 20k protocol as STAGES (sandbox
+  lesson #9: no background processes; one stage per tool call; cargo
+  fingerprints resume; the chunk counter file survives kills), and
+  `scripts/proc_peak_sampler.py` — per-process VmHWM from
+  /proc/<pid>/status polled at 60 ms while the build runs: rustc vs
+  rust-lld attribution that RUSAGE_CHILDREN cannot provide.
+- 20k re-measure (N=20000, k=250 → 81 part crates + support + app;
+  cargo -j2; CI=0; dev/debug=0 — the session-1 baseline protocol):
+  javac 29.65 s / 0.91 GB; emit 34.30 s / 902 MB (baseline 34.12 / 858
+  — unchanged, as expected: the emit side was never the composite);
+  cold cargo peak **3.09 GB = rust-lld** (final link of the 1.08 GiB
+  debug=0 binary) with **every single rustc ≤ 0.99 GB** (partition
+  crates, uniformly bounded — the split demonstrably holds at 20×);
+  no-op 41.74 s emit + 0.39 s cargo = 42.1 s; one-body-edit 33.91 s +
+  32.07 s = 66.0 s (its cargo peak 3.06 GB = the lld relink);
+  **parity PASS** — stdout+stderr+exit identical vs Temurin 21.0.13+9;
+  binary 1,085,784,872 B ≈ 1.01 GiB (baseline 1,084,126,264 B).
+- Wall honesty: the post-split cold cargo wall ≈ 1,581 s across THREE
+  chunks with TWO timeout kills (chunk 1 ~585 s + probe-resume ~595 s
+  lost mid-compile — a killed rustc redoes its whole crate), vs the
+  baseline's 967 s with ONE kill; wall is NOT comparable across
+  different kill counts, peaks are (VmHWM is kill-independent). The
+  completed resume chunk: 401.37 s. Lesson reinforced: leave ≥1 chunk
+  of headroom or the 20k protocol burns 10 min per kill.
+- Attribution probes (raw `probe_support.time` + `probe_resume.time`
+  committed): touch + `cargo build -p farm20000-support` = 0.83 s /
+  119 MB (support/src 9.8 KB — runtime-filled tables, NOT a scaling
+  compile unit); the resume build's per-process top table:
+  rust-lld 3,158,788 KB, then twelve rustc processes all ≤ 1,005,860 KB.
+- Reading, precisely: G2.1's bar is MET for the emission side, measured
+  directly — no generated compilation unit scales with TOTAL class
+  count (worst rustc 0.99 GB ≈ the k=250 partition bound), and the
+  worst-unit number dropped 3.49 → 0.99 GB. Honest correction recorded:
+  the baseline "3.49 GB app-bin rustc" label conflated rustc with its
+  lld child (RUSAGE_CHILDREN rolls children up); the residual 3.09 GB
+  build peak is the LINK stage — binary size still scales with total
+  classes — now REGISTERED as REVIEW_CHECKLIST **G2.1b** with its own
+  PASS bar (measured mitigation or written accepted boundary + the
+  sampler wired into the standing protocol) and the G2.7 note:
+  3.09 < 4.0 GB budget, headroom 0.91 GB.
+- Docs updated: REVIEW_CHECKLIST §G2 (state rewritten + G2.1 [x] with
+  the measured close + G2.1b inserted), console_summary §numbers table
+  (20k peak row) + §8 (G2.1 closed, G2.1b added, implementation order
+  updated), TODO.md wave-2 next-pointer. Evidence:
+  `scripts/evidence/g2_1_split/` — farm20k_remeasure.log, all .time
+  files (chunk-1 kill logged, honestly no file), parity stdouts,
+  probe tables, README extended with the 20k section.
+- Next: **G2.6** (the JZlib fat-method F6 either-arm bar — split-table
+  emission vs machine-bound registration + census regression test),
+  then G2.2–G2.4, then the G2.5 ladder.

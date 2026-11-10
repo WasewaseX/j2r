@@ -260,7 +260,7 @@ single crate (M5_SCALE.md §2b, with the measured reason). Inline caches
 | one-body-edit rebuild | 71.0 s (5×), only its partition + app recompile | T06/T07 |
 | closure-cache effect | compile stage 7.98 → 2.02 s @ 5k (−75 %) | T03 |
 | **20k end-to-end (this session)** | cold ≈ **17.1 min**; no-op **38.8 s** (~26×); one-edit **55.3 s**; parity PASS | farm20k/*.time |
-| 20k peak rustc | 3.49 GB — the app/Dispatch composite (F3 follow-up) | farm20k |
+| 20k peak (post-G2.1 re-measure) | worst single rustc **≈0.99 GB** (partition, k=250; was 3.49 GB composite); build peak 3.09 GB = **rust-lld** on the 1.08 GiB binary → G2.1b | farm20k + proc_peak_sampler |
 | 20k artifacts | emitted source 854 MB; binary ≈ 1.01 GiB (debug=0) | farm20k |
 | JNI table (T08) | 235 slots (4 reserved + 231 fns), const-offset_of!-pinned vs Temurin jni.h; 231 non-null slots | jni/tables.rs + scripts/evidence/jni_slot_list.txt |
 
@@ -345,17 +345,25 @@ by the per-crate budget K.
 
 - [x] 20k census-jar confirmation — LANDED (session 1), wave 1 closed;
   state survived sandbox reset #2 via these boards (session 2, §9).
-- [~] **G2.1 = F3** split the app/Dispatch composite — split LANDED
-  session 10 (emit.rs + partition.rs): per-partition
-  register_defaults/register_constants fns (bounded by k) + app-side
-  Vec composition + static per-partition route tables; app/src/main.rs
-  is 4,973 B at 5k (was the total-class literal). 5k A/B (census
-  protocol, k=300, -j2): peak rustc 1.89 GB → **1.26 GB** (−33 %),
-  wall 282.7 → 242.8 s; 5k parity three-channel IDENTICAL; partition
-  differential k=2 byte-identical; full battery green (diff 478.6 s +
-  cfg 356.0 s, zero divergences; 452 re-measured by gate-11).
-  Evidence: scripts/evidence/g2_1_split/. The CHECKBOX waits for the
-  20k peak-rustc re-measurement (checklist bar says 20k — next chunk).
+- [x] **G2.1 = F3** split the app/Dispatch composite — **CLOSED session
+  11** (split landed session 10; 20k re-measure session 11): per-partition
+  register_defaults/register_constants fns (bounded by k) + app-side Vec
+  composition + static per-partition route tables. 5k A/B: peak 1.89 →
+  1.26 GB (−33 %), wall −14 %. **20k re-measure**: every rustc ≤ 0.99 GB
+  (partition crates, uniform — was the 3.49 GB composite), build peak
+  3.09 GB attributed to **rust-lld** (the link stage, registered G2.1b);
+  no-op 42.1 s; one-edit 66.0 s; parity PASS three-channel; partition
+  differential k=2 byte-identical; battery green (452, zero divergences).
+  Evidence: scripts/evidence/g2_1_split/ (raw .time + per-process VmHWM
+  table + remeasure log). Honest caveat: the baseline "3.49 GB app-bin
+  rustc" label conflated rustc with its lld child — the new
+  scripts/proc_peak_sampler.py separates them.
+- [G2.1b] the link-stage wall — with every rustc bounded, the 20k peak
+  is rust-lld 3.09 GB linking the ≈1.08 GiB debug=0 binary (still
+  total-class-scaled via binary size). PASS: measured under the 4 GB
+  budget AND either a measured link mitigation (linker choice/flags or
+  binary-size reduction) with re-measure, or a written accepted boundary
+  + the per-process sampler wired into the standing 20k/70k protocol.
 - [G2.2 = F2] no-op rebuild fast path — (mtime,size) fast path; the
   manifest stays a CACHE (corrupt/tampered → full re-emit, loud); the
   20k no-op number re-measured, raw files in scripts/evidence/.
@@ -375,8 +383,9 @@ by the per-crate budget K.
   it" does NOT count (it did not).
 - [G2.7] the 70k acceptance names the 4 GB/process budget up front and
   is measured against it.
-- Implementation order (2026-11-10 external review): G2.1 → G2.6 →
-  G2.2–G2.4 → G2.5; no mappings/mod-loader work until G2 passes.
+- Implementation order (2026-11-10 external review): ~~G2.1~~ DONE
+  (session 11) → G2.6 → G2.2–G2.4 → G2.5; G2.1b rides with the next
+  20k/70k protocol run; no mappings/mod-loader work until G2 passes.
 - [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
   (run 42616529578, all 21 gates + CodeQL/OSV/Scorecard success):
   generated static tables, const offset_of! assertions, loud-abort

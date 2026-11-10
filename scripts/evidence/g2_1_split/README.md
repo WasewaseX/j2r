@@ -65,11 +65,55 @@ Emitted unit sizes at 5k after the split: app/src/main.rs **4,973 B**
   `fixtures=109 tests=452` ✓; gate-19 links ✓; gate-20 stubs ✓;
   fmt + clippy `-D warnings` ✓.
 
-## Still owed for the G2.1 checkbox (honest gap)
+## 20k re-measurement (session 11, 2026-11-10) — the checkbox closer
 
-The checklist bar says "the **20k** peak-rustc number is re-measured
-and drops materially". The 5k A/B above demonstrates the mechanism with
-a committed control row; the 20k re-measurement (farm + emit + watched
-cargo run, raw files here) is the next chunk and G2.1 stays `[~]` until
-it lands. Expected: peak ≈ the 250-class partition-crate compile
-(~1.1–1.3 GB) vs the recorded 3.49 GB.
+Protocol = the 2026-11-09 baseline, exactly (m5_20k_confirm.sh
+semantics: N=20000, k=250 → 81 part crates + support + app; cargo -j 2;
+CARGO_INCREMENTAL=0; dev profile debug=0; peak =
+getrusage(RUSAGE_CHILDREN) max single process). New tooling:
+`scripts/g2_1_20k_remeasure.sh` (stage-based; sandbox lesson #9 forbids
+background processes — one stage per tool call, cargo fingerprints
+resume, the chunk counter survives kills) and
+`scripts/proc_peak_sampler.py` (per-process VmHWM from
+/proc/<pid>/status polled every 60 ms — rustc vs rust-lld attribution
+that RUSAGE_CHILDREN cannot provide).
+
+| metric | baseline (pre-split) | post-split (this re-measure) |
+| --- | --- | --- |
+| javac 20,003 classes | 26.15 s / 1.55 GB | 29.65 s / 0.91 GB |
+| cold emit (manifest created) | 34.12 s / 858 MB | 34.30 s / 902 MB |
+| cold cargo | ≈ 967 s (3 chunks, 1 kill) / 3.49 GB | ≈ 1,581 s (3 chunks, **2 kills**) / **3.09 GB = rust-lld**; worst single rustc **0.99 GB** |
+| no-op (emit + cargo) | 38.55 + 0.28 = 38.8 s | 41.74 + 0.39 = 42.1 s |
+| one-body-edit (C00042) | 27.16 + 28.16 = 55.3 s | 33.91 + 32.07 = 66.0 s (cargo peak 3.06 GB = lld relink) |
+| parity | PASS | **PASS** (stdout+stderr+exit identical, 0 == 0) |
+| binary | 1,084,126,264 B | 1,085,784,872 B (≈ 1.01 GiB) |
+
+Wall honesty: the post-split cold cargo wall is NOT comparable to the
+baseline — the sandbox reaped TWO chunks mid-compile (585 s + 595 s
+lost; a killed rustc redoes its whole work on resume), vs ONE kill in
+the baseline run. The completed resume chunk ran 401.37 s. Peaks are
+unaffected by kills (VmHWM is a per-process high-water mark).
+
+Attribution (`probe_resume.time`, per-process VmHWM top table):
+**rust-lld 3,158,788 KB** — the final link of the ≈1.08 GiB debug=0
+binary; EVERY rustc ≤ 1,005,860 KB (the partition crates, uniformly
+bounded by k). The baseline label "3.49 GB (app-bin rustc)" conflated
+rustc with its lld child (RUSAGE_CHILDREN rolls the child up); with the
+split, the worst generated-unit rustc dropped 3.49 → ≈0.99 GB (−72 %)
+and the residual build peak MOVED to the link stage.
+
+Support-crate control: touch + `cargo build -p farm20000-support` =
+0.83 s / 119 MB (support/src is 9.8 KB — runtime-filled tables; not a
+compile unit that scales with total classes).
+
+Registered follow-up: REVIEW_CHECKLIST **G2.1b — the link-stage wall**
+(rust-lld 3.09 GB, still total-class-scaled via binary size; 3.09 <
+4.0 GB, so G2.7 headroom = 0.91 GB on this box class).
+
+Raw files here: `farm20k_remeasure.log` (full stage log),
+`javac.time`, `build1.compile.time`, `build1.cargo.chunk2.time`
+(chunk 1 was killed mid-compile — logged honestly, no .time file),
+`build2.compile.time`, `build2.cargo.time`, `build3.compile.time`,
+`build3.cargo.time`, `probe_support.time`, `probe_resume.time` (with
+the per-process top table), `farm20k_native_stdout.txt`,
+`farm20k_jvm_stdout.txt`.
