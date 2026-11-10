@@ -1217,3 +1217,32 @@ getrusage max single child, mistake-list #2).
 - Next per REVIEW_CHECKLIST ordering: G2 (the 70k path — F1/F2/F3/F4
   + the G2.6 fat-method F6 either-arm bar) is the remaining P0; G5
   (mappings T14–T16) starts only after G1 AND G2 are checked.
+
+### [2026-11-10 session 9] reset #10 survived via §9; ff b4badea → 6521597 (159 commits); stale-belief items verified ALREADY FIXED on origin; reading ALL .md files (user directive)
+- Sandbox reset #10 on session start: the working tree was stale again at
+  pre-M3 `b4badea` (16 commits, clean, no stashes, boards missing from the
+  tree — exactly the §9 shape). `git fetch origin` then `git merge --ff-only
+  origin/main` → HEAD `6521597`, 159 commits, clean. NOTHING lost (nothing
+  local existed to lose — strict behind).
+- Origin had advanced 11 commits past the last-read state (`2722bf9` 13c):
+  13d attach lifecycle + gate-22 + board records + README reconciliations →
+  **T13 COMPLETE, wave 2 (JNI) CLOSED, 452 green** at `6521597`.
+- Stale-belief verification (prior session memory vs current tree):
+  (a) `scripts/gen_jni_env_table.py` line 45 now uses
+  `JAVA_HOME` with default `/home/z/my-project/tools/jdk-21.0.13+9` — the
+  dead `/tmp/jdk21` path is GONE (fixed in an earlier session); ✅
+  (b) the child-process loud-gap tests EXIST in
+  `crates/j2r-runtime/src/jni/mod.rs` (spawn sites at ~295, ~373, ~475;
+  parent+child pins per the tail-of-log record) — `tables.rs` line 2183's
+  doc claim is TRUE as written; ✅
+  (c) T13 complete / wave-2 closed / 452 green confirmed from origin's
+  commit subjects and both boards. Prior-session beliefs of "T10 slice 2
+  uncommitted / 388 tests / generator bug open / child test missing" were
+  ALL stale snapshots — the board wins, as written in the header.
+- Genuinely open (confirmed from boards + REVIEW_CHECKLIST): G2 = the 70k
+  path (F1–F4 + the G2.6 fat-method F6 either-arm bar) — remaining P0;
+  M4 owner acceptance review still pending; G5 mappings T14–T16 gated on
+  G1 AND G2.
+- Session 9 task (user directive): **read ALL .md files** (28 tracked top
+  files + boards), build the drift matrix, reconcile any drift found.
+  In progress at entry time; results appended below when done.

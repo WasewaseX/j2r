@@ -1,18 +1,14 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 8 — **reset #9 survived via §9: the stale
-tree was back at pre-M3 `b4badea`; ff-only merge → `2722bf9` (13c,
-448 green) == origin/main, nothing lost. Toolchain recovered with NO
-re-download — the persistent layer already held the full rustup install
-(`tools/cargo` + `tools/rustup`); `env.sh` now exports CARGO_HOME and
-RUSTUP_HOME so future resets keep the toolchain. Then T13 slice 13d
-LANDED: the MEASURED attach lifecycle (VM slots 4/5/7 real — 162
-slots; GetEnv attach-aware; main_run marks main attached at birth;
-the pthread battery verdict 2047 byte-identical three-channel vs
-Temurin; the loud-gap child-process pins; the dedicated gate-22 CI
-parity job) — **T13 COMPLETE, WAVE 2 (JNI) CLOSED**, REVIEW_CHECKLIST
-G1.1–G1.6 all checked; 452 green**. See console.md session-8 entries
-and M5_JNI_HARNESS.md §9).
+Updated 2026-11-10 (session 9 — **reset #10 survived via §9: the tree was
+stale again at pre-M3 `b4badea`; ff-only merge → `6521597` (13d, wave 2
+JNI CLOSED, 452 green) == origin/main, nothing lost. Stale-belief audit:
+the generator JDK path + the child-process loud-gap tests were verified
+ALREADY FIXED on origin (prior-session memory was a stale snapshot; the
+board wins). Genuinely open: G2 = the 70k path (F1–F4 + the G2.6
+fat-method F6 either-arm bar) and the pending M4 owner review. Session 9
+task: read ALL .md files and reconcile any drift — in progress**. See
+console.md session-9 entries).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
