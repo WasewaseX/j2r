@@ -999,3 +999,19 @@ getrusage max single child, mistake-list #2).
   attach-lifecycle battery + the CI gate; wave 2 closes at 13d.
 - Boards pushed immediately after this entry (the recovery itself is
   now protected).
+
+### [2026-11-10 session 7 cont. 1] baseline re-proven at 444 green (the §3.1 law, before any 13c code)
+- fmt clean; clippy `-D warnings` clean (workspace, all targets).
+- **444 tests, 0 failures** — classfile 38 · jni-ffi 15 · runtime 238
+  (20.21 s) · codegen 125 · cli 28. Walls: diff_suite 450.46 s +
+  cfg_equiv 344.45 s (zero divergences), partition 24.40 s, corpus
+  38.56 s, soe 10.54 s, jar 18.89 s, native_e2e 6.40 s, lambda 1.16 s.
+- **Correction of record (found by the --list census)**: the session-6
+  evidence line "jni-ffi 13 (11 unit + 2 real-C integration)" mis-split
+  the crate — the true split is **jni-ffi 15 = 13 unit + 2 real-C**
+  (c_probe). The 444 workspace total was and is correct
+  (38+15+238+125+28). Boards amended; nothing else moves.
+- Next: **13c** — the harness C source (`tests/jni_harness/harness.c` →
+  `libjni_harness.so`), the Temurin driver, the j2r-side loading story,
+  the three-channel parity runner (M5_JNI_HARNESS.md §1/§3/§5 is the
+  design of record; REVIEW_CHECKLIST G1 is the acceptance gate).
