@@ -780,3 +780,46 @@ getrusage max single child, mistake-list #2).
   typed, message names the slot and the F-J2 resolution). Remaining
   wave 2: T12 (RegisterNatives) and T13 (C harness + attach
   lifecycle).
+
+### [2026-11-10 ~15:05 UTC] session 5 cont. 5 — T12 slice 12b: the native-binding registry + slots 215/216 + the dispatch-walk consult (437 green)
+- docs/M5_JNI_NATIVES.md is the design of record (12a, pushed first:
+  c9abdc9). 12b lands the runtime half:
+  * **`UserMethod.is_native`** (M5_JNI_NATIVES.md §5) — the metadata
+    amendment, `false` at every existing construction site; the
+    generated rows (emit + partition) now emit the flag from
+    `MethodPlan.is_native` (12c turns the native-method codegen error
+    into the call-through emission and sets the flag true).
+  * **`jni::natives`** — the binding registry keyed by (declaring
+    class, name, descriptor); `bind` enforces the declared-native law
+    (class-SCOPED, no ancestor walk per §3.3), rebinding overrides,
+    `unbind_class` = UnregisterNatives' law, `call_native` = the
+    unbound law (Err(UnsatisfiedLinkError) naming the method) and the
+    Rust-shape round-trip entry point. The SHAPE LAW of record (12b
+    precision): the C-array slot path can only yield FOREIGN fn
+    pointers (reconstructing a Rust fn from a word needs an unsafe
+    transmute — forbidden); Rust-shape bindings ride the Rust API.
+  * **slots 215/216 real** (156 → 158): RegisterNatives reads the
+    JNINativeMethod array through the audited primitives, validates
+    each triple (JNI_ERR + pending NoSuchMethodError on mismatch,
+    NULL-fnPtr refused loudly, null clazz/negative-n laws) and stores
+    Foreign bindings; UnregisterNatives clears. Slot numbers asserted
+    mechanically against the parsed header; regenerate+fmt
+    byte-idempotent.
+  * **the dispatch-walk consult** (§4): every class the A/V dispatch
+    walk visits is asked for a binding BEFORE advancing — bind-on-Base
+    resolves for a Derived receiver exactly like an inherited compiled
+    method (pinned by the walk-consult test). A Foreign binding call
+    LOUDLY aborts naming T13's primitive 11 (pinned without a child
+    process).
+- 5 new tests (declared-native law incl. the wrong-descriptor arm,
+  rebind/unbind, the unbound UnsatisfiedLinkError + the round-trip
+  through call_native, the foreign-fnPtr loudness, the walk consult).
+  runtime 232 → 237.
+- Evidence — full battery re-run (the standing law): fmt clean; clippy
+  `-D warnings` clean; **437 tests, 0 failures** — classfile 38 ·
+  jni-ffi 11 · runtime 237 · codegen 125 · cli 26; walls: cfg_equiv
+  350.90 s + diff_suite 447.79 s (**zero divergences**), partition
+  25.18 s, corpus 39.15 s, soe 10.67 s, jar 19.34 s, lambda 1.21 s.
+- Next (12c): plan_methods accepts ACC_NATIVE (no body) with the
+  call-through emission + the metadata rows; the Java fixture
+  round-trip (the M5_PLAN acceptance demo) + full battery.

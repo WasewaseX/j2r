@@ -215,6 +215,26 @@ fn dispatch(
                 Err(t) => pend_and_zero(ret, t),
             };
         }
+        // The native-binding consult (T12, M5_JNI_NATIVES.md §4): a
+        // native method has no lookup entry, so BEFORE advancing past
+        // this class, ask the registry — the walk consults at EVERY
+        // class it visits, which makes bind-on-Base resolve for a
+        // Derived receiver exactly like an inherited compiled method.
+        // A foreign fnPtr binding is a loud abort (as_method_fn); a
+        // Rust binding invokes like any other method fn.
+        if let Some(b) = super::natives::lookup(&cur, &m.name, &m.sig) {
+            let f = super::natives::as_method_fn(&cur, &m.name, &m.sig, b);
+            return match f(recv.as_ref(), &cooked) {
+                Ok(v) => {
+                    if matches!(ret, TypeDesc::Void) {
+                        Value::Ref(None)
+                    } else {
+                        v
+                    }
+                }
+                Err(t) => pend_and_zero(ret, t),
+            };
+        }
         match ctx.parent_of(&cur) {
             Some(p) if p != cur => cur = p.to_string(),
             _ => break,
@@ -1024,52 +1044,62 @@ mod tests {
             name: "mark",
             desc: "()I",
             is_static: false,
+            is_native: false,
         },
         crate::UserMethod {
             name: "twice",
             desc: "(I)I",
             is_static: false,
+            is_native: false,
         },
         crate::UserMethod {
             name: "sm",
             desc: "()I",
             is_static: true,
+            is_native: false,
         },
         crate::UserMethod {
             name: "sq",
             desc: "(I)I",
             is_static: true,
+            is_native: false,
         },
         crate::UserMethod {
             name: "boom",
             desc: "()I",
             is_static: false,
+            is_native: false,
         },
         crate::UserMethod {
             name: "mk",
             desc: "()Ljava/lang/String;",
             is_static: true,
+            is_native: false,
         },
         crate::UserMethod {
             name: "sum3",
             desc: "(III)I",
             is_static: true,
+            is_native: false,
         },
         crate::UserMethod {
             name: "addD",
             desc: "(DD)D",
             is_static: true,
+            is_native: false,
         },
         crate::UserMethod {
             name: "mix",
             desc: "(ID)I",
             is_static: false,
+            is_native: false,
         },
     ];
     static DERIVED_METHODS: [crate::UserMethod; 1] = [crate::UserMethod {
         name: "mark",
         desc: "()I",
         is_static: false,
+        is_native: false,
     }];
     static CALL_DERIVED_PARENTS: [&str; 1] = ["j2r/test/CallBase"];
 

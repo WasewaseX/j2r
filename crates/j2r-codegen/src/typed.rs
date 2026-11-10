@@ -2421,6 +2421,7 @@ mod tests {
             name: "t".into(),
             desc: "()V".into(),
             is_static: true,
+            is_native: false,
             is_sync: false,
             fn_name: "t".into(),
             instrs: vec![

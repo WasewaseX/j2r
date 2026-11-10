@@ -22,12 +22,12 @@
 //!   single `unsafe`: creating a raw pointer is safe; only the foreign
 //!   side dereferences it (their FFI is theirs — M5_PLAN §3.1).
 //!
-//! Real slots so far: 156 of 231, wired through the generator's
+//! Real slots so far: 158 of 231, wired through the generator's
 //! `REAL_SLOTS` registry (the truth prints at generation time) — the
 //! string families (T10 slice 1), class/field/array surfaces (T10),
-//! the pending-exception trio, the method-ID pair and all sixty
-//! `Call*MethodA`/`Call*MethodV` slots (T11 11b/11c). Later tasks fill
-//! the rest.
+//! the pending-exception trio, the method-ID pair, all sixty
+//! `Call*MethodA`/`Call*MethodV` slots (T11 11b/11c) and the
+//! native-binding pair (T12 12b). Later tasks fill the rest.
 //!
 //! ## Registered wave-2 findings (owned by T09/T11, not hidden)
 //!
@@ -72,6 +72,7 @@ pub mod arrays;
 pub mod bridge;
 pub mod calls;
 pub mod classes;
+pub mod natives;
 pub mod strings;
 pub mod tables;
 

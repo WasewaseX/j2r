@@ -556,8 +556,8 @@ fn emit_part(
         for m in &declared_methods {
             let _ = writeln!(
                 lib,
-                "    ::j2r_runtime::UserMethod {{ name: {:?}, desc: {:?}, is_static: {} }},",
-                m.name, m.desc, m.is_static
+                "    ::j2r_runtime::UserMethod {{ name: {:?}, desc: {:?}, is_static: {}, is_native: {} }},",
+                m.name, m.desc, m.is_static, m.is_native
             );
         }
         let _ = writeln!(lib, "];");

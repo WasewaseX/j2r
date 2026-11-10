@@ -185,6 +185,13 @@ pub struct UserMethod {
     pub name: &'static str,
     pub desc: &'static str,
     pub is_static: bool,
+    /// `ACC_NATIVE` (T12, M5_JNI_NATIVES.md §5): the method has no
+    /// bytecode body — its implementation arrives via `RegisterNatives`.
+    /// The metadata rows carry the flag so the JNI declared-native check
+    /// and `getModifiers` read the same facts; the generated lookup
+    /// table omits native methods (no body exists) and the call reaches
+    /// the binding registry through the emitted call-through body.
+    pub is_native: bool,
 }
 
 /// Provided by the generated crate: compile-time class facts, or `None`

@@ -229,8 +229,8 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
         for m in &declared_methods {
             let _ = writeln!(
                 registry,
-                "    ::j2r_runtime::UserMethod {{ name: {:?}, desc: {:?}, is_static: {} }},",
-                m.name, m.desc, m.is_static
+                "    ::j2r_runtime::UserMethod {{ name: {:?}, desc: {:?}, is_static: {}, is_native: {} }},",
+                m.name, m.desc, m.is_static, m.is_native
             );
         }
         let _ = writeln!(registry, "];");

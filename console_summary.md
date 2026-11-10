@@ -1,10 +1,10 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 5 cont. 4 — **T11 COMPLETE: slice 11c
-landed the V-form save-area walk + the gate-10 amendment (7 → 10
-audited primitives, 6 → 9 occurrences), all thirty Call*MethodV slots;
-432 green**. 11b was the pending cell + method IDs + all thirty
-Call*MethodA. See console.md session-5 entries and §9).
+Updated 2026-11-10 (session 5 cont. 5 — **T12 12b landed: the
+native-binding registry + slots 215/216 + the dispatch-walk consult;
+437 green**. T11 is COMPLETE (the A/V forms of all three call
+families + the pending cell + method IDs). See console.md session-5
+entries and §9).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
@@ -110,10 +110,12 @@ record: the critical pair is 222/223 (217/218 are MonitorEnter/Exit);
 zero divergences. **T11 (Call*Method) ✅ COMPLETE — 11a design note +
 11b (the pending cell, the method-ID registry, all thirty
 Call*MethodA) + 11c (the SysV save-area walk, all thirty Call*MethodV,
-FFI 7 → 10 primitives, 6 → 9 unsafe occurrences of pin 12) LANDED at
-432 green** — see §8; the bare C-variadic forms stay LOUD aborts per
-the design note. Remaining wave 2: T12 (RegisterNatives) · T13
-(C harness + attach lifecycle). Then T14–T16
+FFI 7 → 10 primitives, 6 → 9 unsafe occurrences of pin 12)**; **T12
+IN PROGRESS — 12a design note (docs/M5_JNI_NATIVES.md) + 12b (the
+binding registry, slots 215/216, the dispatch-walk consult) LANDED at
+437 green**; remaining: 12c (the ACC_NATIVE codegen call-through +
+the Java fixture round-trip — the acceptance demo) and T13 (C harness
++ attach lifecycle + primitive 11). Then T14–T16
 mappings pipeline · T17–T21 mixin applier · T22–T23 inline caches. The
 M4 completion package still awaits owner review in parallel.
 
@@ -148,7 +150,8 @@ M4 completion package still awaits owner review in parallel.
    37.53 s, cfg_equiv 348.99 s + diff_suite 455.62 s, zero
    divergences). Re-proven at **432** after T11 11c (jni-ffi 11,
    runtime 232; cfg_equiv 337.91 s + diff_suite 442.93 s, zero
-   divergences).
+   divergences). Re-proven at **437** after T12 12b (runtime 237;
+   cfg_equiv 350.90 s + diff_suite 447.79 s, zero divergences).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
    STRATEGIC_GAPS §R3. No new design debate unless a measured fact
@@ -356,8 +359,24 @@ by the per-crate budget K.
   back); all thirty Call*MethodV slots (35..62 / 65..92 / 115..142,
   asserted mechanically); 5 hand-built-save-area tests + 3 primitive
   tests; 432 green, full battery re-run — zero divergences. The bare
-  C-variadic forms stay LOUD aborts (design-note decision 3). NEXT:
-  T12 (RegisterNatives) and T13 (C harness + attach lifecycle).
+  C-variadic forms stay LOUD aborts (design-note decision 3).
+- [~] **T12** — design note docs/M5_JNI_NATIVES.md LANDED (12a, the
+  12a-before-code pattern: the v1 binding shape = the runtime's
+  MethodFn; the registry laws; the dispatch-walk consult; the
+  UserMethod.is_native metadata decision; foreign C fnPtrs wait for
+  T13's audited call thunk, primitive 11). Part 1 LANDED (12b): the
+  jni::natives registry (declared-native law class-SCOPED, rebinding
+  overrides, unbind clears, the unbound UnsatisfiedLinkError, the
+  Rust-shape round-trip via call_native); slots 215/216 real (156 →
+  158, slot numbers asserted mechanically); the SHAPE LAW (the C-array
+  slot path stores Foreign only; a Foreign call LOUDLY aborts naming
+  primitive 11); the walk consult (bind-on-Base resolves through a
+  Derived receiver — pinned); UserMethod.is_native landed with the
+  generated rows emitting it (MethodPlan carries it, 12b = false
+  everywhere). 5 tests; 437 green, full battery — zero divergences.
+  NEXT (12c): plan_methods accepts ACC_NATIVE with the call-through
+  emission + metadata rows; the Java fixture round-trip (the
+  acceptance demo) + full battery. Then T13.
 - [ops] Session 5 (2026-11-10): reset #6 survived via §9 (tree back at
   pre-M3 `b4badea`, toolchain wiped); baseline re-proven 398 green at
   6e9805a, then slice 3b landed at 414. Reset #7 also survived via §9

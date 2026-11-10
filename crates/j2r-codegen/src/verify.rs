@@ -1293,6 +1293,7 @@ mod tests {
             name: "t".to_string(),
             desc: desc.to_string(),
             is_static,
+            is_native: false,
             is_sync: false,
             fn_name: "m_t".to_string(),
             instrs,

@@ -379,6 +379,11 @@ REAL_SLOTS = {
     "CallNonvirtualFloatMethodV": "jni_call_nonvirtual_float_method_v",
     "CallNonvirtualDoubleMethodV": "jni_call_nonvirtual_double_method_v",
     "CallNonvirtualVoidMethodV": "jni_call_nonvirtual_void_method_v",
+    # ---- T12 slice 12b: the native-binding pair (docs/M5_JNI_NATIVES.md
+    # §3) — RegisterNatives validates per the declared-native law and
+    # stores foreign fnPtrs; Rust-shape bindings ride the Rust API.
+    "RegisterNatives": "jni_register_natives",
+    "UnregisterNatives": "jni_unregister_natives",
 }
 
 # Wrapper bodies, emitted verbatim (doc comment + fn) after the stubs.
@@ -1398,6 +1403,52 @@ for _name, _ret_cty in _CALL_A2_KINDS:
         ),
         "}",
     ]
+
+
+# ---------------------------------------------------------------- T12 slice 12b: the native-binding pair (programmatic)
+# Two slots (docs/M5_JNI_NATIVES.md §3). The fn pointers RegisterNatives
+# receives are stored as FOREIGN (the C-array path can only yield C
+# fn pointers; Rust-shape bindings ride the Rust API — the 12b shape
+# law). Slot numbers verified MECHANICALLY against the parsed header.
+
+_NATIVES_SLOT_NOS = {"RegisterNatives": 215, "UnregisterNatives": 216}
+for _sname, _no in _NATIVES_SLOT_NOS.items():
+    if _idx_of[_sname] != _no:
+        sys.exit(
+            f"FATAL: {_sname} slot drifted: jni.h says {_idx_of[_sname]}, template says {_no}"
+        )
+
+WRAPPER_BODIES["RegisterNatives"] = [
+    "/// `RegisterNatives` (slot 215): binds implementations to the",
+    "/// class's declared `native` methods (design of record:",
+    "/// docs/M5_JNI_NATIVES.md §3). Each `{name, sig, fnPtr}` triple is",
+    "/// validated against the class's own declared rows (class-SCOPED,",
+    "/// no ancestor walk); a mismatch is JNI_ERR + a PENDING",
+    "/// NoSuchMethodError naming the entry; the fn pointers are stored",
+    "/// as FOREIGN (calling one needs the registered T13 primitive 11 —",
+    "/// a call LOUDLY aborts, never a silent wrong answer).",
+    'extern "system" fn jni_register_natives(',
+    "    _env: JNIEnv,",
+    "    clazz: jclass,",
+    "    methods: *const JNINativeMethod,",
+    "    n: jint,",
+    ") -> jint {",
+    "    let tag = crate::jni::bridge::jobject_to_tag(clazz);",
+    "    crate::jni::natives::slot_register_natives(tag, methods as usize, n)",
+    "}",
+]
+WRAPPER_BODIES["UnregisterNatives"] = [
+    "/// `UnregisterNatives` (slot 216): clears ALL bindings of the class",
+    "/// (design of record: docs/M5_JNI_NATIVES.md §3.4); unregistering a",
+    "/// class with no bindings is still JNI_OK.",
+    'extern "system" fn jni_unregister_natives(',
+    "    _env: JNIEnv,",
+    "    clazz: jclass,",
+    ") -> jint {",
+    "    let tag = crate::jni::bridge::jobject_to_tag(clazz);",
+    "    crate::jni::natives::slot_unregister_natives(tag)",
+    "}",
+]
 
 
 # ---------------------------------------------------------------- T10 slice 2/3: real-slot registry verification

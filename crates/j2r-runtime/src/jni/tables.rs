@@ -694,8 +694,8 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     SetLongArrayRegion: jni_set_long_array_region,
     SetFloatArrayRegion: jni_set_float_array_region,
     SetDoubleArrayRegion: jni_set_double_array_region,
-    RegisterNatives: stub_RegisterNatives,
-    UnregisterNatives: stub_UnregisterNatives,
+    RegisterNatives: jni_register_natives,
+    UnregisterNatives: jni_unregister_natives,
     MonitorEnter: stub_MonitorEnter,
     MonitorExit: stub_MonitorExit,
     GetJavaVM: stub_GetJavaVM,
@@ -1975,17 +1975,6 @@ extern "system" fn stub_ReleaseStringChars(
     _chars: *const jchar,
 ) {
     unimplemented_slot(166, "ReleaseStringChars")
-}
-extern "system" fn stub_RegisterNatives(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methods: *const JNINativeMethod,
-    _nMethods: jint,
-) -> jint {
-    unimplemented_slot(215, "RegisterNatives")
-}
-extern "system" fn stub_UnregisterNatives(_env: *mut JNIEnv_, _clazz: jobject) -> jint {
-    unimplemented_slot(216, "UnregisterNatives")
 }
 extern "system" fn stub_MonitorEnter(_env: *mut JNIEnv_, _obj: jobject) -> jint {
     unimplemented_slot(217, "MonitorEnter")
@@ -4717,6 +4706,32 @@ extern "system" fn jni_call_nonvirtual_void_method_v(
         clazz_tag,
         ap as usize,
     )
+}
+
+/// `RegisterNatives` (slot 215): binds implementations to the
+/// class's declared `native` methods (design of record:
+/// docs/M5_JNI_NATIVES.md §3). Each `{name, sig, fnPtr}` triple is
+/// validated against the class's own declared rows (class-SCOPED,
+/// no ancestor walk); a mismatch is JNI_ERR + a PENDING
+/// NoSuchMethodError naming the entry; the fn pointers are stored
+/// as FOREIGN (calling one needs the registered T13 primitive 11 —
+/// a call LOUDLY aborts, never a silent wrong answer).
+extern "system" fn jni_register_natives(
+    _env: JNIEnv,
+    clazz: jclass,
+    methods: *const JNINativeMethod,
+    n: jint,
+) -> jint {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::natives::slot_register_natives(tag, methods as usize, n)
+}
+
+/// `UnregisterNatives` (slot 216): clears ALL bindings of the class
+/// (design of record: docs/M5_JNI_NATIVES.md §3.4); unregistering a
+/// class with no bindings is still JNI_OK.
+extern "system" fn jni_unregister_natives(_env: JNIEnv, clazz: jclass) -> jint {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::natives::slot_unregister_natives(tag)
 }
 
 /// `GetObjectField` (slot 95): instance access through the

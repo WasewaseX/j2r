@@ -204,6 +204,11 @@ pub struct MethodPlan {
     pub name: String,
     pub desc: String,
     pub is_static: bool,
+    /// `ACC_NATIVE` (T12, M5_JNI_NATIVES.md §5): the method has no
+    /// bytecode body. 12b always records `false` here (native methods
+    /// do not reach plan_methods yet); 12c turns the plan loop's native
+    /// error into the call-through emission and sets the flag.
+    pub is_native: bool,
     /// `ACC_SYNCHRONIZED` (M3 Wave 4): the emitter wraps the body with a
     /// monitor acquisition on the receiver (instance) or the class's
     /// synthetic monitor object (static).
@@ -857,6 +862,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
             name: m.name.clone(),
             desc: m.descriptor.clone(),
             is_static: m.is_static(),
+            is_native: false,
             is_sync,
             fn_name: method_fn_name(&m.name, &m.descriptor),
             instrs,
