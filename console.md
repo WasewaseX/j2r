@@ -1472,3 +1472,59 @@ getrusage max single child, mistake-list #2).
 - Next: **G2.6** (the JZlib fat-method F6 either-arm bar — split-table
   emission vs machine-bound registration + census regression test),
   then G2.2–G2.4, then the G2.5 ladder.
+
+### [2026-11-10 session 11 cont.] G2.6 CLOSED via arm (a) — the array-literal peephole lands; JZlib release build SIGKILL at rustc 3.25 GB → rc=0 in 50.34 s (max process 678 MB, −79 %), release binary byte-identical vs Temurin; full battery green
+- Reproduction with the per-process sampler (`proc_peak_sampler.py`,
+  the G2.1 tooling): `cargo build --release` of the JZlib generated
+  crate died rc=101, **rustc VmHWM 3,253,300 KB at 23.18 s** — the
+  single `jzlibcorpus` lib rustc, MIR/borrow-check phase, machine-bound
+  (box 4,041 MB total, ~3.16 GB available) — exactly the recorded
+  3.03–3.56 GB band. Evidence: `scripts/evidence/g2_6/
+  jzlib_release_before_sigkill.time`.
+- Attribution by census (`scripts/emitted_fn_census.py`, new): the fat
+  functions are the `<clinit>` static initializers — InfTree 1,038,405 B
+  / 12,354 emitted lines (one 1536-element `[I` fill), Tree 550,507 B,
+  StaticTree 382,755 B — javac's array-literal initializers expanding
+  to straight-line per-element fills. Partitioning cannot split ONE
+  method body; the fix had to be an emission-level transform.
+- The fix (arm a, exactly what the bar names): new IR pass
+  `crates/j2r-codegen/src/peephole.rs::collapse_array_fill_runs` —
+  recognizes javac's exact shape
+  `const(len); NewArray(int-group p); (Dup; const(idx); const(val);
+  AStore(IntGroup))*` (idx ascending, exactly len groups) and replaces
+  it with ONE `Instr::NewIntArrayFilled{prim, vals}` (ir.rs). Emission
+  (emit.rs): a NESTED `static [i32; N]` — a separate const-eval item, so
+  the enclosing fn's MIR sees ONE call, not N aggregate operands — plus
+  `j2r-runtime::array::array_int_group_filled(desc, &S)` whose per-prim
+  narrowing is exactly `array_store_i_raw`'s table (Boolean/Char/Byte/
+  Short/Int — all PrimData::I payloads). Byte-identical by construction
+  (identical stack effect; a collapsed fill cannot throw so dropped
+  fault points change nothing; GC safepoints delay, never move; every
+  refused shape keeps the old per-element form — interleaved instrs,
+  non-const values, out-of-order indices, length ≠ groups, interior
+  branch/handler targets, non-int-group prims). Verified + typed paths
+  updated (verify pushes the array ref shape; typed plan falls back
+  loudly with Unsupported::HasArrayLiteralFill). 8 new unit tests;
+  wired into compile step 4 before verify.
+- Numbers: InfTree.rs 1.2 MB → 124 KB (−90 %); StaticTree.rs 387 KB →
+  16 KB (−96 %); all three clinit giants leave the census top-10; the
+  largest generated fn is now the switch-table InfBlocks::proc
+  (217 KB). Release build: **rc=0, 50.34 s, max single process 678 MB
+  (−79 %)** (was SIGKILL at 3.25 GB). Debug build 7.91 s / 464 MB.
+- Byte-identical proof (the bar's requirement): the OPTIMIZED release
+  binary vs Temurin 21.0.13+9 — exit 0 == 0, stdout and stderr
+  IDENTICAL (deflate/inflate levels 0–9, Adler32, CRC32, version,
+  wrap-deflate). Raw stdouts + sampler tables + census in
+  `scripts/evidence/g2_6/`.
+- Battery (all green, zero divergences): j2r-codegen 110 (incl. 8
+  peephole) ✓; partition differential k=2 28.29 s ✓; corpus_suite (all
+  4 real-world corpora) 34.22 s ✓; diff_suite 109 fixtures 511.39 s ✓;
+  cfg_equiv 376.57 s ✓; j2r-runtime 243 ✓; fmt + clippy `-D warnings`
+  ✓ (5 clippy nits in the new test code fixed).
+- Docs: REVIEW_CHECKLIST §G2.6 → [x] with the measured close; §8 G2.6
+  row → [x]; implementation order updated (G2.1 ✓, G2.6 ✓ → G2.2–G2.4
+  → G2.5). Honest scope note everywhere: the switch-table method shape
+  remains (compiles fine at every measured level, no budget threat);
+  sampler + census = the standing regression probe.
+- Next: **G2.2** (no-op (mtime,size) fast path), G2.3 (emit-stage
+  profile), G2.4 (release 20k trio), G2.1b (link wall), then G2.5.

@@ -98,6 +98,33 @@ pub fn array_new_prim(desc: &str, len: i32) -> Result<JRef, Throw> {
     }))
 }
 
+/// Bulk int-group array construction from a compile-time literal
+/// (G2.6 arm a): the identical object shape and payload as
+/// `array_new_prim(desc, len)` + N × `array_store(Value::Int)`, but ONE
+/// call — the collapsed array-literal fill's constructor. `desc` is one
+/// of the int-group descriptors (BOOLEAN/CHAR/BYTE/SHORT/INT); the
+/// per-element narrowing is exactly `array_store_i_raw`'s table, so the
+/// payload is byte-identical to the uncollapsed form. Infallible by
+/// construction: the peephole only fires on constant, in-range,
+/// int-typed fills (no exception is reachable; see
+/// crates/j2r-codegen/src/peephole.rs for the byte-identical argument).
+pub fn array_int_group_filled(desc: &str, vals: &[i32]) -> JRef {
+    let narrowed = |v: i32| -> i32 {
+        match desc {
+            BOOLEAN => (v != 0) as i32,
+            BYTE => (v as i8) as i32,
+            CHAR => (v as u16) as i32,
+            SHORT => (v as i16) as i32,
+            _ => v,
+        }
+    };
+    alloc(JObj {
+        jclass: Arc::from(desc),
+        slots: vec![Value::Int(vals.len() as i32)],
+        prim: Some(PrimData::I(vals.iter().map(|&v| narrowed(v)).collect())),
+    })
+}
+
 /// `anewarray` (reference arrays); `elem_class` is the element class in
 /// internal form — a plain class name (`java/lang/String`) or, when the
 /// element is itself an array type, the array descriptor (`[I`,

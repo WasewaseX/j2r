@@ -1118,6 +1118,9 @@ impl<'a> Sim<'a> {
                 // loaded from a long[] stays category-2-correct
                 self.push(VTy::Array(prim_elem_kind(*p)))?;
             }
+            // G2.6 arm a: the collapsed fill pops nothing and pushes one
+            // int-group array ref — the same verified shape as NewArray.
+            NewIntArrayFilled { prim, .. } => self.push(VTy::Array(prim_elem_kind(*prim)))?,
             ANewArray { elem } => {
                 self.pop_exact(VTy::Int)?;
                 // The operand is the ELEMENT class, which may itself be an

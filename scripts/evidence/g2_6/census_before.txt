@@ -1,0 +1,12 @@
+# 324 fns censused under /home/z/my-project/work/m5invest/jzlib_rel/out/src
+# size_B  lines  matches  file  fn
+  1038405  12354        2  classes/InfTree.rs  m_initclinit____V
+   550507   6562        2  classes/Tree.rs  m_initclinit____V
+   382755   4562        2  classes/StaticTree.rs  m_initclinit____V
+   216793   2877        4  classes/InfBlocks.rs  m_proc___I_I
+   177119   2312        3  classes/InfCodes.rs  m_proc___I_I
+   174438   2350        7  classes/Inflate.rs  m_inflate___I_I
+    90390   1174        2  classes/InfCodes.rs  m_inflate_fast___II_II_IILInfBlocks_LZStream__I
+    73634    861        2  classes/JZlibCorpus.rs  m_main____Ljava_lang_String__V
+    70755    993        2  classes/InfTree.rs  m_huft_build____IIII_I_I_I_I_I_I_I_I
+    64169    884        3  classes/Deflate.rs  m_deflate___I_I

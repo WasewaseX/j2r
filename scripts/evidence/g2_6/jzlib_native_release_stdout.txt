@@ -1,0 +1,11 @@
+level=0 dret=1 comp=90 iret=1 back=79 ok=true
+level=3 dret=1 comp=72 iret=1 back=79 ok=true
+level=6 dret=1 comp=72 iret=1 back=79 ok=true
+level=9 dret=1 comp=72 iret=1 back=79 ok=true
+adler=7af01ad8
+crc=37558d2f
+JZlib=1.1.0
+wrap-deflate n=72 ok=true
+zstream n=72 ok=true totalIn=72 totalOut=79
+gzip n=84 ok=true
+zskip=20 next=106

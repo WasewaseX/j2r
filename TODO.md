@@ -1543,8 +1543,10 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       checked; 452 green. Next per REVIEW_CHECKLIST ordering: G2 (the
       70k path — G2.1 CLOSED session 11 with the 20k re-measure: worst
       generated-unit rustc 3.49 → 0.99 GB, residual build peak =
-      rust-lld 3.09 GB registered as G2.1b; remaining G2.2–G2.7 + the
-      G2.6 fat-method F6 either-arm bar) is the remaining P0; T14–T16
+      rust-lld 3.09 GB registered as G2.1b; G2.6 CLOSED session 11 via
+      arm (a): the array-literal peephole — JZlib release SIGKILL at
+      3.25 GB → rc=0 in 50.34 s / 678 MB, byte-identical vs Temurin;
+      remaining G2.2–G2.5 + G2.7) is the remaining P0; T14–T16
       mappings (G5) start only after G1 AND G2 are checked.
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)

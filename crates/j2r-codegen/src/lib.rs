@@ -24,6 +24,7 @@ pub mod ir;
 pub mod lambda;
 pub mod manifest;
 pub mod partition;
+pub mod peephole;
 pub mod readiness;
 pub mod sha256;
 pub mod specialize;
@@ -665,6 +666,16 @@ pub fn compile(opts: &Options) -> Result<Program> {
         plan.clinit_fn = clinit_fn;
         plan.concats = concats;
         plan.lambdas = lambdas;
+        // G2.6 (console.md F6, REVIEW_CHECKLIST §G2.6 arm a): collapse
+        // javac's array-literal clinit fill runs into ONE literal-array
+        // instruction BEFORE verify/emit, so the emitted clinit is one
+        // constructor call over a const-evaluated static instead of 4N
+        // interpreter statements (the measured MIR/borrow-check wall:
+        // InfTree <clinit> was 12,354 emitted lines). Byte-identical by
+        // construction; every refused shape keeps the old form.
+        for m in &mut plan.methods {
+            crate::peephole::collapse_array_fill_runs(&mut m.instrs);
+        }
         if plan.methods.iter().any(|m| m.is_sync && m.is_static) {
             plan.static_monitor = Some(static_monitor_count);
             static_monitor_count += 1;

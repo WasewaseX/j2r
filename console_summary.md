@@ -375,17 +375,24 @@ by the per-crate budget K.
 - [G2.5] the honest ladder — 35k → 50k → 70k on this 4 GB box class,
   end-to-end, three-channel parity, no OOM/SIGKILL, per-stage peak
   memory, raw files committed. Extrapolation does NOT count.
-- [G2.6 = F6] the JZlib fat-method regression — EITHER split-table/
-  smaller-function emission lets the JZlib generated crate complete
-  --release -O3 byte-identical on this box, OR the limit is registered
-  as a machine-bound boundary + a CI-visible emitter-side census test
-  (per-method instruction/switch-table ceiling). "Partitioning fixed
-  it" does NOT count (it did not).
+- [x] **G2.6 = F6** the JZlib fat-method regression — **CLOSED session
+  11 via arm (a)**: the array-literal peephole (peephole.rs) collapses
+  javac's clinit fill runs into ONE nested-static literal constructor;
+  InfTree.rs 1.2 MB → 124 KB, StaticTree 387 KB → 16 KB; the JZlib
+  crate now completes `--release -O3` on this box: SIGKILL at rustc
+  3.25 GB → rc=0, 50.34 s, max process 678 MB (−79 %); release binary
+  byte-identical vs Temurin (stdout+stderr+exit); battery green
+  (codegen 110 incl. 8 peephole tests; partition k=2; corpus_suite;
+  diff_suite 109 zero divergences; cfg_equiv; runtime 243). Evidence:
+  scripts/evidence/g2_6/. Honest scope: the switch-table shape remains
+  (InfBlocks::proc 217 KB — compiles fine, no budget threat measured);
+  sampler + census = the standing regression probe.
 - [G2.7] the 70k acceptance names the 4 GB/process budget up front and
   is measured against it.
 - Implementation order (2026-11-10 external review): ~~G2.1~~ DONE
-  (session 11) → G2.6 → G2.2–G2.4 → G2.5; G2.1b rides with the next
-  20k/70k protocol run; no mappings/mod-loader work until G2 passes.
+  (session 11); ~~G2.6~~ DONE (session 11, arm a) → G2.2–G2.4 → G2.5;
+  G2.1b rides with the next 20k/70k protocol run; no mappings/
+  mod-loader work until G2 passes.
 - [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
   (run 42616529578, all 21 gates + CodeQL/OSV/Scorecard success):
   generated static tables, const offset_of! assertions, loud-abort

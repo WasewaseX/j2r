@@ -72,6 +72,9 @@ use std::fmt::Write as _;
 pub enum Unsupported {
     /// A `switch` — not lifted in wave 1.
     HasSwitch,
+    /// A collapsed array-literal fill (G2.6) — the default body emits the
+    /// literal form; the typed path simply falls back for it.
+    HasArrayLiteralFill,
     /// An invokedynamic call site (lambdas/concat) — not lifted in wave 1.
     HasInvokeDynamic,
     /// Every position is reference-typed or dead: typed variables buy
@@ -86,6 +89,7 @@ impl Unsupported {
     pub fn name(self) -> &'static str {
         match self {
             Unsupported::HasSwitch => "HasSwitch",
+            Unsupported::HasArrayLiteralFill => "HasArrayLiteralFill",
             Unsupported::HasInvokeDynamic => "HasInvokeDynamic",
             Unsupported::NoPrimitiveEpoch => "NoPrimitiveEpoch",
             Unsupported::PlanSanity => "PlanSanity",
@@ -312,6 +316,7 @@ pub fn plan(m: &MethodPlan, shapes: &MethodShapes) -> Result<Plan, Unsupported> 
             Instr::TableSwitch { .. } | Instr::LookupSwitch { .. } => {
                 return Err(Unsupported::HasSwitch)
             }
+            Instr::NewIntArrayFilled { .. } => return Err(Unsupported::HasArrayLiteralFill),
             Instr::InvokeDynamic { .. } => return Err(Unsupported::HasInvokeDynamic),
             _ => {}
         }
@@ -1871,6 +1876,9 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
         }
         I::TableSwitch { .. } | I::LookupSwitch { .. } => {
             unreachable!("j2r internal: switch rejected by the typed plan")
+        }
+        I::NewIntArrayFilled { .. } => {
+            unreachable!("j2r internal: array-literal fill rejected by the typed plan")
         }
         I::InvokeDynamic { .. } => {
             unreachable!("j2r internal: invokedynamic rejected by the typed plan")

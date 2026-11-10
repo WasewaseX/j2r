@@ -112,6 +112,17 @@ The honest state:
   phase, not codegen, dominates (opt-level 2 peaked HIGHER than 3). The
   sandbox has ~3.3 GB available; the limit is real and stable.
 
+* **2026-11-10 CLOSE (G2.6 arm a):** the array-literal peephole
+  (`crates/j2r-codegen/src/peephole.rs`) collapses javac's clinit fill
+  runs — the measured blocker shape (InfTree `<clinit>` was
+  1,038,405 B / 12,354 emitted lines) — and the JZlib crate now
+  completes `--release -O3` on this box: **rc=0, 50.34 s, max single
+  process 678 MB (−79 % vs the 3.25 GB SIGKILL)**, release-binary
+  output byte-identical vs Temurin (stdout+stderr+exit). Full evidence:
+  `scripts/evidence/g2_6/` (sampler before/after tables, census, parity
+  stdouts). The release row above stays as the historical record; the
+  release-comparison row lands separately as its own measurement task.
+
 ## Corpus bench rows — 2026-11-06, 2-core Xeon / 4 GB (wave 3)
 
 Repro (the harness resolves corpus driver stems under `corpus/`):

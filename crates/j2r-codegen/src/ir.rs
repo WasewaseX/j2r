@@ -118,6 +118,20 @@ pub enum Instr {
         class: String,
     },
     NewArray(PrimType),
+    /// Collapsed javac array-literal fill (G2.6 arm a, peephole.rs):
+    /// `const(len); NewArray(p); (Dup; const(idx); const(val);
+    /// AStore(IntGroup))*` with idx ascending 0..len-1 becomes ONE
+    /// instruction that pushes a freshly allocated int-group array
+    /// (Boolean/Char/Byte/Short/Int — all `PrimData::I` payloads, the
+    /// runtime constructor applies the same per-prim narrowing as
+    /// `array_store_i_raw`). Emitted as a nested `static [i32; N]` (a
+    /// separate const-eval item — the enclosing fn's MIR sees one call)
+    /// plus the `array_int_group_filled` constructor; the per-element
+    /// shape is kept for any run the peephole refuses.
+    NewIntArrayFilled {
+        prim: PrimType,
+        vals: Vec<i32>,
+    },
     ANewArray {
         elem: String,
     },

@@ -1764,6 +1764,33 @@ fn emit_instr(
                 "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_new_prim({desc:?}, __len)))));"
             ));
         }
+        Instr::NewIntArrayFilled { prim, vals } => {
+            // G2.6 arm a (peephole.rs): the collapsed array-literal fill.
+            // The element source is a NESTED static — a separate
+            // const-eval item, so the enclosing fn's MIR sees ONE call
+            // instead of N aggregate operands (the measured
+            // borrow-check/MIR wall). Fresh JRef per evaluation: same
+            // newarray semantics as the uncollapsed form. The runtime
+            // constructor applies the same per-prim narrowing as
+            // array_store_i_raw, so the payload is byte-identical.
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(format!("{RT}::heap::gc_point();"));
+            let sname = format!("__J2R_AFILL_{pc}");
+            let lit = vals
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let desc = prim.array_desc();
+            out.push(format!(
+                "static {sname}: [i32; {}] = [{}];",
+                vals.len(),
+                lit
+            ));
+            out.push(format!(
+                "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::array::array_int_group_filled({desc:?}, &{sname}))));"
+            ));
+        }
         Instr::ANewArray { elem } => {
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             out.push(format!("{RT}::heap::gc_point();"));

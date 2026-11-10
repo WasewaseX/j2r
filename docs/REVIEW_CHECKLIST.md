@@ -167,21 +167,27 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
   verification, (b) no OOM/SIGKILL at any stage, (c) peak memory recorded
   per stage, (d) raw measurement files committed. FAIL: extrapolating the
   curve and writing "~70k should fit".
-- [ ] **G2.6 — the fat-method regression the review flagged (registered
-  here as F6).**
-  Context: partitioning bounds CRATE size; it does NOT split one enormous
-  generated method. The JZlib release build SIGKILLed rustc at every opt
-  level (peak 3.03–3.56 GB, borrow-check/MIR phase) on this 4 GB box —
-  never closed, only bounded by machine memory.
-  PASS (either arm, honestly recorded): (a) split-table/smaller-function
-  emission lands and the JZlib generated crate completes `--release -O3`
-  on this box with byte-identical output, or (b) the limit is registered
-  as a machine-bound boundary with the measured number, a named follow-up
-  (the emission fix), AND a CI-visible regression test that fails loudly
-  the day the emitted function grows past a committed size/shape threshold
-  (a proxy test on the emitter side — e.g. per-method instruction /
-  switch-table census with a pinned ceiling). FAIL: silence, or a claim
-  that "partitioning fixed the fat-method problem" (it did not).
+- [x] **G2.6 — the fat-method regression the review flagged (registered
+  here as F6).** CLOSED session 11 via arm (a) — the emission fix, with
+  the byte-identical proof the bar names:
+  `crates/j2r-codegen/src/peephole.rs` collapses javac's array-literal
+  fill runs (const; NewArray; (Dup; idx; val; AStore)×N) over the
+  int-group prims into ONE `NewIntArrayFilled` instruction emitted as
+  a nested const-eval `static` + `array_int_group_filled` (narrowing
+  table == `array_store_i_raw`). The measured release-blocker shape
+  (JZlib clinit: InfTree 1.04 MB / 12,354 emitted lines) collapses
+  (InfTree.rs 1.2 MB → 124 KB, StaticTree 387 KB → 16 KB) and the
+  JZlib generated crate now completes `--release -O3` on this box:
+  **SIGKILL at rustc 3.25 GB → rc=0, 50.34 s, max single process
+  678 MB (−79 %)**; release-binary output byte-identical vs Temurin
+  (stdout+stderr+exit); battery green (codegen 110 incl. 8 peephole
+  unit tests; partition k=2; corpus_suite; diff_suite 109 zero
+  divergences; cfg_equiv; runtime 243; fmt+clippy). Evidence:
+  `scripts/evidence/g2_6/` (before/after sampler tables + census +
+  parity stdouts). Honest scope: the switch-table method shape remains
+  (InfBlocks::proc 217 KB — compiles fine, no budget threat in any
+  measured build); the sampler + census tooling is the standing
+  regression probe.
 - [ ] **G2.7 — the review's memory-budget framing.**
   PASS: the 70k acceptance names a memory budget up front (this box class:
   4 GB/process, disk-guarded) and the run is measured against THAT budget,
