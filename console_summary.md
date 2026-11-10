@@ -1,15 +1,18 @@
 # j2r console summary — the state board
 
-Updated 2026-11-10 (session 7 — **reset #8 survived via §9 (ff to
-`754ae40`), toolchain re-proven byte-exact, the 8-hour cron schedule
-verified COMPLETE (0 jobs); then T13 slice 13c LANDED: the ONE C
+Updated 2026-11-10 (session 8 — **reset #9 survived via §9: the stale
+tree was back at pre-M3 `b4badea`; ff-only merge → `2722bf9` (13c,
+448 green) == origin/main, nothing lost. Toolchain recovered with NO
+re-download — the persistent layer already held the full rustup install
+(`tools/cargo` + `tools/rustup`); `env.sh` now exports CARGO_HOME and
+RUSTUP_HOME so future resets keep the toolchain. Boards + docs re-read
+in full before acting; next 13d**. Session 7 landed 13c: the ONE C
 harness `.so` + the loading story (VM GetEnv/GetJavaVM wired,
 `System.loadLibrary` over audited primitive 12, gate-10 10 → 11,
 GetVersion corrected to the MEASURED 0x0015_0000) + the three-channel
 parity runner — Temurin vs j2r BYTE-IDENTICAL on the full v1 battery;
-REVIEW_CHECKLIST G1.1–G1.3 checked; 448 green**. Session 6 landed 13b
-+ the review checklist. See console.md session-7 entries and
-M5_JNI_HARNESS.md §7/§8).
+REVIEW_CHECKLIST G1.1–G1.3 checked; 448 green. See console.md
+session-7/8 entries and M5_JNI_HARNESS.md §7/§8).
 Raw log: `console.md`.
 **Read this file before acting**; if a memory disagrees with this board,
 the board wins.
@@ -143,12 +146,15 @@ M4 completion package still awaits owner review in parallel.
    law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 →
    `/home/z/my-project/tools/jdk-21.0.13+9` (session 3 moved the JDK to
    the persistent layer; /tmp is not trusted), `source
-   /home/z/my-project/env.sh`. Status: **DONE (session 7; reset #8 —
-   byte-exact tarball again; the working download route is the GitHub
-   releases asset, recorded in console.md)** — the §9 recipe (fetch + ff-only merge to origin/main
-   `cf8394e`), exact pinned versions restored (Temurin tarball
-   207,858,352 B, byte-exact vs the recorded ~199 MB); env.sh
-   recreated; target/ survived → warm builds.
+   /home/z/my-project/env.sh`. Status: **DONE (session 8; reset #9 —
+   recovered with NO download: the persistent layer held the full
+   rustup install; `tools/cargo` = CARGO_HOME + `tools/rustup` =
+   RUSTUP_HOME; env.sh now exports both, so a tools/-surviving reset
+   never re-downloads). Prior: session 7 (reset #8 — byte-exact
+   tarball; the working download route is the GitHub releases asset,
+   recorded in console.md). Exact pinned versions verified again this
+   session — rustc/cargo 1.99.1, rustfmt 1.10.0, clippy 0.1.99,
+   Temurin javac/java 21.0.13; target/ survived → warm builds.
 2. **Full local baseline green before the first T08 commit**: unit tests
    across all four crates + `diff_suite` (three-channel vs Temurin) +
    corpus suite; test counts re-synced per gate-11. Status: **DONE
@@ -439,6 +445,12 @@ by the per-crate budget K.
   wave 2 closes at 13d. ALSO:
   docs/REVIEW_CHECKLIST.md (G0–G6) now governs milestone-completion
   claims — the external review's P0–P2 as pass/fail gates.
+- [ops] Session 8 (2026-11-10): reset #9 survived via §9 (tree back at
+  pre-M3 `b4badea`; ff-only merge → `2722bf9` == origin/main, 0 ahead /
+  138 behind, nothing lost); toolchain recovered from the persistent
+  layer with NO re-download (CARGO_HOME/RUSTUP_HOME now in env.sh —
+  the §3.1 item-1 protocol improved); both boards re-read in full
+  before acting; next: baseline re-proof, then 13d (wave 2 closes).
 - [ops] Session 7 (2026-11-10 ~08:25 UTC): reset #8 survived via §9
   (tree back at pre-M3 `b4badea`, toolchain + tools/ + env.sh wiped);
   ff-only merge → `754ae40`; rebootstrap byte-exact (the GitHub

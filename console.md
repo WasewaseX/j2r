@@ -402,6 +402,7 @@ getrusage max single child, mistake-list #2).
 
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
 
+
 ### [2026-11-10 ~10:00–11:30 UTC] session 4 — resets #4 AND #5 survived; baseline re-proven (388 green); T10 slice 2 next
 - Sandbox recycled twice inside one session (a mid-session tool outage,
   then the restart) and the persistent layer came back reverted BOTH
@@ -1102,3 +1103,37 @@ getrusage max single child, mistake-list #2).
   AttachCurrentThread on the cached VM → the battery → Detach →
   re-attach; the VM-table Attach/Detach slots + NewGlobalRef decide
   their fate there), the loud-gap probes, the CI gate; wave 2 closes.
+
+### [2026-11-10 session 8] reset #9 survived via §9; ff to 2722bf9 (13c); toolchain recovered from the persistent layer with NO re-download; boards + docs re-read
+- Reset #9 (sandbox recycled; persistent layer back at pre-M3 `b4badea`,
+  toolchain + `tools/` + `env.sh` gone — the same pattern as resets #3–#8):
+  the §9 recipe — `git fetch origin && git merge --ff-only origin/main`
+  → HEAD `2722bf9` (T13 slice 13c, **448 green**) verified ==
+  origin/main. Zero local work existed ahead of origin (0 ahead /
+  138 behind), so the ff lost nothing.
+- **Toolchain recovered WITHOUT the usual rebootstrap download**: the
+  persistent layer already held a full rustup install — `tools/cargo`
+  (CARGO_HOME) + `tools/rustup` (RUSTUP_HOME,
+  `stable-x86_64-unknown-linux-gnu`) — the shims only needed the two
+  env vars. Verified: rustc/cargo **1.99.1**, rustfmt **1.10.0**,
+  clippy **0.1.99** (exact pins), Temurin javac/java **21.0.13** intact
+  at `tools/jdk-21.0.13+9`. `env.sh` updated to export
+  `CARGO_HOME`/`RUSTUP_HOME` + `$CARGO_HOME/bin` on PATH — future
+  resets can no longer lose the toolchain while `tools/` survives
+  (improves §3.1 item 1; recorded for the next §9 run).
+- The owner's "check the repo state and read all .md files" directive
+  re-executed on the fresh tree: console.md (all 1105 lines) and
+  console_summary.md (all 492 lines) read in full BEFORE acting.
+  Stale-memory audit vs the boards, third occurrence of the pattern:
+  "generator /tmp path bug", "missing child-process loud-release test",
+  "T10 slice 2 pending" — ALL disproven again (landed sessions 4–5);
+  the board wins over memory, as written. Also confirmed: the boards
+  are tracked ON origin (they were only missing from the stale local
+  checkout — a duplicate-boards near-miss avoided by fetching before
+  globbing).
+- Next: baseline re-proof (§3.1 item 2, T05's law) on 2722bf9, then
+  **13d** — the attach-lifecycle battery (pthread → AttachCurrentThread
+  on the cached VM → the battery → Detach → re-attach; the VM-table
+  Attach/Detach slots + NewGlobalRef decide their fate there), the
+  loud-gap probes, the CI gate (G1.5) — wave 2 closes at 13d.
+- Boards updated and pushed immediately after this entry.
