@@ -172,42 +172,25 @@ starts only after G1 AND G2 are checked.
    law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 →
    `/home/z/my-project/tools/jdk-21.0.13+9` (session 3 moved the JDK to
    the persistent layer; /tmp is not trusted), `source
-   /home/z/my-project/env.sh`. Status: **DONE (session 8; reset #9 —
-   recovered with NO download: the persistent layer held the full
-   rustup install; `tools/cargo` = CARGO_HOME + `tools/rustup` =
-   RUSTUP_HOME; env.sh now exports both, so a tools/-surviving reset
-   never re-downloads). Prior: session 7 (reset #8 — byte-exact
-   tarball; the working download route is the GitHub releases asset,
-   recorded in console.md). Exact pinned versions verified again this
+   /home/z/my-project/env.sh`. Status: **DONE (session 12; reset #12 —
+   full-download route, both tarballs byte-exact vs the recorded
+   sizes; rustup 21,347,088 B; JDK 207,858,352 B). Prior: session 8
+   (reset #9 — recovered with NO download: the persistent layer held
+   the full rustup install; `tools/cargo` = CARGO_HOME + `tools/rustup`
+   = RUSTUP_HOME; env.sh now exports both, so a tools/-surviving reset
+   never re-downloads). Exact pinned versions verified again this
    session — rustc/cargo 1.99.1, rustfmt 1.10.0, clippy 0.1.99,
    Temurin javac/java 21.0.13; target/ survived → warm builds.
 2. **Full local baseline green before the first T08 commit**: unit tests
    across all four crates + `diff_suite` (three-channel vs Temurin) +
    corpus suite; test counts re-synced per gate-11. Status: **DONE
-   (session 4, re-proven again at 84734d6 before T10 slice 2)** —
-   **388 tests, 0 failures** (classfile 38, runtime 192, codegen 125,
-   jni-ffi 7, cli 26 incl. cfg_equiv 324 s + diff_suite 426 s, zero
-   divergences; fmt clean, clippy `-D warnings` clean). Re-proven at
-   **390** after T10 slice 2 (runtime 193, jni-ffi 8, cli 26;
-   cfg_equiv 347 s + diff_suite 430 s, zero divergences). Re-proven at
-   **398** after T10 slice 3a (runtime 201; partition 24.5 s,
-   cfg_equiv 348 s + diff_suite 422 s, zero divergences). Re-proven at
-   **414** after T10 slice 3b (runtime 217; cfg_equiv 339.36 s +
-   diff_suite 438.24 s, zero divergences; cli per-suite labels
-   corrected: soe_e2e 1, jar_suite 3). Re-proven at **418** BEFORE
-   11b-2 code (session 5 cont. 3, reset #7; runtime 221; cfg_equiv
-   327.80 s + diff_suite 440.23 s, zero divergences). Re-proven at
-   **424** after T11 11b-2 (runtime 227; partition 24.30 s, corpus
-   37.53 s, cfg_equiv 348.99 s + diff_suite 455.62 s, zero
-   divergences). Re-proven at **432** after T11 11c (jni-ffi 11,
-   runtime 232; cfg_equiv 337.91 s + diff_suite 442.93 s, zero
-   divergences). Re-proven at **437** after T12 12b (runtime 237;
-   cfg_equiv 350.90 s + diff_suite 447.79 s, zero divergences).
-   Re-proven at **440** after T12 12c (runtime 238, cli 28;
-   cfg_equiv 351.47 s + diff_suite 451.36 s, zero divergences).
-   Re-proven at **448** after T13 13c (session 7; jni-ffi 17 =
-   15 unit + 2 real-C, runtime 239, cli 29 incl. jni_parity 1;
-   cfg_equiv 347.11 s + diff_suite 464.16 s, zero divergences;
+   (session 12, re-proven at `c4c45cf` before G2.4)** — **462 tests, 0
+   failures** (classfile 38, codegen 135, jni-ffi 15, runtime 243,
+   cli 29 incl. cfg_equiv 342.90 s + diff_suite 461.36 s, zero
+   divergences; fmt clean, clippy `-D warnings` clean; gate-11
+   fixtures=109 tests=462). Prior: **452** after T13 13d (session 8;
+   classfile 38, runtime 239, jni-ffi 17 = 15 unit + 2 real-C, codegen
+   125, cli 29; cfg_equiv 347 s + diff_suite 464 s, zero divergences;
    the C-harness parity battery green both runtimes).
 3. **Design of record read**: M5_PLAN §3 (JNIEnv/InvokeInterface static
    tables, object-model bridge, v1 surface, C-harness evidence) +
@@ -534,6 +517,15 @@ by the per-crate budget K.
   pthread battery verdict 2047 byte-identical both runtimes, the
   loud-gap pins, gate-22 wired into the aggregate (17 gates); 452
   green. The checklist's G1 section is fully discharged.
+- [ops] Session 12 (2026-11-10 ~20:13 UTC): reset #12 survived via §9
+  (tree back at pre-M3 `b4badea`; ff-only merge → `c4c45cf` ==
+  origin/main, 167 commits — all four G2 closures verified ON origin);
+  toolchain FULL re-download rebootstrap (rustup 1.99.1 + rustfmt 1.10.0
+  + clippy 0.1.99 byte-pinned; Temurin jdk-21.0.13+9 207,858,352 B
+  byte-exact; env.sh recreated); baseline re-proven **462 green** (the
+  battery grew +10 tests with the G2.x closures — peephole 8, manifest
+  fast-path 1, stage instrumentation 1); README 452→462 drift fixed,
+  gate-11/19/20/12 green. Next: **G2.4** (release 20k trio).
 - [ops] Session 8 (2026-11-10): reset #9 survived via §9 (tree back at
   pre-M3 `b4badea`; ff-only merge → `2722bf9` == origin/main, 0 ahead /
   138 behind, nothing lost); toolchain recovered from the persistent
