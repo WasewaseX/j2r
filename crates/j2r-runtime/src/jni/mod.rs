@@ -22,9 +22,11 @@
 //!   single `unsafe`: creating a raw pointer is safe; only the foreign
 //!   side dereferences it (their FFI is theirs — M5_PLAN §3.1).
 //!
-//! Real functions so far (later tasks fill more): slot 4 `GetVersion`
-//! (reports `JNI_VERSION_1_8`, the LWJGL3 requirement) and VM slot 6
-//! `GetEnv`'s unsupported-version path.
+//! Real slots so far: 126 of 231, wired through the generator's
+//! `REAL_SLOTS` registry (the truth prints at generation time) — the
+//! string families (T10 slice 1), class/field/array surfaces (T10),
+//! the pending-exception trio, the method-ID pair and all thirty
+//! `Call*MethodA` slots (T11 11b). Later tasks fill the rest.
 //!
 //! ## Registered wave-2 findings (owned by T09/T11, not hidden)
 //!

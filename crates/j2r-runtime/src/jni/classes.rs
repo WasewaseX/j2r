@@ -192,7 +192,12 @@ pub fn slot_get_object_class(tag: u64) -> Option<u64> {
 /// carries `jclass == "java/lang/Class"` — because the name slot alone
 /// cannot tell a mirror from a Java `String` (both hold a `Value::Str`).
 /// Anything else is a foreign-side bug: loud abort, never silent.
-fn class_name_from_tag(tag: u64) -> Option<String> {
+/// Recovers the internal class name behind a `jclass` tag (the interned
+/// Class mirror's law, M5_JNI_CLASSES.md §2). `None` only for JNI null;
+/// a non-Class object PANICS inside (`class_name_of`'s loud law — a
+/// foreign-side bug). Shared with `jni::calls` (the static/nonvirtual
+/// families resolve their declared class through it).
+pub(super) fn class_name_from_tag(tag: u64) -> Option<String> {
     if tag == 0 {
         return None;
     }

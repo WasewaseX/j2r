@@ -324,6 +324,28 @@ REAL_SLOTS = {
     "CallFloatMethodA": "jni_call_float_method_a",
     "CallDoubleMethodA": "jni_call_double_method_a",
     "CallVoidMethodA": "jni_call_void_method_a",
+    # ---- T11 slice 11b-2: the static/nonvirtual Call*MethodA families
+    # (docs/M5_JNI_CALLS.md §3/§4) — same core, three resolution laws.
+    "CallStaticObjectMethodA": "jni_call_static_object_method_a",
+    "CallStaticBooleanMethodA": "jni_call_static_boolean_method_a",
+    "CallStaticByteMethodA": "jni_call_static_byte_method_a",
+    "CallStaticCharMethodA": "jni_call_static_char_method_a",
+    "CallStaticShortMethodA": "jni_call_static_short_method_a",
+    "CallStaticIntMethodA": "jni_call_static_int_method_a",
+    "CallStaticLongMethodA": "jni_call_static_long_method_a",
+    "CallStaticFloatMethodA": "jni_call_static_float_method_a",
+    "CallStaticDoubleMethodA": "jni_call_static_double_method_a",
+    "CallStaticVoidMethodA": "jni_call_static_void_method_a",
+    "CallNonvirtualObjectMethodA": "jni_call_nonvirtual_object_method_a",
+    "CallNonvirtualBooleanMethodA": "jni_call_nonvirtual_boolean_method_a",
+    "CallNonvirtualByteMethodA": "jni_call_nonvirtual_byte_method_a",
+    "CallNonvirtualCharMethodA": "jni_call_nonvirtual_char_method_a",
+    "CallNonvirtualShortMethodA": "jni_call_nonvirtual_short_method_a",
+    "CallNonvirtualIntMethodA": "jni_call_nonvirtual_int_method_a",
+    "CallNonvirtualLongMethodA": "jni_call_nonvirtual_long_method_a",
+    "CallNonvirtualFloatMethodA": "jni_call_nonvirtual_float_method_a",
+    "CallNonvirtualDoubleMethodA": "jni_call_nonvirtual_double_method_a",
+    "CallNonvirtualVoidMethodA": "jni_call_nonvirtual_void_method_a",
 }
 
 # Wrapper bodies, emitted verbatim (doc comment + fn) after the stubs.
@@ -1065,6 +1087,138 @@ for (_suffix, _cty, _variant, _arm, _ctor) in FIELD_PRIMS:
         WRAPPER_BODIES[_sname] = _lines
 
 
+# ---------------------------------------------------------------- T11 slice 11b-2: the static/nonvirtual Call*MethodA families (programmatic)
+# Twenty slots sharing the virtual family's one shape (docs/
+# M5_JNI_CALLS.md §3/§4). The static family's C signature is
+# (env, clazz, mid, args) — the RECEIVER position carries the jclass —
+# and the nonvirtual family's is (env, obj, clazz, mid, args) — BOTH
+# receiver and declared class ride the call. Semantics live in
+# jni::calls (one invoke core, three families); these are thin,
+# documented casts. Slot numbers verified MECHANICALLY against the
+# parsed header below — a renumbered jni.h fails the generator loudly.
+
+_NV_A_SLOT_NOS = {
+    "Object": 66, "Boolean": 69, "Byte": 72, "Char": 75, "Short": 78,
+    "Int": 81, "Long": 84, "Float": 87, "Double": 90, "Void": 93,
+}
+_STATIC_A_SLOT_NOS = {
+    "Object": 116, "Boolean": 119, "Byte": 122, "Char": 125, "Short": 128,
+    "Int": 131, "Long": 134, "Float": 137, "Double": 140, "Void": 143,
+}
+for _name in _NV_A_SLOT_NOS:
+    if _idx_of[f"CallNonvirtual{_name}MethodA"] != _NV_A_SLOT_NOS[_name]:
+        sys.exit(
+            f"FATAL: CallNonvirtual{_name}MethodA slot drifted: jni.h says "
+            f"{_idx_of[f'CallNonvirtual{_name}MethodA']}, template says {_NV_A_SLOT_NOS[_name]}"
+        )
+    if _idx_of[f"CallStatic{_name}MethodA"] != _STATIC_A_SLOT_NOS[_name]:
+        sys.exit(
+            f"FATAL: CallStatic{_name}MethodA slot drifted: jni.h says "
+            f"{_idx_of[f'CallStatic{_name}MethodA']}, template says {_STATIC_A_SLOT_NOS[_name]}"
+        )
+
+# (kind, C return type) — the same ten kinds as the virtual family.
+_CALL_A2_KINDS = [
+    ("Object", "jobject"),
+    ("Boolean", "jboolean"),
+    ("Byte", "jbyte"),
+    ("Char", "jchar"),
+    ("Short", "jshort"),
+    ("Int", "jint"),
+    ("Long", "jlong"),
+    ("Float", "jfloat"),
+    ("Double", "jdouble"),
+    ("Void", None),
+]
+
+for _name, _ret_cty in _CALL_A2_KINDS:
+    _ret_decl = f" -> {_ret_cty}" if _ret_cty else ""
+    _low = _name.lower()
+    # STATIC: the receiver ABI position carries the jclass; no receiver.
+    WRAPPER_BODIES[f"CallStatic{_name}MethodA"] = [
+        f"/// `CallStatic{_name}MethodA` (slot {_STATIC_A_SLOT_NOS[_name]}): the A-form —",
+        "/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md",
+        "/// §3/§4): the jvalue words are decoded per the method's own",
+        "/// descriptor and the call resolves on the DECLARED class — no",
+        "/// receiver (the C signature carries the jclass in the receiver",
+        "/// position). A thrown answer is PENDED",
+        "/// (ExceptionOccurred/Check/Clear) and the zero value returned —",
+        "/// the JNI-faithful shape. A null mid is a loud foreign-side bug",
+        "/// (the T09 registry law).",
+        f'extern "system" fn jni_call_static_{_low}_method_a(',
+        "    _env: JNIEnv,",
+        "    clazz: jclass,",
+        "    mid: jmethodID,",
+        "    args: *const c_void,",
+        f"){_ret_decl} {{",
+        "    let tag = crate::jni::bridge::jobject_to_tag(clazz);",
+        *(
+            [
+                f"    crate::jni::calls::slot_call_static_{_low}_method_a(",
+                "        crate::jni::classes::method_id_from_ptr(mid),",
+                "        tag,",
+                "        args as usize,",
+                "    )",
+            ]
+            if _ret_cty != "jobject"
+            else [
+                "    crate::jni::bridge::tag_to_jobject(",
+                f"        crate::jni::calls::slot_call_static_{_low}_method_a(",
+                "            crate::jni::classes::method_id_from_ptr(mid),",
+                "            tag,",
+                "            args as usize,",
+                "        ),",
+                "    )",
+            ]
+        ),
+        "}",
+    ]
+    # NONVIRTUAL: BOTH the receiver and the declared class ride the call
+    # (the C signature is (env, obj, clazz, mid, args)).
+    WRAPPER_BODIES[f"CallNonvirtual{_name}MethodA"] = [
+        f"/// `CallNonvirtual{_name}MethodA` (slot {_NV_A_SLOT_NOS[_name]}): the A-form —",
+        "/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md",
+        "/// §3/§4): the jvalue words are decoded per the method's own",
+        "/// descriptor and the call dispatches by the DECLARED class (the",
+        "/// jclass argument) — the `super.m()` shape, never the receiver's",
+        "/// runtime class. A thrown answer is PENDED",
+        "/// (ExceptionOccurred/Check/Clear) and the zero value returned —",
+        "/// the JNI-faithful shape. A null mid is a loud foreign-side bug",
+        "/// (the T09 registry law).",
+        f'extern "system" fn jni_call_nonvirtual_{_low}_method_a(',
+        "    _env: JNIEnv,",
+        "    obj: jobject,",
+        "    clazz: jclass,",
+        "    mid: jmethodID,",
+        "    args: *const c_void,",
+        f"){_ret_decl} {{",
+        "    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);",
+        "    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);",
+        *(
+            [
+                f"    crate::jni::calls::slot_call_nonvirtual_{_low}_method_a(",
+                "        crate::jni::classes::method_id_from_ptr(mid),",
+                "        obj_tag,",
+                "        clazz_tag,",
+                "        args as usize,",
+                "    )",
+            ]
+            if _ret_cty != "jobject"
+            else [
+                "    crate::jni::bridge::tag_to_jobject(",
+                f"        crate::jni::calls::slot_call_nonvirtual_{_low}_method_a(",
+                "            crate::jni::classes::method_id_from_ptr(mid),",
+                "            obj_tag,",
+                "            clazz_tag,",
+                "            args as usize,",
+                "        ),",
+                "    )",
+            ]
+        ),
+        "}",
+    ]
+
+
 # ---------------------------------------------------------------- T10 slice 2/3: real-slot registry verification
 # The registry must name slots that jni.h actually defines (a renamed/
 # removed slot fails the generator loudly — same discipline as the
@@ -1093,13 +1247,14 @@ A("//! Every non-reserved slot holds a real function or a loud stub — never")
 A("//! a null slot a foreign library could segfault on. Layout is pinned by")
 A("//! the const assertion table at the bottom (offset_of! per slot).")
 A("//!")
-A("//! T10 slices 2-3: 45 slots are wired to real wrappers through the")
-A("//! generator's REAL_SLOTS registry — the five string slots (NewString,")
-A("//! NewStringUTF, GetStringUTFLength, GetStringUTFChars,")
-A("//! ReleaseStringUTFChars; bodies in jni::strings, slice 1), the four")
-A("//! class/field-ID slots (FindClass, GetObjectClass, GetFieldID,")
-A("//! GetStaticFieldID) and the 36 field accessors (bodies in")
-A("//! jni::classes, slice 3); raw-pointer moments go through the audited")
+A("//! T10 + T11: the real slots are wired through the generator's")
+A("//! REAL_SLOTS registry (the count prints at generation time): the five")
+A("//! string slots (bodies in jni::strings, slice 1), FindClass/")
+A("//! GetObjectClass + the field-ID pair + the 36 field accessors + the")
+A("//! 46 array slots (bodies in jni::classes/jni::arrays, T10), the")
+A("//! pending-exception trio + the method-ID pair + all thirty")
+A("//! Call*MethodA slots (virtual 11b-1, static/nonvirtual 11b-2; bodies")
+A("//! in jni::calls); raw-pointer moments go through the audited")
 A("//! j2r-jni-ffi primitives.")
 A("#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]")
 A("")

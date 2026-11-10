@@ -7,13 +7,14 @@
 //! a null slot a foreign library could segfault on. Layout is pinned by
 //! the const assertion table at the bottom (offset_of! per slot).
 //!
-//! T10 slices 2-3: 45 slots are wired to real wrappers through the
-//! generator's REAL_SLOTS registry — the five string slots (NewString,
-//! NewStringUTF, GetStringUTFLength, GetStringUTFChars,
-//! ReleaseStringUTFChars; bodies in jni::strings, slice 1), the four
-//! class/field-ID slots (FindClass, GetObjectClass, GetFieldID,
-//! GetStaticFieldID) and the 36 field accessors (bodies in
-//! jni::classes, slice 3); raw-pointer moments go through the audited
+//! T10 + T11: the real slots are wired through the generator's
+//! REAL_SLOTS registry (the count prints at generation time): the five
+//! string slots (bodies in jni::strings, slice 1), FindClass/
+//! GetObjectClass + the field-ID pair + the 36 field accessors + the
+//! 46 array slots (bodies in jni::classes/jni::arrays, T10), the
+//! pending-exception trio + the method-ID pair + all thirty
+//! Call*MethodA slots (virtual 11b-1, static/nonvirtual 11b-2; bodies
+//! in jni::calls); raw-pointer moments go through the audited
 //! j2r-jni-ffi primitives.
 #![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]
 
@@ -544,34 +545,34 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     CallVoidMethodA: jni_call_void_method_a,
     CallNonvirtualObjectMethod: stub_CallNonvirtualObjectMethod,
     CallNonvirtualObjectMethodV: stub_CallNonvirtualObjectMethodV,
-    CallNonvirtualObjectMethodA: stub_CallNonvirtualObjectMethodA,
+    CallNonvirtualObjectMethodA: jni_call_nonvirtual_object_method_a,
     CallNonvirtualBooleanMethod: stub_CallNonvirtualBooleanMethod,
     CallNonvirtualBooleanMethodV: stub_CallNonvirtualBooleanMethodV,
-    CallNonvirtualBooleanMethodA: stub_CallNonvirtualBooleanMethodA,
+    CallNonvirtualBooleanMethodA: jni_call_nonvirtual_boolean_method_a,
     CallNonvirtualByteMethod: stub_CallNonvirtualByteMethod,
     CallNonvirtualByteMethodV: stub_CallNonvirtualByteMethodV,
-    CallNonvirtualByteMethodA: stub_CallNonvirtualByteMethodA,
+    CallNonvirtualByteMethodA: jni_call_nonvirtual_byte_method_a,
     CallNonvirtualCharMethod: stub_CallNonvirtualCharMethod,
     CallNonvirtualCharMethodV: stub_CallNonvirtualCharMethodV,
-    CallNonvirtualCharMethodA: stub_CallNonvirtualCharMethodA,
+    CallNonvirtualCharMethodA: jni_call_nonvirtual_char_method_a,
     CallNonvirtualShortMethod: stub_CallNonvirtualShortMethod,
     CallNonvirtualShortMethodV: stub_CallNonvirtualShortMethodV,
-    CallNonvirtualShortMethodA: stub_CallNonvirtualShortMethodA,
+    CallNonvirtualShortMethodA: jni_call_nonvirtual_short_method_a,
     CallNonvirtualIntMethod: stub_CallNonvirtualIntMethod,
     CallNonvirtualIntMethodV: stub_CallNonvirtualIntMethodV,
-    CallNonvirtualIntMethodA: stub_CallNonvirtualIntMethodA,
+    CallNonvirtualIntMethodA: jni_call_nonvirtual_int_method_a,
     CallNonvirtualLongMethod: stub_CallNonvirtualLongMethod,
     CallNonvirtualLongMethodV: stub_CallNonvirtualLongMethodV,
-    CallNonvirtualLongMethodA: stub_CallNonvirtualLongMethodA,
+    CallNonvirtualLongMethodA: jni_call_nonvirtual_long_method_a,
     CallNonvirtualFloatMethod: stub_CallNonvirtualFloatMethod,
     CallNonvirtualFloatMethodV: stub_CallNonvirtualFloatMethodV,
-    CallNonvirtualFloatMethodA: stub_CallNonvirtualFloatMethodA,
+    CallNonvirtualFloatMethodA: jni_call_nonvirtual_float_method_a,
     CallNonvirtualDoubleMethod: stub_CallNonvirtualDoubleMethod,
     CallNonvirtualDoubleMethodV: stub_CallNonvirtualDoubleMethodV,
-    CallNonvirtualDoubleMethodA: stub_CallNonvirtualDoubleMethodA,
+    CallNonvirtualDoubleMethodA: jni_call_nonvirtual_double_method_a,
     CallNonvirtualVoidMethod: stub_CallNonvirtualVoidMethod,
     CallNonvirtualVoidMethodV: stub_CallNonvirtualVoidMethodV,
-    CallNonvirtualVoidMethodA: stub_CallNonvirtualVoidMethodA,
+    CallNonvirtualVoidMethodA: jni_call_nonvirtual_void_method_a,
     GetFieldID: jni_get_field_id,
     GetObjectField: jni_getobjectfield,
     GetBooleanField: jni_getbooleanfield,
@@ -594,34 +595,34 @@ pub static ENV_TABLE: JNINativeInterface_ = JNINativeInterface_ {
     GetStaticMethodID: jni_get_static_method_id,
     CallStaticObjectMethod: stub_CallStaticObjectMethod,
     CallStaticObjectMethodV: stub_CallStaticObjectMethodV,
-    CallStaticObjectMethodA: stub_CallStaticObjectMethodA,
+    CallStaticObjectMethodA: jni_call_static_object_method_a,
     CallStaticBooleanMethod: stub_CallStaticBooleanMethod,
     CallStaticBooleanMethodV: stub_CallStaticBooleanMethodV,
-    CallStaticBooleanMethodA: stub_CallStaticBooleanMethodA,
+    CallStaticBooleanMethodA: jni_call_static_boolean_method_a,
     CallStaticByteMethod: stub_CallStaticByteMethod,
     CallStaticByteMethodV: stub_CallStaticByteMethodV,
-    CallStaticByteMethodA: stub_CallStaticByteMethodA,
+    CallStaticByteMethodA: jni_call_static_byte_method_a,
     CallStaticCharMethod: stub_CallStaticCharMethod,
     CallStaticCharMethodV: stub_CallStaticCharMethodV,
-    CallStaticCharMethodA: stub_CallStaticCharMethodA,
+    CallStaticCharMethodA: jni_call_static_char_method_a,
     CallStaticShortMethod: stub_CallStaticShortMethod,
     CallStaticShortMethodV: stub_CallStaticShortMethodV,
-    CallStaticShortMethodA: stub_CallStaticShortMethodA,
+    CallStaticShortMethodA: jni_call_static_short_method_a,
     CallStaticIntMethod: stub_CallStaticIntMethod,
     CallStaticIntMethodV: stub_CallStaticIntMethodV,
-    CallStaticIntMethodA: stub_CallStaticIntMethodA,
+    CallStaticIntMethodA: jni_call_static_int_method_a,
     CallStaticLongMethod: stub_CallStaticLongMethod,
     CallStaticLongMethodV: stub_CallStaticLongMethodV,
-    CallStaticLongMethodA: stub_CallStaticLongMethodA,
+    CallStaticLongMethodA: jni_call_static_long_method_a,
     CallStaticFloatMethod: stub_CallStaticFloatMethod,
     CallStaticFloatMethodV: stub_CallStaticFloatMethodV,
-    CallStaticFloatMethodA: stub_CallStaticFloatMethodA,
+    CallStaticFloatMethodA: jni_call_static_float_method_a,
     CallStaticDoubleMethod: stub_CallStaticDoubleMethod,
     CallStaticDoubleMethodV: stub_CallStaticDoubleMethodV,
-    CallStaticDoubleMethodA: stub_CallStaticDoubleMethodA,
+    CallStaticDoubleMethodA: jni_call_static_double_method_a,
     CallStaticVoidMethod: stub_CallStaticVoidMethod,
     CallStaticVoidMethodV: stub_CallStaticVoidMethodV,
-    CallStaticVoidMethodA: stub_CallStaticVoidMethodA,
+    CallStaticVoidMethodA: jni_call_static_void_method_a,
     GetStaticFieldID: jni_get_static_field_id,
     GetStaticObjectField: jni_getstaticobjectfield,
     GetStaticBooleanField: jni_getstaticbooleanfield,
@@ -1886,15 +1887,6 @@ extern "system" fn stub_CallNonvirtualObjectMethodV(
 ) -> jobject {
     unimplemented_slot(65, "CallNonvirtualObjectMethodV")
 }
-extern "system" fn stub_CallNonvirtualObjectMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jobject {
-    unimplemented_slot(66, "CallNonvirtualObjectMethodA")
-}
 extern "system" fn stub_CallNonvirtualBooleanMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
@@ -1912,15 +1904,6 @@ extern "system" fn stub_CallNonvirtualBooleanMethodV(
     _args: VaList,
 ) -> jboolean {
     unimplemented_slot(68, "CallNonvirtualBooleanMethodV")
-}
-extern "system" fn stub_CallNonvirtualBooleanMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jboolean {
-    unimplemented_slot(69, "CallNonvirtualBooleanMethodA")
 }
 extern "system" fn stub_CallNonvirtualByteMethod(
     _env: *mut JNIEnv_,
@@ -1940,15 +1923,6 @@ extern "system" fn stub_CallNonvirtualByteMethodV(
 ) -> jbyte {
     unimplemented_slot(71, "CallNonvirtualByteMethodV")
 }
-extern "system" fn stub_CallNonvirtualByteMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jbyte {
-    unimplemented_slot(72, "CallNonvirtualByteMethodA")
-}
 extern "system" fn stub_CallNonvirtualCharMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
@@ -1966,15 +1940,6 @@ extern "system" fn stub_CallNonvirtualCharMethodV(
     _args: VaList,
 ) -> jchar {
     unimplemented_slot(74, "CallNonvirtualCharMethodV")
-}
-extern "system" fn stub_CallNonvirtualCharMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jchar {
-    unimplemented_slot(75, "CallNonvirtualCharMethodA")
 }
 extern "system" fn stub_CallNonvirtualShortMethod(
     _env: *mut JNIEnv_,
@@ -1994,15 +1959,6 @@ extern "system" fn stub_CallNonvirtualShortMethodV(
 ) -> jshort {
     unimplemented_slot(77, "CallNonvirtualShortMethodV")
 }
-extern "system" fn stub_CallNonvirtualShortMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jshort {
-    unimplemented_slot(78, "CallNonvirtualShortMethodA")
-}
 extern "system" fn stub_CallNonvirtualIntMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
@@ -2020,15 +1976,6 @@ extern "system" fn stub_CallNonvirtualIntMethodV(
     _args: VaList,
 ) -> jint {
     unimplemented_slot(80, "CallNonvirtualIntMethodV")
-}
-extern "system" fn stub_CallNonvirtualIntMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jint {
-    unimplemented_slot(81, "CallNonvirtualIntMethodA")
 }
 extern "system" fn stub_CallNonvirtualLongMethod(
     _env: *mut JNIEnv_,
@@ -2048,15 +1995,6 @@ extern "system" fn stub_CallNonvirtualLongMethodV(
 ) -> jlong {
     unimplemented_slot(83, "CallNonvirtualLongMethodV")
 }
-extern "system" fn stub_CallNonvirtualLongMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jlong {
-    unimplemented_slot(84, "CallNonvirtualLongMethodA")
-}
 extern "system" fn stub_CallNonvirtualFloatMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
@@ -2074,15 +2012,6 @@ extern "system" fn stub_CallNonvirtualFloatMethodV(
     _args: VaList,
 ) -> jfloat {
     unimplemented_slot(86, "CallNonvirtualFloatMethodV")
-}
-extern "system" fn stub_CallNonvirtualFloatMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jfloat {
-    unimplemented_slot(87, "CallNonvirtualFloatMethodA")
 }
 extern "system" fn stub_CallNonvirtualDoubleMethod(
     _env: *mut JNIEnv_,
@@ -2102,15 +2031,6 @@ extern "system" fn stub_CallNonvirtualDoubleMethodV(
 ) -> jdouble {
     unimplemented_slot(89, "CallNonvirtualDoubleMethodV")
 }
-extern "system" fn stub_CallNonvirtualDoubleMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jdouble {
-    unimplemented_slot(90, "CallNonvirtualDoubleMethodA")
-}
 extern "system" fn stub_CallNonvirtualVoidMethod(
     _env: *mut JNIEnv_,
     _obj: jobject,
@@ -2129,15 +2049,6 @@ extern "system" fn stub_CallNonvirtualVoidMethodV(
 ) {
     unimplemented_slot(92, "CallNonvirtualVoidMethodV")
 }
-extern "system" fn stub_CallNonvirtualVoidMethodA(
-    _env: *mut JNIEnv_,
-    _obj: jobject,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) {
-    unimplemented_slot(93, "CallNonvirtualVoidMethodA")
-}
 extern "system" fn stub_CallStaticObjectMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
@@ -2153,14 +2064,6 @@ extern "system" fn stub_CallStaticObjectMethodV(
     _args: VaList,
 ) -> jobject {
     unimplemented_slot(115, "CallStaticObjectMethodV")
-}
-extern "system" fn stub_CallStaticObjectMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jobject {
-    unimplemented_slot(116, "CallStaticObjectMethodA")
 }
 extern "system" fn stub_CallStaticBooleanMethod(
     _env: *mut JNIEnv_,
@@ -2178,14 +2081,6 @@ extern "system" fn stub_CallStaticBooleanMethodV(
 ) -> jboolean {
     unimplemented_slot(118, "CallStaticBooleanMethodV")
 }
-extern "system" fn stub_CallStaticBooleanMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jboolean {
-    unimplemented_slot(119, "CallStaticBooleanMethodA")
-}
 extern "system" fn stub_CallStaticByteMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
@@ -2201,14 +2096,6 @@ extern "system" fn stub_CallStaticByteMethodV(
     _args: VaList,
 ) -> jbyte {
     unimplemented_slot(121, "CallStaticByteMethodV")
-}
-extern "system" fn stub_CallStaticByteMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jbyte {
-    unimplemented_slot(122, "CallStaticByteMethodA")
 }
 extern "system" fn stub_CallStaticCharMethod(
     _env: *mut JNIEnv_,
@@ -2226,14 +2113,6 @@ extern "system" fn stub_CallStaticCharMethodV(
 ) -> jchar {
     unimplemented_slot(124, "CallStaticCharMethodV")
 }
-extern "system" fn stub_CallStaticCharMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jchar {
-    unimplemented_slot(125, "CallStaticCharMethodA")
-}
 extern "system" fn stub_CallStaticShortMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
@@ -2249,14 +2128,6 @@ extern "system" fn stub_CallStaticShortMethodV(
     _args: VaList,
 ) -> jshort {
     unimplemented_slot(127, "CallStaticShortMethodV")
-}
-extern "system" fn stub_CallStaticShortMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jshort {
-    unimplemented_slot(128, "CallStaticShortMethodA")
 }
 extern "system" fn stub_CallStaticIntMethod(
     _env: *mut JNIEnv_,
@@ -2274,14 +2145,6 @@ extern "system" fn stub_CallStaticIntMethodV(
 ) -> jint {
     unimplemented_slot(130, "CallStaticIntMethodV")
 }
-extern "system" fn stub_CallStaticIntMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jint {
-    unimplemented_slot(131, "CallStaticIntMethodA")
-}
 extern "system" fn stub_CallStaticLongMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
@@ -2297,14 +2160,6 @@ extern "system" fn stub_CallStaticLongMethodV(
     _args: VaList,
 ) -> jlong {
     unimplemented_slot(133, "CallStaticLongMethodV")
-}
-extern "system" fn stub_CallStaticLongMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jlong {
-    unimplemented_slot(134, "CallStaticLongMethodA")
 }
 extern "system" fn stub_CallStaticFloatMethod(
     _env: *mut JNIEnv_,
@@ -2322,14 +2177,6 @@ extern "system" fn stub_CallStaticFloatMethodV(
 ) -> jfloat {
     unimplemented_slot(136, "CallStaticFloatMethodV")
 }
-extern "system" fn stub_CallStaticFloatMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jfloat {
-    unimplemented_slot(137, "CallStaticFloatMethodA")
-}
 extern "system" fn stub_CallStaticDoubleMethod(
     _env: *mut JNIEnv_,
     _clazz: jobject,
@@ -2346,14 +2193,6 @@ extern "system" fn stub_CallStaticDoubleMethodV(
 ) -> jdouble {
     unimplemented_slot(139, "CallStaticDoubleMethodV")
 }
-extern "system" fn stub_CallStaticDoubleMethodA(
-    _env: *mut JNIEnv_,
-    _clazz: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) -> jdouble {
-    unimplemented_slot(140, "CallStaticDoubleMethodA")
-}
 extern "system" fn stub_CallStaticVoidMethod(
     _env: *mut JNIEnv_,
     _cls: jobject,
@@ -2369,14 +2208,6 @@ extern "system" fn stub_CallStaticVoidMethodV(
     _args: VaList,
 ) {
     unimplemented_slot(142, "CallStaticVoidMethodV")
-}
-extern "system" fn stub_CallStaticVoidMethodA(
-    _env: *mut JNIEnv_,
-    _cls: jobject,
-    _methodID: jmethodID,
-    _args: *const c_void,
-) {
-    unimplemented_slot(143, "CallStaticVoidMethodA")
 }
 extern "system" fn stub_GetStringLength(_env: *mut JNIEnv_, _str: jobject) -> jsize {
     unimplemented_slot(164, "GetStringLength")
@@ -3869,6 +3700,496 @@ extern "system" fn jni_call_void_method_a(
     crate::jni::calls::slot_call_void_method_a(
         crate::jni::classes::method_id_from_ptr(mid),
         tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticObjectMethodA` (slot 116): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_object_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jobject {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::bridge::tag_to_jobject(crate::jni::calls::slot_call_static_object_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    ))
+}
+
+/// `CallStaticBooleanMethodA` (slot 119): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_boolean_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jboolean {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_boolean_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticByteMethodA` (slot 122): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_byte_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jbyte {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_byte_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticCharMethodA` (slot 125): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_char_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jchar {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_char_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticShortMethodA` (slot 128): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_short_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jshort {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_short_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticIntMethodA` (slot 131): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_int_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jint {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_int_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticLongMethodA` (slot 134): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_long_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jlong {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_long_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticFloatMethodA` (slot 137): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_float_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jfloat {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_float_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticDoubleMethodA` (slot 140): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_double_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jdouble {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_double_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallStaticVoidMethodA` (slot 143): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call resolves on the DECLARED class — no
+/// receiver (the C signature carries the jclass in the receiver
+/// position). A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_static_void_method_a(
+    _env: JNIEnv,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) {
+    let tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_static_void_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualObjectMethodA` (slot 66): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_object_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jobject {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::bridge::tag_to_jobject(crate::jni::calls::slot_call_nonvirtual_object_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    ))
+}
+
+/// `CallNonvirtualBooleanMethodA` (slot 69): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_boolean_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jboolean {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_boolean_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualByteMethodA` (slot 72): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_byte_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jbyte {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_byte_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualCharMethodA` (slot 75): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_char_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jchar {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_char_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualShortMethodA` (slot 78): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_short_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jshort {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_short_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualIntMethodA` (slot 81): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_int_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jint {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_int_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualLongMethodA` (slot 84): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_long_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jlong {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_long_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualFloatMethodA` (slot 87): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_float_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jfloat {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_float_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualDoubleMethodA` (slot 90): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_double_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) -> jdouble {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_double_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
+        args as usize,
+    )
+}
+
+/// `CallNonvirtualVoidMethodA` (slot 93): the A-form —
+/// the v1 workhorse (design of record: docs/M5_JNI_CALLS.md
+/// §3/§4): the jvalue words are decoded per the method's own
+/// descriptor and the call dispatches by the DECLARED class (the
+/// jclass argument) — the `super.m()` shape, never the receiver's
+/// runtime class. A thrown answer is PENDED
+/// (ExceptionOccurred/Check/Clear) and the zero value returned —
+/// the JNI-faithful shape. A null mid is a loud foreign-side bug
+/// (the T09 registry law).
+extern "system" fn jni_call_nonvirtual_void_method_a(
+    _env: JNIEnv,
+    obj: jobject,
+    clazz: jclass,
+    mid: jmethodID,
+    args: *const c_void,
+) {
+    let obj_tag = crate::jni::bridge::jobject_to_tag(obj);
+    let clazz_tag = crate::jni::bridge::jobject_to_tag(clazz);
+    crate::jni::calls::slot_call_nonvirtual_void_method_a(
+        crate::jni::classes::method_id_from_ptr(mid),
+        obj_tag,
+        clazz_tag,
         args as usize,
     )
 }

@@ -666,3 +666,65 @@ getrusage max single child, mistake-list #2).
   full battery re-run — all land with 11b part 2 / 11c. No codegen
   change in this part (tables.rs is runtime-side) — the battery rides
   with part 2 per the standing law.
+
+### [2026-11-10 ~12:15 UTC] session 5 cont. 3 — reset #7 survived; T11 slice 11b part 2: the static/nonvirtual Call*MethodA families + the mock-dispatch tests (424 green)
+- Reset #7 (sandbox recycled between sessions; the persistent layer came
+  back at pre-M3 `b4badea`, toolchain + tools/ + env.sh wiped): the §9
+  recipe — `git fetch && git merge --ff-only origin/main` → HEAD
+  `cf8394e` (the boards' truth: 11b-1 landed, 418 green). Rebootstrap
+  per §3.1 item 1: rustup → exact pins rustc/cargo 1.99.1 + rustfmt
+  1.10.0 + clippy 0.1.99; Temurin 21.0.13+9 tarball 207,858,352 B
+  (byte-exact vs the recorded ~199 MB) → the persistent JDK path;
+  env.sh recreated (J2R_JAVAC, JAVA_HOME, PATH, CARGO_PROFILE_DEV_DEBUG=0);
+  target/ survived → warm builds.
+- **Baseline re-proven BEFORE any 11b-2 code (T05's law): 418 tests,
+  0 failures** — classfile 38 · jni-ffi 8 · runtime 221 · codegen 125
+  (lib 101 + e2e 1 + malformed 12 + wide_ids 1 + manifest 10) · cli 26;
+  walls: cfg_equiv 327.80 s, diff_suite 440.23 s, corpus 38.28 s,
+  partition 25.66 s, soe 10.36 s, jar 18.94 s — fmt clean, clippy
+  `-D warnings` clean.
+- **T11 slice 11b part 2 LANDED** (docs/M5_JNI_CALLS.md §4 precision
+  paragraph is the design of record):
+  * ONE invoke core, three families (`CallFamily`: Virtual/Static/
+    Nonvirtual), then the SAME ancestor walk (start → parent_of until
+    find_method hits) — the JVM's own resolution shape. This FIXES the
+    landed 11b-1 single-shot gap: an ID minted through GetMethodID's
+    ancestor walk now works for a receiver whose runtime class only
+    INHERITS the method (pinned by the walk test).
+  * The ten `CallStatic*MethodA` (C sig `(env, clazz, mid, args)` — the
+    receiver position carries the jclass; NO receiver) and the ten
+    `CallNonvirtual*MethodA` (`(env, obj, clazz, mid, args)` — both
+    ride the call; dispatch obeys the DECLARED class, the `super.m()`
+    shape; precision of record: the walk starts at the jclass's own
+    class, which on every VALID ID↔clazz combination lands exactly on
+    the body the ID names — invalid combinations answer by the
+    documented law instead of Temurin's UB).
+  * Laws: family/staticness mismatch = LOUD panic (Temurin: UB); null
+    jclass on static/nonvirtual pends NPE + zero (defensive); null
+    receiver / null-args-with-demanding-descriptor laws unchanged; a
+    thrown callee PENDS and answers the zero value.
+  * generator: +20 REAL_SLOTS entries (106 → **126 real slots**) with
+    the slot numbers asserted MECHANICALLY against the parsed header
+    (a renumbered jni.h fails the generator loudly); regenerate+fmt
+    **idempotent byte-for-byte** (two-pass diff empty); stale doc
+    counts fixed at the SOURCE (the T08-era "45 slots" header paragraph
+    and mod.rs's "GetVersion so far" line → the registry-truth
+    wording; README 418 → 424).
+- 6 new mock-dispatch unit tests (the M5_JNI_CALLS.md §5 evidence):
+  virtual-dispatch-by-runtime-class + THE override-vs-declared-class
+  proof (a Base-minted mark()I on a Derived receiver runs the
+  OVERRIDE); nonvirtual = the mirror image (same ID, same receiver,
+  declared Base → Base's body); static = no receiver, resolves through
+  the subclass walk; staticness mismatches loud across all three
+  families; null receiver/class/args pend NPE + zero; a thrown callee
+  pends + zero. runtime 221 → 227.
+- Evidence — full battery re-run (the standing law): fmt clean; clippy
+  `-D warnings` clean; **424 tests, 0 failures** — classfile 38 ·
+  jni-ffi 8 · runtime 227 · codegen 125 · cli 26; walls: cfg_equiv
+  348.99 s + diff_suite 455.62 s (**zero divergences**), partition
+  24.30 s, corpus 37.53 s, soe 10.00 s, jar 18.18 s, lambda 1.09 s.
+  gate-10 unchanged (6 unsafe occurrences, no new primitives —
+  `copy_from_caller` already covers the A-forms).
+- Next (11c): the V-form save-area walk + the three audited primitives
+  (read_word_at / read_fp_word_at / read_u32_at) + the gate-10
+  amendment (6 → 9 of pin 12) in the same commit, then the battery.

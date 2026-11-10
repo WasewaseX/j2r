@@ -105,6 +105,22 @@ an integer-typed 4th param never sees it.
   Int-group i32 words (narrowed per the ARRAY/param descriptor law),
   `J`/`F`/`D`→i64/f32/f64, `L…;`/`[…]`→reference (null = JNI null).
 
+Implementation precision (11b-2, the landed form of the three laws):
+ONE invoke core, three start classes, then the SAME ancestor walk
+(start → `parent_of` chain until the lookup hits) — the JVM's own
+resolution shape, and what makes an ID minted through GetMethodID's
+ancestor walk (owner = the declaring superclass) work for a receiver
+whose runtime class only INHERITS the method. For the nonvirtual
+family the walk STARTS at the jclass's own class: the JNI spec ties
+the method ID to the jclass argument ("the method ID must be obtained
+by calling GetMethodID() on the class clazz"), so on every VALID
+combination the walk lands on exactly the body the ID names, while an
+invalid combination answers by this documented law instead of
+Temurin's UB. A family/staticness mismatch (e.g. an instance ID
+through `CallStatic*MethodA`) is a LOUD panic — Java cannot express
+it; a null `jclass` on a static/nonvirtual call pends NPE + zero
+(defensive — Temurin's is UB there).
+
 ## 5. Evidence bar (acceptance)
 
 Unit tests: descriptor-driven arity walk (right arg count from a
@@ -125,7 +141,14 @@ doc-count sync, full battery re-run (the boards' standing law), boards
 - **11a** — this note (the F-J2 resolution).
 - **11b** — pending-exception cell + ExceptionOccurred/Clear/Check
   slots real + A-forms (all 30) + descriptor-walk invoke core. The
-  battery in the same landing.
+  battery in the same landing. **LANDED in two parts**: part 1 (the
+  pending cell, the method-ID registry, the ten virtual
+  `Call<K>MethodA` slots); part 2 (the ten `CallStatic<K>MethodA` and
+  ten `CallNonvirtual<K>MethodA` slots through the same core; the
+  mock-dispatch tests: override vs declared-class vs static, the
+  ancestor walk, the staticness-mismatch loudness, the NPE/zero laws,
+  the thrown-callee round-trip; slot numbers asserted mechanically
+  against the parsed header in the generator).
 - **11c** — V-forms via the save-area walk + the gate-10 amendment
   (new audited primitives + count assert), battery again.
 
