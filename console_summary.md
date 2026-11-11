@@ -1,5 +1,24 @@
 # j2r console summary — the state board
 
+Updated 2026-11-12 (session 18 — **the G3.2 opening measurement TAKEN**:
+the typed-payload re-measure at the all-four-kernels census). Reset #17
+recovered per §9 (tree survived at `fb6683c`; toolchain byte-exact via
+the proven recipe scripts + cached tarballs, `target/` fully warm,
+census reproduced 77 typed-ready before any measurement). The
+registered protocol (median of 2, fresh emits, byte-identical stdout vs
+the same-session Temurin run): **default 279.23 s vs typed 256.31 s =
+0.918** — the lever ledger moves 0.936 → 0.918 (8.2% cumulative); the
+1.8pp is the tred2/orthes/hqr2 typing margin (addendum 8's 0.936 had
+only tql2 typed). All five processes exit 0, all four native runs
+byte-identical to the JVM. Evidence:
+scripts/evidence/g3_2/typed_payload_remeasure_2026-11-12.txt + five raw
+run logs. Honesty notes (G3.5) recorded: only same-session ratios
+claimed; this box's JVM ref 2.60 s → typed gap ~98.6x, the "~100x"
+phrasing stays. Next: **G3.2 — the block-join/entry-var layer** (~140
+slot-var reads, the named prerequisite at its measured ceiling); G3.3
+(primitive-specialized collections, the 2.78× container tax) sequenced
+after it per the register.
+
 Updated 2026-11-11 (session 17 — **G3.1 CLOSED: all FOUR JamaBench
 kernels TypedReady**. Reset #16 recovered per §9 (ff → `dcb3034`,
 toolchain byte-exact, baseline 466/0 re-proven before any new code).

@@ -2106,3 +2106,46 @@ getrusage max single child, mistake-list #2).
   re-measure on the four now-lifted kernels (G3.4's protocol); G4.1
   owner verdict open with enforcement evidence ready; G5 (T14–T23)
   UNBLOCKED ordered after G3/G4.
+
+## Session 18 — 2026-11-12: the G3.2 opening measurement — typed-payload re-measure at the all-four-kernels census
+
+- **Reset #17 hit** (fourth §9 recovery): repo tree survived at
+  `fb6683c` == origin (178 commits, 0 dirty beyond the untracked
+  `downloads/`), but the toolchain + `$WORK` wiped again. The proven
+  recipe scripts (`/home/z/my-project/scripts/bootstrap15.sh`,
+  `bootstrap_jdk15.sh`) + the cached byte-exact tarballs survived;
+  rebootstrap in one chunk: rustup-init **21,347,088 B**, Temurin
+  **jdk-21.0.13+9 207,858,352 B** (byte-exact, 5th validation of the
+  §3.1 law), `tools/jdk-21.0.13+9` reused, `tools/cargo` +
+  `tools/rustup2` rebuilt (cargo/rustc **1.99.1**, rustfmt 1.10.0,
+  clippy 0.1.99). `/home/z/my-project/env.sh` survived intact.
+  `target/` FULLY warm: workspace build 0.01 s (no rebuild).
+- Orientation sweep first (the standing law): TODO.md G3 block,
+  console_summary.md tail, REVIEW_CHECKLIST.md G3 section,
+  TYPED_REGISTER_READINESS.md §5 (the register), BENCHMARKS.md
+  addendum 7/8 (the 2.78× container tax + the typed-payload protocol),
+  ROADMAP M5 row, README status line, the corpus/ + evidence/ layout.
+- Census reproduced at this tree BEFORE any measurement: **101
+  methods, 77 typed-ready, 12 liftable-all-ref, 9 needs-cfg-lift
+  (8 HasExceptionTable + 1 HasSwitch)** — the session-17 end state,
+  byte-for-byte.
+- **The typed-payload re-measure TAKEN (the G3.4-framed opening of
+  G3.2)**: fresh emits both twins (no manifest reuse), release builds
+  (typed 94.4 s / default 48.9 s), same-session JVM reference
+  (Temurin 21.0.13, K=1200 N=40 M=24, wall 2.60 s), **median of 2:
+  default 279.23 s vs typed 256.31 s = 0.918** — the lever ledger
+  moves 0.936 → 0.918 (8.2% cumulative). The 1.8pp is the
+  tred2/orthes/hqr2 typing margin: addendum 8's 0.936 had only tql2
+  typed of the four kernels. All five processes exit 0, all four
+  native runs **byte-identical** to the JVM on stdout. Secondary
+  census on this 8-class crate: 106 `.expect(` sites in BOTH twins
+  (raw accessors shared; the 873 figure was the full JAMA-corpus
+  crate — different crate, noted in the evidence file).
+- EVIDENCE: `scripts/evidence/g3_2/typed_payload_remeasure_2026-11-12.txt`
+  (pair table + protocol + honesty notes) + the five raw run logs
+  (java_ref, typed_r1/r2, default_r1/r2).
+- Boards: TODO.md gains the session-18 [x] entry (the re-measure) and
+  re-points at **G3.2 — the block-join/entry-var layer** (~140 slot-var
+  reads, the named prerequisite at its measured ceiling); G3.3
+  (primitive-specialized collections vs the 2.78× tax) sequenced after
+  the entry-var layer per the register.

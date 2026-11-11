@@ -1,0 +1,51 @@
+Typed-payload re-measure — the G3.2 opening measurement (G3.4 protocol)
+========================================================================
+
+Date: 2026-11-12 (session 18, reset #17 recovered first: byte-exact
+toolchain 1.99.1 / Temurin 21.0.13, warm target/, census reproduced
+77 typed-ready before any measurement).
+
+What changed vs addendum 8 (2026-11-08): sessions 16-17 lifted the
+remaining kernels, so the typed backend now covers ALL FOUR JamaBench
+kernels (tred2/tql2/orthes/hqr2 TypedReady; census control pair 76->77).
+Addendum 8's pair (0.936) had only tql2 of the four typed — tred2,
+orthes and hqr2 were still cfg-shape refusals then. This re-measure is
+the marginal value of typing the remaining three kernels.
+
+Protocol (the registered one, addendum 8):
+  javac -d cls corpus/JamaBench.java
+  j2r compile cls/*.class --main-class JamaBench --crate-name j2r_jb_typed \
+      --emit-typed -o typed            (fresh emit, no manifest reuse)
+  j2r compile cls/*.class --main-class JamaBench --crate-name j2r_jb_default \
+      -o default                       (the twin, no --emit-typed)
+  cargo build --release --offline in both
+  run each twice (median of 2), stdout diff vs the same-session JVM run
+  (Temurin 21.0.13, K=1200 N=40 M=24)
+
+SAME-SESSION CONTROL PAIR (median of 2, all runs byte-identical to the
+JVM on stdout; exit 0 on all five processes):
+
+  emission         run 1      run 2      median     ratio
+  default          279.357 s  279.100 s  279.23 s   (1.000)
+  typed            256.053 s  256.566 s  256.31 s   0.918
+
+Lever ledger update (all same-session pairs, this register):
+  structuring flat -> typed-locals 0.992 -> unification 0.958 ->
+  typed payload (3-kernel census) 0.936 -> **typed payload (all four
+  kernels typed) 0.918** = 8.2% cumulative.
+  The 1.8pp movement is the tred2/orthes/hqr2 typing margin.
+
+Honesty notes (G3.5):
+  - Absolute times drift between machines/sessions (the 1.31x lesson);
+    ONLY the same-session ratio is claimed.
+  - The steady-state JVM reference this session: 2.60 s wall for the
+    same workload -> j2r typed gap ~98.6x on this box (256.31/2.60);
+    the "~100x" phrasing stays quoted (G3.5 guard), no improvement
+    phrasing without the number.
+  - Raw run logs: java_ref.txt, typed_r1.txt, typed_r2.txt,
+    default_r1.txt, default_r2.txt (committed alongside).
+
+Secondary census on THIS crate (8 classes, JamaBench): .expect( sites
+106 in BOTH twins (raw accessors are shared by both backends, so the
+expect delta lives in the full JAMA-corpus crate that addendum 8
+censed at 873 — different crate, different number, both honest).

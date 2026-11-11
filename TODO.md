@@ -1749,3 +1749,21 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       11/19/20/12 green. The typed-payload re-measure on the four
       kernels (G3.4's framing) is the natural next measurement for
       G3.2's block-join/primitive-collections ladder.
+- [x] **Typed-payload re-measure — the G3.2 opening measurement TAKEN
+      (2026-11-12, session 18)** — the registered protocol (addendum 8:
+      median of 2, fresh emits both twins, byte-identical stdout vs the
+      same-session Temurin run) re-run at the all-four-kernels-typed
+      census (76→77 typed-ready made tred2/orthes/hqr2 typed; addendum
+      8's 0.936 had ONLY tql2 typed of the four). Same-session control
+      pair: **default 279.23 s vs typed 256.31 s = 0.918** — the lever
+      ledger moves 0.936 → 0.918 (8.2% cumulative); the 1.8pp is the
+      tred2/orthes/hqr2 typing margin. All five processes exit 0, all
+      four native runs byte-identical to the JVM on stdout. Honesty
+      notes recorded (G3.5): absolute times drift — only the
+      same-session ratio is claimed; this box's steady-state JVM ref is
+      2.60 s → typed gap ~98.6x, so the "~100x" phrasing stays quoted.
+      Evidence: scripts/evidence/g3_2/ (pair table + the five raw run
+      logs). Next: **G3.2 — the block-join/entry-var layer** (~140
+      slot-var reads, the named prerequisite at its measured ceiling);
+      G3.3 (primitive-specialized collections, the 2.78× container tax)
+      sequenced after the entry-var layer per the register.

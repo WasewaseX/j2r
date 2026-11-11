@@ -11,3 +11,4 @@ __pycache__/
 # HotSpot crash artifacts from the C-harness oracle experiments
 hs_err_pid*.log
 replay_pid*.log
+downloads/
