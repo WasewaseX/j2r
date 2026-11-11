@@ -1593,11 +1593,17 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       needs-cfg-lift — ImpureJoin 4, HasExceptionTable 8 — mixed-epoch 4;
       hqr2 26/33 clean positions at 93.2% prim occupancy); the
       deferred-join mechanism is the named next layer (DESIGNED entry
-      below). **Sequencing now: G3.1 (deferred-join) next; G4.1 (owner
-      verdict) open with enforcement evidence ready; G5 (T14–T23)
-      UNBLOCKED by the ordering gate — G1 AND G2 are both checked —
-      ordered after G3/G4 per the review; M6 planning drafted per owner
-      request: docs/M6_PLAN.md rev 0 (owner review pending).
+      below). **G3.1 CLOSED (session 17, 2026-11-11, entry below): the
+      deferred-join mechanism now lifts ALL FOUR JamaBench kernels —
+      tred2, tql2, orthes AND hqr2 are TypedReady; the census control
+      pair: 76→77 typed-ready, ImpureJoin 1→0, zero CFG-shape
+      refusals; cfg_equiv 109×{base,cfg,typed} ZERO divergences with
+      the mechanism live. **Sequencing now: G3.2 (block-join layer +
+      primitive-specialized collections vs the 2.78× tax) next;
+      G4.1 (owner verdict) open with enforcement evidence ready; G5
+      (T14–T23) UNBLOCKED — G1 AND G2 both checked — ordered
+      after G3/G4 per the review; M6 planning drafted per owner request:
+      docs/M6_PLAN.md rev 0 (owner review pending).
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)
 - [ ] mixin application at the bytecode level before j2r (R1; §4,
@@ -1673,49 +1679,73 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       extraction verdict (BENCHMARKS addendum 3) stands. Diagnostics:
       J2R_CFG_DEBUG=1 unresolved-join lines, =2 adds block/loop tables.
       CI evidence: (this commit).
-- [~] **Deferred-join mechanism (G3.1 — the builder-side mechanism is
-      LANDED and zero-divergence-proven; the three kernels do NOT lift
-      yet — session 16, 2026-11-11)** — the hqr2 refusal is join_via_label
-      purity (meet=23, outside pred=21, root=15; J2R_CFG_DEBUG
-      join-purity line landed for diagnosis), and
-      tred2/orthes are the same class one level deeper: shared
-      continue-tails (`d[i]=...; i--; goto header`) with outside-diamond
-      predecessors. The designed fix: promote the stop lists from
-      call-threaded `&Stops` snapshots to a BUILDER-OWNED stack
-      (mechanical refactor of the region/diamond/emit_loop call sites —
-      the body_walk and stale-stop laws are preserved verbatim), then
-      register DEFERRED JOINS: a meet with outside preds and no
-      fall-through predecessor gets (meet, fresh-label) pushed on the
-      stop stack; every edge to it (arms AND later outside preds) breaks
-      to the label; the meet body emits ONCE at the enclosing loop-body
-      end (drain at the emit_loop mark, remainder at lift() end). This
-      unblocks tred2 (83.4%), orthes (86.5%), hqr2 (93.2% prim traffic)
-      — the three kernels that keep the typed payload flat.
-      — SESSION 16 (2026-11-11), the mechanism landed behind --emit-cfg:
-      (1) the stop stack is builder-owned (the &Stops snapshots are gone;
-      frames push/pop by label so deferred entries survive them); (2)
-      DEFERRED JOINS registered at BOTH refusal sites — the divergent-
-      joins path defers ONLY the meet(s) with OUTSIDE predecessors (the
-      design's guard: pure meets stay inline in their owning arm) and the
-      join-purity path defers instead of refusing when deferrable; (3)
-      the DRAIN is DIAMOND-SCOPED — each diamond closes its own labels
-      right after its if/else (the first draft's loop-body-end/lift-end
-      drain points left a label open across a sibling arm and cfg_equiv
-      caught the invalid `} else {` on BigJson — the debug brace tracker
-      pinpointed it in one run); (4) the deferral unmasked and FIXED a
-      pre-existing latent bug: a loop-GUARD diamond whose meet lies on
-      the exit side hoisted exit-side code INTO the loop body via
-      join_via_label (tred2's loop(4)/meet-60) — the meet-side-transfer
-      check now free-walks that shape. Diagnostics: J2R_CFG_TRACE brace
-      tracker + per-diamond decisions; J2R_CFG_DEBUG=1 refusal sites
-      name the block; =2 block/loop tables; =3 dumps the emitted text.
-      EVIDENCE: cfg_equiv 109×{base,cfg,typed} ZERO divergences (the
-      mechanism is behaviorally sound); full battery 466/0; fmt+clippy
-      clean; the census control pair committed (baseline 2026-11-10:
-      ImpureJoin×4 vs after-mechanism 2026-11-11: 12 balanced deferrals,
-      the refusals moved DEEPER — tred2/orthes reach lift end with a few
-      un-emitted blocks, hqr2 has one more exit_after_body shape, QR
-      <init> likewise — all with named-block diagnostics). The G3.1 bar
-      (the three kernels lift) stays OPEN: the remaining walk-order
-      shapes are the next session's work; a measured NO-GO remains a
-      valid recorded outcome either way.
+- [x] **Deferred-join mechanism (G3.1 — CLOSED: all FOUR kernels lift,
+      session 17, 2026-11-11)** — session 16 landed the mechanism
+      (builder-owned stop stack, deferrals at both refusal sites,
+      diamond-scoped drain, zero-divergence cfg_equiv) but the three
+      kernels still refused deeper (tred2/orthes: un-emitted blocks at
+      lift end; hqr2: one more exit shape). Session 17 found and fixed
+      THREE walk-order defects, one a pre-existing latent bug the
+      mechanism unmasked:
+      (1) FRAME-ID STOP STACK — emit_loop popped its exit stop with a
+      POSITIONAL `truncate(saved)`, but the diamond frames pop by
+      label-retain, which can remove entries BELOW the mark and shift
+      the stack: in transpose the inner diamond's retain shortened the
+      stack so the truncate KEPT the exit stop `(5,'loop_3_2')`,
+      region(5) short-circuited to stop_transfer and block 5 was never
+      emitted (missing=[5]) — this ALSO regressed ~30 simple Matrix
+      methods that were TypedReady in the baseline (cfg_equiv could not
+      see it: they are not in the fixture set). The label-retain had a
+      second latent collision: an active-meet diamond's frame label is
+      the ENCLOSING LOOP's label, which is also the loop's exit-stop
+      entry label — the retain killed the exit stop mid-body. Fix: every
+      stop entry carries a globally unique frame id (`StopEntry.sid`,
+      monotonic `stop_seq`); ALL frame pops retain by sid — immune to
+      position shifts and label collisions. This alone lifted tred2,
+      tql2 AND orthes and reverted the regression (76 typed-ready
+      restored).
+      (2) DELEGATED-EXIT ORDER — emit_loop refused on `exit_emitted`
+      BEFORE the delegated check: hqr2's inner loop(72) has exit=15, the
+      still-active outer loop's HEADER (the shared-exit shape: the inner
+      loop's exit edge IS the outer loop's continue) — the header is
+      legitimately in `emitted` AND a stop. Fix: compute `delegated`
+      first; refuse exit_emitted only for an exit that is emitted AND
+      unowned.
+      (3) DEEP CROSS-MEET ATTEMPT — walk_meet stops at the FIRST join of
+      each arm, hiding the arms' TRUE convergence: hqr2's diamond(76)
+      reported m1=83/m2=80 (each arm's first internal join) while both
+      arms converge at the loop latch 105 (the f-arm via the 81
+      fall-through, the t-arm through the notlast diamond 85 whose own
+      arms converge at 105 too, and the inner loop(91)'s exit joins
+      there as well); block 82 FALLS INTO 83, so 83 is both the true
+      arm's start and the convergence point (the empty-arm meet). The
+      shallow divergent path then spuriously deferred 83 (its "outside
+      pred" was its own chain successor) and emitted 105 inline in the
+      f-arm, so diamond(85) hit emitted code. Fix: `walk_deep_set` (a
+      bounded DFS through internal joins, transfer boundaries at
+      stops/active-or-emitted headers, walk-through at FRESH open-exit
+      headers so loop-internal preds of the exit pass the purity check)
+      finds the cross-arm join; an ARM-START candidate becomes the meet
+      via the battle-tested join_via_label, REMAINING cross-arm joins
+      (the latch 105 — one pred is the else arm's own `goto`, the others
+      live inside the meet body) are PRE-REGISTERED so their label opens
+      before the if/else and every break site is inside it; the attempt
+      is OPTIMISTIC with FULL ROLLBACK (out/brace_trace/deferred/stops/
+      active_loops/emitted/body_walk restored by mark or sid) — on
+      refusal the shallow path still runs and its ImpureJoin refusal
+      class is the pinned law. The law test walk_meet_maps... was
+      updated: its shape (the ret block IS the outer join — an
+      empty-arm meet) now LIFTS with both joins label-scoped; the
+      test's primary purpose (the no-panic index mapping) is preserved.
+      EVIDENCE: the census control pair committed
+      (scripts/evidence/g3_1/readiness_before_s17_fixes_2026-11-11.txt:
+      76 typed-ready / ImpureJoin 1 — vs
+      readiness_after_s17_fixes_2026-11-11.txt: **77 typed-ready,
+      needs-cfg-lift 9 = HasExceptionTable 8 + HasSwitch 1, ZERO
+      CFG-shape refusals** — tred2 83.4%, tql2 92.2%, orthes 86.5%,
+      hqr2 93.2% prim, all TypedReady); **cfg_equiv 109x{base,cfg,typed}
+      ZERO divergences** with the mechanism live (332.69 s); full
+      battery 466/0; fmt + clippy `-D warnings` clean; gates
+      11/19/20/12 green. The typed-payload re-measure on the four
+      kernels (G3.4's framing) is the natural next measurement for
+      G3.2's block-join/primitive-collections ladder.

@@ -2012,3 +2012,97 @@ getrusage max single child, mistake-list #2).
   deferral converted to `break`s; the walk order must route the
   enclosing chain through the deferred bodies exactly once), then the
   typed-payload re-measure (G3.4's protocol) once the census moves.
+
+## Session 17 — 2026-11-11 — G3.1 CLOSED: all FOUR JamaBench kernels TypedReady
+
+- **Sandbox reset #16** between sessions (the FOURTH §9 recovery): tree
+  at pre-M3 `b4badea`, tools/ + env.sh wiped, `target/` survived → warm
+  builds. Fetch + ff-only merge → HEAD `dcb3034` == origin/main (177
+  commits). Toolchain rebootstrap byte-exact (rustup-init 21,347,088 B →
+  cargo/rustc 1.99.1, rustfmt 1.10.0, clippy 0.1.99 into tools/rustup2 +
+  tools/cargo; Temurin jdk-21.0.13+9 207,858,352 B via the
+  releases-asset route; env.sh recreated). Baseline re-proven BEFORE the
+  session-17 code (T05's law): **466 tests, 0 failures, zero
+  divergences** in chunks (libs/bins 424 · codegen integration 26 · cli
+  medium 10 · c_probe 2 · corpus 1 @ 30.31 s · cfg_equiv 1 @ 30.41 s ·
+  diff_suite 2 @ 448.71 s).
+- **The session-16 state reproduced exactly**: tred2/orthes/hqr2/tql2
+  all NeedsCfgLift BranchIntoEmittedCode; the refusals were at the
+  lift-end all-emitted check (missing=[26,38,51..] for tred2, [22] for
+  tql2, ...) — and **a REGRESSION was discovered**: ~30 simple Matrix
+  methods (transpose, uminus, plus, minus, ...) that were TypedReady in
+  the 2026-11-10 baseline refused with missing=[5] — the session-16
+  mechanism broke previously-working methods that cfg_equiv cannot see
+  (they are not in the 109-fixture set). Added the missing=[...] debug
+  dump at the lift-end check + method names in the cfg-trace diamond
+  lines (both debug-gated).
+- **FIX 1 — FRAME-ID STOP STACK** (the root cause of both the missing
+  blocks and the regression): emit_loop popped its exit stop with a
+  POSITIONAL `truncate(saved)`, while the diamond frames pop by
+  label-retain — a retain below the mark SHIFTS the stack and the
+  truncate keeps WRONG entries (transpose: the inner diamond's retain
+  removed the outer diamond's (1,'loop_1_1') entry below the mark, so
+  truncate(1) kept the exit stop (5,'loop_3_2') → region(5)
+  short-circuited to stop_transfer → block 5 never emitted, and a
+  `break 'loop_3_2'` landed OUTSIDE its loop). The label-retain had a
+  second latent collision: an active-meet diamond's frame label IS the
+  enclosing loop's label, which is also the loop's own exit-stop entry
+  label — the retain killed the exit stop mid-body. Fix: `StopEntry {
+  block, label, sid }` with a monotonic `stop_seq`; `push_stop` hands
+  back the sid; ALL frame pops (emit_loop exit, active_meet,
+  join_via_label, drains) retain by SID — immune to position shifts and
+  label collisions. RESULT: tred2, tql2 AND orthes lifted TypedReady and
+  the Matrix regression reverted (76 typed-ready restored).
+- **FIX 2 — DELEGATED-EXIT ORDER** (hqr2's next wall): emit_loop refused
+  `exit_emitted` BEFORE computing `delegated` — hqr2's inner loop(72)
+  has exit=15 = the still-active outer loop's HEADER (the shared-exit
+  shape: the inner loop's exit edge IS the outer loop's continue; the
+  header is legitimately in `emitted` AND a stop). Fix: delegated first;
+  refuse only for an exit that is emitted AND unowned.
+- **FIX 3 — DEEP CROSS-MEET ATTEMPT** (hqr2's final wall): the block
+  table + javap revealed diamond(76)'s true shape — block 82 FALLS INTO
+  83 (the f-arm merges into the t-arm: 83 is both the true arm's start
+  AND the convergence point), and both arms converge at the loop latch
+  105 (`iinc 32,1; goto 72` — preds: the else arm's own `goto 105` (81),
+  the notlast diamond(85)'s true branch, and the inner loop(91)'s exit).
+  walk_meet stops at the FIRST join per arm (83, 80) — the shallow
+  divergent path spuriously deferred 83 (its "outside pred" was its own
+  chain successor 84) and emitted 105 inline in the f-arm, so
+  diamond(85) hit emitted code. Fix: `walk_deep_set` — a bounded DFS
+  through INTERNAL joins (raw+resolved forms recorded so trampoline
+  preds pass the purity check), transfer boundaries at stop targets and
+  ACTIVE/emitted loop headers, walk-through at FRESH open-exit headers
+  (walk_meet's semantics — required: latch pred 101 lives inside fresh
+  loop(91)); the cross-meet attempt fires ONLY for the ARM-START
+  (empty-arm) shape — a general unique-candidate fallback intercepted a
+  pure-meet shape the shallow logic deliberately refuses (the pinned
+  walk_meet law test) and lowered it incompletely; REMAINING cross-arm
+  joins (the latch 105) are PRE-REGISTERED (label opens before the
+  if/else so every break site — the else arm's 81-edge AND the meet
+  body's 85/101 edges — is inside it); the attempt is OPTIMISTIC with
+  FULL ROLLBACK (out/brace_trace/deferred/stops/active_loops/emitted/
+  body_walk restored by mark or sid; join_via_label's Ok(false)
+  contract honored — the caller emits region(meet)).
+- **The law test updated** (the session-16 precedent): the
+  walk_meet_maps_instruction_indices_to_blocks shape (the ret block IS
+  the outer join — an empty-arm meet) now LIFTS with both joins
+  label-scoped; the test's primary purpose (the no-panic index mapping)
+  is preserved and its doc comment states the new law.
+- EVIDENCE: **the census control pair committed** —
+  scripts/evidence/g3_1/readiness_before_s17_fixes_2026-11-11.txt (the
+  dcb3034 state: 101 methods, 76 typed-ready, needs-cfg-lift 10 =
+  ImpureJoin 1 + HasExceptionTable 8 + HasSwitch 1) vs
+  readiness_after_s17_fixes_2026-11-11.txt (**77 typed-ready (+1 =
+  hqr2), needs-cfg-lift 9 = HasExceptionTable 8 + HasSwitch 1, ZERO
+  CFG-shape refusals; tred2 83.4%, tql2 92.2%, orthes 86.5%, hqr2 93.2%
+  prim — ALL TypedReady**). **cfg_equiv 109×{base,cfg,typed} ZERO
+  divergences** with the mechanism live (332.69 s full re-run); full
+  battery 466/0; fmt clean, clippy `-D warnings` clean; gates
+  11/19/20/12 green (fixtures=109 tests=466).
+- Boards: TODO.md G3.1 entry → [x] CLOSED with the three fixes + the
+  control pair; sequencing → G3.2 next; ROADMAP M5 row refreshed.
+- Next: **G3.2** — the block-join layer + primitive-specialized
+  collections vs the 2.78× boxing tax, opening with the typed-payload
+  re-measure on the four now-lifted kernels (G3.4's protocol); G4.1
+  owner verdict open with enforcement evidence ready; G5 (T14–T23)
+  UNBLOCKED ordered after G3/G4.

@@ -1,5 +1,30 @@
 # j2r console summary — the state board
 
+Updated 2026-11-11 (session 17 — **G3.1 CLOSED: all FOUR JamaBench
+kernels TypedReady**. Reset #16 recovered per §9 (ff → `dcb3034`,
+toolchain byte-exact, baseline 466/0 re-proven before any new code).
+Three walk-order defects found and fixed in cfg.rs: (1) the FRAME-ID
+STOP STACK — the positional `truncate(saved)` went stale under the
+diamond frames' label-retain pops (transpose's exit stop survived its
+own truncate; block 5 never emitted; ~30 Matrix methods REGRESSED from
+TypedReady — invisible to cfg_equiv, caught by the census); every stop
+entry now carries a unique sid and ALL frame pops retain by sid — this
+alone lifted tred2/tql2/orthes and reverted the regression; (2) the
+delegated-exit check now precedes the exit_emitted refusal (hqr2's
+shared exit = the active outer header); (3) the DEEP CROSS-MEET
+ATTEMPT — walk_deep_set finds the arms' TRUE convergence (hqr2's
+diamond(76): 83 is the empty-arm meet, both arms + loop(91)'s exit
+converge at latch 105) and lowers it via join_via_label with the latch
+PRE-REGISTERED, optimistic with full rollback. Census control pair
+committed: 76→77 typed-ready, ImpureJoin 1→0, zero CFG-shape refusals
+(tred2 83.4%, tql2 92.2%, orthes 86.5%, hqr2 93.2% prim). cfg_equiv
+109×{base,cfg,typed} ZERO divergences; battery 466/0; fmt+clippy
+clean; gates green. One law test updated (the empty-arm shape now
+lifts — the session-16 precedent). Next: **G3.2** — the block-join
+layer + primitive-specialized collections, opening with the
+typed-payload re-measure on the four lifted kernels (G3.4's
+protocol).
+
 Updated 2026-11-10 (session 10 — the stale-tree discipline fired again:
 tree at pre-M3 `b4badea`, ff-only → `0552cba` (161 commits, 0 ahead,
 nothing lost). The updated external review's five doc-drift candidates
@@ -582,6 +607,21 @@ by the per-crate budget K.
   pthread battery verdict 2047 byte-identical both runtimes, the
   loud-gap pins, gate-22 wired into the aggregate (17 gates); 452
   green. The checklist's G1 section is fully discharged.
+- [ops] Session 17 (2026-11-11): reset #16 survived via §9 (fourth
+  full recovery: ff → `dcb3034`, toolchain byte-exact, baseline 466/0
+  re-proven first). **G3.1 CLOSED** — three walk-order defects fixed in
+  crates/j2r-codegen/src/cfg.rs: the FRAME-ID STOP STACK (StopEntry.sid;
+  the positional truncate + label-retain interaction had silently
+  regressed ~30 Matrix methods and blocked the kernels — invisible to
+  cfg_equiv, caught by the census), the delegated-exit reorder (the
+  shared-exit-into-active-header shape), and the DEEP CROSS-MEET
+  ATTEMPT (walk_deep_set + the arm-start empty-arm meet + pre-registered
+  latch joins + optimistic full rollback). tred2/tql2/orthes/hqr2 ALL
+  TypedReady; census control pair committed (76→77 typed-ready,
+  ImpureJoin 1→0); cfg_equiv 109×3 ZERO divergences; battery 466/0;
+  fmt+clippy clean; gates 11/19/20/12 green; one law test updated (the
+  empty-arm shape lifts). Evidence:
+  scripts/evidence/g3_1/readiness_{before,after}_s17_fixes_2026-11-11.txt.
 - [ops] Session 16 (2026-11-11): reset #15 survived via §9 (third full
   recovery; ff-only → `6c5e6dd` == origin/main, 176 commits; toolchain
   byte-exact rebootstrap; baseline re-proven 466/0 BEFORE the G3.1 code).
@@ -625,8 +665,10 @@ by the per-crate budget K.
   §3 loader surface as natives (T12 registry path, no new FFI), §4
   boot bar + `j2r test mod` + gate-24, §5 Forge/NeoForge boundary
   note only, §6 register T24–T35; ROADMAP M6 row + TODO.md M6 section
-  point at it. Next: **G3.1 deferred-join** implementation
-  (same-session control pair per the bar).
+  point at it. G3.1 CLOSED session 17 (all four kernels TypedReady,
+  the control pair committed). Next: **G3.2 block-join layer +
+  primitive-specialized collections**, opening with the typed-payload
+  re-measure on the four lifted kernels.
 - [ops] Session 13 (2026-11-10 ~22:30–00:15 UTC): **G2.4 CLOSED, G2.1b
   CLOSED (arm b), G2.5 CLOSED (honest ladder, 70k NOT claimed), G2.7
   CLOSED, G4.2 CLOSED (arm b) — the G2.1–G2.7 gate set is fully
