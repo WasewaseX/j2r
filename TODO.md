@@ -1767,3 +1767,38 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       slot-var reads, the named prerequisite at its measured ceiling);
       G3.3 (primitive-specialized collections, the 2.78× container tax)
       sequenced after the entry-var layer per the register.
+- [x] **G3.2 slice 1 — the REF-ONLY REFRESH PROJECTION — LANDED
+      (2026-11-12, session 18, same session as the re-measure)** — the
+      mechanism: `FrameGuard::refresh` consumes ONLY `Value::Ref(Some(_))`
+      entries; the typed body's refresh arrays wrapped EVERY prim local +
+      Void-filled every HighHalf + wrapped every prim stack position —
+      5119 wraps+clones across 1023 refresh sites in the JAMA typed
+      crate, all pure construction + scan waste (they can never
+      contribute a GC handle). The typed refresh now carries only the
+      positions that can root (`Var::Cell` locals = ref or mixed;
+      REF-kind live stack positions); typed local positions are
+      all-prim by plan construction, Dead positions hold no value. The
+      handle list is IDENTICAL (GC-root parity by construction), sites
+      unchanged (the safepoint discipline is per-site).
+      MEASURED (same-session, registered protocol, median of 2,
+      byte-identical): default 279.23 s / typed 256.31 s = 0.918 →
+      **typed 255.06 s = 0.913** (+0.5pp; the two run sets do not
+      overlap — real but small; refresh-array traffic −60.3% yet the
+      steady state is dominated by the register's third family). Lever
+      ledger: 0.992 → 0.958 → 0.936 → 0.918 → **0.913** (8.7%
+      cumulative). **Register correction (honest re-measurement of the
+      G3.2 premise):** the entry-var layer's named target ("~140
+      slot-var reads", measured 2026-11-08 pre-typed-payload) is down
+      to **20 stack-entry reads** on the JAMA typed crate — the
+      unification + payload waves consumed the stack-entry round trip;
+      the measured residual is the per-access invoke/arg-vec family (a
+      fresh `vec![Value...]` per call) + obj_get/invoke helpers — the
+      register (TYPED_REGISTER_READINESS §5) updated with the correction
+      and the layer's next slice re-aimed at that family. Proof:
+      cfg_equiv 109×{base,cfg,typed} ZERO divergences (343.07 s),
+      diff_suite 109 (458.93 s), corpus 4/4, full battery **466 tests,
+      0 failures**, fmt + clippy clean; the comment-only clippy
+      rewording verified emission-neutral. Evidence:
+      scripts/evidence/g3_2/refonly_refresh_projection_2026-11-12.txt
+      (+ census tools slotvar_census.py / crossblock_census.py + the v2
+      raw logs).

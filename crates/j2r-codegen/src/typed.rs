@@ -32,9 +32,15 @@
 //!   moment both operands are read; the verifier's join consistency is
 //!   what makes the linear epoch model agree with every control path).
 //! * GC rooting is exact-parity: every `refresh` site materializes the
-//!   same root set as the default body — locals as the latest value per
+//!   same ROOT SET as the default body — since the G3.2 ref-only
+//!   projection (2026-11-12) the slice literals carry only the
+//!   positions that can contribute a handle (`Var::Cell` locals,
+//!   REF-kind live stack positions); the runtime's refresh discards
+//!   every primitive entry, so the prim wraps were pure construction +
+//!   scan waste. The handle list written into the frame slot is
+//!   IDENTICAL to the old emission — locals as the latest value per
 //!   slot (the last epoch opened at or before the pc), stack as the live
-//!   prefix `0..depth` — as slice literals; no runtime change beyond the
+//!   prefix `0..depth`; no runtime change beyond the
 //!   pure `stack::ref_of` law extraction.
 //! * Operand-stack/register unification (2026-11-08, the readiness §5
 //!   lever): within one block, a stack value whose target is a TYPED
@@ -497,15 +503,6 @@ impl<'a> Ctx<'a> {
         (idx, epochs[idx].1)
     }
 
-    /// The latest epoch opened at or before `pc` (the value a GC refresh
-    /// must see — the Vec's stale content in the default body).
-    fn latest(&self, epochs: &[(u32, Prim)], pc: u32) -> Option<(usize, Prim)> {
-        epochs
-            .iter()
-            .rposition(|(s, _)| *s <= pc)
-            .map(|idx| (idx, epochs[idx].1))
-    }
-
     /// Read expression for stack `slot` at `pc`. A symbolic ref entry
     /// (`prim: None`) reads as a cloned `Value` expression; a symbolic
     /// prim entry must never reach this method (its callers adapt via
@@ -702,27 +699,33 @@ impl<'a> Ctx<'a> {
     /// live stack prefix `0..depth` — as slice literals. The unification
     /// layer's pending entries land in their slot variables FIRST, so
     /// the snapshot reads the same storage the old emitter maintained.
+    ///
+    /// G3.2 slice (2026-11-12, the REF-ONLY PROJECTION): the runtime's
+    /// `FrameGuard::refresh` consumes ONLY `Value::Ref(Some(_))` entries;
+    /// every primitive entry is scanned, matched and discarded, so the
+    /// prim wraps (and the `Void` HighHalf fills) are pure construction
+    /// and scan waste at the hottest sites (a call boundary in JAMA pays
+    /// a full locals array per invoke). The typed plan knows exactly
+    /// which positions can root: `Var::Cell` locals (ref or mixed; a
+    /// mixed position may hold a ref at this pc) and REF-kind live stack
+    /// positions. Typed local positions are ALL-PRIM by plan
+    /// construction and Dead positions hold no value; neither can
+    /// contribute a handle. The ROOT SET is unchanged byte-for-byte
+    /// (the handle list refresh writes is identical); only the array
+    /// literals shrink. Sites unchanged: the safepoint discipline is
+    /// per-site, and the sites are not moved.
     fn refresh(&mut self, pc: u32) {
         self.materialize_all();
         let mut locals_v = Vec::new();
         for j in 0..self.p.locals.len().max(self.shape(pc).locals.len()) {
-            match self.local_var(j) {
-                Var::Cell => locals_v.push(format!("v{j}.clone()")),
-                Var::Typed(epochs) => match self.latest(epochs, pc) {
-                    Some((idx, prim)) => locals_v.push(format!(
-                        "{RT}::Value::{}({})",
-                        prim.value_ctor(),
-                        self.p.local_name(j, idx)
-                    )),
-                    None => locals_v.push(format!("{RT}::Value::Void")),
-                },
-                Var::Dead => locals_v.push(format!("{RT}::Value::Void")),
+            if let Var::Cell = self.local_var(j) {
+                locals_v.push(format!("v{j}.clone()"));
             }
         }
         let mut stack_v = Vec::new();
         for (i, v) in self.shape(pc).stack.iter().enumerate() {
-            if Kind::of(*v).is_none() {
-                continue; // HighHalf / dead: one Vec entry per VALUE
+            if Kind::of(*v) != Some(Kind::Ref) {
+                continue; // HighHalf / prim / dead: no rooting value
             }
             stack_v.push(self.wrap_s(pc, i));
         }

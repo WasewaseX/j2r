@@ -1,0 +1,66 @@
+G3.2 slice 1 — the REF-ONLY REFRESH PROJECTION (typed backend)
+===============================================================
+
+Date: 2026-11-12 (session 18, same session as the 0.918 re-measure
+pair — the same-session controls carry over: default 279.23 s).
+
+THE FINDING (mechanism): `FrameGuard::refresh` consumes ONLY
+`Value::Ref(Some(_))` entries (frame.rs: every entry is pattern-matched,
+non-ref entries dropped). The typed body's refresh arrays carried a
+`Value::Double(v0e0)`-style wrap for EVERY prim local + Void fills for
+every HighHalf + wraps for prim stack positions — 5119 wraps+clones
+across 1023 refresh sites in the JAMA typed crate — all pure
+construction + scan waste (they can never contribute a GC handle).
+
+THE FIX (emission only, sites unchanged): the typed refresh now carries
+only the positions that can root: `Var::Cell` locals (ref or mixed) and
+REF-kind live stack positions. Typed local positions are all-prim by
+plan construction; Dead positions hold no value. The handle list written
+into the frame slot is IDENTICAL (GC-root parity by construction); only
+the array literals shrink. materialize_all() before the refresh is kept
+(the unification layer's storage contract at refresh sites is
+unchanged).
+
+MEASURED (same-session, the registered protocol, median of 2, fresh
+emits, byte-identical stdout vs the same-session Temurin run on all
+runs):
+
+  emission              run 1      run 2      median     ratio
+  default               279.357 s  279.100 s  279.23 s   (1.000)
+  typed (pre-slice)     256.053 s  256.566 s  256.31 s   0.918
+  typed (REF-ONLY)      254.975 s  255.149 s  255.06 s   0.913
+
+Lever ledger: 0.992 -> 0.958 -> 0.936 -> 0.918 -> **0.913** (8.7%
+cumulative). The slice's movement: +0.5pp (the two run sets do not
+overlap: max v2 255.15 < min v1 256.05 — real but small). The
+refresh-array traffic dropped 60.3% (5119 -> 2030 wraps+clones, sites
+1023 -> 1023) yet the steady state is dominated by the REGISTER'S THIRD
+FAMILY: per-access invoke/arg-vec construction + obj_get/invoke helpers
+(each invoke allocates a fresh `vec![Value...]` arg vector — the next
+named lever).
+
+REGISTER CORRECTION (honest re-measurement of the G3.2 premise):
+TYPED_REGISTER_READINESS §5 named "~140 slot-var reads" as the
+entry-var layer's target (measured 2026-11-08 pre-typed-payload).
+Today's census (crossblock_census.py on the JAMA typed crate): **20
+stack entry reads** (Eigen 1, Maths 1, Matrix 16, SVD 2) — the
+stack-entry round trip the entry-var layer targets is nearly GONE after
+the unification + payload waves (locals re-read per block is the nature
+of JVM slots and is NOT the handoff round trip: 4205 local entry reads,
+each a register move). The entry-var layer's registered premise needs
+the owner's re-derivation; the measured residual lives in the
+invoke/arg-vec family.
+
+PROOF: cfg_equiv 109 x {base,cfg,typed} ZERO divergences (343.07 s);
+diff_suite 109 vs Temurin (458.93 s); corpus_suite 4/4 (31.87 s);
+codegen 136 (110 lib + 26 integ incl. jmm_boundary); runtime 243;
+classfile 41; jni-ffi 17 (15 + c_probe 2); cli bin 15; lambda_neg 2;
+native_e2e 2; jni_parity 1; jar 3; partition 1; soe 1 => **full battery
+466 tests, 0 failures**. fmt + clippy `-D warnings` clean. The
+comment-only clippy rewording verified emission-neutral (typed_v3 diff
+vs typed_v2: identical).
+
+RAW: typed_v2_r1.txt / typed_v2_r2.txt committed; refresh.diff (the
+v1->v2 generated-code delta) available in the work dir; census tools
+committed at scripts/slotvar_census.py + scripts/crossblock_census.py
+(in-repo copies under scripts/evidence/g3_2/).

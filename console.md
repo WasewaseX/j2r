@@ -2149,3 +2149,37 @@ getrusage max single child, mistake-list #2).
   reads, the named prerequisite at its measured ceiling); G3.3
   (primitive-specialized collections vs the 2.78× tax) sequenced after
   the entry-var layer per the register.
+- Commit `535066a`: the re-measure evidence + boards pushed (origin/main
+  = 179). A near-miss caught by the remote: `git add -A` swept the
+  untracked cached-tarball dir (`downloads/`, 198 MB) into the commit —
+  rejected by GitHub's 100 MB limit; fixed by untracking + gitignoring
+  `downloads/` and amending BEFORE any large-file history landed. The
+  tarballs stay local-only (they are the §3.1 rebootstrap cache).
+- **G3.2 slice 1 LANDED — the REF-ONLY REFRESH PROJECTION.** Census
+  first: the typed JAMA crate has 1023 refresh sites carrying 5119
+  wraps+clones; `FrameGuard::refresh` (frame.rs) pattern-matches every
+  entry and keeps ONLY `Value::Ref(Some(_))` — every prim wrap and
+  HighHalf Void fill was pure construction + scan waste. The typed
+  refresh now carries only `Var::Cell` locals (ref or mixed) and
+  REF-kind live stack positions; the handle list is IDENTICAL (GC-root
+  parity by construction), sites unchanged. The dead `latest()` helper
+  removed; module doc + fn doc state the law. Measured (same-session,
+  median of 2, byte-identical): 0.918 → **0.913** (+0.5pp; run sets do
+  not overlap; refresh-array traffic −60.3%). Ledger: 0.992 → 0.958 →
+  0.936 → 0.918 → **0.913** (8.7% cumulative).
+- **Register correction:** the entry-var layer's named target ("~140
+  slot-var reads") re-censused on today's tree: **20 stack-entry
+  reads** (Eigen 1, Maths 1, Matrix 16, SVD 2) — the unification +
+  payload waves consumed the stack-entry round trip. The measured
+  residual is the register's THIRD family: per-access invoke/arg-vec
+  construction (`vec![Value...]` per call) + obj_get/invoke helpers.
+  TYPED_REGISTER_READINESS §5 updated; the layer's next slice re-aims
+  at that family.
+- Proof: cfg_equiv 109×{base,cfg,typed} ZERO divergences (343.07 s);
+  diff_suite 109 (458.93 s); corpus 4/4 (31.87 s); codegen 136;
+  runtime 243; classfile 41; jni-ffi 17; cli 15+10; jar 3; partition 1;
+  soe 1 = **full battery 466/0**; fmt + clippy `-D warnings` clean
+  (the doc-list-item lint rewording verified emission-neutral:
+  typed_v3 diff vs typed_v2 identical).
+- Evidence: scripts/evidence/g3_2/refonly_refresh_projection_2026-11-12.txt
+  + slotvar_census.py + crossblock_census.py + typed_v2_r{1,2}.txt.

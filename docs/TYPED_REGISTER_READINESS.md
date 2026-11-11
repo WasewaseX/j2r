@@ -180,6 +180,20 @@ named lift-closure items are its prerequisites, not alternatives.
    specialization path) on the stringsim profile workloads, and register
    the honest number either way (docs/BENCHMARKS.md).
 
+   > **Status (2026-11-12, session 18): the G3.2 opening pair TAKEN +
+   > the entry-var premise RE-MEASURED.** The all-four-kernels-typed
+   > census (session 17) moved the lever 0.936 -> 0.918; the REF-ONLY
+   > REFRESH PROJECTION (same session) moved it 0.918 -> **0.913**
+   > (refresh-array traffic -60.3%, handle lists identical, byte-identical
+   > output, full battery 466/0; scripts/evidence/g3_2/). The census of
+   > the entry-var layer's own target: the stack-entry round trip this
+   > layer was registered against ("~140 slot-var reads", measured
+   > pre-typed-payload) is down to **20 reads** on the JAMA typed crate —
+   > the unification + payload waves consumed it. The measured residual
+   > is the register's third family: per-access invoke/arg-vec
+   > construction (a fresh `vec![Value...]` per call) + obj_get/invoke
+   > helpers. The layer's next slice targets that family.
+
 ## 6. Reproduction
 
 ```bash

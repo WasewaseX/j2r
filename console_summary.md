@@ -14,10 +14,28 @@ byte-identical to the JVM. Evidence:
 scripts/evidence/g3_2/typed_payload_remeasure_2026-11-12.txt + five raw
 run logs. Honesty notes (G3.5) recorded: only same-session ratios
 claimed; this box's JVM ref 2.60 s → typed gap ~98.6x, the "~100x"
-phrasing stays. Next: **G3.2 — the block-join/entry-var layer** (~140
-slot-var reads, the named prerequisite at its measured ceiling); G3.3
-(primitive-specialized collections, the 2.78× container tax) sequenced
-after it per the register.
+phrasing stays. THEN **G3.2 slice 1 LANDED — the REF-ONLY REFRESH
+PROJECTION**: FrameGuard::refresh consumes only Value::Ref entries; the
+typed refresh arrays wrapped every prim local + every HighHalf Void +
+every prim stack position (5119 wraps+clones over 1023 sites in the
+JAMA typed crate — pure construction + scan waste). The typed refresh
+now carries only positions that can root (Var::Cell locals, REF-kind
+stack positions); the handle list is IDENTICAL, sites unchanged.
+Measured (same-session, median of 2, byte-identical): 0.918 → **0.913**
+(refresh-array traffic −60.3%); ledger 0.992 → 0.958 → 0.936 → 0.918 →
+**0.913** (8.7% cumulative). Register correction: the entry-var layer's
+"~140 slot-var reads" target is down to **20 stack-entry reads** — the
+residual is the invoke/arg-vec family (`vec![Value...]` per call); the
+register §5 updated and the layer's next slice re-aimed. Proof:
+cfg_equiv 109×3 ZERO divergences (343.07 s), diff_suite 109 (458.93 s),
+full battery **466/0**, fmt+clippy clean. Evidence:
+refonly_refresh_projection_2026-11-12.txt (+ census tools + v2 logs).
+Also: a near-miss caught — `git add -A` swept the cached `downloads/`
+tarballs (198 MB) into a commit; remote rejected; untracked +
+gitignored + amended before anything landed. Next: the entry-var
+layer's re-aimed slice (invoke/arg-vec family); G3.3 (primitive-
+specialized collections, the 2.78× container tax) after the register's
+order.
 
 Updated 2026-11-11 (session 17 — **G3.1 CLOSED: all FOUR JamaBench
 kernels TypedReady**. Reset #16 recovered per §9 (ff → `dcb3034`,
