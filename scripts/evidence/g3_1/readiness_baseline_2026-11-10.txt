@@ -1,0 +1,119 @@
+| methods | typed-ready | liftable-all-ref | needs-cfg-lift | mixed-epoch |
+| --- | --- | --- | --- | --- |
+| 106 | 76 | 13 | 13 | 4 |
+
+| primitive occupancy | total occupancy | prim share | epochs (prim/total) |
+| --- | --- | --- | --- |
+| 120788 | 152370 | 79.3% | 5053/7364 |
+
+| needs-cfg-lift reason | methods |
+| --- | --- |
+| ImpureJoin | 4 |
+| HasExceptionTable | 8 |
+| HasSwitch | 1 |
+| CholeskyDecomposition | <init> | TypedReady | - | 48.8% | 86/127 | 15/15 | 11/15 |
+| CholeskyDecomposition | isSPD | TypedReady | - | 20.0% | 1/3 | 2/2 | 1/2 |
+| CholeskyDecomposition | getL | TypedReady | - | 10.5% | 2/9 | 6/6 | 4/6 |
+| CholeskyDecomposition | solve | TypedReady | - | 54.3% | 74/113 | 13/13 | 8/13 |
+| EigenvalueDecomposition | tred2 | NeedsCfgLift | ImpureJoin | 83.4% | 307/434 | 19/19 | 10/19 |
+| EigenvalueDecomposition | tql2 | TypedReady | - | 92.2% | 281/386 | 29/29 | 20/29 |
+| EigenvalueDecomposition | orthes | NeedsCfgLift | ImpureJoin | 86.5% | 225/293 | 18/18 | 10/18 |
+| EigenvalueDecomposition | cdiv | TypedReady | - | 81.4% | 37/42 | 11/11 | 10/11 |
+| EigenvalueDecomposition | hqr2 | NeedsCfgLift | ImpureJoin | 93.2% | 1239/1599 | 33/33 | 26/33 |
+| EigenvalueDecomposition | <init> | TypedReady | - | 37.2% | 66/113 | 9/9 | 6/9 |
+| EigenvalueDecomposition | getV | TypedReady | - | 10.5% | 2/9 | 6/6 | 4/6 |
+| EigenvalueDecomposition | getRealEigenvalues | LiftableAllRef | - | 0.0% | 0/3 | 2/2 | 2/2 |
+| EigenvalueDecomposition | getImagEigenvalues | LiftableAllRef | - | 0.0% | 0/3 | 2/2 | 2/2 |
+| EigenvalueDecomposition | getD | TypedReady | - | 40.0% | 38/63 | 9/9 | 5/9 |
+| JamaBench | <init> | LiftableAllRef | - | 0.0% | 0/2 | 2/2 | 2/2 |
+| JamaBench | rnd | TypedReady | - | 100.0% | 14/14 | 3/3 | 1/3 |
+| JamaBench | fill | TypedReady | - | 65.3% | 19/26 | 10/10 | 6/10 |
+| JamaBench | main | MixedEpoch | - | 23.8% | 48/91 | 14/15 | 12/15 |
+| JamaBench | <clinit> | TypedReady | - | 100.0% | 1/1 | 1/1 | 1/1 |
+| LUDecomposition | <init> | TypedReady | - | 58.4% | 127/192 | 15/15 | 8/15 |
+| LUDecomposition | isNonsingular | TypedReady | - | 54.2% | 12/16 | 4/4 | 2/4 |
+| LUDecomposition | getL | TypedReady | - | 39.3% | 28/44 | 9/9 | 5/9 |
+| LUDecomposition | getU | TypedReady | - | 38.4% | 23/38 | 9/9 | 5/9 |
+| LUDecomposition | getPivot | TypedReady | - | 35.4% | 9/18 | 7/7 | 4/7 |
+| LUDecomposition | getDoublePivot | TypedReady | - | 36.5% | 10/19 | 7/7 | 4/7 |
+| LUDecomposition | det | TypedReady | - | 54.6% | 16/26 | 6/6 | 3/6 |
+| LUDecomposition | solve | MixedEpoch | - | 49.3% | 72/108 | 13/14 | 9/14 |
+| Maths | <init> | LiftableAllRef | - | 0.0% | 0/2 | 2/2 | 2/2 |
+| Maths | hypot | TypedReady | - | 100.0% | 27/27 | 7/7 | 6/7 |
+| Matrix | <init> | TypedReady | - | 57.9% | 6/12 | 6/6 | 5/6 |
+| Matrix | <init> | TypedReady | - | 76.1% | 21/29 | 9/9 | 6/9 |
+| Matrix | <init> | TypedReady | - | 25.9% | 11/26 | 6/6 | 3/6 |
+| Matrix | <init> | TypedReady | - | 44.8% | 4/11 | 6/6 | 5/6 |
+| Matrix | <init> | TypedReady | - | 48.7% | 28/46 | 11/11 | 8/11 |
+| Matrix | constructWithCopy | TypedReady | - | 53.6% | 26/41 | 11/11 | 8/11 |
+| Matrix | copy | TypedReady | - | 36.9% | 18/32 | 9/9 | 5/9 |
+| Matrix | clone | LiftableAllRef | - | 0.0% | 0/2 | 2/2 | 2/2 |
+| Matrix | getArray | LiftableAllRef | - | 0.0% | 0/3 | 2/2 | 2/2 |
+| Matrix | getArrayCopy | TypedReady | - | 48.2% | 18/29 | 8/8 | 5/8 |
+| Matrix | getColumnPackedCopy | TypedReady | - | 49.7% | 19/31 | 8/8 | 4/8 |
+| Matrix | getRowPackedCopy | TypedReady | - | 48.9% | 19/31 | 8/8 | 5/8 |
+| Matrix | getRowDimension | TypedReady | - | 20.0% | 1/3 | 2/2 | 1/2 |
+| Matrix | getColumnDimension | TypedReady | - | 20.0% | 1/3 | 2/2 | 1/2 |
+| Matrix | get | TypedReady | - | 58.6% | 5/8 | 5/5 | 4/5 |
+| Matrix | getMatrix | NeedsCfgLift | HasExceptionTable | 63.2% | 28/43 | 13/14 | 10/14 |
+| Matrix | getMatrix | NeedsCfgLift | HasExceptionTable | 25.7% | 20/43 | 11/12 | 7/12 |
+| Matrix | getMatrix | NeedsCfgLift | HasExceptionTable | 46.2% | 24/43 | 12/13 | 8/13 |
+| Matrix | getMatrix | NeedsCfgLift | HasExceptionTable | 46.5% | 24/43 | 12/13 | 8/13 |
+| Matrix | set | TypedReady | - | 66.7% | 6/9 | 7/7 | 7/7 |
+| Matrix | setMatrix | NeedsCfgLift | HasExceptionTable | 69.3% | 22/32 | 13/14 | 10/14 |
+| Matrix | setMatrix | NeedsCfgLift | HasExceptionTable | 32.2% | 18/34 | 10/11 | 7/11 |
+| Matrix | setMatrix | NeedsCfgLift | HasExceptionTable | 53.4% | 20/33 | 12/13 | 9/13 |
+| Matrix | setMatrix | NeedsCfgLift | HasExceptionTable | 53.1% | 20/33 | 11/12 | 8/12 |
+| Matrix | transpose | TypedReady | - | 36.9% | 18/32 | 9/9 | 5/9 |
+| Matrix | norm1 | TypedReady | - | 78.8% | 25/30 | 8/8 | 6/8 |
+| Matrix | norm2 | TypedReady | - | 7.1% | 1/5 | 4/4 | 3/4 |
+| Matrix | normInf | TypedReady | - | 78.8% | 25/30 | 8/8 | 6/8 |
+| Matrix | normF | TypedReady | - | 73.5% | 19/24 | 7/7 | 5/7 |
+| Matrix | uminus | TypedReady | - | 37.4% | 18/32 | 9/9 | 5/9 |
+| Matrix | plus | TypedReady | - | 32.9% | 21/40 | 11/11 | 7/11 |
+| Matrix | plusEquals | TypedReady | - | 48.6% | 19/32 | 9/9 | 5/9 |
+| Matrix | minus | TypedReady | - | 32.9% | 21/40 | 11/11 | 7/11 |
+| Matrix | minusEquals | TypedReady | - | 48.6% | 19/32 | 9/9 | 5/9 |
+| Matrix | arrayTimes | TypedReady | - | 32.9% | 21/40 | 11/11 | 7/11 |
+| Matrix | arrayTimesEquals | TypedReady | - | 48.6% | 19/32 | 9/9 | 5/9 |
+| Matrix | arrayRightDivide | TypedReady | - | 32.9% | 21/40 | 11/11 | 7/11 |
+| Matrix | arrayRightDivideEquals | TypedReady | - | 48.6% | 19/32 | 9/9 | 5/9 |
+| Matrix | arrayLeftDivide | TypedReady | - | 32.9% | 21/40 | 11/11 | 7/11 |
+| Matrix | arrayLeftDivideEquals | TypedReady | - | 48.6% | 19/32 | 9/9 | 5/9 |
+| Matrix | times | TypedReady | - | 48.6% | 20/34 | 11/11 | 7/11 |
+| Matrix | timesEquals | TypedReady | - | 69.9% | 18/26 | 9/9 | 6/9 |
+| Matrix | times | TypedReady | - | 38.3% | 44/76 | 14/14 | 10/14 |
+| Matrix | lu | LiftableAllRef | - | 0.0% | 0/4 | 4/4 | 4/4 |
+| Matrix | qr | LiftableAllRef | - | 0.0% | 0/4 | 4/4 | 4/4 |
+| Matrix | chol | LiftableAllRef | - | 0.0% | 0/4 | 4/4 | 4/4 |
+| Matrix | svd | LiftableAllRef | - | 0.0% | 0/4 | 4/4 | 4/4 |
+| Matrix | eig | LiftableAllRef | - | 0.0% | 0/4 | 4/4 | 4/4 |
+| Matrix | solve | TypedReady | - | 6.2% | 2/14 | 5/5 | 3/5 |
+| Matrix | solveTranspose | LiftableAllRef | - | 0.0% | 0/4 | 4/4 | 4/4 |
+| Matrix | inverse | TypedReady | - | 18.2% | 2/7 | 4/4 | 2/4 |
+| Matrix | det | TypedReady | - | 7.1% | 1/5 | 4/4 | 3/4 |
+| Matrix | rank | TypedReady | - | 7.1% | 1/5 | 4/4 | 3/4 |
+| Matrix | cond | TypedReady | - | 7.1% | 1/5 | 4/4 | 3/4 |
+| Matrix | trace | TypedReady | - | 68.4% | 14/19 | 6/6 | 3/6 |
+| Matrix | random | TypedReady | - | 65.0% | 18/25 | 10/10 | 7/10 |
+| Matrix | identity | TypedReady | - | 65.2% | 21/28 | 10/10 | 7/10 |
+| Matrix | print | TypedReady | - | 44.4% | 5/10 | 8/8 | 6/8 |
+| Matrix | print | TypedReady | - | 35.2% | 8/24 | 10/10 | 8/10 |
+| Matrix | print | TypedReady | - | 22.2% | 3/10 | 8/8 | 7/8 |
+| Matrix | print | TypedReady | - | 54.5% | 27/44 | 12/12 | 9/12 |
+| Matrix | read | MixedEpoch | - | 25.3% | 42/94 | 11/12 | 8/12 |
+| Matrix | checkMatrixDimensions | TypedReady | - | 15.7% | 4/13 | 5/5 | 3/5 |
+| QRDecomposition | <init> | NeedsCfgLift | ImpureJoin | 67.4% | 90/131 | 13/13 | 8/13 |
+| QRDecomposition | isFullRank | TypedReady | - | 55.8% | 11/15 | 4/4 | 2/4 |
+| QRDecomposition | getH | TypedReady | - | 38.4% | 23/38 | 9/9 | 5/9 |
+| QRDecomposition | getR | TypedReady | - | 39.4% | 29/47 | 9/9 | 5/9 |
+| QRDecomposition | getQ | TypedReady | - | 56.3% | 64/91 | 13/13 | 8/13 |
+| QRDecomposition | solve | MixedEpoch | - | 59.0% | 94/135 | 13/14 | 8/14 |
+| SingularValueDecomposition | <init> | NeedsCfgLift | HasSwitch | 77.4% | 1025/1381 | 46/46 | 37/46 |
+| SingularValueDecomposition | getU | TypedReady | - | 22.5% | 4/12 | 7/7 | 4/7 |
+| SingularValueDecomposition | getV | TypedReady | - | 10.5% | 2/9 | 6/6 | 4/6 |
+| SingularValueDecomposition | getSingularValues | LiftableAllRef | - | 0.0% | 0/3 | 2/2 | 2/2 |
+| SingularValueDecomposition | getS | TypedReady | - | 37.3% | 20/35 | 9/9 | 5/9 |
+| SingularValueDecomposition | norm2 | TypedReady | - | 20.0% | 2/5 | 3/3 | 2/3 |
+| SingularValueDecomposition | cond | TypedReady | - | 42.3% | 6/13 | 5/5 | 1/5 |
+| SingularValueDecomposition | rank | TypedReady | - | 71.8% | 23/32 | 8/8 | 6/8 |

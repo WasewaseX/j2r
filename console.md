@@ -1798,3 +1798,28 @@ getrusage max single child, mistake-list #2).
   litmus suites, STRATEGIC_GAPS R4) remains future work.
 - Next: **G4.1** awaits the owner; then **G3** (typed-codegen
   deferred-join performance, the P1 ladder).
+
+## Session 13 cont. 3 — 2026-11-10: G3.1 baseline registered (work starts next session)
+
+- **G3.1 baseline census captured** (`scripts/evidence/g3_1/
+  readiness_baseline_2026-11-10.txt`, 117 table rows): on the current
+  tree the JamaBench hot-kernel refusals are EXACTLY
+  **tred2 / orthes / hqr2 → NeedsCfgLift(ImpureJoin)**; tql2 and the
+  LUDecomposition ctor are already TypedReady (the lift-closure wave +
+  the diamond laws landed earlier). hqr2 has 26/33 clean positions at
+  93.2% primitive occupancy — the deferred-join mechanism is the only
+  thing between it and typed emission.
+- G3.1 plan (next session, the checklist bar verbatim): implement the
+  deferred-join mechanism (branch-live values carried into successor
+  entry variables across the loop-exit join — the named
+  `ImpureJoin` lowering) behind `--emit-cfg`; the three kernels lift;
+  cfg_equiv stays zero-divergence on the whole suite; record the
+  same-session controlled pair EITHER WAY (a measured NO-GO is a valid
+  recorded outcome). Then G3.2 (block-join/entry-var layer), G3.3
+  (collection boxing), G3.4 (repeatable gains on BOTH benches with
+  byte-identical output), G3.5 (the honesty guard).
+- Session 13 gate tally: **G2.4, G2.1b, G2.5, G2.7, G4.2 CLOSED**
+  (commits 262e038, 7b6680c, 2f795ec); battery 452 → 466 green across
+  the session; the G2.1–G2.7 gate set fully checked; the JMM boundary
+  machine-enforced; G4.1 (owner verdict) the only open G4 item, with
+  enforcement evidence ready to review.

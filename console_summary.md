@@ -582,6 +582,13 @@ by the per-crate budget K.
   462→465. G4.2: JMM markers at every access site + sidecar + gate-23
   + tamper test — battery 465→466, gate-11 in sync. Next: **G4.1**
   (owner verdict) + **G3** (typed-codegen deferred-join).
+- [ops] Session 13 cont. 3: **G3.1 baseline registered** — readiness
+  census committed (scripts/evidence/g3_1/): the JamaBench refusals
+  are exactly tred2/orthes/hqr2 → NeedsCfgLift(**ImpureJoin**); tql2
+  and LU-ctor already TypedReady; hqr2 at 26/33 clean positions /
+  93.2% prim occupancy. G3.1 work (the deferred-join lowering) starts
+  next session with this census as the recorded starting state and
+  its own same-session control pair per the bar.
 - [ops] Session 12 (2026-11-10 ~20:13 UTC): reset #12 survived via §9
   (tree back at pre-M3 `b4badea`; ff-only merge → `c4c45cf` ==
   origin/main, 167 commits — all four G2 closures verified ON origin);
