@@ -524,6 +524,18 @@ fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<(Vec<Loop>, HashMap<usize, usize
 
 type Stops = Vec<(usize, String)>;
 
+/// A join meet registered as a DEFERRED join (the G3.1 mechanism, the
+/// named `ImpureJoin` lowering): its (meet, label) sits on the
+/// builder-owned stop stack until the enclosing drain point (the
+/// emitting loop's body end, or the end of `lift`), its body then emits
+/// ONCE after the label closes. Every edge to the meet — diamond arms
+/// AND later outside predecessors — `break`s to the label while it is
+/// open, so the meet needs no inline position in the walk.
+struct DeferredJoin {
+    meet: usize,
+    label: String,
+}
+
 /// The structured-body builder. `emit_fn(idx, out)` emits instruction
 /// `idx`'s code exactly as the dispatch emitter would (the caller never
 /// passes branch/switch instructions here — the builder handles them).
@@ -539,6 +551,17 @@ struct Builder<'a> {
     emitted: HashSet<usize>,
     /// Active loop headers (innermost last): (block, label) — `continue`.
     active_loops: Vec<(usize, String)>,
+    /// The builder-OWNED stop stack (G3.1): the old call-threaded
+    /// `&Stops` snapshots, promoted so a DEFERRED join registered during
+    /// a diamond's arm walk stays visible to the later outside-predecessor
+    /// walks in the same enclosing region. Frames push/pop symmetrically
+    /// (pop-by-label, so deferred entries survive them); only deferred
+    /// registrations push asymmetrically, and only a drain point consumes
+    /// those.
+    stops: Stops,
+    /// Registered-but-undrained deferred joins, in registration order
+    /// (the LAST entry is the innermost open label and drains first).
+    deferred: Vec<DeferredJoin>,
     /// Set by `emit_loop` around its body-walk `region` call: the entry
     /// block is being EMITTED, not transferred to. `region` clears the
     /// flag for its own recursion so only the immediate body-walk entry
@@ -546,6 +569,10 @@ struct Builder<'a> {
     body_walk: bool,
     out: Vec<String>,
     label_counter: usize,
+    /// cfg-trace brace tracker: the open-construct kinds in emission
+    /// order. Debug-only (J2R_CFG_TRACE); every `}` must close the top
+    /// opener and every `} else {` must close an `if`.
+    brace_trace: Vec<&'static str>,
 }
 
 type Res<T> = Result<T, Unsupported>;
@@ -570,9 +597,48 @@ impl<'a> Builder<'a> {
             emit,
             emitted: HashSet::new(),
             active_loops: Vec::new(),
+            stops: Vec::new(),
+            deferred: Vec::new(),
             body_walk: false,
             out: Vec::new(),
             label_counter: 0,
+            brace_trace: Vec::new(),
+        }
+    }
+
+    /// Debug-only brace accounting (J2R_CFG_TRACE). `push` is the raw
+    /// out-line just appended; kind is the construct it opens/closes.
+    fn btrace(&mut self, line: &str) {
+        if std::env::var_os("J2R_CFG_TRACE").is_none() {
+            return;
+        }
+        eprintln!(
+            "cfg-trace: push out.len()={} depth={} kind={} line={}",
+            self.out.len(),
+            self.brace_trace.len(),
+            self.brace_trace.last().unwrap_or(&""),
+            line.trim_end()
+        );
+        let t = line.trim_end();
+        if t.ends_with(": {") || t.ends_with(": loop {") || t == "loop {" {
+            self.brace_trace.push("block");
+        } else if t == "if __cond {" {
+            self.brace_trace.push("if");
+        } else if t == "} else {" {
+            match self.brace_trace.pop() {
+                Some("if") => {
+                    self.brace_trace.push("if-else");
+                }
+                other => panic!(
+                    "cfg-trace: brace bug: `}} else {{` closed {other:?} (top of stack, out.len()={})",
+                    self.out.len()
+                ),
+            }
+        } else if t == "}" && self.brace_trace.pop().is_none() {
+            panic!(
+                "cfg-trace: brace bug: `}}` with empty stack at out.len()={}",
+                self.out.len()
+            );
         }
     }
 
@@ -590,6 +656,35 @@ impl<'a> Builder<'a> {
     fn fresh_label(&mut self, kind: &str, b: usize) -> String {
         self.label_counter += 1;
         format!("'{}_{}_{}", kind, b, self.label_counter)
+    }
+
+    /// cfg-debug diagnostic for a loud refusal site: names the block the
+    /// walk refused on, so a census trace can point at the exact shape.
+    fn dbg_refuse(&self, site: &str, b: usize) {
+        if std::env::var("J2R_CFG_DEBUG").as_deref() == Ok("3") {
+            eprintln!(
+                "cfg-debug: ---- emitted text at refuse[{}] (block {}) ----",
+                site, b
+            );
+            for (i, line) in self.out.iter().enumerate() {
+                eprintln!("cfg-debug: {:>4}: {}", i, line);
+            }
+        }
+        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+            eprintln!(
+                "cfg-debug: refuse[{}] {}{} block={} emitted={} stops={:?} active={:?}",
+                site,
+                self.m.name,
+                self.m.desc,
+                b,
+                self.emitted.contains(&b),
+                self.stops.iter().map(|(x, _)| *x).collect::<Vec<_>>(),
+                self.active_loops
+                    .iter()
+                    .map(|(x, _)| *x)
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     fn loop_at(&self, b: usize) -> bool {
@@ -614,7 +709,7 @@ impl<'a> Builder<'a> {
 
     /// Emits the transfer to a reached stop target: `continue` into the
     /// active loop's own label, or `break` to the stop's label.
-    fn stop_transfer(&mut self, cur: usize, stops: &Stops) -> Res<()> {
+    fn stop_transfer(&mut self, cur: usize) -> Res<()> {
         let cur = self.resolve(cur);
         // The ACTIVE-LOOP check runs BEFORE the stop lookup and uses the
         // loop's OWN label: a block can be both an active header and a
@@ -631,7 +726,8 @@ impl<'a> Builder<'a> {
                 return Ok(());
             }
         }
-        let (_, l) = stops
+        let (_, l) = self
+            .stops
             .iter()
             .find(|(b, _)| *b == cur)
             .ok_or(Unsupported::ImpureJoin)?;
@@ -643,7 +739,7 @@ impl<'a> Builder<'a> {
     /// transfer, or a fresh region. `tb` is resolved through goto
     /// trampolines first — the destination is the chain's end. The
     /// active-loop check precedes the stop lookup (see stop_transfer).
-    fn jump_to_block(&mut self, tb: usize, stops: &Stops) -> Res<()> {
+    fn jump_to_block(&mut self, tb: usize) -> Res<()> {
         let tb = self.resolve(tb);
         for (h, l) in self.active_loops.iter().rev() {
             if *h == tb {
@@ -652,16 +748,17 @@ impl<'a> Builder<'a> {
                 return Ok(());
             }
         }
-        if stops.iter().any(|(b, _)| *b == tb) {
-            return self.stop_transfer(tb, stops);
+        if self.stops.iter().any(|(b, _)| *b == tb) {
+            return self.stop_transfer(tb);
         }
         if self.emitted.contains(&tb) {
+            self.dbg_refuse("jump_to_block", tb);
             return Err(Unsupported::BranchIntoEmittedCode);
         }
         if self.loop_at(tb) {
-            return self.emit_loop(tb, stops);
+            return self.emit_loop(tb);
         }
-        self.region(tb, stops)
+        self.region(tb)
     }
 
     /// Emits a loop rooted at header block `hb`, then its exit region.
@@ -677,7 +774,7 @@ impl<'a> Builder<'a> {
     /// ENCLOSING label and the exit region is emitted by whoever owns
     /// that stop — emitting it here too would duplicate the block (the
     /// outside predecessor would then hit BranchIntoEmittedCode).
-    fn emit_loop(&mut self, hb: usize, stops: &Stops) -> Res<()> {
+    fn emit_loop(&mut self, hb: usize) -> Res<()> {
         let exit_block = self
             .loops
             .iter()
@@ -689,27 +786,62 @@ impl<'a> Builder<'a> {
             .map(|x| self.emitted.contains(&x))
             .unwrap_or(false)
         {
+            if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+                eprintln!(
+                    "cfg-debug: refuse[emit_loop:exit_emitted-header] {}{} header={} hb_emitted={}",
+                    self.m.name,
+                    self.m.desc,
+                    hb,
+                    self.emitted.contains(&hb)
+                );
+            }
+            self.dbg_refuse("emit_loop:exit_emitted", exit_block.unwrap());
             return Err(Unsupported::BranchIntoEmittedCode);
         }
         // Delegated exit: the enclosing walk already owns this block.
-        let delegated = matches!(exit_block, Some(x) if stops.iter().any(|(s, _)| *s == x));
+        let delegated = matches!(exit_block, Some(x) if self.stops.iter().any(|(s, _)| *s == x));
+        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+            eprintln!(
+                "cfg-debug: emit_loop {}{} header={} active={:?}",
+                self.m.name,
+                self.m.desc,
+                hb,
+                self.active_loops
+                    .iter()
+                    .map(|(x, _)| *x)
+                    .collect::<Vec<_>>()
+            );
+        }
         let lbl = self.fresh_label("loop", hb);
         self.out.push(format!("{lbl}: loop {{"));
+        let __t = self.out.last().unwrap().clone();
+        self.btrace(&__t);
         self.active_loops.push((hb, lbl.clone()));
-        let mut body_stops: Stops = stops.to_vec();
+        // Frame mark: the exit-stop entry pushed for the body walk is
+        // popped after the body (and its drain) — the exit region sees the
+        // stops as of THIS call, matching the old snapshot semantics.
+        let saved = self.stops.len();
         if let (false, Some(x)) = (delegated, exit_block) {
-            body_stops.push((x, lbl.clone()));
+            self.stops.push((x, lbl.clone()));
         }
         // Mark the body walk so `region` treats its active-header entry as
         // emission (see the field doc); restore afterwards — nested loops
         // each mark their own walk.
         let saved_body_walk = self.body_walk;
         self.body_walk = true;
-        let body = self.region(hb, &body_stops);
+        let body = self.region(hb);
         self.body_walk = saved_body_walk;
         body?;
+        // Deferred joins registered during this body walk were already
+        // drained by their OWNING diamonds (each diamond closes its own
+        // labels before its emission ends), so a meet body that continues
+        // the loop ran while the loop was still active. Nothing to drain
+        // here — the stop stack only needs its frame popped.
+        self.stops.truncate(saved);
         self.active_loops.pop();
+        let __l = self.out.len();
         self.out.push("}".to_string());
+        self.btrace("}");
         if delegated {
             return Ok(()); // the enclosing stop's owner emits the exit region
         }
@@ -717,9 +849,10 @@ impl<'a> Builder<'a> {
             None => Ok(()), // every exit terminated inline; the loop diverges
             Some(x) => {
                 if self.emitted.contains(&x) {
+                    self.dbg_refuse("emit_loop:exit_after_body", x);
                     return Err(Unsupported::BranchIntoEmittedCode);
                 }
-                self.region(x, stops)
+                self.region(x)
             }
         }
     }
@@ -727,7 +860,7 @@ impl<'a> Builder<'a> {
     /// Emits blocks from `b` along the fall-through/goto chain, stopping at
     /// the first conditional (a diamond), terminator, stop target, loop
     /// header or already-emitted block.
-    fn region(&mut self, b: usize, stops: &Stops) -> Res<()> {
+    fn region(&mut self, b: usize) -> Res<()> {
         // Only the IMMEDIATE emit_loop body walk treats an active-header
         // entry as emission (a stale stop entry for it — the block doubling
         // as an enclosing join's meet or an enclosing loop's exit — must
@@ -743,17 +876,17 @@ impl<'a> Builder<'a> {
         // and the loop construct is emitted by the stop's owner at the
         // join's meet position. Emitting it inline here instead left the
         // join's own trailing region(meet) hitting an emitted block.
-        if !entry_is_body_walk && stops.iter().any(|(s, _)| *s == self.resolve(b)) {
-            return self.stop_transfer(b, stops);
+        if !entry_is_body_walk && self.stops.iter().any(|(s, _)| *s == self.resolve(b)) {
+            return self.stop_transfer(b);
         }
         // a fresh loop header is a loop construct, not a plain block
         if self.loop_at(b) && !self.active_loops.iter().any(|(h, _)| *h == b) {
-            return self.emit_loop(b, stops);
+            return self.emit_loop(b);
         }
         let mut cur = b;
         loop {
-            if cur != b && stops.iter().any(|(s, _)| *s == self.resolve(cur)) {
-                self.stop_transfer(cur, stops)?;
+            if cur != b && self.stops.iter().any(|(s, _)| *s == self.resolve(cur)) {
+                self.stop_transfer(cur)?;
                 return Ok(());
             }
             // Fall-through into a loop header — only for blocks REACHED by
@@ -775,9 +908,10 @@ impl<'a> Builder<'a> {
                     self.out.push(format!("continue {l};"));
                     return Ok(());
                 }
-                return self.emit_loop(cur, stops);
+                return self.emit_loop(cur);
             }
             if self.emitted.contains(&cur) {
+                self.dbg_refuse("region:emitted", cur);
                 return Err(Unsupported::BranchIntoEmittedCode);
             }
             self.emitted.insert(cur);
@@ -808,7 +942,7 @@ impl<'a> Builder<'a> {
                 Instr::Goto(t) => {
                     let ti = self.instr_index(*t);
                     let tb = self.block_of(ti);
-                    self.jump_to_block(tb, stops)?;
+                    self.jump_to_block(tb)?;
                     return Ok(());
                 }
                 Instr::IfZero(_, _)
@@ -816,7 +950,7 @@ impl<'a> Builder<'a> {
                 | Instr::IfNull(_)
                 | Instr::IfNonNull(_)
                 | Instr::IfRefCmp { .. } => {
-                    self.diamond(last, stops)?;
+                    self.diamond(last)?;
                     return Ok(());
                 }
                 Instr::TableSwitch { .. } | Instr::LookupSwitch { .. } => {
@@ -944,7 +1078,7 @@ impl<'a> Builder<'a> {
     /// behind a labeled block (or the diamond is plain if/else when both
     /// arms terminate). A meet that is the enclosing loop's header turns
     /// the arms into `continue`s.
-    fn diamond(&mut self, ci: usize, stops: &Stops) -> Res<()> {
+    fn diamond(&mut self, ci: usize) -> Res<()> {
         let (t_pc, f_pc) = match &self.m.instrs[ci].1 {
             Instr::IfZero(_, t) | Instr::IfICmp(_, t) | Instr::IfNull(t) | Instr::IfNonNull(t) => {
                 (*t, self.m.instrs[ci + 1].0)
@@ -969,12 +1103,43 @@ impl<'a> Builder<'a> {
         arm_blocks.insert(t_b);
         arm_blocks.insert(f_b);
 
+        // G3.1 diamond-scoped drain bookkeeping: every deferred join this
+        // diamond's arms register closes at THIS diamond's end (see
+        // drain_deferred_since).
+        let dj_mark = self.deferred.len();
+        self.diamond_match(ci, root, t_b, f_b, &arm_blocks, m1, m2)?;
+        self.drain_deferred_since(dj_mark)?;
+        Ok(())
+    }
+
+    /// The diamond lowering decisions (called from [`Self::diamond`],
+    /// which owns the mark-and-drain bracket around deferred joins). The
+    /// argument count is the diamond's own decision context (condition,
+    /// root, both arm blocks, the arm-walk sets' meet results) — all
+    /// needed, none optional.
+    #[allow(clippy::too_many_arguments)]
+    fn diamond_match(
+        &mut self,
+        ci: usize,
+        root: usize,
+        t_b: usize,
+        f_b: usize,
+        arm_blocks: &HashSet<usize>,
+        m1: Option<usize>,
+        m2: Option<usize>,
+    ) -> Res<()> {
         // A meet that is the enclosing loop's header: the arms transfer
         // back to the loop top (`continue`); a terminating arm simply ends
         // inside its branch. The outer stops stay in force.
         let active_meet = |b: Option<usize>| -> Option<usize> {
             b.filter(|m| self.active_loops.iter().any(|(h, _)| *h == *m))
         };
+        if std::env::var_os("J2R_CFG_TRACE").is_some() {
+            eprintln!(
+                "cfg-trace: diamond ci={} root={} m1={:?} m2={:?} -> active_meet",
+                ci, root, m1, m2
+            );
+        }
         if let Some(meet) = active_meet(m1).or(active_meet(m2)) {
             let (_, l) = self
                 .active_loops
@@ -983,13 +1148,20 @@ impl<'a> Builder<'a> {
                 .find(|(h, _)| *h == meet)
                 .unwrap()
                 .clone();
-            let mut arm_stops: Stops = stops.to_vec();
-            arm_stops.push((meet, l));
+            // Frame: the meet entry is the arms' transfer target only.
+            // Pop-by-label (not truncate) — an arm may have registered a
+            // DEFERRED join whose stop entry must outlive this frame.
+            let frame_label = l.clone();
+            self.stops.push((meet, frame_label.clone()));
             self.out.push("if __cond {".into());
-            self.region(t_b, &arm_stops)?;
+            self.btrace("if __cond {");
+            self.region(t_b)?;
             self.out.push("} else {".into());
-            self.region(f_b, &arm_stops)?;
+            self.btrace("} else {");
+            self.region(f_b)?;
             self.out.push("}".into());
+            self.btrace("}");
+            self.stops.retain(|(_, s_l)| *s_l != frame_label);
             return Ok(());
         }
 
@@ -1001,23 +1173,37 @@ impl<'a> Builder<'a> {
         // with the CURRENT stops — no join_via_label, no trailing region:
         // the owner emits the meet after its labeled block.
         let meet_already_stopped = match (m1, m2) {
-            (Some(m), Some(n)) if m == n => stops.iter().any(|(s, _)| *s == m),
-            (Some(m), None) | (None, Some(m)) => stops.iter().any(|(s, _)| *s == m),
+            (Some(m), Some(n)) if m == n => self.stops.iter().any(|(s, _)| *s == m),
+            (Some(m), None) | (None, Some(m)) => self.stops.iter().any(|(s, _)| *s == m),
             _ => false,
         };
+        if std::env::var_os("J2R_CFG_TRACE").is_some() {
+            eprintln!(
+                "cfg-trace: diamond ci={} root={} m1={:?} m2={:?} -> already_stopped",
+                ci, root, m1, m2
+            );
+        }
         if meet_already_stopped {
             self.out.push("if __cond {".into());
-            self.region(t_b, stops)?;
+            self.btrace("if __cond {");
+            self.region(t_b)?;
             self.out.push("} else {".into());
-            self.region(f_b, stops)?;
+            self.btrace("} else {");
+            self.region(f_b)?;
             self.out.push("}".into());
+            self.btrace("}");
             return Ok(());
         }
 
         match (m1, m2) {
             (Some(meet), Some(_)) if meet == m2.unwrap() => {
-                self.join_via_label(meet, t_b, f_b, root, &arm_blocks, stops)?;
-                self.region(meet, stops)
+                if self.join_via_label(meet, t_b, f_b, root, arm_blocks)? {
+                    // the meet was DEFERRED: its body drains later — no
+                    // inline emission here
+                } else {
+                    self.region(meet)?;
+                }
+                Ok(())
             }
             (Some(m1), Some(m2)) if m1 != m2 => {
                 // Divergent joins (readiness census: tql2/tred2/orthes
@@ -1035,9 +1221,67 @@ impl<'a> Builder<'a> {
                 // never silently. Without a transfer arm the diamond is
                 // genuinely divergent (two live meets the outer walk
                 // still has to place) — refused as before.
-                let t_is_transfer = stops.iter().any(|(s, _)| *s == t_b || *s == m1);
-                let f_is_transfer = stops.iter().any(|(s, _)| *s == f_b || *s == m2);
+                if std::env::var_os("J2R_CFG_TRACE").is_some() {
+                    eprintln!(
+                        "cfg-trace: diamond ci={} root={} m1={:?} m2={:?} -> divergent",
+                        ci, root, m1, m2
+                    );
+                }
+                let t_is_transfer = self.stops.iter().any(|(s, _)| *s == t_b || *s == m1);
+                let f_is_transfer = self.stops.iter().any(|(s, _)| *s == f_b || *s == m2);
                 if !(t_is_transfer || f_is_transfer) {
+                    // G3.1 — the deferred-join mechanism (the named
+                    // ImpureJoin lowering). Defer ONLY the meet(s) that
+                    // have OUTSIDE predecessors (the design's guard): a
+                    // meet whose predecessors all lie inside the arms is
+                    // pure — the owning arm walks THROUGH it and emits it
+                    // inline, no deferral, no drain-order hazards. A meet
+                    // with an outside predecessor defers (must also be
+                    // deferrable: not emitted, not a loop header, not an
+                    // owned stop); its edges — arms AND the later outside
+                    // preds — break to the label, and the body drains
+                    // once at the enclosing loop-body end / lift end. A
+                    // shape where nothing defers keeps the loud refusal —
+                    // never a silent miscompile.
+                    let t_defer =
+                        self.meet_has_outside_pred(m1, root, arm_blocks) && self.deferrable(m1);
+                    let f_defer =
+                        self.meet_has_outside_pred(m2, root, arm_blocks) && self.deferrable(m2);
+                    if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+                        eprintln!(
+                            "cfg-debug: divergent defer check {}{} ci={} root={} \
+                             t_b={} f_b={} m1={:?} m2={:?} t_out={} f_out={} t_def={} f_def={}",
+                            self.m.name,
+                            self.m.desc,
+                            ci,
+                            root,
+                            t_b,
+                            f_b,
+                            m1,
+                            m2,
+                            self.meet_has_outside_pred(m1, root, arm_blocks),
+                            self.meet_has_outside_pred(m2, root, arm_blocks),
+                            t_defer,
+                            f_defer
+                        );
+                    }
+                    if t_defer || f_defer {
+                        if t_defer {
+                            self.register_deferred(m1);
+                        }
+                        if f_defer {
+                            self.register_deferred(m2);
+                        }
+                        self.out.push("if __cond {".into());
+                        self.btrace("if __cond {");
+                        self.region(t_b)?;
+                        self.out.push("} else {".into());
+                        self.btrace("} else {");
+                        self.region(f_b)?;
+                        self.out.push("}".into());
+                        self.btrace("}");
+                        return Ok(());
+                    }
                     if std::env::var_os("J2R_CFG_DEBUG").is_some() {
                         eprintln!(
                             "cfg-debug: divergent joins unresolved {}{} ci={} (block {}) \
@@ -1048,32 +1292,85 @@ impl<'a> Builder<'a> {
                     return Err(Unsupported::ImpureJoin);
                 }
                 self.out.push("if __cond {".into());
-                self.region(t_b, stops)?;
+                self.btrace("if __cond {");
+                self.region(t_b)?;
                 self.out.push("} else {".into());
-                self.region(f_b, stops)?;
+                self.btrace("} else {");
+                self.region(f_b)?;
                 self.out.push("}".into());
+                self.btrace("}");
                 Ok(())
             }
             (Some(meet), None) | (None, Some(meet)) => {
-                self.join_via_label(meet, t_b, f_b, root, &arm_blocks, stops)?;
-                self.region(meet, stops)
+                // G3.1 guard-shape refinement (a latent pre-existing bug
+                // the deferral unmasked): when the MEET-side arm is itself
+                // a TRANSFER — its start block or its meet is already an
+                // owned stop — the arm's region breaks to that stop and
+                // never reaches the meet; claiming the meet via
+                // join_via_label would hoist the meet's code (which lives
+                // on the stop owner's side, e.g. the loop EXIT) into this
+                // diamond, and the owner's later walk would hit it
+                // emitted. tred2's loop(4) guard: true arm starts at the
+                // loop's exit-stop 40, meet 60 lies on the exit side —
+                // free-walk if/else instead, and the loop's own exit
+                // region emits the meet side once, after the loop.
+                if std::env::var_os("J2R_CFG_TRACE").is_some() {
+                    eprintln!(
+                        "cfg-trace: diamond ci={} root={} m1={:?} m2={:?} -> single_meet",
+                        ci, root, m1, m2
+                    );
+                }
+                let meet_side_is_transfer = if m1.is_some() {
+                    self.stops.iter().any(|(s, _)| *s == t_b || *s == meet)
+                } else {
+                    self.stops.iter().any(|(s, _)| *s == f_b || *s == meet)
+                };
+                if meet_side_is_transfer {
+                    self.out.push("if __cond {".into());
+                    self.btrace("if __cond {");
+                    self.region(t_b)?;
+                    self.out.push("} else {".into());
+                    self.btrace("} else {");
+                    self.region(f_b)?;
+                    self.out.push("}".into());
+                    self.btrace("}");
+                    return Ok(());
+                }
+                if self.join_via_label(meet, t_b, f_b, root, arm_blocks)? {
+                    // the meet was DEFERRED: its body drains later
+                } else {
+                    self.region(meet)?;
+                }
+                Ok(())
             }
             (None, None) => {
+                if std::env::var_os("J2R_CFG_TRACE").is_some() {
+                    eprintln!(
+                        "cfg-trace: diamond ci={} root={} m1={:?} m2={:?} -> both_terminate",
+                        ci, root, m1, m2
+                    );
+                }
                 // both arms terminate — plain if/else; the surrounding
                 // stop context carries into the arms
                 self.out.push("if __cond {".into());
-                self.region(t_b, stops)?;
+                self.btrace("if __cond {");
+                self.region(t_b)?;
                 self.out.push("} else {".into());
-                self.region(f_b, stops)?;
+                self.btrace("} else {");
+                self.region(f_b)?;
                 self.out.push("}".into());
+                self.btrace("}");
                 Ok(())
             }
             _ => unreachable!("diamond: both-equal meet handled above"),
         }
     }
 
-    /// Emits a labeled join block around the two diamond arms; the meet is
-    /// emitted once by the caller afterwards.
+    /// Emits a labeled join block around the two diamond arms. Returns
+    /// `true` when the meet was DEFERRED (G3.1: an outside predecessor
+    /// made the inline join impure and the meet was deferrable — the arms
+    /// break to the deferred label and the meet body drains later),
+    /// `false` when the meet is emitted inline once by the caller.
     fn join_via_label(
         &mut self,
         meet: usize,
@@ -1081,8 +1378,7 @@ impl<'a> Builder<'a> {
         f_b: usize,
         root: usize,
         arm_blocks: &HashSet<usize>,
-        stops: &Stops,
-    ) -> Res<()> {
+    ) -> Res<bool> {
         // meet purity: every predecessor of the meet must lie inside the
         // two arm walks, or be the diamond's own root — the root's branch
         // edge into the meet is exactly the empty-arm shape
@@ -1109,6 +1405,32 @@ impl<'a> Builder<'a> {
                 match &meet_loop_nodes {
                     Some(nodes) if nodes.contains(&p) => {}
                     _ => {
+                        // G3.1 — an outside predecessor makes the inline
+                        // join impure. DEFER instead of refusing when the
+                        // meet is deferrable: the (meet, label) entry goes
+                        // on the builder-owned stop stack, the arms break
+                        // to the label, the later outside predecessor's
+                        // edge breaks to it too, and the meet body emits
+                        // ONCE at the enclosing drain point. A meet that
+                        // fails the deferrable guard keeps the loud
+                        // refusal — never a silent miscompile.
+                        if std::env::var_os("J2R_CFG_TRACE").is_some() {
+                            eprintln!("cfg-trace: join purity ci-meet={} -> defer", meet);
+                        }
+                        if self.deferrable(meet) {
+                            self.register_deferred(meet);
+                            self.out.push("if __cond {".into());
+                            self.btrace("if __cond {");
+                            self.region(t_b)?;
+                            self.out.push("} else {".into());
+                            self.btrace("} else {");
+                            self.region(f_b)?;
+                            self.out.push("}".into());
+                            self.btrace("}");
+                            // no trailing break, no close: the deferred
+                            // label stays open until its drain point
+                            return Ok(true);
+                        }
                         if std::env::var_os("J2R_CFG_DEBUG").is_some() {
                             eprintln!(
                                 "cfg-debug: join purity refused {}{} meet={} root={} \
@@ -1127,19 +1449,109 @@ impl<'a> Builder<'a> {
             }
         }
         if self.emitted.contains(&meet) {
+            self.dbg_refuse("join_via_label", meet);
             return Err(Unsupported::BranchIntoEmittedCode);
         }
         let lbl = self.fresh_label("join", meet);
         self.out.push(format!("{lbl}: {{"));
+        let __t = self.out.last().unwrap().clone();
+        self.btrace(&__t);
         self.out.push("if __cond {".into());
-        let mut arm_stops: Stops = stops.to_vec();
-        arm_stops.push((meet, lbl.clone()));
-        self.region(t_b, &arm_stops)?;
+        self.btrace("if __cond {");
+        // Frame: the meet entry is the arms' transfer target only; pop by
+        // label so a DEFERRED join registered inside an arm survives.
+        self.stops.push((meet, lbl.clone()));
+        self.region(t_b)?;
         self.out.push("} else {".into());
-        self.region(f_b, &arm_stops)?;
+        self.btrace("} else {");
+        self.region(f_b)?;
         self.out.push("}".into());
+        self.btrace("}");
+        self.stops.retain(|(_, s_l)| *s_l != lbl);
         self.out.push(format!("break {lbl};"));
+        let __l = self.out.len();
         self.out.push("}".to_string());
+        self.btrace("}");
+        Ok(false)
+    }
+
+    /// G3.1 — registers `meet` as a DEFERRED join: opens its labeled
+    /// block (closed later at the drain point), pushes (meet, label) on
+    /// the builder-owned stop stack (NOT popped by any frame — every
+    /// edge to the meet breaks to the label while it is open), and
+    /// records it for the drain.
+    fn register_deferred(&mut self, meet: usize) {
+        let lbl = self.fresh_label("djoin", meet);
+        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+            eprintln!(
+                "cfg-debug: deferred join registered {}{} meet={} label={lbl}",
+                self.m.name, self.m.desc, meet
+            );
+        }
+        self.out.push(format!("{lbl}: {{"));
+        let __t = self.out.last().unwrap().clone();
+        self.btrace(&__t);
+        self.stops.push((meet, lbl.clone()));
+        self.deferred.push(DeferredJoin { meet, label: lbl });
+    }
+
+    /// Whether `meet` may be registered as a deferred join: not already
+    /// emitted, not an active loop header, not a fresh loop header
+    /// (conservative v1 — the census shapes have meet_loop=None), and not
+    /// already an owned stop. A fall-through predecessor is ALLOWED (the
+    /// design's original no-fall-through guard was relaxed after the
+    /// three hazard cases were analyzed): a falling predecessor's region
+    /// walk stops at the (meet, label) stop entry and `break`s forward to
+    /// the drain position — the same target the fall-through reached; a
+    /// fall-through pred emitted BEFORE registration would have emitted
+    /// the meet inline, making it not-deferrable via the emitted guard;
+    /// and the meet body itself only ever falls INTO loudly-refused
+    /// shapes (BranchIntoEmittedCode / FallOffEnd), never silently.
+    fn deferrable(&self, meet: usize) -> bool {
+        !self.emitted.contains(&meet)
+            && !self.active_loops.iter().any(|(h, _)| *h == meet)
+            && !self.loop_at(meet)
+            && !self.stops.iter().any(|(s, _)| *s == meet)
+    }
+
+    /// Whether `meet` has a predecessor OUTSIDE the diamond's arm walks
+    /// (and is not the diamond's own root) — the G3.1 deferral guard: only
+    /// such meets defer; pure meets (all preds inside the arms) are
+    /// emitted inline by their owning arm.
+    fn meet_has_outside_pred(&self, meet: usize, root: usize, arm_blocks: &HashSet<usize>) -> bool {
+        self.cfg.preds()[meet]
+            .iter()
+            .any(|&p| !arm_blocks.contains(&p) && p != root)
+    }
+
+    /// The G3.1 drain, DIAMOND-SCOPED: closes every deferred join
+    /// registered at or after `mark` (innermost label first) and emits
+    /// its meet body ONCE after the close — `break <label>` lands exactly
+    /// at the body. Draining at the OWNING diamond's end is what keeps
+    /// the emission lexically correct: the label's braces open and close
+    /// inside the diamond's own if/else, so a sibling arm (the enclosing
+    /// diamond's `else`) is never emitted while a label is still open —
+    /// the loop-body-end/lift-end drain points of the first draft left
+    /// the label open across the sibling arm and cfg_equiv caught the
+    /// invalid `} else {` (BigJson's escape chain). Each drained meet's
+    /// stop entry is consumed first so the body walk emits it instead of
+    /// breaking to itself; bodies may register further deferred joins
+    /// (drained after, by the same loop) and may break to STILL-open
+    /// deferred labels of enclosing diamonds.
+    fn drain_deferred_since(&mut self, mark: usize) -> Res<()> {
+        while self.deferred.len() > mark {
+            let d = self.deferred.pop().expect("mark invariant");
+            self.out.push("}".to_string());
+            self.btrace("}");
+            self.stops.retain(|(b, _)| *b != d.meet);
+            if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+                eprintln!(
+                    "cfg-debug: deferred join drained {}{} meet={} label={}",
+                    self.m.name, self.m.desc, d.meet, d.label
+                );
+            }
+            self.region(d.meet)?;
+        }
         Ok(())
     }
 }
@@ -1239,7 +1651,17 @@ pub fn lift(
     }
     let mut b = Builder::new(m, &cfg, loops, tramp.clone(), Box::new(emit_fn));
     let entry = cfg.entry;
-    b.region(entry, &Vec::new())?;
+    b.region(entry)?;
+    // The G3.1 remainder drain: deferred joins registered outside any
+    // loop body (depth 0 — method-level walks and inner-loop exit
+    // regions) close their labels and emit their meet bodies here, at
+    // the end of lift. Anything deeper remaining here would be a scope
+    // bug; drain it anyway rather than drop it silently.
+    while let Some(d) = b.deferred.pop() {
+        b.out.push("}".to_string());
+        b.stops.retain(|(x, _)| *x != d.meet);
+        b.region(d.meet)?;
+    }
     // Every block must be emitted — EXCEPT goto trampolines whose edges
     // were resolved to the chain's end (their single `goto` instruction is
     // structural and is never passed to the emitter, so skipping the block
@@ -1250,6 +1672,19 @@ pub fn lift(
         .enumerate()
         .any(|(i, _)| !tramp.contains_key(&i) && !b.emitted.contains(&i))
     {
+        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+            let missing: Vec<usize> = cfg
+                .blocks
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !tramp.contains_key(i) && !b.emitted.contains(i))
+                .map(|(i, _)| i)
+                .collect();
+            eprintln!(
+                "cfg-debug: refuse[lift:unemitted] {}{} missing={:?}",
+                m.name, m.desc, missing
+            );
+        }
         return Err(Unsupported::BranchIntoEmittedCode);
     }
     // Structural safety net: a loop whose body is exactly a self-continue
@@ -1697,9 +2132,13 @@ mod tests {
         // *block* index was required — this method (9 instructions, 7
         // blocks) panicked with "index out of bounds: len 7, index 9"
         // before the fix. The shape itself (a nested diamond joining
-        // before the outer diamond joins) is refused conservatively —
-        // refusal, never a panic, is the designed behaviour (M2_PLAN §6.1:
-        // anything unclear falls back to the dispatch body).
+        // before the outer diamond joins, both meets pure — every
+        // predecessor lies inside the arm walks, G3.1's deferral guard)
+        // is refused conservatively — refusal, never a panic, is the
+        // designed behaviour (M2_PLAN §6.1: anything unclear falls back
+        // to the dispatch body). The deferred-join mechanism only takes
+        // meets with OUTSIDE predecessors (tred2/orthes/hqr2's shared
+        // continue-tails); this shape has none, so the refusal stands.
         let m = method(vec![
             (0, Instr::IfZero(crate::ir::CmpOp::Eq, 28)),
             (4, Instr::IfZero(crate::ir::CmpOp::Eq, 20)),

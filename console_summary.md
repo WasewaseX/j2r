@@ -582,6 +582,25 @@ by the per-crate budget K.
   pthread battery verdict 2047 byte-identical both runtimes, the
   loud-gap pins, gate-22 wired into the aggregate (17 gates); 452
   green. The checklist's G1 section is fully discharged.
+- [ops] Session 16 (2026-11-11): reset #15 survived via §9 (third full
+  recovery; ff-only → `6c5e6dd` == origin/main, 176 commits; toolchain
+  byte-exact rebootstrap; baseline re-proven 466/0 BEFORE the G3.1 code).
+  **G3.1's deferred-join mechanism LANDED behind --emit-cfg**: builder-
+  owned stop stack (frames pop by label), deferrals at BOTH refusal
+  sites (divergent-joins defers only outside-pred meets per the design's
+  guard; join-purity defers when deferrable), DIAMOND-SCOPED drain (each
+  diamond closes its own labels — cfg_equiv caught the first draft's
+  loop-end drain leaving a label open across a sibling arm: invalid
+  `} else {` on BigJson; the debug brace tracker pinpointed it in one
+  run), plus a latent pre-existing bug fixed (loop-guard diamonds
+  hoisting exit-side meets into the loop body). **cfg_equiv 109×3 ZERO
+  divergences with the mechanism live; battery 466/0; fmt+clippy clean;
+  gates 11/19/20/12 green.** Census control pair committed (baseline
+  ImpureJoin×4 → after-mechanism: 12 balanced deferrals, refusals moved
+  deeper with named-block diagnostics — tred2/orthes lift-end missing
+  blocks, hqr2 one exit shape, QR <init> likewise). **The G3.1 gate
+  stays OPEN** (the three kernels do not lift yet); next: the remaining
+  walk-order shapes, then the typed-payload re-measure per G3.4.
 - [ops] Session 15 (2026-11-11): reset #14 survived via §9 (tree back
   at pre-M3 `b4badea`; ff-only merge → `63f34a7` == origin/main, 175
   commits — all six session-13/14 closure commits verified ON origin).

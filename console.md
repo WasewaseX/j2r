@@ -1950,3 +1950,65 @@ getrusage max single child, mistake-list #2).
   `ImpureJoin` lowering) behind `--emit-cfg`; tred2/orthes/hqr2 lift;
   cfg_equiv stays zero-divergence; same-session controlled pair
   recorded either way (a measured NO-GO is a valid recorded outcome).
+
+### [2026-11-11 session 16] Reset #15 recovered via §9; G3.1's deferred-join mechanism LANDED behind --emit-cfg and proven zero-divergence (cfg_equiv 109×3); the three kernels do not lift yet — the census control pair is committed and the gate stays open
+
+- Sandbox reset #15 hit between sessions (the third §9 recovery): tree
+  back at pre-M3 `b4badea`, tools/ + env.sh wiped, `target/` (509 MB)
+  survived → warm builds. Fetch + ff-only merge → HEAD `6c5e6dd` ==
+  origin/main (176 commits). Toolchain rebootstrap byte-exact
+  (rustup-init 21,347,088 B → rustc/cargo 1.99.1, rustfmt 1.10.0,
+  clippy 0.1.99; Temurin jdk-21.0.13+9 207,858,352 B; env.sh recreated).
+  Baseline re-proven BEFORE the G3.1 code (T05's law): **466 tests, 0
+  failures, zero divergences** at `6c5e6dd` (cfg_equiv 349.08 s,
+  diff_suite 466.61 s).
+- **The deferred-join mechanism (the named `ImpureJoin` lowering)
+  landed** in crates/j2r-codegen/src/cfg.rs, per the DESIGNED entry:
+  (1) the stop lists are BUILDER-OWNED (`Builder.stops` — the call-
+  threaded `&Stops` snapshots removed; frames push/pop by label so
+  deferred entries survive them; the body_walk and stale-stop laws
+  preserved verbatim); (2) DEFERRED JOINS registered at both refusal
+  sites — the divergent-joins path defers ONLY the meet(s) with OUTSIDE
+  predecessors (the design's own guard; pure meets stay inline in their
+  owning arm — deferring both meets caused an early-drain cascade that
+  consumed shared tails before later loops needed them), and the
+  join-purity path defers instead of refusing when deferrable; (3) the
+  DRAIN is DIAMOND-SCOPED (each diamond closes its own deferred labels
+  immediately after its if/else — the label's braces open and close
+  within the diamond's own emission).
+- **cfg_equiv caught the first draft loudly** — the loop-body-end drain
+  left a depth-0 label open across the enclosing diamond's sibling arm:
+  BigJson's cfg-mode emission was invalid Rust (`} else {` with no `if`).
+  The debug brace tracker (J2R_CFG_TRACE: every structural push recorded,
+  every `}` must close the top opener, every `} else {` must close an
+  `if`) pinpointed the exact construct in one run; the diamond-scoped
+  drain fixed it. A latent PRE-EXISTING bug was unmasked and fixed on
+  the way: a loop-GUARD diamond whose meet lies on the exit side hoisted
+  exit-side code INTO the loop body via join_via_label (tred2's
+  loop(4)/meet-60 shape — unreachable before because the method died
+  earlier); the meet-side-transfer check now free-walks that shape.
+- EVIDENCE: **cfg_equiv 109×{base,cfg,typed} ZERO divergences** with the
+  mechanism live (the deferral changes which methods lift; behavior is
+  identical); full battery 466/0 (classfile 41, codegen 136, jni-ffi 17,
+  runtime 243, cli bin 15, corpus/jar/partition/soe/lambda/native_e2e/
+  jni_parity 11, cfg_equiv 347.18 s, diff_suite 466.61 s — 109 fixtures,
+  zero divergences); fmt clean; clippy `-D warnings` clean; gates
+  11/19/20/12 green (gate-11 `fixtures=109 tests=466`).
+- **The census control pair is committed** (scripts/evidence/g3_1/):
+  baseline 2026-11-10 (ImpureJoin ×4: tred2/orthes/hqr2/QR <init>) vs
+  after-mechanism 2026-11-11 — **12 balanced deferrals** (registered ==
+  drained), the refusals moved DEEPER: tred2/orthes reach lift end with
+  a few named un-emitted blocks (tred2 [26, 38, 51–54, 58]; orthes
+  [16–19, 25–28, 39, 51–54]), hqr2 one more `exit_after_body` shape
+  (block 66 inside loop(15)), QR <init> likewise. The three kernels do
+  NOT lift yet — **the G3.1 gate stays OPEN** with the recorded state;
+  the remaining walk-order shapes are the next session's work, and a
+  measured NO-GO remains a valid recorded outcome either way. The
+  refusals all carry named-block diagnostics now (J2R_CFG_DEBUG=1 names
+  the block, =2 block/loop tables, =3 dumps the emitted text at the
+  refusal, J2R_CFG_TRACE replays every diamond decision).
+- Next: **G3.1 continuation** — walk the three remaining shapes to the
+  lift (the un-emitted blocks are reachable only through edges the
+  deferral converted to `break`s; the walk order must route the
+  enclosing chain through the deferred bodies exactly once), then the
+  typed-payload re-measure (G3.4's protocol) once the census moves.

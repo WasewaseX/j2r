@@ -1673,9 +1673,11 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       extraction verdict (BENCHMARKS addendum 3) stands. Diagnostics:
       J2R_CFG_DEBUG=1 unresolved-join lines, =2 adds block/loop tables.
       CI evidence: (this commit).
-- [~] **Deferred-join mechanism (DESIGNED 2026-11-08, next layer)** — the
-      hqr2 refusal is join_via_label purity (meet=23, outside pred=21,
-      root=15; J2R_CFG_DEBUG join-purity line landed for diagnosis), and
+- [~] **Deferred-join mechanism (G3.1 — the builder-side mechanism is
+      LANDED and zero-divergence-proven; the three kernels do NOT lift
+      yet — session 16, 2026-11-11)** — the hqr2 refusal is join_via_label
+      purity (meet=23, outside pred=21, root=15; J2R_CFG_DEBUG
+      join-purity line landed for diagnosis), and
       tred2/orthes are the same class one level deeper: shared
       continue-tails (`d[i]=...; i--; goto header`) with outside-diamond
       predecessors. The designed fix: promote the stop lists from
@@ -1689,3 +1691,31 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       end (drain at the emit_loop mark, remainder at lift() end). This
       unblocks tred2 (83.4%), orthes (86.5%), hqr2 (93.2% prim traffic)
       — the three kernels that keep the typed payload flat.
+      — SESSION 16 (2026-11-11), the mechanism landed behind --emit-cfg:
+      (1) the stop stack is builder-owned (the &Stops snapshots are gone;
+      frames push/pop by label so deferred entries survive them); (2)
+      DEFERRED JOINS registered at BOTH refusal sites — the divergent-
+      joins path defers ONLY the meet(s) with OUTSIDE predecessors (the
+      design's guard: pure meets stay inline in their owning arm) and the
+      join-purity path defers instead of refusing when deferrable; (3)
+      the DRAIN is DIAMOND-SCOPED — each diamond closes its own labels
+      right after its if/else (the first draft's loop-body-end/lift-end
+      drain points left a label open across a sibling arm and cfg_equiv
+      caught the invalid `} else {` on BigJson — the debug brace tracker
+      pinpointed it in one run); (4) the deferral unmasked and FIXED a
+      pre-existing latent bug: a loop-GUARD diamond whose meet lies on
+      the exit side hoisted exit-side code INTO the loop body via
+      join_via_label (tred2's loop(4)/meet-60) — the meet-side-transfer
+      check now free-walks that shape. Diagnostics: J2R_CFG_TRACE brace
+      tracker + per-diamond decisions; J2R_CFG_DEBUG=1 refusal sites
+      name the block; =2 block/loop tables; =3 dumps the emitted text.
+      EVIDENCE: cfg_equiv 109×{base,cfg,typed} ZERO divergences (the
+      mechanism is behaviorally sound); full battery 466/0; fmt+clippy
+      clean; the census control pair committed (baseline 2026-11-10:
+      ImpureJoin×4 vs after-mechanism 2026-11-11: 12 balanced deferrals,
+      the refusals moved DEEPER — tred2/orthes reach lift end with a few
+      un-emitted blocks, hqr2 has one more exit_after_body shape, QR
+      <init> likewise — all with named-block diagnostics). The G3.1 bar
+      (the three kernels lift) stays OPEN: the remaining walk-order
+      shapes are the next session's work; a measured NO-GO remains a
+      valid recorded outcome either way.
