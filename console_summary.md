@@ -172,9 +172,9 @@ starts only after G1 AND G2 are checked.
    law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 →
    `/home/z/my-project/tools/jdk-21.0.13+9` (session 3 moved the JDK to
    the persistent layer; /tmp is not trusted), `source
-   /home/z/my-project/env.sh`. Status: **DONE (session 12; reset #12 —
-   full-download route, both tarballs byte-exact vs the recorded
-   sizes; rustup 21,347,088 B; JDK 207,858,352 B). Prior: session 8
+   /home/z/my-project/env.sh`. Status: **DONE (session 14; reset #13 —
+   full-download route, JDK byte-exact 207,858,352 B via the GitHub
+   releases-asset route; target/ survived -> warm builds). Prior: session 8
    (reset #9 — recovered with NO download: the persistent layer held
    the full rustup install; `tools/cargo` = CARGO_HOME + `tools/rustup`
    = RUSTUP_HOME; env.sh now exports both, so a tools/-surviving reset
@@ -184,11 +184,14 @@ starts only after G1 AND G2 are checked.
 2. **Full local baseline green before the first T08 commit**: unit tests
    across all four crates + `diff_suite` (three-channel vs Temurin) +
    corpus suite; test counts re-synced per gate-11. Status: **DONE
-   (session 12, re-proven at `c4c45cf` before G2.4)** — **462 tests, 0
-   failures** (classfile 38, codegen 135, jni-ffi 15, runtime 243,
-   cli 29 incl. cfg_equiv 342.90 s + diff_suite 461.36 s, zero
-   divergences; fmt clean, clippy `-D warnings` clean; gate-11
-   fixtures=109 tests=462). Prior: **452** after T13 13d (session 8;
+   (session 14, re-proven at `cbcbbcb` before G3.1)** — **466 tests, 0
+   failures** (classfile 41, codegen 136 incl. jmm_boundary, jni-ffi
+   17, runtime 243, cli 29 incl. cfg_equiv 349.31 s + diff_suite
+   462.66 s, zero divergences; fmt clean, clippy `-D warnings` clean;
+   gate-11 fixtures=109 tests=466). Prior: **462** at `c4c45cf` before
+   G2.4 (session 12; classfile 38, codegen 135, jni-ffi 15, runtime
+   243, cli 29 incl. cfg_equiv 342.90 s + diff_suite 461.36 s, zero
+   divergences). Prior: **452** after T13 13d (session 8;
    classfile 38, runtime 239, jni-ffi 17 = 15 unit + 2 real-C, codegen
    125, cli 29; cfg_equiv 347 s + diff_suite 464 s, zero divergences;
    the C-harness parity battery green both runtimes).
