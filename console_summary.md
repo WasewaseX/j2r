@@ -163,8 +163,12 @@ corrected of record — NOT in the Temurin 21 jni.h at all), and the
 dedicated CI gate **gate-22-jni-c-harness-parity** wired into the
 all-gates aggregate (17 upstream gates). 452 green, full battery
 (cfg_equiv 370.05 s + diff_suite 491.11 s) zero divergences.
-Next: G2 (the 70k path) is the remaining P0; G5 mappings (T14–T16)
-starts only after G1 AND G2 are checked.
+Next: G2.1–G2.7 CLOSED sessions 11–13 (`262e038`, `7b6680c`); G4.2
+CLOSED (`2f795ec`, gate-23); G3.1 baseline registered (`cbcbbcb`);
+next work: **G3.1 deferred-join**; G4.1 owner verdict pending; G5
+(T14–T23) UNBLOCKED — G1 AND G2 are both checked — ordered after
+G3/G4 per the review; M6 planning drafted (docs/M6_PLAN.md rev 0,
+owner review pending).
 
 ### 3.1 T08 preconditions — the wave-2 entry checklist (all must be green before T08 code)
 
@@ -172,26 +176,31 @@ starts only after G1 AND G2 are checked.
    law): rustup → rustc/cargo 1.99.1, Temurin 21.0.13 →
    `/home/z/my-project/tools/jdk-21.0.13+9` (session 3 moved the JDK to
    the persistent layer; /tmp is not trusted), `source
-   /home/z/my-project/env.sh`. Status: **DONE (session 14; reset #13 —
-   full-download route, JDK byte-exact 207,858,352 B via the GitHub
-   releases-asset route; target/ survived -> warm builds). Prior: session 8
-   (reset #9 — recovered with NO download: the persistent layer held
-   the full rustup install; `tools/cargo` = CARGO_HOME + `tools/rustup`
-   = RUSTUP_HOME; env.sh now exports both, so a tools/-surviving reset
-   never re-downloads). Exact pinned versions verified again this
-   session — rustc/cargo 1.99.1, rustfmt 1.10.0, clippy 0.1.99,
-   Temurin javac/java 21.0.13; target/ survived → warm builds.
+   /home/z/my-project/env.sh`. Status: **DONE (session 15; reset #14 —
+   full-download route: rustup-init 21,347,088 B byte-exact, JDK
+   byte-exact 207,858,352 B via the GitHub releases-asset route;
+   target/ survived -> warm builds). Prior: session 14 (reset #13),
+   session 12 (reset #12), session 8 (reset #9 — recovered with NO
+   download: the persistent layer held the full rustup install;
+   `tools/cargo` = CARGO_HOME + `tools/rustup` = RUSTUP_HOME; env.sh
+   now exports both, so a tools/-surviving reset never re-downloads).
+   Exact pinned versions verified again this session — rustc/cargo
+   1.99.1, rustfmt 1.10.0, clippy 0.1.99, Temurin javac/java 21.0.13.
 2. **Full local baseline green before the first T08 commit**: unit tests
    across all four crates + `diff_suite` (three-channel vs Temurin) +
    corpus suite; test counts re-synced per gate-11. Status: **DONE
-   (session 14, re-proven at `cbcbbcb` before G3.1)** — **466 tests, 0
-   failures** (classfile 41, codegen 136 incl. jmm_boundary, jni-ffi
-   17, runtime 243, cli 29 incl. cfg_equiv 349.31 s + diff_suite
-   462.66 s, zero divergences; fmt clean, clippy `-D warnings` clean;
-   gate-11 fixtures=109 tests=466). Prior: **462** at `c4c45cf` before
-   G2.4 (session 12; classfile 38, codegen 135, jni-ffi 15, runtime
-   243, cli 29 incl. cfg_equiv 342.90 s + diff_suite 461.36 s, zero
-   divergences). Prior: **452** after T13 13d (session 8;
+   (session 15, re-proven at `63f34a7` after reset #14, before any
+   M6_PLAN/boards commit)** — **466 tests, 0 failures** (classfile 41,
+   codegen 136 incl. jmm_boundary, jni-ffi 17, runtime 243, cli bin 15,
+   corpus 1 (30.82 s), jar 3 (19.71 s), partition 1 (4.65 s), soe 1
+   (26.58 s), lambda 2, native_e2e 2, jni_parity 1 (10.79 s), cfg_equiv
+   1 (351.07 s), diff_suite 2 (476.52 s — 109 fixtures, zero
+   divergences); fmt clean, clippy `-D warnings` clean; gate-11
+   fixtures=109 tests=466; gate-23 FULL LOCAL PASS: sidecar in sync,
+   3 boundary fields marked, marked crate vs Temurin 52/3/7/42
+   identical). Prior: session 14 at `cbcbbcb` 466/0 (cfg_equiv
+   349.31 s + diff_suite 462.66 s). Prior: **452** after T13 13d
+   (session 8;
    classfile 38, runtime 239, jni-ffi 17 = 15 unit + 2 real-C, codegen
    125, cli 29; cfg_equiv 347 s + diff_suite 464 s, zero divergences;
    the C-harness parity battery green both runtimes).
@@ -573,6 +582,32 @@ by the per-crate budget K.
   pthread battery verdict 2047 byte-identical both runtimes, the
   loud-gap pins, gate-22 wired into the aggregate (17 gates); 452
   green. The checklist's G1 section is fully discharged.
+- [ops] Session 15 (2026-11-11): reset #14 survived via §9 (tree back
+  at pre-M3 `b4badea`; ff-only merge → `63f34a7` == origin/main, 175
+  commits — all six session-13/14 closure commits verified ON origin).
+  Toolchain FULL re-download rebootstrap byte-exact (rustup-init
+  21,347,088 B → rustc/cargo 1.99.1, rustfmt 1.10.0, clippy 0.1.99;
+  Temurin jdk-21.0.13+9 207,858,352 B; env.sh recreated; target/
+  survived → warm builds). **Owner verification pass executed**
+  ("are you sure?"): every session-13 claim checked at artifact level —
+  evidence dirs g2_4/g2_5_*/g3_1 present, ZIP64 impl + 3 tests in
+  zip.rs, gate-23 wired in CI + checker + sidecar emitter, README 466,
+  G3.1 census real — all CONFIRMED. Baseline re-proven 466/0 at
+  `63f34a7` (T05's law after reset #14), fmt+clippy clean, gates
+  11/19/20/12 green, gate-23 FULL LOCAL PASS. **TODO.md + ROADMAP
+  drift found and fixed**: G4.2/G3.1 entries missing from TODO.md,
+  battery stale at 465, next-pointer stale ("next: G4 then G3"),
+  ROADMAP M5 row said "next: G2" — all reconciled to the measured
+  state. **M6_PLAN.md rev 0 drafted per owner request** — the next
+  plan in the M2→M3→M4→M5 series (M5_PLAN.md already exists from
+  2026-11-08; M6 = mod ecosystem): §0 ordering law (G5.4 SATISFIED —
+  G1+G2 checked; T14–T23 stay M5_PLAN-owned, land first), §1 seam
+  audit verified at `63f34a7`, §2 mod pipeline (`j2r build mod.jar`),
+  §3 loader surface as natives (T12 registry path, no new FFI), §4
+  boot bar + `j2r test mod` + gate-24, §5 Forge/NeoForge boundary
+  note only, §6 register T24–T35; ROADMAP M6 row + TODO.md M6 section
+  point at it. Next: **G3.1 deferred-join** implementation
+  (same-session control pair per the bar).
 - [ops] Session 13 (2026-11-10 ~22:30–00:15 UTC): **G2.4 CLOSED, G2.1b
   CLOSED (arm b), G2.5 CLOSED (honest ladder, 70k NOT claimed), G2.7
   CLOSED, G4.2 CLOSED (arm b) — the G2.1–G2.7 gate set is fully

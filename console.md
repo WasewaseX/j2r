@@ -1859,3 +1859,94 @@ getrusage max single child, mistake-list #2).
   `ImpureJoin` lowering) behind `--emit-cfg`; tred2/orthes/hqr2 lift;
   cfg_equiv stays zero-divergence; same-session controlled pair
   recorded either way (a measured NO-GO is a valid recorded outcome).
+
+### [2026-11-11 session 15] Reset #14 recovered via §9; the owner's verification pass executed (every session-13 claim confirmed at artifact level); TODO.md + ROADMAP drift found and fixed; M6_PLAN.md rev 0 drafted per owner request
+
+- Sandbox reset #14 hit between sessions: `tools/` empty, `env.sh` gone,
+  `$WORK` (m5invest) wiped, tree reverted to pre-M3 `b4badea`; `target/`
+  (509 MB) survived → warm builds. The §9 recipe executed: fetch +
+  ff-only merge → HEAD `63f34a7` == origin/main (175 commits; the six
+  session-13/14 closure commits 262e038 / 7b6680c / 2f795ec / cbcbbcb /
+  8ee103c / 63f34a7 all verified ON origin — nothing lost).
+- Toolchain rebootstrap (§3.1 item 1, full download route): rustup-init
+  **21,347,088 B byte-exact** → pinned **cargo/rustc 1.99.1 + rustfmt
+  1.10.0 + clippy 0.1.99** into `tools/cargo` (CARGO_HOME) +
+  `tools/rustup2` (RUSTUP_HOME); Temurin **jdk-21.0.13+9** tarball
+  **207,858,352 B byte-exact** via the GitHub releases-asset route →
+  `tools/jdk-21.0.13+9` (javac/java 21.0.13 verified); `env.sh`
+  recreated (JAVA_HOME, J2R_JAVAC, CARGO_HOME, RUSTUP_HOME, PATH,
+  CARGO_PROFILE_DEV_DEBUG=0).
+- **The owner's verification pass ("are you sure?") — every session-13
+  claim checked against the tree, not memory — ALL CONFIRMED**:
+  evidence dirs `g2_4`, `g2_5_35000/50000/70000`, `g3_1` present with
+  real content; ZIP64 implemented in `crates/j2r-classfile/src/zip.rs`
+  (parse_zip64_eocd + zip64_extra, 39 ZIP64 references) with the three
+  named tests (`zip64_small_archive_round_trip`,
+  `zip64_over_65535_entries` at 65,537 entries,
+  `zip64_sentinels_without_locator_errors`); gate-23-jmm-boundary wired
+  in `.github/workflows/ci.yml` + `scripts/check_jmm_boundary.py` +
+  the sidecar emitter across emit/partition/typed/manifest
+  (EMITTER_VERSION 3); README carries 466 with the full test
+  inventory; the G3.1 census (106 methods: 76 typed-ready,
+  13 liftable-all-ref, 13 needs-cfg-lift — ImpureJoin 4,
+  HasExceptionTable 8 — mixed-epoch 4; 79.3% prim share) is committed
+  evidence.
+- **Full baseline re-proven AFTER the reset (T05's law): 466 tests,
+  0 failures** at `63f34a7` — classfile 41 · codegen 136 · jni-ffi 17
+  · runtime 243 · cli bin 15 · corpus 1 (30.82 s) · jar 3 (19.71 s) ·
+  partition 1 (4.65 s) · soe 1 (26.58 s) · lambda 2 · native_e2e 2 ·
+  jni_parity 1 (10.79 s) · cfg_equiv 1 (351.07 s) · diff_suite 2
+  (476.52 s — 109 fixtures, ZERO divergences); fmt clean; clippy
+  `-D warnings` clean.
+- Gates re-run green on the fresh tree: gate-11 `fixtures=109
+  tests=466` ✓, gate-19 links ✓, gate-20 stubs ✓, gate-12 seams ✓ —
+  plus **gate-23 FULL LOCAL PASS** end-to-end on the recovered tree:
+  fixture compiled, checker green ("3 boundary field(s), all marked;
+  sidecar in sync"), the marked crate built --offline and its
+  three-channel output vs Temurin identical (52/3/7/42, rc 0 == 0).
+- **TODO.md + ROADMAP drift found by the read-through and fixed**:
+  TODO.md had no G4.2/G3.1 closure entries, its battery was stale at
+  465 ("466" appeared NOWHERE in the file), and its sequencing line
+  still said "next: G4 then G3" with "T14–T16 mappings (G5) start
+  only after G1 AND G2 are checked"; ROADMAP's M5 row still said
+  "next: G2 (the 70k path) — the remaining P0". All reconciled: the
+  G4.2 (arm b, gate-23, tamper-tested) and G3.1 (census) closures are
+  now recorded in TODO.md with evidence commits, the battery reads
+  465→466 with gate-11 in sync, sequencing reads G3.1 next / G4.1
+  owner verdict pending / G5 UNBLOCKED (G1+G2 checked) ordered after
+  G3/G4, and ROADMAP's M5+M6 rows carry the same state.
+- **M6_PLAN.md rev 0 drafted (owner request: "make a M5_plan.md just
+  like all previous")** — named M6 because M5_PLAN.md already exists
+  (the Minecraft-readiness plan from 2026-11-08) and the M2→M3→M4→M5
+  series continues at M6: **docs/M6_PLAN.md — Mod ecosystem (rev 0,
+  owner review pending)**. Contents: §0 scope + the ordering law (the
+  review's G5.4 gate is SATISFIED — G1.1–G1.6 and G2.1–G2.7 all
+  checked; planning ≠ implementation start; T14–T23 stay M5_PLAN-owned
+  and land first; the v1 out-of-scope list: no runtime rewriting, no
+  runtime class generation, no dynamic mod discovery, Forge/NeoForge
+  = boundary note only, jar-in-jar loud-unsupported); §1 the seam
+  audit table VERIFIED against source this session (9 rows: CLI verbs
+  build/test already exist and get EXTENDED not created; zip.rs
+  classic+ZIP64; manifest stage-level caching gap; partitioned
+  emission + the G2.7 budget framing; the T12 registry path means the
+  loader shim needs NO new FFI — rows 5 and 8 explicitly marked
+  "to verify at wave 0"); §2 the mod pipeline (`j2r build mod.jar`:
+  fabric.mod.json v1 subset, closed-world mixin resolution, five
+  stages, stage-level manifest caching with the G2.2 tier as the
+  measured expectation); §3 the loader surface as natives (census-
+  driven FabricLoader v1 subset, each method a registry slot +
+  differential fixture, resources routed to the mod jar on disk);
+  §4 mixins at mod scale + the dev loop (`j2r test mod` reuses
+  diff_suite + sharding; harness positive control first — the gate-23
+  tamper-test pattern; new CI gate-24-mod-boot; sampler protocol for
+  footprint); §5 the Forge/NeoForge boundary design note (GO/NO-GO,
+  no v1 implementation); §6 the task register T24–T35 across five
+  waves; §7 the standing evidence rules inherited verbatim.
+- ROADMAP M6 row now points at docs/M6_PLAN.md ("plan drafted — rev 0,
+  owner review pending; implementation gated on M5 review"); TODO.md's
+  M6 section carries the [~] planning pointer and the three boxes gain
+  their §-references.
+- Next: **G3.1** — the deferred-join mechanism (the named
+  `ImpureJoin` lowering) behind `--emit-cfg`; tred2/orthes/hqr2 lift;
+  cfg_equiv stays zero-divergence; same-session controlled pair
+  recorded either way (a measured NO-GO is a valid recorded outcome).

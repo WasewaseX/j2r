@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-10.
+fix the board. Last updated: 2026-11-11.
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -1568,13 +1568,36 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       50k emit 36.35 s / 2.23 GB; 70k emit 53.14 s / 3.16 GB INSIDE
       the 4 GB budget at Minecraft scale (javac needed -J-Xmx3g;
       the 70,003-entry jar is ZIP64 — the reader rejected it, zip.rs
-      now reads ZIP64 with 3 new tests, battery 465/0, gate-11 in
+      now reads ZIP64 with 3 new tests (battery 465/0 at that moment;
+      the final session-13 battery is 466, below), gate-11 in
       sync); G2.7 CLOSED session 13 (budget named in the ladder
-      scripts + 70k record); G2.1–G2.7 all checked — next: G4 then
-      G3; G2.5-ladder-continuation (a rung above 20k end-to-end)
+      scripts + 70k record); G2.1–G2.7 all checked; G2.5-ladder-continuation
+      (a rung above 20k end-to-end)
       waits for a bigger box)
       is the remaining P0; T14–T16
       mappings (G5) start only after G1 AND G2 are checked.
+      — 4.2 LANDED (2026-11-11 session 15 verification: the session-13
+      tail is recorded here in full) — **G4.2 CLOSED via arm (b)
+      (`2f795ec`)**: the JMM boundary is machine-enforced, not just
+      documented — every generated access to a volatile /
+      non-folded-final field carries a J2R-JMM-BOUNDARY marker at the
+      use site (default + typed paths + registry rows), every emitted
+      crate gains the deterministic src/jmm_boundary.rs sidecar
+      (EMITTER_VERSION 2→3), CI gate-23-jmm-boundary re-derives the
+      expected set from the input .class flags and fails loudly on
+      divergence, tamper-tested rc=1, marked crate vs Temurin
+      three-channel 52/3/7/42 identical; battery 465→466 (the G4.2
+      sidecar+marker test), gate-11 in sync (README 466). **G3.1
+      baseline registered (`cbcbbcb`)**: the readiness census committed
+      (106 methods: 76 typed-ready, 13 liftable-all-ref, 13
+      needs-cfg-lift — ImpureJoin 4, HasExceptionTable 8 — mixed-epoch 4;
+      hqr2 26/33 clean positions at 93.2% prim occupancy); the
+      deferred-join mechanism is the named next layer (DESIGNED entry
+      below). **Sequencing now: G3.1 (deferred-join) next; G4.1 (owner
+      verdict) open with enforcement evidence ready; G5 (T14–T23)
+      UNBLOCKED by the ordering gate — G1 AND G2 are both checked —
+      ordered after G3/G4 per the review; M6 planning drafted per owner
+      request: docs/M6_PLAN.md rev 0 (owner review pending).
 - [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
       constant-pool remap stage before j2r)
 - [ ] mixin application at the bytecode level before j2r (R1; §4,
@@ -1585,9 +1608,20 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
 
 ### M6 mod ecosystem
 
-- [ ] Fabric/Forge/NeoForge surface as natives + compiled mods
-- [ ] `j2r build mod.jar`
-- [ ] `j2r test mod` dev loop
+- [~] planning: **docs/M6_PLAN.md rev 0 drafted (2026-11-11, owner
+      review pending)** — §0 ordering law (G5.4 satisfied: G1+G2 checked;
+      T14–T23 stay M5_PLAN-owned and land first), §1 seam audit
+      (verified 2026-11-11 at `63f34a7`), §2 the mod pipeline
+      (`j2r build mod.jar`), §3 the loader surface as natives, §4 the
+      boot bar + `j2r test mod` + gate-24, §5 the Forge/NeoForge
+      boundary note, §6 task register T24–T35.
+- [ ] Fabric/Forge/NeoForge surface as natives + compiled mods (§3;
+      v1 Fabric, Forge/NeoForge = boundary note only per §5)
+- [ ] `j2r build mod.jar` (§2; the EXISTING verb gains mod semantics —
+      fabric.mod.json v1 parse, stage pipeline, stage-level manifest
+      caching; plain-jar behavior pinned unchanged)
+- [ ] `j2r test mod` dev loop (§4; reuses diff_suite + sharding;
+      gate-24-mod-boot; harness positive control first)
 
 ## 4. Standing law (always, no exceptions)
 
