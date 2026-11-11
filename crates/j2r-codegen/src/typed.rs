@@ -1621,6 +1621,9 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let f = crate::resolve_field_pub(ctx.prog, class, field, true)
                 .expect("validated static field");
             let slot = f.static_slot.expect("static field");
+            if let Some(marker) = crate::emit::jmm_boundary_marker(f, class) {
+                ctx.out.push(marker);
+            }
             // ensure → possible <clinit> dispatch; refresh while the value
             // is still on the stack so the snapshot holds it.
             ctx.refresh(pc);
@@ -1634,9 +1637,13 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 .push(format!("crate::statics::set({slot}u32, __v);"));
         }
         I::GetField { class, field, .. } => {
-            let f =
-                crate::resolve_field_pub(ctx.prog, class, field, false).expect("validated field");
-            let slot = f.instance_slot.expect("instance field");
+            let slot = crate::resolve_field_slot_pub(ctx.prog, class, field, false)
+                .expect("validated field");
+            if let Ok(f) = crate::resolve_field_pub(ctx.prog, class, field, false) {
+                if let Some(marker) = crate::emit::jmm_boundary_marker(f, class) {
+                    ctx.out.push(marker);
+                }
+            }
             let r = ctx.try_ref_of(pc, vs[k - 1], &fault);
             ctx.out.push(format!("let __r = {r};"));
             // obj_get returns a plain `Value` (the NPE is already raised
@@ -1646,13 +1653,25 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             // stores as before.
             let get = format!("{RT}::object::obj_get(&__r, {slot}usize)");
             let top = vs[k - 1];
-            let kind = desc_kind_of(&f.desc);
+            // The kind comes from the USER field's descriptor; a
+            // builtin-ancestor field (not a FieldPlan) is an object ref —
+            // the corpus builtin fields (FilterInputStream.in et al) are
+            // refs by construction.
+            let kind = match crate::resolve_field_pub(ctx.prog, class, field, false) {
+                Ok(f) => desc_kind_of(&f.desc),
+                Err(_) => Kind::Ref,
+            };
             let target = ctx.refill_target(top, pc, Some(kind));
             ctx.push_result(top, target, get, Src::Value, false, kind);
         }
         I::PutField { class, field, .. } => {
             let slot = crate::resolve_field_slot_pub(ctx.prog, class, field, false)
                 .expect("validated field");
+            if let Ok(f) = crate::resolve_field_pub(ctx.prog, class, field, false) {
+                if let Some(marker) = crate::emit::jmm_boundary_marker(f, class) {
+                    ctx.out.push(marker);
+                }
+            }
             let v = ctx.wrap_s(pc, vs[k - 1]);
             ctx.out.push(format!("let __v = {v};"));
             let r = ctx.try_ref_of(pc, vs[k - 2], &fault);
@@ -2305,6 +2324,9 @@ fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, _fault: &str, class: &str, f
     } else {
         let f =
             crate::resolve_field_pub(ctx.prog, class, field, true).expect("validated static field");
+        if let Some(marker) = crate::emit::jmm_boundary_marker(f, class) {
+            ctx.out.push(marker);
+        }
         let slot = f.static_slot.expect("static field");
         let ensures = crate::emit::ensure_calls(ctx.prog, class);
         // `ensure` may dispatch into user code (<clinit>): refresh first.

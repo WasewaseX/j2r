@@ -315,22 +315,46 @@ state ~66× behind the full-tier JVM on JamaBench; ~73–104× on StringsSimBenc
 ## G4 — P1: Close the concurrency review (M4 + the JMM boundary)
 
 State: all four M4 waves implemented and CI-verified; the owner completion
-review is PENDING (registered); volatile and final-field freeze semantics
-do NOT exist (RUNTIME_SAFETY.md §6 documents the boundary).
+review is PENDING (registered) — and since session 13 it has enforcement
+evidence to review: the §6 boundary (volatile / final-freeze do NOT exist)
+is MACHINE-ENFORCED (G4.2 arm (b): access-site markers + the
+`src/jmm_boundary.rs` sidecar in every emitted crate + CI gate-23).
 
 - [ ] **G4.1 — the M4 owner review completes** with a recorded verdict
   (approve / approve-with-follow-ups / request-changes) in the boards.
-- [ ] **G4.2 — the memory-model boundary is enforced, not just
-  documented.** PASS (either arm): (a) volatile/final-freeze implemented
-  with litmus-suite evidence per STRATEGIC_GAPS R4 (the JMM→Rust mapping
-  table + SB/CoRR/IRIW/message-passing litmus tests asserting the ALLOWED
-  outcome set under stress), or (b) the boundary stays as documented AND
-  gains machine enforcement — a CI check that fails loudly when a field
-  marked `volatile`/`final` in input bytecode is compiled to a plain
-  non-atomic access WITHOUT the documented boundary warning in the
-  generated crate (the incompatibility must be visible at the use site,
-  not only in a doc). FAIL: dropping the documentation, or claiming
-  JMM conformance that §6 does not support.
+  Session 13 note: the review now has enforcement evidence to review —
+  G4.2 arm (b) landed (gate-23 + markers + sidecar); the JMM §6
+  statement carries its machine-enforcement note.
+- [x] **G4.2 — the memory-model boundary is enforced, not just
+  documented.** CLOSED session 13 via **arm (b)** — the boundary stays
+  as documented AND gains machine enforcement: every generated access
+  to a volatile field (and every non-folded final — folded constants
+  are JMM-safe) carries a `J2R-JMM-BOUNDARY:` marker comment AT THE
+  USE SITE (both the default and the typed emission paths; the
+  registry rows carry it too), every emitted crate gains a
+  deterministic `src/jmm_boundary.rs` sidecar listing exactly the
+  boundary fields, and **CI gate-23-jmm-boundary** (new, wired into
+  gate-8) re-derives the expected set from the INPUT `.class` flags
+  (python classfile parser in scripts/check_jmm_boundary.py) and
+  fails loudly on: sidecar divergence, a missing access-site marker,
+  or a marker naming a non-boundary field — the gate then builds the
+  marked crate and runs it against Temurin three-channel (expected
+  `52/3/7/42`) proving the marker plumbing changed no behavior.
+  Tamper-tested: stripping an access-site marker → rc=1 with a named
+  failure. In-repo test jmm_boundary.rs (hand-built classfile with
+  all five flag shapes) asserts sidecar exact-match + marker counts
+  (2 volatile + 2 final) + no false positives on the plain field and
+  the folded constant. Builtin-ancestor fields (JZlib's
+  FilterInputStream.in) resolve to slots, not FieldPlans — markers
+  attach only to user fields, which is exactly the checker's scope.
+  EMITTER_VERSION 2→3 (emitted bytes changed: every crate gains the
+  sidecar + the lib.rs module line). Battery green 466/0 (diff 109
+  zero divergences, cfg_equiv, runtime 243, codegen 136 incl. the
+  new test, classfile 41, jar/corpus/partition/soe/lambda/jni/
+  native; fmt + clippy clean; gate-11 in sync fixtures=109
+  tests=466). Arm (a) (real volatile/freeze semantics with litmus
+  suites per STRATEGIC_GAPS R4) remains FUTURE work — the boundary is
+  now enforced, not claimed.
 
 ## G5 — P2: Mappings, mixins, inline caches (ordered AFTER G1/G2 per the review)
 

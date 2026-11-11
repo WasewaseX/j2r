@@ -340,6 +340,21 @@ impl FieldInfo {
     pub fn is_static(&self) -> bool {
         self.access & flags::ACC_STATIC != 0
     }
+
+    /// `ACC_VOLATILE` (G4.2 arm (b)): the input bytecode promises Java
+    /// volatile semantics; j2r compiles the field as a plain slot access,
+    /// so the boundary must be marked at every generated use site.
+    pub fn is_volatile(&self) -> bool {
+        self.access & flags::ACC_VOLATILE != 0
+    }
+
+    /// `ACC_FINAL`. A `static final` WITH a `ConstantValue` is folded at
+    /// compile time and carries no boundary (the JMM explicitly allows
+    /// constant folding); a final field without one is a plain slot and
+    /// the freeze semantics are absent.
+    pub fn is_final(&self) -> bool {
+        self.access & flags::ACC_FINAL != 0
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

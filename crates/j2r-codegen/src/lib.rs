@@ -247,6 +247,14 @@ pub struct FieldPlan {
     /// Absolute slot index in the flattened object layout.
     pub instance_slot: Option<usize>,
     pub constant_value: Option<ConstantValue>,
+    /// `ACC_VOLATILE` in the input bytecode (G4.2 arm (b)): the runtime
+    /// provides no Java volatile ordering — every generated access site
+    /// carries the boundary marker and the sidecar lists the field.
+    pub is_volatile: bool,
+    /// `ACC_FINAL` in the input bytecode WITHOUT a `ConstantValue` (the
+    /// folded constants are JMM-safe): no final-field freeze semantics —
+    /// marked like volatile.
+    pub is_final: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -537,6 +545,10 @@ fn parse_and_add(
             static_slot,
             instance_slot,
             constant_value: f.constant_value.clone(),
+            is_volatile: f.is_volatile(),
+            // final + ConstantValue is folded (JMM-safe); only the
+            // non-folded finals carry the boundary.
+            is_final: f.is_final() && f.constant_value.is_none(),
         });
     }
 

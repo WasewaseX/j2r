@@ -81,8 +81,11 @@ use std::path::{Path, PathBuf};
 /// Bumped whenever any emitted byte could change for identical inputs
 /// (emitter logic, templates, runtime vendoring). Recorded in the manifest;
 /// a mismatch forces a full re-emit. v2: the G2.6 array-literal peephole
-/// changes emitted bytes for clinit-bearing classes.
-pub const EMITTER_VERSION: u32 = 2;
+/// changes emitted bytes for clinit-bearing classes. v3: the G4.2 JMM
+/// boundary marker — every emitted crate gains `src/jmm_boundary.rs`
+/// and a `pub mod jmm_boundary;` line in lib.rs; boundary-field access
+/// sites gain the marker comment.
+pub const EMITTER_VERSION: u32 = 3;
 
 const MANIFEST_NAME: &str = "j2r-manifest.tsv";
 const FORMAT_VERSION: &str = "v2";

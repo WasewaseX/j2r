@@ -1751,3 +1751,50 @@ getrusage max single child, mistake-list #2).
 - Next: **G4** (M4 owner review — JMM volatile + final-field freeze
   semantics or the CI-enforced warning, per the review sequence), then
   **G3** (typed-codegen deferred-join performance).
+
+## Session 13 cont. 2 — 2026-11-10 (~23:45–00:15 UTC): G4.2 CLOSED via arm (b)
+
+- **The JMM boundary is now ENFORCED, not just documented** (REVIEW_
+  CHECKLIST G4.2 arm (b), the review's either-arm bar):
+  - Codegen: `FieldPlan` carries `is_volatile`/`is_final` (from the
+    input `ACC_VOLATILE` / `ACC_FINAL` flags; a final WITH ConstantValue
+    folds and is JMM-safe, so only non-folded finals carry the boundary).
+    Every generated access — GetStatic/PutStatic/GetField/PutField in
+    BOTH the default and the typed emission paths, plus the reflection
+    FIELDS_ rows — emits a `J2R-JMM-BOUNDARY:` marker comment at the use
+    site naming the field, its flag, and docs/RUNTIME_SAFETY.md §6.
+  - Every emitted crate (single-crate AND partitioned app) gains a
+    deterministic `src/jmm_boundary.rs` sidecar listing exactly the
+    boundary fields. EMITTER_VERSION 2→3.
+  - **CI gate-23-jmm-boundary** (wired into gate-8's needs): javac the
+    committed `crates/j2r-cli/tests/jmm/JmmBoundary.java` fixture →
+    j2r compile → `scripts/check_jmm_boundary.py` re-derives the
+    expected set from the INPUT `.class` flags (own python classfile
+    parser) and fails loudly on sidecar divergence, a missing
+    access-site marker, or a marker naming a non-boundary field; then
+    builds the marked crate and runs it vs Temurin three-channel
+    (`52/3/7/42`) — marker plumbing changed no behavior.
+  - **Tamper-tested**: stripping the access-site markers → rc=1 with a
+    named failure (the first tamper attempt exposed that registry-row
+    markers satisfied the needle — the checker now requires the marker
+    in `src/classes/` specifically; the sidecar is excluded so a field
+    cannot satisfy its own check).
+  - In-repo test `crates/j2r-codegen/tests/jmm_boundary.rs`: a
+    hand-assembled classfile with all five flag shapes asserts sidecar
+    exact-match, per-access marker counts (2 volatile + 2 final), and
+    no false positives on the plain field and the folded constant.
+  - Builtin-ancestor field accesses (corpus wave 2: JZlib touches
+    `FilterInputStream.in` by name) resolve to slots, not FieldPlans —
+    markers attach only to user fields, which is exactly the checker's
+    scope; the corpus_suite failure this exposed on the first cut was
+    the discovery that motivated the user-field-only marker rule.
+- Battery green **466/0**: classfile 41, codegen 136 (incl. jmm_
+  boundary), runtime 243, jni-ffi 17, cli bin 15 + corpus 1 + jar 3 +
+  partition 1 + soe 1 + lambda 2 + jni_parity 1 + native_e2e 2 +
+  diff_suite 2 (109 fixtures, zero divergences, 483.68 s) + cfg_equiv 1
+  (354.34 s); fmt + clippy clean; gate-11 in sync (README 465→466).
+- G4.1 (the owner verdict) stays OPEN — the review now has enforcement
+  evidence to review. Arm (a) (real volatile/freeze semantics with
+  litmus suites, STRATEGIC_GAPS R4) remains future work.
+- Next: **G4.1** awaits the owner; then **G3** (typed-codegen
+  deferred-join performance, the P1 ladder).

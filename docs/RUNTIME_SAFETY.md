@@ -241,10 +241,21 @@ this section is the review artifact for everything the suite cannot see.
 * **`volatile` does not exist**: compiled `volatile` fields are plain
   fields — no memory barriers, no ordering. A program relying on
   volatile for visibility or atomicity is out of contract.
+  **Machine-enforced (G4.2 arm (b), 2026-11-10)**: every generated
+  access to a volatile field carries a `J2R-JMM-BOUNDARY:` marker
+  comment at the use site, the emitted crate carries a
+  `src/jmm_boundary.rs` sidecar listing exactly the boundary fields,
+  and CI gate-23 fails loudly when either diverges from the input
+  bytecode's `ACC_VOLATILE` facts (checker re-derives the set from the
+  `.class` files).
 * **`final`-field freeze semantics do not exist**: a `final` field is a
   plain field; a data race may observe its default value across threads
   (the JDK guarantees the initialized value for properly constructed
   objects — j2r does not, because there is no freeze barrier).
+  **Machine-enforced (G4.2 arm (b), 2026-11-10)**: non-folded finals
+  (`ACC_FINAL` without a `ConstantValue`; folded constants are JMM-safe)
+  are marked at every access site, listed in the same sidecar, and
+  checked by gate-23 like volatile.
 * **Data-race freedom for racy programs is not claimed**: two threads
   doing plain-field writes/reads race as in Java — stale reads are
   allowed. j2r's heap-lock-per-access gives each *individual* access

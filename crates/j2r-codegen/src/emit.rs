@@ -23,7 +23,7 @@
 use crate::ir::{ArithOp, CmpKind, Conv, Instr, Ldc, Ldc2, NumKind};
 use crate::manifest::{write_if_changed, EmitStats, Entry, Manifest, EMITTER_VERSION};
 use crate::sha256::sha256_hex;
-use crate::{CallTarget, ClassPlan, MainInfo, MethodPlan, Options, Program};
+use crate::{CallTarget, ClassPlan, FieldPlan, MainInfo, MethodPlan, Options, Program};
 use j2r_classfile::ConstantValue;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -128,6 +128,7 @@ pub fn emit_crate(prog: &Program, opts: &Options) -> crate::Result<EmitStats> {
 #![allow(dead_code, unused_variables, unused_mut, unused_assignments, unused_labels, unreachable_code, unused_parens, unused_imports, non_snake_case)]
 
 pub mod classes;
+pub mod jmm_boundary;
 pub mod registry;
 pub mod statics;
 
@@ -209,6 +210,11 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
             c.fields.len()
         );
         for f in &c.fields {
+            // G4.2 arm (b): boundary fields are marked at every site the
+            // generated crate exposes, including the reflection table.
+            if let Some(marker) = jmm_boundary_marker(f, &c.name) {
+                let _ = writeln!(registry, "    {marker}");
+            }
             let _ = writeln!(
                 registry,
                 "    ::j2r_runtime::UserField {{ name: {:?}, desc: {:?}, is_static: {}, instance_slot: {}, static_slot: {} }},",
@@ -268,6 +274,47 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
         out,
         "src/registry.rs",
         registry.as_bytes(),
+        &mut glue,
+        &mut stats,
+    )?;
+    // G4.2 arm (b): the machine-readable boundary sidecar. Deterministic
+    // content; lists EVERY field whose input bytecode flags promise
+    // semantics the runtime does not provide (volatile ordering, final
+    // freeze). CI gate-23 (scripts/check_jmm_boundary.py) re-derives the
+    // expected set from the INPUT .class files and fails loudly when this
+    // list diverges from it or when an access site lacks its marker.
+    let mut jmm = String::new();
+    jmm.push_str(
+        "// J2R-JMM-BOUNDARY sidecar (docs/RUNTIME_SAFETY.md §6): the fields\n// below are volatile / final (non-constant) in the INPUT bytecode and\n// are compiled as PLAIN non-atomic slot accesses — no Java volatile\n// ordering, no final-field freeze. Checked by CI gate-23; the marker\n// comments sit at every access site in the generated sources.\n",
+    );
+    jmm.push_str("pub const BOUNDARY_FIELDS: &[(&str, &str, &str)] = &[\n");
+    let mut boundary_rows = 0usize;
+    for c in &prog.classes {
+        for f in &c.fields {
+            if let Some(marker) = jmm_boundary_marker(f, &c.name) {
+                let kind = if f.is_volatile { "volatile" } else { "final" };
+                let _ = writeln!(
+                    jmm,
+                    "    {marker}\n    ({:?}, {:?}, {kind:?}),",
+                    c.name, f.name
+                );
+                boundary_rows += 1;
+            }
+        }
+    }
+    jmm.push_str(
+        "];
+",
+    );
+    let _ = writeln!(
+        jmm,
+        "// {} boundary field(s) at this compile.",
+        boundary_rows
+    );
+    emit_glue(
+        out,
+        "src/jmm_boundary.rs",
+        jmm.as_bytes(),
         &mut glue,
         &mut stats,
     )?;
@@ -1592,12 +1639,18 @@ fn emit_instr(
                     let f = crate::resolve_field_pub(prog, class, field, true)
                         .expect("validated static field");
                     let slot = f.static_slot.expect("static field");
+                    if let Some(marker) = jmm_boundary_marker(f, class) {
+                        out.push(marker);
+                    }
                     out.push(format!("stack.push(crate::statics::get({slot}u32));"));
                 }
             } else {
                 let f = crate::resolve_field_pub(prog, class, field, true)
                     .expect("validated static field");
                 let slot = f.static_slot.expect("static field");
+                if let Some(marker) = jmm_boundary_marker(f, class) {
+                    out.push(marker);
+                }
                 let ensures = ensure_calls(prog, class);
                 // `ensure` may dispatch into user code (<clinit>): refresh
                 // the frame snapshot first (M2_PLAN §4.4).
@@ -1614,6 +1667,9 @@ fn emit_instr(
             let f = crate::resolve_field_pub(prog, class, field, true)
                 .expect("validated static field");
             let slot = f.static_slot.expect("static field");
+            if let Some(marker) = jmm_boundary_marker(f, class) {
+                out.push(marker);
+            }
             // ensure → possible <clinit> dispatch; refresh while the value
             // is still on the stack so the snapshot holds it.
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
@@ -1626,6 +1682,15 @@ fn emit_instr(
         Instr::GetField { class, field, .. } => {
             let slot =
                 crate::resolve_field_slot_pub(prog, class, field, false).expect("validated field");
+            // Marker only for USER fields — a builtin-ancestor access
+            // (corpus wave 2: FilterInputStream.in) resolves to a slot,
+            // not a FieldPlan, and the checker's scope is the input
+            // bytecode's own fields.
+            if let Ok(f) = crate::resolve_field_pub(prog, class, field, false) {
+                if let Some(marker) = jmm_boundary_marker(f, class) {
+                    out.push(marker);
+                }
+            }
             out.push(format!(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
@@ -1636,6 +1701,11 @@ fn emit_instr(
         Instr::PutField { class, field, .. } => {
             let slot =
                 crate::resolve_field_slot_pub(prog, class, field, false).expect("validated field");
+            if let Ok(f) = crate::resolve_field_pub(prog, class, field, false) {
+                if let Some(marker) = jmm_boundary_marker(f, class) {
+                    out.push(marker);
+                }
+            }
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push(format!(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
@@ -1911,6 +1981,29 @@ fn constant_literal(v: &j2r_runtime::Value) -> String {
         }
         other => unreachable!("concat constant {other:?}"),
     }
+}
+
+/// G4.2 arm (b) — the JMM boundary marker. Returns the comment text for
+/// every generated access to a field whose input bytecode flags promise
+/// semantics the runtime does not provide: `ACC_VOLATILE` (no Java
+/// volatile ordering) and `ACC_FINAL` without a `ConstantValue` (no
+/// final-field freeze; folded constants are JMM-safe). The marker makes
+/// the incompatibility visible AT THE USE SITE (docs/RUNTIME_SAFETY.md
+/// §6), and CI gate-23 (scripts/check_jmm_boundary.py) fails loudly when
+/// a boundary field lacks its markers or the `src/jmm_boundary.rs`
+/// sidecar diverges from the input facts.
+pub(crate) fn jmm_boundary_marker(f: &FieldPlan, class: &str) -> Option<String> {
+    let kind = if f.is_volatile {
+        "volatile"
+    } else if f.is_final {
+        "final"
+    } else {
+        return None;
+    };
+    Some(format!(
+        "// J2R-JMM-BOUNDARY: {class}.{} is {kind} in the input bytecode; this access is a PLAIN non-atomic slot access — no Java volatile ordering / no final-field freeze (docs/RUNTIME_SAFETY.md §6).",
+        f.name
+    ))
 }
 
 /// `ensure` calls for the user-class chain from the topmost user ancestor

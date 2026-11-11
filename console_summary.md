@@ -420,13 +420,30 @@ by the per-crate budget K.
   front and is measured against it — **CLOSED session 13**: budget
   named in the ladder scripts (guard ≥1.2 GB, sampler on every cargo
   chunk) and in the 70k record (emit 3.16/4.0 GB measured).
+- [x] **G4.2** — the memory-model boundary is enforced, not just
+  documented — **CLOSED session 13 via arm (b)**: `J2R-JMM-BOUNDARY:`
+  marker comments at EVERY generated access site (default + typed
+  paths + registry rows) for volatile and non-folded-final fields;
+  a deterministic `src/jmm_boundary.rs` sidecar in every emitted
+  crate (EMITTER_VERSION 2→3); **CI gate-23-jmm-boundary** re-derives
+  the expected set from the input `.class` flags (python classfile
+  parser) and fails loudly on divergence or a missing marker, then
+  runs the marked crate vs Temurin three-channel (52/3/7/42).
+  Tamper-tested (rc=1 named failure); in-repo test with all five flag
+  shapes; builtin-ancestor fields resolve to slots and stay outside
+  the marker scope by design. Battery green 466/0; gate-11 in sync.
+  RUNTIME_SAFETY.md §6 carries the machine-enforcement note. Arm (a)
+  (real volatile/freeze semantics + litmus suites) stays future work.
+- [G4.1] the M4 owner verdict — OPEN, now with enforcement evidence
+  to review (gate-23 + markers + sidecar).
 - Implementation order (2026-11-10 external review): ~~G2.1~~ DONE;
   ~~G2.6~~ DONE; ~~G2.2~~ DONE; ~~G2.3~~ DONE; ~~G2.4~~ DONE; ~~G2.1b~~
   DONE; ~~G2.5~~ DONE (honest ladder: 20k PASS, 35k link-disk-wall
   triple-measured, 50k/70k emit measured, 70k NOT claimed); ~~G2.7~~
   DONE (all sessions 11–13) → **G2 ladder on THIS box class is
-  complete**; next per the review sequence: G4 (JMM volatile/final
-  review) then G3 (typed-codegen); G2.5-ladder-continuation resumes
+  complete**; ~~G4.2~~ DONE (arm b, session 13); G4.1 (owner verdict)
+  open; next per the review sequence: **G3** (typed-codegen);
+  G2.5-ladder-continuation resumes
   when a bigger box is available; no mappings/mod-loader work until
   the G2 gate set passes — G2.1–G2.7 now all checked.
 - [x] **T08** (JNI, wave 2) — LANDED session 2 with full CI evidence
@@ -553,16 +570,18 @@ by the per-crate budget K.
   pthread battery verdict 2047 byte-identical both runtimes, the
   loud-gap pins, gate-22 wired into the aggregate (17 gates); 452
   green. The checklist's G1 section is fully discharged.
-- [ops] Session 13 (2026-11-10 ~22:30–23:35 UTC): **G2.4 CLOSED, G2.1b
+- [ops] Session 13 (2026-11-10 ~22:30–00:15 UTC): **G2.4 CLOSED, G2.1b
   CLOSED (arm b), G2.5 CLOSED (honest ladder, 70k NOT claimed), G2.7
-  CLOSED — the G2.1–G2.7 gate set is now fully checked**. G2.4: release
+  CLOSED, G4.2 CLOSED (arm b) — the G2.1–G2.7 gate set is fully
+  checked and the JMM boundary is machine-enforced**. G2.4: release
   trio measured (cold release cargo 7537.36 s / 14 chunks, peak 3.29
   GB, parity PASS, no-op release cargo 0.36 s). G2.5: 35k all-units-
   compiled + link disk-wall triple-measured (lld 3.28 GB INSIDE
   budget); 50k emit 36.35 s; 70k emit 53.14 s / 3.16 GB INSIDE budget;
-  ZIP64 jar-reader fix landed (70k jar was rejected) — battery 465/0,
-  gate-11 in sync. Next: **G4** (M4 JMM volatile/final-field owner
-  review per the review sequence), then **G3**.
+  ZIP64 jar-reader fix landed (70k jar was rejected) — battery grew
+  462→465. G4.2: JMM markers at every access site + sidecar + gate-23
+  + tamper test — battery 465→466, gate-11 in sync. Next: **G4.1**
+  (owner verdict) + **G3** (typed-codegen deferred-join).
 - [ops] Session 12 (2026-11-10 ~20:13 UTC): reset #12 survived via §9
   (tree back at pre-M3 `b4badea`; ff-only merge → `c4c45cf` ==
   origin/main, 167 commits — all four G2 closures verified ON origin);
