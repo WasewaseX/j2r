@@ -1823,3 +1823,39 @@ getrusage max single child, mistake-list #2).
   the session; the G2.1–G2.7 gate set fully checked; the JMM boundary
   machine-enforced; G4.1 (owner verdict) the only open G4 item, with
   enforcement evidence ready to review.
+
+## Session 14 — 2026-11-11: reset #13 survived via §9; baseline re-proven 466; G3.1 begins
+
+- Reset #13 hit between sessions (tree back at pre-M3 `b4badea`,
+  tools/ + env.sh + $WORK wiped; `target/` 520 MB survived → warm
+  builds). The §9 recipe executed: fetch + ff-only merge → HEAD
+  `cbcbbcb` == origin/main (168 commits; G2.4 262e038, G2.5+G2.7+ZIP64
+  7b6680c, G4.2 2f795ec, G3.1 baseline census cbcbbcb — all verified ON
+  origin, nothing lost). The session-13 tally read back from the boards:
+  G2.4, G2.1b, G2.5, G2.7, G4.2 CLOSED; battery 452→466.
+- Toolchain rebootstrap (§3.1 item 1, full download route): rustup-init
+  29,915 B script → pinned **cargo/rustc 1.99.1 + rustfmt 1.10.0 +
+  clippy 0.1.99** into `tools/cargo` (CARGO_HOME) + `tools/rustup2`
+  (RUSTUP_HOME); Temurin **jdk-21.0.13+9** tarball **207,858,352 B
+  byte-exact** via the GitHub releases-asset route (session 7's
+  precision note held) → `tools/jdk-21.0.13+9` (javac/java 21.0.13
+  verified); `env.sh` recreated (JAVA_HOME, J2R_JAVAC, CARGO_HOME,
+  RUSTUP_HOME, PATH, CARGO_PROFILE_DEV_DEBUG=0).
+- **Full baseline re-proven BEFORE any G3.1 code (T05's law):
+  466 tests, 0 failures** at `cbcbbcb` — classfile 41 · codegen 136
+  (lib 110 + e2e 1 + malformed 12 + manifest 11 + wide_ids 1 +
+  jmm_boundary 1) · jni-ffi 17 · runtime 243 · cli bin 15 · corpus 1
+  (30.62 s) · jar 3 (19.51 s) · partition 1 (4.54 s) · soe 1 (26.55 s)
+  · lambda 2 · native_e2e 2 · jni_parity 1 (11.00 s) · cfg_equiv 1
+  (349.31 s) · diff_suite 2 (462.66 s — 109 fixtures, zero
+  divergences); fmt clean; clippy `-D warnings` clean.
+- Gates re-run green on the fresh tree: gate-11 `fixtures=109
+  tests=466` ✓, gate-19 links ✓, gate-20 stubs ✓, gate-12 seams ✓.
+- NEW LESSON (#12, process): protocol scripts must be COMMITTED before
+  their first run — the session-12 `g2_4_release_trio.sh` died un-run
+  in reset #13's wipe only because the session-13 close landed it;
+  anything not pushed is not protected, scripts included.
+- Next: **G3.1** — the deferred-join mechanism (the named
+  `ImpureJoin` lowering) behind `--emit-cfg`; tred2/orthes/hqr2 lift;
+  cfg_equiv stays zero-divergence; same-session controlled pair
+  recorded either way (a measured NO-GO is a valid recorded outcome).
