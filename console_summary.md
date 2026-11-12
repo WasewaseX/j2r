@@ -23,7 +23,13 @@ verify.rs:2202/2235 — stays deferred per the DECIDED design); R2
 metadata generator unchanged (post-M4 scope). Next: **G3.3** —
 primitive-specialized collections (the 2.78× container tax, register
 step 3); follow-up candidate registered: the default backend's own arg
-vecs (same shape, separately measured if taken).
+vecs (same shape, separately measured if taken). **G3.3 OPENING
+(same session):** the primitive-specialized map path concretized —
+census + design committed (scripts/evidence/g3_3/
+opening_census_2026-11-12.txt): signature-pinned, map_put_prim/
+map_get_prim behind a dataflow-window guard, identity laws kept,
+node slot stays a Value; registered NOT scheduled, after the G3.2
+slices conclude.
 
 Updated 2026-11-12 (session 18 — **the G3.2 opening measurement TAKEN**:
 the typed-payload re-measure at the all-four-kernels census). Reset #17

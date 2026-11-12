@@ -2249,3 +2249,16 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   tax, register step 3), byte-identical output required; or the
   runtime-side invoke/obj_get family if the owner orders the perf
   ladder deeper first.
+- **G3.3 OPENING (same session, after slice 2 pushed):** the register's
+  step 3 (the 2.78× container tax) concretized — census on the
+  addendum-7 instrument (BoxingBoxedBench): javac's hot loop is
+  Map.get → doubleValue → +w → Double.valueOf → Map.put
+  (pc 99/107/113/116); the typed backend pays per op 1 heap alloc +
+  2 dispatches + 2 obj natives. Design now concrete: signature-pinned
+  specialization, two rewrites (map_put_prim / map_get_prim) behind a
+  dataflow-window guard (no branch/phi/other use between box birth
+  and consume), generic exits materialize lazily cached in the node
+  slot (identity law kept), node slot stays a Value (the M3 law), one
+  native per op. Registered, NOT scheduled — after the G3.2 slices.
+  Evidence: scripts/evidence/g3_3/opening_census_2026-11-12.txt;
+  TODO.md G3.3 entry is the index.

@@ -1838,3 +1838,33 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       scope. Evidence:
       scripts/evidence/g3_2/argvec_stack_array_2026-11-12.txt (+ five
       raw run logs s18b_*).
+- [ ] **G3.3 OPENING — the primitive-specialized map path: census +
+      design CONCRETIZED (2026-11-12, session 18b)** — the register's
+      step 3 (the 2.78× container tax), teed up the same session. The
+      census (the addendum-7 instrument itself, BoxingBoxedBench):
+      javac lowers the hot loop as Map.get → doubleValue → +w →
+      Double.valueOf → Map.put (pc 99/107/113/116); the generated
+      typed Rust pays per op: 1 heap alloc (valueOf — doubles have no
+      JLS cache) + 2 invoke_virtual dispatches + 2 obj natives, all
+      replaced by the JVM's scalar replacement. The design, now
+      concrete: (1) signature-pinned specialization (the generic
+      signature attribute pins Map<String,Double>); (2) two rewrites —
+      put: valueOf→put direct flow ⇒ `map_put_prim` (raw prim in the
+      node's Value slot, no box, no valueOf dispatch); get:
+      box→doubleValue-only ⇒ `map_get_prim` (direct unwrap); (3) the
+      faithfulness guard: a dataflow window (no branch/phi/other use
+      between box birth and box consume) makes both rewrites
+      unobservable-by-construction; identity-through-the-map
+      (`m.get(k) == v` after put) excluded by the same guard; generic
+      exits (entry.getValue(), values()) keep the boxing path or
+      materialize lazily, cached in the node slot (get-twice-returns-
+      the-same-ref stays TRUE); (4) the node slot stays a Value (the
+      M3 heap-resident law stands — zero new GC machinery, the prim
+      slot is one fewer child to scan); (5) HashMap first,
+      TreeMap/LinkedHashMap registered follow-ons. Honest residual:
+      one native call per op instead of two dispatches — the gap to
+      the JVM's 1.77x is the hash walk both pay. STATUS: registered,
+      NOT scheduled — implementation waves after the G3.2 layer's
+      slices conclude (slices 1+2 landed this day: 0.918 → 0.913 →
+      0.894). Evidence:
+      scripts/evidence/g3_3/opening_census_2026-11-12.txt.

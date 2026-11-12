@@ -1,0 +1,105 @@
+G3.3 opening — the primitive-specialized map path: census + design
+====================================================================
+
+Date: 2026-11-12 (session 18b, immediately after slice 2 landed).
+
+THE MEASURED TARGET (addendum 7, 2026-11-08): j2r container tax 2.78x
+vs the prim-array twin (boxed 7387.2 ms / prim 2657.1 ms native); the
+JVM's container tax on the same pair is 1.77x because its JIT
+scalar-replaces most boxes. j2r has MORE to gain from specialization
+than the JVM does. Register (TYPED_REGISTER_READINESS §5 step 3): the
+primitive-specialized map path "composes with the operand/register
+lever (the unbox moves to the native boundary)".
+
+THE COST ANATOMY (censused this session on corpus/BoxingBoxedBench,
+Map<String,Double>, the addendum-7 instrument itself):
+
+  javac lowering of the hot loop (javap -c):
+    pc  99: invokeinterface Map.get         -> Object (the stored box)
+    pc 107: invokevirtual Double.doubleValue -> unbox to prim
+    (prim arithmetic +w)
+    pc 113: invokestatic  Double.valueOf     -> fresh box
+    pc 116: invokeinterface Map.put          <- the box, dead after
+    ...repeat N*M times
+
+  generated typed Rust for the same ops (j2r_box crate):
+    - Double.valueOf -> natives::invoke_exact dispatch that ALLOCs a
+      Double JObj on the heap (doubles have NO JLS cache — every
+      autobox is a fresh object, same as the JVM)
+    - Map.put/get -> invoke_virtual dispatch: boxed args vec, method
+      lookup, boxed return Value, then obj_get/object natives for the
+      unbox — the runtime's collections.rs HashMap is heap-resident
+      and algorithm-faithful to OpenJDK (zero new GC machinery — the
+      M3 law), which is exactly why every op pays dispatch+box.
+
+Per map op in the steady state: 1 heap alloc (valueOf) + 2 dispatches
+(put/get invoke_virtual) + 2 obj natives (valueOf/doubleValue) + the
+node heap writes. The JVM scalar-replaces the whole chain.
+
+THE DESIGN (registered 2026-11-08, concretized this session):
+
+  1. SIGNATURE-PINNED SPECIALIZATION: the generic signature attribute
+     (javac records `Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;`)
+     pins the map's value type. For Double/Float (JLS: NEVER cached)
+     and Integer/Long (cached in [-128,127]) the compiler may rewrite
+     the box-consume chains below — ONLY where a dataflow window
+     proves the box never escapes.
+
+  2. THE TWO REWRITES (the "unbox moves to the native boundary"):
+     a. PUT path: `Double.valueOf(d)` whose result flows DIRECTLY into
+        `Map.put` (no branch, no other use — javac emits valueOf
+        immediately before put, the box is dead after) =>
+        a new native `map_put_prim(map, key_ref, prim_value)` stores
+        the RAW prim in the node's value slot. The alloc + the
+        valueOf dispatch disappear. The put's return (the OLD value
+        box, per Map contract) materializes lazily if consumed — the
+        corpus consumes it never.
+     b. GET path: the box returned by `Map.get` consumed ONLY by
+        `doubleValue()/intValue()/...` =>
+        a new native `map_get_prim(map, key_ref) -> f64/i64/i32` that
+        unwraps the node's prim payload directly. No box, no unbox
+        dispatch.
+
+  3. THE FAITHFULNESS LAWS (the guard, per JLS 5.1.7 + Map contract):
+     - IDENTITY: get-twice-returns-the-same-ref is observable
+       (`m.get(k) == m.get(k)` is TRUE on the JVM — the stored box).
+       Prim payload breaks this ONLY if the box escapes the window.
+       The dataflow guard (no branch, no phi, no other use between
+       box-birth and box-consume) makes both rewrites
+       unobservable-by-construction on the rewritten sites; every
+       site that fails the guard keeps the faithful boxing path.
+     - REFERENCE equality ACROSS put: `Object v = 0.5; m.put(k, v);
+       m.get(k) == v` is TRUE on the JVM (identity through the map).
+       The put-path guard (valueOf result consumed by put AND not
+       otherwise live) excludes exactly this shape.
+     - GENERIC EXITS materialize: any path where the value leaves the
+       map as Object (entry.getValue(), values() iteration, Object
+       return of put when consumed) keeps the boxing path or
+       materializes a box lazily at the node (a materialized box is
+       cached IN the node slot — later gets return the same ref;
+       GC story unchanged: the slot's child walk is shape-agnostic).
+
+  4. THE NODE SLOT: stays a `Value` (slots hold scalars and refs —
+     the M3 law stands); the prim fast path stores Value::Double/
+     Value::Int directly instead of Value::Ref(box). Zero new GC
+     machinery; the collector's child walk sees a non-ref where the
+     boxing path had a ref (fewer children — strictly less scan).
+
+  5. SCOPE: HashMap first (the measured instrument + the owner's
+     opt_v1.1 evidence are HashMap-shaped). TreeMap/LinkedHashMap are
+     registered follow-ons, same design.
+
+  HONEST RESIDUAL after the rewrite: the per-op dispatch itself
+  (invoke_virtual lookup) becomes ONE native call instead of two —
+  the remaining gap to the 1.77x JVM tax is the native's own hash
+  walk, which the JVM also pays. The register's 2.78x ceiling is the
+  recoverable amount on this family; the corpus pair (BoxingBoxedBench
+  vs BoxingPrimBench, four-way differential) is the instrument.
+
+STATUS: REGISTERED, NOT SCHEDULED — lands after the G3.2 entry-var
+layer per the register's order (the layer's slices are landing: slice
+1 refresh projection 0.913, slice 2 arg-vec stack arrays 0.894). The
+implementation wave: the two natives (collections.rs), the codegen
+pattern-match (typed.rs, guard-checked), the materialization points,
+then the four-way differential + the same-session re-measure of the
+2.78x -> ? delta on the SAME instrument.
