@@ -1688,8 +1688,16 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.refresh(pc);
             let n = arg_count(desc);
             let args: Vec<String> = ((k - n)..k).map(|i| ctx.wrap_s(pc, vs[i])).collect();
-            ctx.out
-                .push(format!("let __a = vec![{}];", args.join(", ")));
+            // G3.2 slice 2: the arg vec is one-shot into invoke_exact / a
+            // direct compiled-method call — both take &[Value], so a
+            // fixed-size stack array coerces identically and kills the
+            // per-call heap allocation + Vec drop glue (228 sites in the
+            // JAMA typed crate). Clones are unchanged (GC-root parity).
+            if args.is_empty() {
+                ctx.out.push(format!("let __a: [{RT}::Value; 0] = [];"));
+            } else {
+                ctx.out.push(format!("let __a = [{}];", args.join(", ")));
+            }
             let r = ctx.try_ref_of(pc, vs[k - n - 1], &fault);
             ctx.out.push(format!("let __r = {r};"));
             let call = try_wrap(
@@ -1704,8 +1712,16 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.refresh(pc);
             let n = arg_count(desc);
             let args: Vec<String> = ((k - n)..k).map(|i| ctx.wrap_s(pc, vs[i])).collect();
-            ctx.out
-                .push(format!("let __a = vec![{}];", args.join(", ")));
+            // G3.2 slice 2: the arg vec is one-shot into invoke_exact / a
+            // direct compiled-method call — both take &[Value], so a
+            // fixed-size stack array coerces identically and kills the
+            // per-call heap allocation + Vec drop glue (228 sites in the
+            // JAMA typed crate). Clones are unchanged (GC-root parity).
+            if args.is_empty() {
+                ctx.out.push(format!("let __a: [{RT}::Value; 0] = [];"));
+            } else {
+                ctx.out.push(format!("let __a = [{}];", args.join(", ")));
+            }
             let r = ctx.try_ref_of(pc, vs[k - n - 1], &fault);
             ctx.out.push(format!("let __r = {r};"));
             match crate::resolve_call_pub(ctx.prog, class, name, desc).expect("validated call") {
@@ -1733,8 +1749,16 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.refresh(pc);
             let n = arg_count(desc);
             let args: Vec<String> = ((k - n)..k).map(|i| ctx.wrap_s(pc, vs[i])).collect();
-            ctx.out
-                .push(format!("let __a = vec![{}];", args.join(", ")));
+            // G3.2 slice 2: the arg vec is one-shot into invoke_exact / a
+            // direct compiled-method call — both take &[Value], so a
+            // fixed-size stack array coerces identically and kills the
+            // per-call heap allocation + Vec drop glue (228 sites in the
+            // JAMA typed crate). Clones are unchanged (GC-root parity).
+            if args.is_empty() {
+                ctx.out.push(format!("let __a: [{RT}::Value; 0] = [];"));
+            } else {
+                ctx.out.push(format!("let __a = [{}];", args.join(", ")));
+            }
             match crate::resolve_call_pub(ctx.prog, class, name, desc).expect("validated call") {
                 crate::CallTarget::User { module, fn_name } => {
                     for (id, expr) in crate::emit::ensure_calls(ctx.prog, class) {

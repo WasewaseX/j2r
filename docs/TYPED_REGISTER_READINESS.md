@@ -193,6 +193,21 @@ named lift-closure items are its prerequisites, not alternatives.
    > is the register's third family: per-access invoke/arg-vec
    > construction (a fresh `vec![Value...]` per call) + obj_get/invoke
    > helpers. The layer's next slice targets that family.
+   >
+   > **Status (2026-11-12, session 18b): the ARG-VEC STACK-ARRAY
+   > PROJECTION LANDED — the re-aimed slice.** All 228 `let __a =
+   > vec![...]` invoke-arg sites in the JAMA typed crate (verified
+   > one-shot into `invoke_exact` / direct compiled-method calls, both
+   > `&[Value]`) now emit fixed-size stack arrays `[Value; N]` — zero
+   > per-call heap allocation, clones unchanged (GC-root parity), zero
+   > runtime change. **0.913 -> 0.894** (same-session pair default
+   > 280.44 s / typed 250.72 s, byte-identical stdout, battery 466/0;
+   > scripts/evidence/g3_2/argvec_stack_array_2026-11-12.txt). Lever
+   > ledger: 0.992 -> 0.958 -> 0.936 -> 0.918 -> 0.913 -> **0.894**
+   > (10.6% cumulative). The typed-backend residual now: obj_get/invoke
+   > helper dispatch inside the runtime + the default backend's own arg
+   > vecs (same shape, separately measured if taken) + the G3.3
+   > container tax (2.78x, the register's step 3).
 
 ## 6. Reproduction
 

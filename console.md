@@ -2183,3 +2183,69 @@ getrusage max single child, mistake-list #2).
   typed_v3 diff vs typed_v2 identical).
 - Evidence: scripts/evidence/g3_2/refonly_refresh_projection_2026-11-12.txt
   + slotvar_census.py + crossblock_census.py + typed_v2_r{1,2}.txt.
+
+### [2026-11-11 20:54–21:49 UTC → 2026-11-12, session 18a — parallel continuation] G3.2 opening measurement + slice 1
+
+(Landed as 535066a + c38fcdb while session 18b worked; recovered by the
+reset watch at session-18b start: origin/main had moved past fb6683c,
+ff-merge pulled both commits. See console_summary.md session-18 block.)
+
+### [2026-11-12, session 18b] Reset #17 recovered (5th §9 validation); flagged leftovers verified; G3.2 slice 2 LANDED — the INVOKE/ARG-VEC STACK-ARRAY PROJECTION (0.913 → 0.894)
+
+- Reset watch: tree at pre-M3 `b4badea`, toolchain gone, `target/`
+  (454 MB) survived. origin/main had moved PAST session 17's fb6683c —
+  two G3.2 commits from the parallel continuation (535066a typed-payload
+  re-measure 0.918; c38fcdb slice 1 ref-only refresh projection 0.913).
+  ff-merge → `c38fcdb`, then the §9 recipe: rustup-init **21,347,088 B
+  byte-exact** → 1.99.1 + rustfmt 1.10.0 + clippy 0.1.99; Temurin
+  **207,858,352 B byte-exact** (GitHub releases-asset route); env.sh
+  recreated; warm build 6.24 s.
+- **Owner's flagged leftovers verified** (directive: "these are left
+  from to do list"):
+  * Wave residual depth >= 5: trigger NOT fired — the only `[[[[[I` on
+    disk is the registered-limit test itself (verify.rs:2202/2235); no
+    corpus entry or fixture needs 5+ nesting. Stays deferred per the
+    DECIDED 2026-11-08 design (recursive descriptor Nest(Box<ElemKind>)
+    after the typed-operand unification wave closes; loud registered
+    limit meanwhile).
+  * R2 metadata generator: unchanged, registered post-M4 scope
+    (docs/STRATEGIC_GAPS.md R2; static subset only).
+- Baseline re-proven BEFORE any edit: 437 (workspace minus cli) + 15
+  (cli bin) + 10 (light cli: jar 3, jni_parity 1, lambda 2, native_e2e 2,
+  partition 1, soe 1) + 1 (corpus) + 1 (cfg_equiv) + 2 (diff_suite) =
+  **466/0**.
+- **G3.2 slice 2 — the re-aimed slice (invoke/arg-vec family).** Census:
+  228 `let __a = vec![...]` invoke-arg sites in the JAMA typed crate
+  (67 empty, 161 non-empty up to 4 args); every one verified one-shot
+  into `natives::invoke_exact(..., &__a, ...)` or a direct
+  compiled-method call `crate::classes::X::m_yyy(recv, &__a)` — both
+  take `&[Value]`. The three invoke arms in typed.rs now emit
+  fixed-size stack arrays (`let __a = [args...];` / typed empty
+  `let __a: [::j2r_runtime::Value; 0] = [];`) — unsized coercion, zero
+  runtime change, clones unchanged (GC-root parity: the same clones
+  root the same refs; only the container moved heap → stack). The
+  false-positive audit (word-boundary `__a` uses in windows) confirmed
+  no push/reuse/rebind-before-consume anywhere.
+- MEASURED (same-session pair, registered protocol, median of 2, fresh
+  emits, byte-identical stdout vs the same-session Temurin run on all
+  five processes): default 280.150/280.734 → **280.44 s**; typed
+  251.025/250.405 → **250.72 s** = **0.894**. Ledger: 0.992 → 0.958 →
+  0.936 → 0.918 → 0.913 → **0.894** (10.6% cumulative). JVM ref this
+  session 2.87 s → typed gap 87.4x (context only; the ratio is the
+  claim — G3.5).
+- Proof: codegen lib 110/110; cfg_equiv 109×{base,cfg,typed} ZERO
+  divergences (337.15 s); diff_suite 109 (463.65 s); corpus 1/1;
+  full battery **466/0**; fmt clean; clippy --all-targets
+  --all-features clean. JAMA workload exit 0 four times + JVM ref
+  twice (stable stdout).
+- Scope note: the DEFAULT backend's arg vecs are the same shape —
+  registered as a follow-up candidate (separately measured if taken);
+  typed-backend residual: obj_get/invoke dispatch inside the runtime +
+  the G3.3 container tax (2.78x, register step 3).
+- Evidence: scripts/evidence/g3_2/argvec_stack_array_2026-11-12.txt +
+  five raw run logs (java_ref_s18b, default_s18b_r{1,2},
+  typed_s18b_r{1,2}).
+- Next: G3.3 — primitive-specialized collections (the 2.78× container
+  tax, register step 3), byte-identical output required; or the
+  runtime-side invoke/obj_get family if the owner orders the perf
+  ladder deeper first.

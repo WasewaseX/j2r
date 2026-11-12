@@ -1,5 +1,30 @@
 # j2r console summary — the state board
 
+Updated 2026-11-12 (session 18b — **G3.2 slice 2 LANDED: the INVOKE/ARG-
+VEC STACK-ARRAY PROJECTION**, the register's re-aimed slice). Reset #17
+recovered (5th §9 validation: rustup-init 21,347,088 B + Temurin
+207,858,352 B byte-exact, env.sh, warm build 6.24 s; origin/main had
+moved past fb6683c — the parallel continuation's two commits 535066a +
+c38fcdb pulled by ff-merge). Baseline re-proven 466/0 BEFORE any edit.
+The mechanism: all 228 `let __a = vec![...]` invoke-arg sites in the
+typed JAMA crate (verified one-shot into invoke_exact / direct
+compiled-method calls, both `&[Value]`) now emit fixed-size stack
+arrays — zero per-call heap allocation, clones unchanged (GC-root
+parity), zero runtime change, three invoke arms in typed.rs. MEASURED
+(same-session pair, median of 2, byte-identical): default 280.44 s /
+typed 250.72 s = **0.894** — ledger 0.992 → 0.958 → 0.936 → 0.918 →
+0.913 → **0.894** (10.6% cumulative). Proof: cfg_equiv 109×3 ZERO
+divergences (337.15 s), diff_suite 109 (463.65 s), full battery
+**466/0**, fmt+clippy clean. Evidence: scripts/evidence/g3_2/
+argvec_stack_array_2026-11-12.txt (+ five raw s18b run logs). Flagged
+leftovers verified per owner directive: Wave residual depth >= 5
+trigger NOT fired (only the registered-limit test itself uses `[[[[[I`,
+verify.rs:2202/2235 — stays deferred per the DECIDED design); R2
+metadata generator unchanged (post-M4 scope). Next: **G3.3** —
+primitive-specialized collections (the 2.78× container tax, register
+step 3); follow-up candidate registered: the default backend's own arg
+vecs (same shape, separately measured if taken).
+
 Updated 2026-11-12 (session 18 — **the G3.2 opening measurement TAKEN**:
 the typed-payload re-measure at the all-four-kernels census). Reset #17
 recovered per §9 (tree survived at `fb6683c`; toolchain byte-exact via

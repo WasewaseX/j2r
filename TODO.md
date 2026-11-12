@@ -1802,3 +1802,39 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       scripts/evidence/g3_2/refonly_refresh_projection_2026-11-12.txt
       (+ census tools slotvar_census.py / crossblock_census.py + the v2
       raw logs).
+- [x] **G3.2 slice 2 — the INVOKE/ARG-VEC STACK-ARRAY PROJECTION —
+      LANDED (2026-11-12, session 18b)** — the re-aimed slice, executed
+      the same day. The mechanism: every invoke in the typed backend
+      built a fresh heap `Vec<Value>` per call (`let __a =
+      vec![sN.clone()];`) — census on the JAMA typed crate: **228
+      sites** (67 empty, 161 up to 4 args), every one verified one-shot
+      into one of two consumers, both taking `&[Value]`
+      (`natives::invoke_exact` and direct compiled-method calls
+      `crate::classes::X::m_yyy(recv, &__a)`). The three invoke arms in
+      typed.rs (InvokeVirtual/Interface, InvokeSpecial, InvokeStatic)
+      now emit fixed-size STACK arrays — `let __a = [args...];` /
+      `let __a: [::j2r_runtime::Value; 0] = [];` — which unsized-coerce
+      to `&[Value]` at both consumer shapes: zero per-call heap
+      allocation, zero runtime change, clones unchanged (GC-root parity
+      by construction: the same clones root the same refs; only the
+      container moved from heap to stack). Default backend's arg vecs
+      are the same shape — registered as a follow-up candidate,
+      separately measured if taken. MEASURED (same-session pair,
+      registered protocol, median of 2, byte-identical): default
+      280.44 s / typed 250.72 s = **0.894** — the ledger moves 0.913 →
+      **0.894** (10.6% cumulative; 0.992 → 0.958 → 0.936 → 0.918 →
+      0.913 → 0.894). Typed-backend residual: obj_get/invoke helper
+      dispatch inside the runtime + the default backend's arg vecs +
+      the G3.3 container tax (2.78x, register step 3). Proof: cfg_equiv
+      109×{base,cfg,typed} ZERO divergences (337.15 s), diff_suite 109
+      (463.65 s), corpus 1/1, full battery **466 tests, 0 failures**,
+      fmt + clippy clean. Honesty notes (G3.5): this box's JVM ref
+      2.87 s → typed gap 87.4x this session (the absolute gap drifts
+      with box load; only the ratio is claimed). ALSO (owner directive,
+      flagged leftovers verified): Wave residual depth >= 5 trigger NOT
+      fired (the only `[[[[[I` on disk is the registered-limit test
+      itself, verify.rs:2202/2235 — stays deferred per the DECIDED
+      design); R2 metadata generator unchanged, registered post-M4
+      scope. Evidence:
+      scripts/evidence/g3_2/argvec_stack_array_2026-11-12.txt (+ five
+      raw run logs s18b_*).

@@ -1,0 +1,88 @@
+G3.2 slice 2 — the INVOKE/ARG-VEC STACK-ARRAY PROJECTION
+=========================================================
+
+Date: 2026-11-12 (session 18b; reset #17 recovered first: byte-exact
+toolchain 1.99.1 / Temurin 21.0.13, warm target/, baseline re-proven
+466/0 BEFORE any edit — 437 chunk A + 15 cli bin + 10 light cli +
+1 corpus + 1 cfg_equiv + 2 diff_suite).
+
+The family (register §5's re-aimed target, measured this session):
+the typed backend kept every invoke argument in a fresh heap
+`Vec<Value>` per call — `let __a = vec![sN.clone()];` — even though
+the arg vec is ONE-SHOT into one of two consumers, both of which take
+`&[Value]`:
+  - `::j2r_runtime::natives::invoke_exact(..., &__a, crate::j2r_dispatch())`
+  - direct compiled-method calls `crate::classes::X::m_yyy(recv, &__a)`
+Census on the JAMA typed crate (8 classes, JamaBench): **228 vec
+arg sites** (67 empty `vec![]`, 161 non-empty up to 4 args), every one
+verified one-shot (no reuse, no push, no rebinding before the consume;
+the `__a` name is reused AFTER the invoke for typed locals — shadowing,
+legal). Per call the vec cost: a heap malloc + capacity header + Vec
+drop glue + a `Value::clone()` per ref arg (unchanged — GC-root parity:
+the clones root exactly as before; only the container changed).
+
+The change (crates/j2r-codegen/src/typed.rs, the three invoke arms —
+InvokeVirtual/Interface, InvokeSpecial, InvokeStatic):
+  non-empty: `let __a = [args...];`      (a [Value; N] stack array)
+  empty:     `let __a: [::j2r_runtime::Value; 0] = [];`
+`&[Value; N]` unsized-coerces to `&[Value]` at both consumer shapes —
+zero runtime change, zero signature change. Scope: the TYPED backend
+only (the default backend's arg vecs are the same shape — registered
+as a follow-up candidate, separately measured if taken).
+
+Proof chain (all post-edit, this tree):
+  - codegen lib 110/110; fmt clean; clippy --all-targets
+    --all-features clean (zero warnings).
+  - cfg_equiv 109 x {base,cfg,typed} ZERO divergences (337.15 s).
+  - diff_suite 109 fixtures vs Temurin ZERO divergences (463.65 s).
+  - corpus_suite 1/1 (post-edit re-run).
+  - full battery **466 tests, 0 failures** (437 + 15 + 10 + 1 + 1 + 2).
+  - JAMA full workload (K=1200 N=40 M=24): exit 0, stdout
+    byte-identical to the same-session Temurin 21.0.13 run —
+    four times (typed r1/r2, default r1/r2) plus the JVM ref twice
+    (untimed then timed, stable).
+
+SAME-SESSION CONTROL PAIR (median of 2, all runs byte-identical to
+the JVM on stdout; exit 0 on all five processes):
+
+  emission         run 1      run 2      median     ratio
+  default          280.150 s  280.734 s  280.44 s   (1.000)
+  typed            251.025 s  250.405 s  250.72 s   **0.894**
+
+Lever ledger update (all same-session pairs, register §5):
+  structuring flat -> typed-locals 0.992 -> unification 0.958 ->
+  typed payload (all four kernels) 0.918 -> ref-only refresh
+  projection 0.913 -> **arg-vec stack array 0.894** = 10.6% cumulative.
+  The 1.9pp movement is the arg-vec slice alone (one-session delta).
+
+Honesty notes (G3.5):
+  - Only the same-session ratio is claimed (the 1.31x lesson). The
+    default twin re-emitted and re-run THIS session (its emission is
+    byte-unchanged by this slice — typed.rs only — but the protocol
+    demands the same-session pair).
+  - This box's JVM ref this session: 2.87 s wall -> typed gap 87.4x
+    (250.72/2.87); session 18a's 2.60 s / 98.6x shows the absolute
+    gap drifts with box load — the ratio is the claim, the gap is
+    recorded context.
+  - Raw run logs committed alongside: java_ref_s18b.txt,
+    default_s18b_r1.txt, default_s18b_r2.txt, typed_s18b_r1.txt,
+    typed_s18b_r2.txt (in scripts/evidence/g3_2/).
+
+Reproduction:
+  javac -d cls corpus/JamaBench.java
+  j2r compile cls/*.class --main-class JamaBench --crate-name j2r_jb_typed \
+      --emit-typed -o typed        # fresh emit
+  j2r compile cls/*.class --main-class JamaBench --crate-name j2r_jb_default \
+      -o default
+  cargo build --release --offline in both; run each twice (median of 2),
+  stdout diff vs the same-session `java -cp cls JamaBench`.
+
+Flagged-leftover verification (owner directive this session):
+  - Wave residual depth >= 5: trigger NOT fired — the only `[[[[[I`
+    on disk is the registered-limit test itself
+    (crates/j2r-codegen/src/verify.rs:2202,2235); no corpus entry or
+    fixture uses depth >= 5. Stays deferred per the DECIDED design
+    (recursive descriptor Nest(Box<ElemKind>) after the typed-operand
+    unification wave closes).
+  - R2 metadata generator: unchanged, registered post-M4 scope
+    (docs/STRATEGIC_GAPS.md R2 section + TODO.md).
