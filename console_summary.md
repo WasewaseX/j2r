@@ -1,5 +1,40 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b — **EXTERNAL PORT VALIDATION PERSISTED
++ INTEGRATED: the owner ported jbox2d 2.2.1.1 on an independent box**).
+Reset #18 recovered (6th §9 run: tree at pre-M3 b4badea, toolchain +
+work dirs + env.sh gone, target/ 509 MB survived; fetch + ff-merge to
+ac4af2d — which ALSO pulled the parallel continuation's two commits:
+e6ace40 CLOSED the depth-5 wave residual with the recursive
+Nest(Box<ElemKind>) descriptor, ac4af2d landed R2 slice 1 —
+Class.forName resolves the closed world, 110th fixture byte-identical;
+the owner's "why still not done" challenge is answered BY ACTION on
+both items). The owner then delivered a NEW independent result:
+jbox2d 2.2.1.1 (156 classes / 280 KB bytecode) ported OUTSIDE this repo
+against c38fcdb + ~1,100 lines of owner patches — 6/6 workloads
+byte-identical to Temurin 21 (1,980 chaotic physics steps + 1e6 trig),
+steady-state 6.9x–84x slower than the JVM (median 25x; the same regime
+as our published JamaBench numbers on a different program and machine),
+peak RSS 1.74x–4.80x LOWER, startup 26x faster, translate 156 ms vs
+javac 969 ms + 111.8 s cargo. Persisted verbatim (owner directive:
+survive sandbox resets) as docs/external-port/{README,
+jbox2d_result, jbox2d_bug, jbox2d_opt}.md and integrated (commit
+bc4a068): TODO.md §3 gained EXTERNAL-PORT PERSISTED [x] + five
+land/map entries — EXTERNAL-B1 (formatter %f <1e-3 silent
+wrong-output fix + O4 band fixture), EXTERNAL-B2 (partition
+registry-hook E0433 fix + O5 exception-table fixture), EXTERNAL-B3..B12
+(the nine-gap natives/jdk surface, fdlibm module the biggest piece),
+EXTERNAL-HARNESS (cfg-report --surface, collect-all-diagnostics,
+partition-exception law, charset pin), EXTERNAL-CORROB (R1–R9 mapped
+onto register §5 — the owner's 5.1x stack micro and measured R1/R2
+prototypes corroborate our track; R6(c) heap-borrow region is the new
+candidate; R9 = the G2.6/M5 wall with a 2 GB OOM data point);
+docs/ROADMAP.md header carries the validation paragraph. Corroboration
+of the two prior deferrals: the port needed NO depth >= 5 descriptors
+and no reflection beyond forName — and both have since landed anyway.
+Next: toolchain rebootstrap (§9, 6th validation) → baseline 466/0
+BEFORE any code → EXTERNAL-B1 with the O4 fixture.
+
 Updated 2026-11-12 (session 18b — **G3.2 slice 2 LANDED: the INVOKE/ARG-
 VEC STACK-ARRAY PROJECTION**, the register's re-aimed slice). Reset #17
 recovered (5th §9 validation: rustup-init 21,347,088 B + Temurin

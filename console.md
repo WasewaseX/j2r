@@ -2320,3 +2320,45 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   **466/0**; fmt + clippy zero findings.
 - Evidence: scripts/evidence/r2_opening/forname_slice1_2026-11-12.txt;
   TODO.md R2 entry [ ] -> [~] with the slice plan.
+
+### [2026-11-13, session 19b] EXTERNAL PORT VALIDATION persisted + integrated (owner directive)
+
+- Reset #18 recovered first (6th §9 run): tree at pre-M3 b4badea,
+  toolchain + work dirs + env.sh gone, target/ (509 MB) survived;
+  fetch + ff-merge to ac4af2d — which ALSO pulled the parallel
+  continuation's two commits (e6ace40 depth-5 CLOSED via the recursive
+  Nest(Box<ElemKind>) descriptor; ac4af2d R2 slice 1 Class.forName,
+  110th fixture byte-identical). The owner's "why still not done"
+  challenge is answered BY ACTION on both items.
+- The owner then delivered a NEW independent result: jbox2d 2.2.1.1
+  (167-class physics engine, 156 compiled) ported OUTSIDE this repo on
+  a 2 vCPU / 2 GB box against c38fcdb + ~1,100 lines of owner patches.
+  PERSISTED VERBATIM (owner directive: "add these in todo list and
+  roadmap to survive sandbox reset"): docs/external-port/{README.md,
+  jbox2d_result.md, jbox2d_bug.md, jbox2d_opt.md} (commit bc4a068).
+- The result: 6/6 workloads byte-identical to Temurin 21 (1,980
+  chaotic physics steps + 1e6 trig evals); steady-state 6.9x-84x
+  slower than the JVM (median 25x — the same regime as our published
+  JamaBench numbers, independently reproduced on a different program
+  and machine); peak RSS 1.74x-4.80x LOWER; startup 26x faster;
+  translate 156 ms vs javac 969 ms, then 111.8 s of cargo.
+- TODO.md §3 integration (same commit): EXTERNAL-PORT PERSISTED [x];
+  EXTERNAL-B1 [ ] the formatter %f small-magnitude silent-wrong-output
+  fix + O4 band fixture; EXTERNAL-B2 [ ] the partitioned-emission
+  registry-hook fix (E0433 on any exception-table class) + O5
+  partition/exception fixture; EXTERNAL-B3..B12 [ ] the nine-gap
+  natives/jdk surface (fdlibm module the biggest piece); EXTERNAL-
+  HARNESS [ ] (cfg-report --surface, collect-all-diagnostics,
+  partition-exception law, charset pin); EXTERNAL-CORROB [ ] R1-R9
+  mapped onto register §5 (the owner's 5.1x stack-cost micro + measured
+  R1/R2 prototypes corroborate the typed-register track; R6(c) heap
+  borrow region is the new candidate; R9 = the G2.6/M5 wall with a
+  2 GB OOM data point). docs/ROADMAP.md carries the validation
+  paragraph.
+- Corroboration of the two prior deferrals: the port needed NO depth
+  >= 5 array descriptors and no reflection beyond forName-shaped
+  lookups — a real game-shaped program confirms both were correctly
+  sequenced (and both have since landed anyway: e6ace40, ac4af2d).
+- Next: toolchain rebootstrap (§9, 6th validation) → baseline 466/0
+  BEFORE any code → EXTERNAL-B1 (the formatter fix) with the O4
+  fixture, then EXTERNAL-B2.
