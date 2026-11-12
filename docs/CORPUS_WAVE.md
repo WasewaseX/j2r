@@ -141,16 +141,13 @@ differential harnesses).
   destination order, nulls always copy. Pinned by the ArraycopyMismatch
   fixture, byte-identical vs Temurin.
 * InputStream.skip(J) default (JZlib wave), UTF-16 charset family,
-  Enum.valueOf — unchanged, loud. (The `[[[<prim>` verifier-depth item was
-  closed by the deep-arrays wave for depth 3 and by the depth-4 wave for
-  `[[[[<prim>` — see below; depth >= 5 is the remaining registered limit.
-  Closure design DECIDED 2026-11-08: replace the enumerated
-  RefPrimArray2/3 variant families with a recursive element descriptor
-  (`Nest(Box<ElemKind>)` through array_elem_kind/elem_vty and the heap
-  shape dispatch) — one wave, any depth — sequenced AFTER the
-  typed-operand unification (no on-disk program needs depth >= 5; the
-  limit fails loud with the exact descriptor; see TODO.md wave
-  residuals).)
+  Enum.valueOf — unchanged, loud. (The `[[[<prim>` verifier-depth item is
+  FULLY CLOSED (2026-11-12, depth-5 closure wave): the enumerated
+  RefPrimArray variant families were REPLACED by the recursive element
+  descriptor (`Nest(Box<ElemKind>)` through array_elem_kind/elem_vty —
+  the runtime's shape dispatch was always depth-agnostic) — one wave,
+  ANY depth, zero new variants per future depth; the old depth >= 5
+  loud collapse is retired. See the wave-order entry below.)
 
 ## Wave order
 
@@ -308,12 +305,22 @@ because it is part of the reproduction command.
   in-place depth-4 rows (full/partial/one-dim allocation, typed call
   site, shallow clone, arraycopy, null-row NPE, instanceof + getName
   shapes, the `[[[F`-into-`[[[I` ASE message) — byte-identical vs
-  Temurin. **Depth >= 5 is the remaining registered limit** (loud Ref
-  collapse; verifier tests pin it). Closure design DECIDED 2026-11-08:
-  recursive element descriptor replacing the enumerated variant
-  families, one wave for any depth, sequenced after the typed-operand
-  unification — see TODO.md wave residuals for the full rationale and
-  the pull-forward trigger.
+  Temurin. **ANY DEPTH LANDED (depth-5 closure wave, 2026-11-12, owner
+  directive "why still not done" pulled it forward)**: the enumerated
+  RefPrimArray{,2,3} × {Int,Long,Float,Double} families (12 Copy
+  variants, four more per future depth) were REPLACED by ONE recursive
+  variant `ElemKind::Nest(Box<ElemKind>)` — `[[I` folds to
+  `Nest(IntGroup)`, `[[[I` to `Nest(Nest(IntGroup))`, every future
+  depth folds one more level with zero new variants; `VTy`/`ElemKind`
+  dropped `Copy` (Clone retained; the ripple was mechanical,
+  compiler-guided). Depth 5 verifies typed end-to-end (the new law
+  test `depth5_recursive_descriptor_any_depth`: aaload on a `[[[[[I`
+  yields the exact 4-deep row shape satisfying a `([[[[I)V` call
+  site; a wrong-kind prim load names the exact folded shape). The old
+  depth >= 5 loud Ref collapse is RETIRED; the runtime's shape
+  dispatch was always depth-agnostic (array.rs counts `[`s), so no
+  runtime change was needed. cfg_equiv 109×3 + diff_suite 109 zero
+  divergences; battery 466/0.
   AND the aastore ArrayStoreException message was fixed by
   corpus/AseProbe.java (5 shapes): Temurin prints the STORED object's
   external name ALONE (`java.lang.Object`, `AseProbe$Inner` binary with

@@ -2262,3 +2262,32 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   native per op. Registered, NOT scheduled — after the G3.2 slices.
   Evidence: scripts/evidence/g3_3/opening_census_2026-11-12.txt;
   TODO.md G3.3 entry is the index.
+
+### [2026-11-12, session 19] Wave residuals CLOSED — the depth-5 recursive descriptor wave (owner directive)
+
+- The owner asked "Wave residuals (remaining) and r2 metadata are still
+  not done why?" — the second ask on the depth-5 residual; the recorded
+  deferral reason (typed-operand unification first) had EXPIRED (the
+  G3.2 slices landed through the same seams the same day). Executed the
+  DECIDED 2026-11-08 design: the 12 enumerated RefPrimArray* Copy
+  variants replaced by ONE `ElemKind::Nest(Box<ElemKind>)` — `[[I` →
+  Nest(IntGroup), any depth folds one more level, zero variants per
+  future depth. ElemKind/VTy dropped Copy (Clone retained); the
+  62-error Copy ripple was mechanical and compiler-guided (merge fns to
+  match-on-refs, dup family clones — compile-time-only code — and
+  &VTy Kind::of/Pool::of signatures). Runtime UNTOUCHED (array.rs's
+  shape dispatch was always depth-agnostic; the lattice was the only
+  limit).
+- Law tests: `depth5_still_ref_registered_limit` replaced by
+  `depth5_recursive_descriptor_any_depth` (aaload on `[[[[[I` yields
+  the exact 4-deep row for a `([[[[I)V` call site; wrong-kind loads
+  name the folded shape); the depth-4 message test updated to the new
+  Debug shape.
+- Proof: codegen 110/110; cfg_equiv 109×3 ZERO divergences (340.17 s);
+  diff_suite 109 (481.57 s); corpus 1/1; full battery **466/0**; fmt +
+  clippy -D-clean (4 redundant-closure findings fixed en route).
+- Evidence: scripts/evidence/depth5_closure/
+  recursive_descriptor_2026-11-12.txt; docs/CORPUS_WAVE.md §gaps +
+  §wave-order updated; TODO.md wave-residuals entry flipped to [x].
+- Next in this session: the R2 metadata generator opening (census +
+  design + slice 1 scope) — the owner's other flagged leftover.

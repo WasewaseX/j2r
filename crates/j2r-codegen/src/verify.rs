@@ -72,7 +72,9 @@ impl std::fmt::Display for VerifyError {
 /// `boolean`, `byte`, `short`, `char` and `int` are deliberately unified
 /// into [`VTy::Int`]: the runtime represents them all as `Value::Int`, so
 /// no generated operation can tell them apart.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// NOT `Copy` (the recursive `VTy::Array(ElemKind)` carries the
+/// `Nest(Box<ElemKind>)` heap box, same wave).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VTy {
     /// Never assigned on any path so far. Loading is an error.
     Unset,
@@ -101,11 +103,11 @@ pub enum VTy {
 }
 
 impl VTy {
-    pub fn is_cat2(self) -> bool {
+    pub fn is_cat2(&self) -> bool {
         matches!(self, VTy::Long | VTy::Double)
     }
 
-    pub fn is_cat1(self) -> bool {
+    pub fn is_cat1(&self) -> bool {
         !self.is_cat2()
     }
 
@@ -113,10 +115,10 @@ impl VTy {
     /// bytecode (the JVM verifier also rejects them), so they error.
     fn merge_stack(a: VTy, b: VTy) -> std::result::Result<VTy, String> {
         use VTy::*;
-        match (a, b) {
-            (x, y) if x == y => Ok(x),
+        match (&a, &b) {
+            (x, y) if x == y => Ok(x.clone()),
             (Null, Ref) | (Ref, Null) => Ok(Ref),
-            (Array(k), Array(j)) => Ok(if k == j { Array(k) } else { Ref }),
+            (Array(k), Array(j)) => Ok(if k == j { Array(k.clone()) } else { Ref }),
             (Array(_), Ref) | (Ref, Array(_)) => Ok(Ref),
             (Null, Array(_)) | (Array(_), Null) => Ok(Ref),
             (Top, x) | (x, Top) if x.is_cat1() => Ok(Top),
@@ -135,9 +137,9 @@ impl VTy {
     /// local is a verification error.
     fn merge_local(a: VTy, b: VTy) -> VTy {
         use VTy::*;
-        match (a, b) {
-            (x, y) if x == y => x,
-            (Unset, x) | (x, Unset) => x,
+        match (&a, &b) {
+            (x, y) if x == y => x.clone(),
+            (Unset, x) | (x, Unset) => x.clone(),
             (Null, Ref) | (Ref, Null) => Ref,
             (Top, x) | (x, Top) if x.is_cat1() && !matches!(x, HighHalf | Poison) => Top,
             _ => Poison,
@@ -183,7 +185,7 @@ impl State {
             ));
         }
         for (dst, src) in self.stack.iter_mut().zip(other.stack.iter()) {
-            let merged = VTy::merge_stack(*dst, *src)
+            let merged = VTy::merge_stack(dst.clone(), src.clone())
                 .map_err(|e| format!("incompatible types on stack at join: {e}"))?;
             if merged != *dst {
                 *dst = merged;
@@ -191,7 +193,7 @@ impl State {
             }
         }
         for (dst, src) in self.locals.iter_mut().zip(other.locals.iter()) {
-            let merged = VTy::merge_local(*dst, *src);
+            let merged = VTy::merge_local(dst.clone(), src.clone());
             if merged != *dst {
                 *dst = merged;
                 changed = true;
@@ -225,13 +227,14 @@ fn td_vty(t: &TypeDesc) -> VTy {
     }
 }
 
-/// Element kind of an array descriptor, now DEPTH-AWARE (deep-arrays wave):
-/// `[I` → IntGroup, `[[I` → the elements are `int[]` values
-/// (RefPrimArray(IntGroup)), `[[[I` → the elements are `[[I`-shaped values
-/// (RefPrimArray2) — corpus/DeepArraysProbe.java pinned a real 3D program
-/// failing to verify under the old one-level model, and the depth-4 wave
-/// added RefPrimArray3 (`[[[[I` → the elements are `[[[I`-shaped values).
-/// Depth >= 5 collapses to Ref elements (loud, registered); `[L...;` is
+/// Element kind of an array descriptor — the RECURSIVE DESCRIPTOR
+/// (2026-11-12 closure wave): `[I` → IntGroup, `[[I` → the elements are
+/// `int[]` values (`Nest(IntGroup)`), `[[[I` → `Nest(Nest(IntGroup))`,
+/// and EVERY depth folds one more level with zero new variants. The old
+/// per-depth enumeration (RefPrimArray{,2,3} × 4 prims) and the depth >= 5
+/// loud collapse are RETIRED (corpus/DeepArraysProbe.java pinned the 3D
+/// shape that forced the first levels; the runtime's shape dispatch was
+/// always depth-agnostic — the lattice was the only limit). `[L...;` is
 /// Ref at every depth.
 fn array_elem_kind(desc: &str) -> ElemKind {
     let depth = desc.len() - desc.trim_start_matches('[').len();
@@ -240,34 +243,17 @@ fn array_elem_kind(desc: &str) -> ElemKind {
     }
     let bottom = &desc[depth..];
     match bottom.chars().next() {
-        Some('J') => match depth {
-            1 => ElemKind::Long,
-            2 => ElemKind::RefPrimArrayLong,
-            3 => ElemKind::RefPrimArray2Long,
-            4 => ElemKind::RefPrimArray3Long,
+        _ if depth == 1 => match bottom.chars().next() {
+            Some('J') => ElemKind::Long,
+            Some('F') => ElemKind::Float,
+            Some('D') => ElemKind::Double,
+            Some('Z') | Some('B') | Some('C') | Some('S') | Some('I') => ElemKind::IntGroup,
             _ => ElemKind::Ref,
         },
-        Some('F') => match depth {
-            1 => ElemKind::Float,
-            2 => ElemKind::RefPrimArrayFloat,
-            3 => ElemKind::RefPrimArray2Float,
-            4 => ElemKind::RefPrimArray3Float,
-            _ => ElemKind::Ref,
-        },
-        Some('D') => match depth {
-            1 => ElemKind::Double,
-            2 => ElemKind::RefPrimArrayDouble,
-            3 => ElemKind::RefPrimArray2Double,
-            4 => ElemKind::RefPrimArray3Double,
-            _ => ElemKind::Ref,
-        },
-        Some('Z') | Some('B') | Some('C') | Some('S') | Some('I') => match depth {
-            1 => ElemKind::IntGroup,
-            2 => ElemKind::RefPrimArrayInt,
-            3 => ElemKind::RefPrimArray2Int,
-            4 => ElemKind::RefPrimArray3Int,
-            _ => ElemKind::Ref,
-        },
+        // depth >= 2: the elements are (depth-1)-shaped array values —
+        // fold one `[` per level, any depth.
+        Some('J') | Some('F') | Some('D') | Some('Z') | Some('B') | Some('C') | Some('S')
+        | Some('I') => ElemKind::Nest(Box::new(array_elem_kind(&desc[1..]))),
         _ => ElemKind::Ref,
     }
 }
@@ -291,20 +277,10 @@ fn elem_vty(k: ElemKind) -> VTy {
         ElemKind::Float => VTy::Float,
         ElemKind::Double => VTy::Double,
         ElemKind::Ref => VTy::Ref,
-        ElemKind::RefPrimArrayInt => VTy::Array(ElemKind::IntGroup),
-        ElemKind::RefPrimArrayLong => VTy::Array(ElemKind::Long),
-        ElemKind::RefPrimArrayFloat => VTy::Array(ElemKind::Float),
-        ElemKind::RefPrimArrayDouble => VTy::Array(ElemKind::Double),
-        // depth >= 3: elements are `[[<prim>`-shaped values (deep-arrays wave);
-        // depth 4: elements are `[[[<prim>`-shaped values (depth-4 wave)
-        ElemKind::RefPrimArray2Int => VTy::Array(ElemKind::RefPrimArrayInt),
-        ElemKind::RefPrimArray2Long => VTy::Array(ElemKind::RefPrimArrayLong),
-        ElemKind::RefPrimArray2Float => VTy::Array(ElemKind::RefPrimArrayFloat),
-        ElemKind::RefPrimArray2Double => VTy::Array(ElemKind::RefPrimArrayDouble),
-        ElemKind::RefPrimArray3Int => VTy::Array(ElemKind::RefPrimArray2Int),
-        ElemKind::RefPrimArray3Long => VTy::Array(ElemKind::RefPrimArray2Long),
-        ElemKind::RefPrimArray3Float => VTy::Array(ElemKind::RefPrimArray2Float),
-        ElemKind::RefPrimArray3Double => VTy::Array(ElemKind::RefPrimArray2Double),
+        // The recursive descriptor: a nest's elements are arrays of the
+        // folded kind — ONE arm, any depth (deep-arrays + depth-4 waves'
+        // per-level arms replaced).
+        ElemKind::Nest(inner) => VTy::Array(*inner),
     }
 }
 
@@ -544,7 +520,7 @@ impl<'a> Sim<'a> {
             || (v == VTy::Top && want.is_cat1())
             || (v == VTy::Null && matches!(want, VTy::Ref | VTy::Array(_)))
             || (matches!(v, VTy::Array(_)) && want == VTy::Ref)
-            || (matches!(v, VTy::Array(k) if k.elements_are_refs())
+            || (matches!(&v, VTy::Array(k) if k.elements_are_refs())
                 && want == VTy::Array(ElemKind::Ref));
         if ok {
             Ok(want)
@@ -601,7 +577,7 @@ impl<'a> Sim<'a> {
 
     fn load(&mut self, idx: u16) -> std::result::Result<(), VerifyError> {
         let i = self.check_local(idx)?;
-        match self.locals[i] {
+        match self.locals[i].clone() {
             VTy::Unset => Err(self.e(format!("load of never-assigned local {i}"))),
             VTy::Poison => Err(self.e(format!("load of local {i} with conflicting types"))),
             VTy::HighHalf => Err(self.e(format!(
@@ -659,46 +635,46 @@ impl<'a> Sim<'a> {
             }
             Instr::Dup => {
                 let v = self.pop_cat1("dup")?;
-                self.push(v)?;
-                self.push(v)?;
+                self.push(v.clone())?;
+                self.push(v.clone())?;
             }
             Instr::DupX1 => {
                 let v1 = self.pop_cat1("dup_x1")?;
                 let v2 = self.pop_cat1("dup_x1")?;
-                self.push(v1)?;
-                self.push(v2)?;
-                self.push(v1)?;
+                self.push(v1.clone())?;
+                self.push(v2.clone())?;
+                self.push(v1.clone())?;
             }
             Instr::DupX2 => {
                 let v1 = self.pop_cat1("dup_x2")?;
                 let v2 = self.pop()?;
                 if v2.is_cat2() {
                     // Form 2: v2(cat2), v1 -> v1, v2, v1
-                    self.push(v1)?;
-                    self.push(v2)?;
-                    self.push(v1)?;
+                    self.push(v1.clone())?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
                 } else {
                     // Form 1: v3, v2, v1 (all cat1) -> v1, v3, v2, v1
                     let v3 = self.pop_cat1("dup_x2")?;
-                    self.push(v1)?;
-                    self.push(v3)?;
-                    self.push(v2)?;
-                    self.push(v1)?;
+                    self.push(v1.clone())?;
+                    self.push(v3.clone())?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
                 }
             }
             Instr::Dup2 => {
                 let v1 = self.pop()?;
                 if v1.is_cat2() {
                     // Form 2: v1 -> v1, v1
-                    self.push(v1)?;
-                    self.push(v1)?;
+                    self.push(v1.clone())?;
+                    self.push(v1.clone())?;
                 } else {
                     // Form 1: v2, v1 -> v2, v1, v2, v1
                     let v2 = self.pop_cat1("dup2")?;
-                    self.push(v2)?;
-                    self.push(v1)?;
-                    self.push(v2)?;
-                    self.push(v1)?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
                 }
             }
             Instr::Dup2X1 => {
@@ -706,18 +682,18 @@ impl<'a> Sim<'a> {
                 if v1.is_cat2() {
                     // Form 2: v2(cat1), v1(cat2) -> v1, v2, v1
                     let v2 = self.pop_cat1("dup2_x1")?;
-                    self.push(v1)?;
-                    self.push(v2)?;
-                    self.push(v1)?;
+                    self.push(v1.clone())?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
                 } else {
                     // Form 1: v3, v2, v1 (all cat1) -> v2, v1, v3, v2, v1
                     let v2 = self.pop_cat1("dup2_x1")?;
                     let v3 = self.pop_cat1("dup2_x1")?;
-                    self.push(v2)?;
-                    self.push(v1)?;
-                    self.push(v3)?;
-                    self.push(v2)?;
-                    self.push(v1)?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
+                    self.push(v3.clone())?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
                 }
             }
             Instr::Dup2X2 => {
@@ -736,17 +712,17 @@ impl<'a> Sim<'a> {
                 match (v1.is_cat2(), v2.is_cat2()) {
                     (true, true) => {
                         // Form 4
-                        self.push(v1)?;
-                        self.push(v2)?;
-                        self.push(v1)?;
+                        self.push(v1.clone())?;
+                        self.push(v2.clone())?;
+                        self.push(v1.clone())?;
                     }
                     (true, false) => {
                         // Form 2
                         let v3 = self.pop_cat1("dup2_x2")?;
-                        self.push(v1)?;
-                        self.push(v3)?;
-                        self.push(v2)?;
-                        self.push(v1)?;
+                        self.push(v1.clone())?;
+                        self.push(v3.clone())?;
+                        self.push(v2.clone())?;
+                        self.push(v1.clone())?;
                     }
                     (false, true) => {
                         return Err(self.e(
@@ -757,20 +733,20 @@ impl<'a> Sim<'a> {
                         let v3 = self.pop()?;
                         if v3.is_cat2() {
                             // Form 3
-                            self.push(v2)?;
-                            self.push(v1)?;
-                            self.push(v3)?;
-                            self.push(v2)?;
-                            self.push(v1)?;
+                            self.push(v2.clone())?;
+                            self.push(v1.clone())?;
+                            self.push(v3.clone())?;
+                            self.push(v2.clone())?;
+                            self.push(v1.clone())?;
                         } else {
                             // Form 1
                             let v4 = self.pop_cat1("dup2_x2")?;
-                            self.push(v2)?;
-                            self.push(v1)?;
-                            self.push(v4)?;
-                            self.push(v3)?;
-                            self.push(v2)?;
-                            self.push(v1)?;
+                            self.push(v2.clone())?;
+                            self.push(v1.clone())?;
+                            self.push(v4.clone())?;
+                            self.push(v3.clone())?;
+                            self.push(v2.clone())?;
+                            self.push(v1.clone())?;
                         }
                     }
                 }
@@ -778,8 +754,8 @@ impl<'a> Sim<'a> {
             Instr::Swap => {
                 let v1 = self.pop_cat1("swap")?;
                 let v2 = self.pop_cat1("swap")?;
-                self.push(v1)?;
-                self.push(v2)?;
+                self.push(v1.clone())?;
+                self.push(v2.clone())?;
             }
             _ => unreachable!("not a dup-family instruction"),
         }
@@ -830,7 +806,7 @@ impl<'a> Sim<'a> {
             Store(idx) => self.store(*idx)?,
             IInc { idx, .. } => {
                 let i = self.check_local(*idx)?;
-                match self.locals[i] {
+                match self.locals[i].clone() {
                     VTy::Int | VTy::Top => {}
                     VTy::Unset => return Err(self.e(format!("iinc of never-assigned local {i}"))),
                     other => {
@@ -841,7 +817,7 @@ impl<'a> Sim<'a> {
                 }
             }
             ALoad(k) => {
-                let k = *k;
+                let k = k.clone();
                 self.pop_exact(VTy::Int)?;
                 let v = self.pop()?;
                 match &v {
@@ -857,7 +833,7 @@ impl<'a> Sim<'a> {
                                 "array element kind mismatch: operation expects {k:?}, array is {j:?}"
                             )));
                         }
-                        self.push(elem_vty(*j))?;
+                        self.push(elem_vty(j.clone()))?;
                     }
                     VTy::Ref | VTy::Null | VTy::Top => self.push(elem_vty(k))?,
                     other => {
@@ -868,9 +844,9 @@ impl<'a> Sim<'a> {
                 }
             }
             AStore(k) => {
-                self.pop_exact(elem_vty(*k))?;
+                self.pop_exact(elem_vty(k.clone()))?;
                 self.pop_exact(VTy::Int)?;
-                self.pop_array(*k)?;
+                self.pop_array(k.clone())?;
             }
             ArrayLength => {
                 self.pop_ref()?;
@@ -2139,7 +2115,10 @@ mod tests {
             ],
         );
         let e = verify_err(&m);
-        assert!(e.message.contains("array is RefPrimArray3Int"), "{e}");
+        assert!(
+            e.message.contains("array is Nest(Nest(Nest(IntGroup)))"),
+            "{e}"
+        );
     }
 
     #[test]
@@ -2181,10 +2160,14 @@ mod tests {
     }
 
     #[test]
-    fn depth5_still_ref_registered_limit() {
-        // The registered limit is unchanged: depth >= 5 collapses to Ref.
-        // Reference chains still verify (untyped), and a primitive load on
-        // the Ref-collapsed shape is still rejected — loudly, naming Ref.
+    fn depth5_recursive_descriptor_any_depth() {
+        // The closure law (2026-11-12 wave, owner-decided design): the
+        // recursive descriptor folds ANY depth — depth 5 is
+        // Nest(Nest(Nest(Nest(IntGroup)))), zero new variants. The typed
+        // chain still verifies (aaload yields the exact (depth-1)-shaped
+        // row, satisfying a `([[[[I)V` call site), and a wrong-kind
+        // primitive load is still rejected — naming the exact folded
+        // shape.
         let m = plan(
             "()V",
             true,
@@ -2204,13 +2187,13 @@ mod tests {
                     },
                 ),
                 (6, Instr::IConst(0)),
-                (7, Instr::ALoad(ElemKind::Ref)), // -> Ref (collapsed)
+                (7, Instr::ALoad(ElemKind::Ref)), // -> the exact 4-deep row shape
                 (
                     8,
                     Instr::InvokeStatic {
                         class: "C".to_string(),
                         name: "m".to_string(),
-                        desc: "(Ljava/lang/Object;)V".to_string(),
+                        desc: "([[[[I)V".to_string(),
                     },
                 ),
                 (9, Instr::Return(TypeDesc::Void)),
@@ -2242,7 +2225,11 @@ mod tests {
             ],
         );
         let e = verify_err(&bad);
-        assert!(e.message.contains("array is Ref"), "{e}");
+        assert!(
+            e.message
+                .contains("array is Nest(Nest(Nest(Nest(IntGroup))))"),
+            "{e}"
+        );
     }
 
     #[test]

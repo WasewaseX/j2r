@@ -35,7 +35,7 @@ pub enum Pool {
 }
 
 impl Pool {
-    fn of(v: VTy) -> Option<Pool> {
+    fn of(v: &VTy) -> Option<Pool> {
         match v {
             VTy::Int => Some(Pool::Int),
             VTy::Long => Some(Pool::Long),
@@ -102,7 +102,7 @@ pub fn plan_method(shapes: &MethodShapes) -> MethodSpec {
             if i >= n_stack {
                 continue;
             }
-            match (stack[i], Pool::of(*v)) {
+            match (stack[i], Pool::of(v)) {
                 (None, p) => stack[i] = p,
                 (Some(cur), Some(p)) if p != cur => {
                     // A slot that is ever Unset next to a known kind is
@@ -124,7 +124,7 @@ pub fn plan_method(shapes: &MethodShapes) -> MethodSpec {
             if j >= n_locals {
                 continue;
             }
-            match (locals[j], Pool::of(*v)) {
+            match (locals[j], Pool::of(v)) {
                 (None, p) => locals[j] = p,
                 (Some(cur), Some(p)) if p != cur => {
                     kind_varies = true;

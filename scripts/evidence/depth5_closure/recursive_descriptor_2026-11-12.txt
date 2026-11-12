@@ -1,0 +1,64 @@
+The depth-5 closure wave — the RECURSIVE DESCRIPTOR (any depth)
+================================================================
+
+Date: 2026-11-12 (session 19). The owner asked "Wave residuals (remaining)
+and r2 metadata are still not done why?" — the second ask; per the house
+rules that is an owner directive, and the original deferral reason
+("sequenced after the typed-operand unification") had EXPIRED anyway (the
+typed backend's G3.2 slices landed through the same seams on 2026-11-12:
+0.918 -> 0.913 -> 0.894). The wave was pulled forward and executed.
+
+WHAT WAS REGISTERED (TODO.md wave residuals, decided 2026-11-08): the
+depth-3/4 waves ENUMERATED verifier-lattice variants (RefPrimArray{,2,3}
+x {Int,Long,Float,Double} = 12 Copy variants in ir.rs + per-depth match
+arms in verify.rs array_elem_kind/elem_vty); every future depth would add
+four more variants. The decided closure: REPLACE the enumeration with a
+recursive descriptor (Nest(Box<ElemKind>)) folded through
+array_elem_kind/elem_vty — one wave, any depth.
+
+WHAT LANDED:
+  - ir.rs: the 12 variants replaced by ONE variant
+    `ElemKind::Nest(Box<ElemKind>)`; `[[I` folds to Nest(IntGroup),
+    `[[[I` to Nest(Nest(IntGroup)), every future depth folds one more
+    level. ElemKind dropped Copy (Box carries a heap pointer); Clone
+    retained. VTy (which embeds ElemKind) likewise dropped Copy.
+  - verify.rs: array_elem_kind is now the recursion itself — depth 1
+    yields the prim kind, depth >= 2 folds `Nest(array_elem_kind(&desc[1..]))`;
+    elem_vty has ONE nest arm (VTy::Array(*inner)) replacing the twelve
+    per-level arms.
+  - The Copy ripple: 62 compiler errors, all mechanical, compiler-guided
+    (match-on-refs in the merge fns, clones in the dup family — the
+    verifier is compile-time-only, perf irrelevant — and &VTy signatures
+    for Kind::of/Pool::of + call sites in readiness.rs/typed.rs/
+    specialize.rs). Zero semantic changes: the lattice's DECISIONS are
+    identical for every depth <= 4 shape (cfg_equiv + diff_suite prove it).
+  - The runtime needed NO change: the shape dispatch (array.rs) counts
+    `[`s off the descriptor string and was always depth-agnostic — the
+    lattice was the only limit.
+  - Law tests: `depth5_still_ref_registered_limit` REPLACED by
+    `depth5_recursive_descriptor_any_depth` (aaload on a `[[[[[I` yields
+    the exact 4-deep row shape satisfying a `([[[[I)V` call site; a
+    wrong-kind prim load is rejected naming the exact folded shape
+    `Nest(Nest(Nest(Nest(IntGroup))))`); `depth4_wrong_kind_load_names_
+    precise_kind` updated to the new Debug shape (same rejection).
+
+PROOF (all on this tree):
+  - codegen lib 110/110 (incl. the two updated law tests).
+  - cfg_equiv 109 x {base,cfg,typed} ZERO divergences (340.17 s).
+  - diff_suite 109 fixtures vs Temurin ZERO divergences (481.57 s).
+  - corpus_suite 1/1; full battery **466 tests, 0 failures**
+    (437 + 15 + 10 + 1 + 1 + 2).
+  - fmt clean; clippy --all-targets --all-features ZERO findings.
+
+HONESTY NOTES:
+  - No corpus entry or fixture on disk uses depth >= 5 (re-verified this
+    session: the only `[[[[[I` was the retired limit test itself) — this
+    wave's value is the LATTICE SHAPE (any depth, no enumeration growth)
+    and the retired loud limit, not an observable corpus delta.
+  - Depth >= 5 code now takes the generic array path in the typed backend
+    (Nest falls to the ref-element arms — boxed generic ops), same as the
+    default backend. Correctness is the bar; a specialized deep path has
+    no user and is not registered.
+  - The R2 metadata generator (the owner's other flagged leftover) stays
+    REGISTERED post-M4 scope; its opening (census + design + slice 1
+    scope) lands this session separately.

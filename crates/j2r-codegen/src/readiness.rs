@@ -70,7 +70,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub(crate) fn of(v: VTy) -> Option<Kind> {
+    pub(crate) fn of(v: &VTy) -> Option<Kind> {
         match v {
             VTy::Int => Some(Kind::Int),
             VTy::Long => Some(Kind::Long),
@@ -352,7 +352,7 @@ pub(crate) fn shuffle_slot_writes(instr: &Instr, in_stack: &[VTy]) -> Option<Vec
     let vs: Vec<usize> = in_stack
         .iter()
         .enumerate()
-        .filter(|(_, v)| Kind::of(**v).is_some())
+        .filter(|(_, v)| Kind::of(v).is_some())
         .map(|(i, _)| i)
         .collect();
     let k = vs.len();
@@ -464,7 +464,7 @@ pub(crate) fn position_reports(
                 .per_pc
                 .get(&pc)
                 .and_then(|s| s.stack.get(i))
-                .and_then(|v| Kind::of(*v))
+                .and_then(Kind::of)
         };
         let slot = i;
         let boundary = |pc: u32| -> bool {
@@ -497,8 +497,8 @@ pub(crate) fn position_reports(
                 return writes.iter().any(|&(out_slot, src_slot)| {
                     out_slot < in_len
                         && out_slot != src_slot
-                        && Kind::of(shape.stack[out_slot]).is_some()
-                        && Kind::of(shape.stack[out_slot]) != Kind::of(shape.stack[src_slot])
+                        && Kind::of(&shape.stack[out_slot]).is_some()
+                        && Kind::of(&shape.stack[out_slot]) != Kind::of(&shape.stack[src_slot])
                 }) && writes.iter().any(|&(out_slot, _)| out_slot == slot);
             }
             match push {
@@ -509,7 +509,7 @@ pub(crate) fn position_reports(
                     // the slot `popped` below the top. Boundary iff the
                     // kind changes across the refill.
                     let r = in_len.checked_sub(popped).unwrap_or(usize::MAX);
-                    r == slot && Kind::of(shape.stack[slot]) != Some(k)
+                    r == slot && Kind::of(&shape.stack[slot]) != Some(k)
                 }
             }
         };
@@ -523,7 +523,7 @@ pub(crate) fn position_reports(
                 .per_pc
                 .get(&pc)
                 .and_then(|s| s.locals.get(j))
-                .and_then(|v| Kind::of(*v))
+                .and_then(Kind::of)
         };
         let bounds: &[u32] = store_pcs.get(&(j as u16)).map_or(&no_bounds, |v| v);
         local_reports.push(analyze_position(&pcs, occupied, |pc| bounds.contains(&pc)));
@@ -547,14 +547,14 @@ pub fn analyze(
     let mut ref_traffic: u64 = 0;
     for shape in shapes.per_pc.values() {
         for v in &shape.stack {
-            match Kind::of(*v) {
+            match Kind::of(v) {
                 Some(k) if k.is_prim() => prim_traffic += 1,
                 Some(_) => ref_traffic += 1,
                 None => {}
             }
         }
         for v in &shape.locals {
-            match Kind::of(*v) {
+            match Kind::of(v) {
                 Some(k) if k.is_prim() => prim_traffic += 1,
                 Some(_) => ref_traffic += 1,
                 None => {}
@@ -746,7 +746,7 @@ mod tests {
             (0, vec![VTy::Int, VTy::Int], vec![VTy::Int]),
             (4, vec![VTy::Int], vec![VTy::Int]),
         ]);
-        let r = analyze_position(&[0, 4], |pc| Kind::of(s.per_pc[&pc].stack[0]), |_| false);
+        let r = analyze_position(&[0, 4], |pc| Kind::of(&s.per_pc[&pc].stack[0]), |_| false);
         assert_eq!(pos(&r), vec![(Some(Kind::Int), false)]);
         assert!(r.epoch_clean && r.pool_stable);
     }
@@ -766,7 +766,7 @@ mod tests {
         ]);
         let r = analyze_position(
             &[0, 4, 8, 12],
-            |pc| Kind::of(s.per_pc[&pc].locals[0]),
+            |pc| Kind::of(&s.per_pc[&pc].locals[0]),
             |_| false,
         );
         assert_eq!(
@@ -798,7 +798,7 @@ mod tests {
             .collect();
         let r = analyze_position(
             &[0, 4, 8, 12],
-            |pc| Kind::of(s.per_pc[&pc].locals[0]),
+            |pc| Kind::of(&s.per_pc[&pc].locals[0]),
             |pc| bounds.contains(&pc),
         );
         assert_eq!(
@@ -820,7 +820,7 @@ mod tests {
         let bounds = [4u32];
         let r = analyze_position(
             &[0, 4, 8],
-            |pc| Kind::of(s.per_pc[&pc].locals[0]),
+            |pc| Kind::of(&s.per_pc[&pc].locals[0]),
             |pc| bounds.contains(&pc),
         );
         assert_eq!(
@@ -839,7 +839,11 @@ mod tests {
             (4, vec![VTy::Ref], vec![]),
             (8, vec![VTy::Ref], vec![]),
         ]);
-        let r = analyze_position(&[0, 4, 8], |pc| Kind::of(s.per_pc[&pc].stack[0]), |_| false);
+        let r = analyze_position(
+            &[0, 4, 8],
+            |pc| Kind::of(&s.per_pc[&pc].stack[0]),
+            |_| false,
+        );
         // The run keeps its FIRST kind as the representative and marks
         // itself mixed — the mix, not the kind, is what blocks typing.
         assert_eq!(pos(&r), vec![(Some(Kind::Int), true)]);
@@ -857,7 +861,7 @@ mod tests {
         ]);
         let r = analyze_position(
             &[0, 4, 8],
-            |pc| s.per_pc[&pc].stack.get(1).and_then(|v| Kind::of(*v)),
+            |pc| s.per_pc[&pc].stack.get(1).and_then(Kind::of),
             |_| false,
         );
         assert_eq!(
@@ -872,7 +876,7 @@ mod tests {
         // kill anywhere — mixed, counted against readiness.
         let r0 = analyze_position(
             &[0, 4, 8],
-            |pc| s.per_pc[&pc].stack.first().and_then(|v| Kind::of(*v)),
+            |pc| s.per_pc[&pc].stack.first().and_then(Kind::of),
             |_| false,
         );
         assert!(!r0.epoch_clean);
@@ -880,15 +884,15 @@ mod tests {
 
     #[test]
     fn top_null_and_arrays_collapse_to_ref_highhalf_is_dead() {
-        assert_eq!(Kind::of(VTy::Top), Some(Kind::Ref));
-        assert_eq!(Kind::of(VTy::Null), Some(Kind::Ref));
+        assert_eq!(Kind::of(&VTy::Top), Some(Kind::Ref));
+        assert_eq!(Kind::of(&VTy::Null), Some(Kind::Ref));
         assert_eq!(
-            Kind::of(VTy::Array(crate::ir::ElemKind::IntGroup)),
+            Kind::of(&VTy::Array(crate::ir::ElemKind::IntGroup)),
             Some(Kind::Ref)
         );
-        assert_eq!(Kind::of(VTy::HighHalf), None);
-        assert_eq!(Kind::of(VTy::Unset), None);
-        assert_eq!(Kind::of(VTy::Poison), None);
+        assert_eq!(Kind::of(&VTy::HighHalf), None);
+        assert_eq!(Kind::of(&VTy::Unset), None);
+        assert_eq!(Kind::of(&VTy::Poison), None);
     }
 
     fn ready_row(r: &MethodReadiness) -> Verdict {

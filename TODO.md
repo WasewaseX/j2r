@@ -776,24 +776,30 @@ local full-gate sweep at the same tree).**
       `0.50000e+00`, now `5.000000e-01`). Fmt fixture extended in place
       (104 on disk, unchanged); suite counts: tests 304 → 307.
       Docs: README §runtime features + unsupported-list refresh.
-- [ ] **Wave residuals (remaining)** — array descriptor depth >= 5 in
-      the verifier lattice stays loud BY DESIGN (a registered limit with
-      a precise error, not undone work — docs/CORPUS_WAVE.md §gaps);
-      depth 4 was closed by the depth-4 verifier wave (see the entry in
-      §Corpus & quality). Closure design DECIDED (2026-11-08, owner asked
-      "this is still remaining huh?"): the depth-3/4 waves ENUMERATED
-      variants (RefPrimArray2/3 x Int/Long/Float/Double in ir.rs + the
-      match arms in verify.rs array_elem_kind/elem_vty); a depth-5 wave
-      would add four more variants and every future depth four more —
-      the registered closure instead REPLACES the enumeration with a
-      recursive descriptor (Nest(Box<ElemKind>) folded through
-      array_elem_kind/elem_vty and the heap's shape dispatch), one wave,
-      any depth. Deliberately NOT scheduled ahead of the typed-operand
-      unification: no corpus entry or fixture on disk uses depth >= 5,
-      the limit fails LOUD with the descriptor in the message (never a
-      silent miscompile), and the recursion touches the same
-      shape/verify seams the typed backend is currently moving through.
-      Trigger to pull forward: any real program needing 5+ nesting.
+- [x] **Wave residuals — CLOSED (2026-11-12, depth-5 closure wave, owner
+      directive "why still not done" pulled it forward)** — array
+      descriptor depth >= 5 no longer collapses loud: the enumerated
+      RefPrimArray{,2,3} × {Int,Long,Float,Double} families (12 Copy
+      variants; four more per future depth) were REPLACED by the decided
+      recursive descriptor `Nest(Box<ElemKind>)` folded through
+      array_elem_kind/elem_vty — ONE variant, ANY depth (`[[I` →
+      Nest(IntGroup), `[[[I` → Nest(Nest(IntGroup)), every future depth
+      one more fold). ElemKind/VTy dropped Copy (Clone retained; the
+      62-error ripple was mechanical, compiler-guided, zero semantic
+      changes — cfg_equiv + diff_suite prove the depth ≤ 4 decisions
+      identical). The runtime needed NO change (array.rs's shape
+      dispatch was always depth-agnostic — the lattice was the only
+      limit). The new law test `depth5_recursive_descriptor_any_depth`
+      pins: aaload on `[[[[[I` yields the exact 4-deep row shape
+      satisfying a `([[[[I)V` call site; wrong-kind prim loads name the
+      exact folded shape. Proof: codegen 110/110, cfg_equiv 109×3 +
+      diff_suite 109 zero divergences, corpus 1/1, full battery
+      **466/0**, fmt + clippy clean. The original deferral reason
+      (sequenced after the typed-operand unification) had expired — the
+      typed backend's G3.2 slices landed through the same seams the same
+      day. Evidence: scripts/evidence/depth5_closure/
+      recursive_descriptor_2026-11-12.txt; docs/CORPUS_WAVE.md gap
+      entries updated.
 - [x] **Corpus entry 2 LANDED (2026-11-05): JZlib** — ymnk/jzlib
       (BSD-style), 23 files / ~7.2k lines, a real DEFLATE/INFLATE
       implementation; vendored under corpus/jzlib/ + assembly script

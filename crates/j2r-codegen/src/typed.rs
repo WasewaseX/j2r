@@ -371,7 +371,7 @@ pub fn plan(m: &MethodPlan, shapes: &MethodShapes) -> Result<Plan, Unsupported> 
     // the emitter would read an undeclared variable — fall back loudly.
     for (pc, shape) in &shapes.per_pc {
         for (i, v) in shape.stack.iter().enumerate() {
-            if Kind::of(*v).is_none() {
+            if Kind::of(v).is_none() {
                 continue;
             }
             match p.stack.get(i) {
@@ -385,7 +385,7 @@ pub fn plan(m: &MethodPlan, shapes: &MethodShapes) -> Result<Plan, Unsupported> 
             }
         }
         for (j, v) in shape.locals.iter().enumerate() {
-            if Kind::of(*v).is_none() {
+            if Kind::of(v).is_none() {
                 continue;
             }
             match p.locals.get(j) {
@@ -481,7 +481,7 @@ impl<'a> Ctx<'a> {
             .stack
             .iter()
             .enumerate()
-            .filter(|(_, v)| Kind::of(**v).is_some())
+            .filter(|(_, v)| Kind::of(v).is_some())
             .map(|(i, _)| i)
             .collect()
     }
@@ -613,7 +613,7 @@ impl<'a> Ctx<'a> {
             } else {
                 shape.locals.get(idx)
             };
-            v.is_some_and(|v| Kind::of(*v).is_some())
+            v.is_some_and(|v| Kind::of(v).is_some())
         };
         // `pcs` is ascending; scan past pc and take the first occupied pc.
         let start = self.pcs.partition_point(|&q| q <= pc);
@@ -724,7 +724,7 @@ impl<'a> Ctx<'a> {
         }
         let mut stack_v = Vec::new();
         for (i, v) in self.shape(pc).stack.iter().enumerate() {
-            if Kind::of(*v) != Some(Kind::Ref) {
+            if Kind::of(v) != Some(Kind::Ref) {
                 continue; // HighHalf / prim / dead: no rooting value
             }
             stack_v.push(self.wrap_s(pc, i));
@@ -1311,7 +1311,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let (src, kind) = match ctx.site_v(pc, *idx as usize) {
                 Site::Cell => (
                     Src::Value,
-                    Kind::of(ctx.shape(pc).locals[*idx as usize])
+                    Kind::of(&ctx.shape(pc).locals[*idx as usize])
                         .expect("j2r internal: loaded local has no verified kind"),
                 ),
                 Site::Typed(sp) => {
@@ -1934,7 +1934,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
 
 /// The `Kind` of a stack slot's verified type at `pc`.
 fn kind_at(ctx: &Ctx<'_>, pc: u32, slot: usize) -> Option<Kind> {
-    Kind::of(ctx.shape(pc).stack[slot])
+    Kind::of(&ctx.shape(pc).stack[slot])
 }
 
 /// A pure push of a primitive constant (or a `Value`-typed one).

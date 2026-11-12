@@ -29,7 +29,16 @@ census + design committed (scripts/evidence/g3_3/
 opening_census_2026-11-12.txt): signature-pinned, map_put_prim/
 map_get_prim behind a dataflow-window guard, identity laws kept,
 node slot stays a Value; registered NOT scheduled, after the G3.2
-slices conclude.
+slices conclude. **WAVE RESIDUALS CLOSED (2026-11-12, session 19):**
+the owner's "why still not done" pulled the depth-5 wave forward (its
+deferral reason had expired); the 12 enumerated RefPrimArray* variants
+were replaced by the decided recursive descriptor
+`Nest(Box<ElemKind>)` — ONE variant, ANY depth, zero enumeration
+growth; Copy dropped (mechanical 62-error ripple), runtime untouched
+(always depth-agnostic); depth-5 law test pins the typed chain +
+exact-shape errors; battery 466/0, cfg_equiv + diff_suite zero
+divergences, clippy clean. Evidence: scripts/evidence/depth5_closure/
+recursive_descriptor_2026-11-12.txt.
 
 Updated 2026-11-12 (session 18 — **the G3.2 opening measurement TAKEN**:
 the typed-payload re-measure at the all-four-kernels census). Reset #17

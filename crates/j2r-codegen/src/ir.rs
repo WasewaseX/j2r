@@ -246,7 +246,9 @@ pub enum PrimType {
 
 /// The element kind of an `xXaload`/`xXastore` opcode, as the verifier sees
 /// it (`baload`/`caload`/`saload` operate on ints in this runtime).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// NOT `Copy` (the recursive `Nest(Box<ElemKind>)` carries a heap box);
+/// `VTy` above it likewise dropped `Copy` in the same wave.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ElemKind {
     /// `iaload`, `baload`, `caload`, `saload` (and stores)
     IntGroup,
@@ -255,39 +257,29 @@ pub enum ElemKind {
     Double,
     /// `aaload` / `aastore`
     Ref,
-    /// The elements of a `[[<prim>` array are primitive ARRAYS: `aaload` on
-    /// `[[I` yields `[I` (a typed array value), exactly like the JVM
-    /// verifier (corpus wave 2, JZlib InfBlocks/InfCodes: `[[I` fields feed
-    /// `[I`-shaped call sites). Flattened into Copy variants; the
-    /// deep-arrays wave added a SECOND level (`[[[<prim>`: elements are
-    /// `[[<prim>`-shaped values — corpus/DeepArraysProbe.java pinned real
-    /// 3D programs failing to verify under the old one-level model). The
-    /// depth-4 wave added a THIRD level (`[[[[<prim>`: elements are
-    /// `[[[<prim>`-shaped values). Depth >= 5 still models as `Ref`
-    /// elements — a registered, loud limit.
-    RefPrimArrayInt,
-    RefPrimArrayLong,
-    RefPrimArrayFloat,
-    RefPrimArrayDouble,
-    RefPrimArray2Int,
-    RefPrimArray2Long,
-    RefPrimArray2Float,
-    RefPrimArray2Double,
-    RefPrimArray3Int,
-    RefPrimArray3Long,
-    RefPrimArray3Float,
-    RefPrimArray3Double,
+    /// The elements of a `[<depth><prim>` array of depth >= 2 are primitive
+    /// ARRAYS: `aaload` on `[[I` yields `[I` (a typed array value), exactly
+    /// like the JVM verifier (corpus wave 2, JZlib InfBlocks/InfCodes:
+    /// `[[I` fields feed `[I`-shaped call sites). The RECURSIVE DESCRIPTOR
+    /// (2026-11-12 closure wave, the owner-decided design): one variant,
+    /// any depth — `[[I` folds to `Nest(IntGroup)`, `[[[I` to
+    /// `Nest(Nest(IntGroup))`, and every future depth folds one more
+    /// level with zero new variants. Replaces the depth-1/2/3 enumeration
+    /// (12 variants, four more per future depth); the old depth >= 5 loud
+    /// collapse is RETIRED (the runtime's shape dispatch was always
+    /// depth-agnostic — the lattice was the only limit).
+    Nest(Box<ElemKind>),
 }
 
 impl ElemKind {
     /// Does this element kind hold *references* (as opposed to raw
-    /// primitive groups)? Every `RefPrimArray*` element is itself an array
+    /// primitive groups)? Every `Nest` element is itself an array
     /// value — a reference. Arrays-of-references are covariant subtypes of
     /// `[Ljava/lang/Object;` (JLS 4.10.3: `S <: T ⟹ S[] <: T[]`, and every
     /// array type is a subtype of `Object`), which is why javac may pass a
     /// `double[][]` to a `copyInto(Object[])` parameter — the JAMA corpus
     /// entry (wave 3) depends on exactly that acceptance.
-    pub fn elements_are_refs(self) -> bool {
+    pub fn elements_are_refs(&self) -> bool {
         !matches!(
             self,
             ElemKind::IntGroup | ElemKind::Long | ElemKind::Float | ElemKind::Double
