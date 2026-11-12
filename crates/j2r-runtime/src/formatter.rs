@@ -182,6 +182,19 @@ fn round_digits(digits: &str, round_idx: usize) -> String {
 /// Fixed-point %f rendering of a double: HALF_UP on the shortest decimal
 /// repr (see the module doc for why 2.675 -> 2.68). `precision` decimals,
 /// grouped with ',' when requested.
+///
+/// B1 (external jbox2d port report, 2026-11-12): the shortest repr goes
+/// scientific below 1e-3 and at/above 1e7 — the old code split on '.'
+/// and treated the `E` tail as fraction digits, destroying every
+/// %f/%.Nf/%,f of such magnitudes (6.149717374e-4 printed "6.149717374"
+/// where the JVM prints "0.000614972"; 1.0e-10 printed "1.0E-100000").
+/// The repr is now normalized to a plain digit string + a decimal-point
+/// position BEFORE the precision rounding — the same parse render_e
+/// already performs. The rounding-carry re-split is fixed too: a HALF_UP
+/// bump that grows the digit string (9.99 at %.1f -> "10.0") moves the
+/// decimal point right by one, and the old fixed `split_at(int_len)`
+/// printed an extra fraction digit (or truncated the integer part at
+/// precision 0, printing "1" for %.0f of 9.99).
 fn render_f(v: f64, precision: usize) -> String {
     if v.is_nan() {
         return "NaN".to_string();
@@ -191,33 +204,60 @@ fn render_f(v: f64, precision: usize) -> String {
     }
     let neg = v < 0.0 || (v == 0.0 && v.is_sign_negative());
     let repr = crate::javafmt::double_to_string(v.abs());
-    // split the shortest repr into digit string + integer-digit count
-    let (int_part, frac_part) = match repr.split_once('.') {
+    // normalize: [digits][.digits][E[+-]exp] -> digits + point position
+    let (mantissa, dec_exp) = match repr.split_once('E') {
+        Some((m, e)) => (m.to_string(), e.parse::<i64>().unwrap_or(0)),
+        None => (repr.clone(), 0i64),
+    };
+    let (mut int_part, frac_part) = match mantissa.split_once('.') {
         Some((a, b)) => (a.to_string(), b.to_string()),
-        None => (repr.clone(), String::new()),
+        None => (mantissa.clone(), String::new()),
     };
-    let (int_part, frac_part) = if int_part.is_empty() {
-        ("0".to_string(), frac_part)
-    } else {
-        (int_part, frac_part)
-    };
-    let int_len = int_part.len();
-    let mut digits = format!("{}{}", int_part, frac_part);
-    let round_idx = int_len + precision;
-    if digits.len() > round_idx {
-        digits = round_digits(&digits, round_idx);
+    if int_part.is_empty() {
+        int_part.push('0');
     }
-    // re-pad to exactly `precision` frac digits
-    while digits.len() < int_len + precision {
+    // position of the decimal point within `digits`, counted from the
+    // start of the digit string (may be negative or past the end)
+    let mut point = dec_exp + int_part.len() as i64;
+    let mut digits = format!("{}{}", int_part, frac_part);
+    // a negative point only means leading zeros: shift them into `digits`
+    // so the rounding index is a plain usize (6.14972E-4 -> "000614972",
+    // point 0)
+    if point < 0 {
+        digits.insert_str(0, &"0".repeat((-point) as usize));
+        point = 0;
+    }
+    // HALF_UP at the (point + precision)-th digit
+    let round_idx = point as usize + precision;
+    if digits.len() > round_idx {
+        let grown = round_digits(&digits, round_idx);
+        if grown.len() > round_idx {
+            // the carry pushed a digit PAST the cut ("999" kept to 2 is
+            // "100"): the decimal point moved right by the overflow
+            point += (grown.len() - round_idx) as i64;
+        }
+        digits = grown;
+    }
+    // pad the fraction to exactly `precision` digits
+    while digits.len() < point as usize + precision {
         digits.push('0');
     }
-    let (mut ip, fp) = digits.split_at(int_len);
+    // split at the (possibly shifted) point
+    let (mut ip, fp) = if point as usize >= digits.len() {
+        let pad = "0".repeat(point as usize - digits.len());
+        (format!("{digits}{pad}"), String::new())
+    } else {
+        (
+            digits[..point as usize].to_string(),
+            digits[point as usize..].to_string(),
+        )
+    };
     if ip.is_empty() {
-        ip = "0";
+        ip = "0".to_string();
     }
     // zero precision: NO decimal point (Temurin: %.0f of 2.5 -> "3")
     let mut s = if precision == 0 {
-        ip.to_string()
+        ip
     } else {
         format!("{ip}.{fp}")
     };
@@ -989,6 +1029,22 @@ mod tests {
         assert_eq!(render_f(2.5, 0), "3");
         assert_eq!(render_f(-2.5, 0), "-3");
         assert_eq!(render_f(-0.005, 2), "-0.01");
+        // B1 (external jbox2d port report): the scientific-repr band —
+        // the old code destroyed every %f of a magnitude < 1e-3 or
+        // >= 1e7 by treating the "E" tail as fraction digits
+        assert_eq!(render_f(6.149717374e-4, 9), "0.000614972");
+        assert_eq!(render_f(-6.149717374e-4, 9), "-0.000614972");
+        assert_eq!(render_f(1.0e-10, 9), "0.000000000");
+        assert_eq!(render_f(9.99e-5, 3), "0.000");
+        assert_eq!(render_f(9.99e-5, 4), "0.0001");
+        assert_eq!(render_f(1.2345678e7, 3), "12345678.000");
+        assert_eq!(render_f(1.0e7, 1), "10000000.0");
+        // rounding-carry re-split: the old fixed split_at(int_len)
+        // printed an extra fraction digit (or truncated the integer
+        // part at precision 0)
+        assert_eq!(render_f(9.99, 1), "10.0");
+        assert_eq!(render_f(9.99, 0), "10");
+        assert_eq!(render_f(9.9999, 2), "10.00");
     }
 
     #[test]

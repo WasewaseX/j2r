@@ -1,5 +1,31 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. — **EXTERNAL-B1 LANDED: the
+formatter %f small-magnitude fix + the O4 band fixture**). The §9
+rebootstrap completed (6th validation: rustup-init 21,347,088 B +
+Temurin 207,858,352 B byte-exact, env.sh recreated, warm build
+11.58 s) and the baseline was re-proven BEFORE any edit (466/0: chunk
+A 437 + cli 25 + corpus 1 + cfg_equiv 1 @347.50 s + diff_suite 2
+@464.76 s; fmt + clippy clean). The fix (render_f, ~35 lines):
+normalize the shortest repr to a plain digit string + decimal-point
+position BEFORE the precision rounding — the parse render_e already
+does; point < 0 shifts leading zeros in; a HALF_UP carry growing the
+result PAST round_idx shifts the point by the overflow. **A second
+latent bug fell out:** the old fixed split_at printed an extra
+fraction digit on rounding carry (9.99 at %.1f -> "1.00") and
+truncated the integer part at precision 0 — the first implementation
+repeated it and its own new pin (render_f(9.99, 1)) caught it before
+anything landed. O4: the 19-row section X appended to
+corpus/FmtResidualProbe.java AND tests/suite/Fmt.java (no new fixture,
+110/466 unchanged), JDK oracle captured first. Proof: targeted
+end-to-end probe differential BYTE-IDENTICAL (135 rows through a
+generated release binary); runtime 243/0; diff_suite 110 ZERO
+divergences (475.83 s); cfg_equiv 109x3 ZERO (350.25 s); full battery
+**466/0**; fmt + clippy clean. Evidence:
+scripts/evidence/external_b1/render_f_band_fix_2026-11-13.txt. Next:
+EXTERNAL-B2 (the partition registry-hook fix + the O5 exception-table
+partition fixture).
+
 Updated 2026-11-13 (session 19b — **EXTERNAL PORT VALIDATION PERSISTED
 + INTEGRATED: the owner ported jbox2d 2.2.1.1 on an independent box**).
 Reset #18 recovered (6th §9 run: tree at pre-M3 b4badea, toolchain +

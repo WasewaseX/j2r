@@ -1917,23 +1917,33 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       (and both have since MOVED anyway: e6ace40 closed depth-5,
       ac4af2d landed R2 slice 1). Evidence: docs/external-port/ (the
       reports themselves are the evidence).
-- [ ] **EXTERNAL-B1 — land the formatter %f small-magnitude fix (the
-      owner-reported SILENT wrong-output bug; exists at main)** —
-      render_f (crates/j2r-runtime/src/formatter.rs) derives digits
-      from javafmt::double_to_string and splits on '.', but the JVM's
-      shortest repr goes scientific below 1e-3 and at/above 1e7, so
-      every %f/%.Nf/%,f of a value in those bands drops the exponent:
-      6.149717374e-4 printed "6.149717374" where Temurin prints
-      "0.000614972"; 1.0e-10 printed "1.0E-100000". This is the bug
-      that made the ported pendulum workload look like a physics bug
-      (jbox2d_bug.md B1). Spec: normalize the shortest repr to pure
-      digit strings BEFORE the precision rounding — split off the
-      exponent, shift the decimal point, then the existing HALF_UP
-      rounding (~40 lines). Companion fixture (O4): extend the corpus
-      formatter probe with the scientific-repr band — 15 values,
-      1e-4 … 1.2345678e7, %.9f/%.6f/%.3f/%,f/%e/%g/%s — differential
-      vs JDK 21. Gate: full battery + diff_suite. STATUS: not started;
-      NEXT after the baseline re-proof.
+- [x] **EXTERNAL-B1 — the formatter %f small-magnitude fix LANDED
+      (2026-11-13, session 19b)** — render_f (crates/j2r-runtime/src/
+      formatter.rs) derived digits from javafmt::double_to_string and
+      split on '.', but the JVM's shortest repr goes scientific below
+      1e-3 and at/above 1e7, so every %f/%.Nf/%,f of a value in those
+      bands dropped the exponent (6.149717374e-4 printed "6.149717374"
+      where the JVM prints "0.000614972") — the owner-reported silent
+      wrong-output bug (jbox2d_bug.md B1). The mechanism: normalize the
+      repr to a plain digit string + decimal-point position BEFORE the
+      precision rounding (the same parse render_e already performs);
+      point < 0 shifts leading zeros into the digits; a HALF_UP carry
+      that grows the result PAST round_idx shifts the point right by
+      the overflow. **A SECOND latent bug found by the new pins en
+      route:** the old fixed split_at printed an extra fraction digit
+      on rounding carry (9.99 at %.1f -> "1.00" not "10.0") and
+      truncated the integer part at precision 0 ("1" not "10") — the
+      first implementation repeated it and its own new pin caught it
+      before anything landed. O4 fixture: the 19-row section X appended
+      to corpus/FmtResidualProbe.java AND tests/suite/Fmt.java (no new
+      fixture, count 110/466 unchanged), oracle captured from JDK
+      21.0.13 BEFORE the rows landed. Proof: targeted end-to-end
+      differential of the probe — 135 rows BYTE-IDENTICAL through a
+      generated binary; runtime 243/0 (19 new pin assertions);
+      diff_suite 110 ZERO divergences (475.83 s); cfg_equiv 109x3 ZERO
+      (350.25 s); full battery **466/0**; fmt + clippy clean.
+      Evidence: scripts/evidence/external_b1/
+      render_f_band_fix_2026-11-13.txt.
 - [ ] **EXTERNAL-B2 — land the partitioned-emission registry-hook fix
       (the owner-reported HARD BUILD FAILURE; exists at main)** —
       emit.rs emits the exception-matcher helper as

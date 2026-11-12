@@ -1,0 +1,89 @@
+EXTERNAL-B1 — the formatter %f small-magnitude fix (render_f) + the O4 band fixture
+Landed 2026-11-13 (session 19b) · owner-reported via the external jbox2d
+port report (docs/external-port/jbox2d_bug.md B1 + O4)
+
+THE BUG (two halves; the first is the owner's B1, the second was found
+by the new pin during this landing)
+
+1. Scientific-repr band destroyed. render_f derived its digits from
+   javafmt::double_to_string (the shortest round-trip repr) and split
+   on '.', but the JVM's repr goes scientific below 1e-3 and at/above
+   1e7 — the "E" tail was treated as fraction digits:
+     6.149717374e-4  -> j2r "6.149717374"   JVM "0.000614972"
+     1.0e-10         -> j2r "1.0E-100000"   JVM "0.000000000"
+   Every %f/%.Nf/%,f of such a magnitude was silently wrong. This is
+   the bug that made the owner's ported pendulum workload print joint
+   angles as 6.542073097 where the JVM printed -0.000654208.
+
+2. Rounding-carry re-split (latent, no fixture pinned it). After a
+   HALF_UP bump that carries past the cut ("999" kept to 2 digits is
+   "100"), the decimal point moves right by one; the old fixed
+   split_at(int_len) printed an extra fraction digit (9.99 at %.1f
+   -> "1.00" instead of "10.0") or truncated the integer part at
+   precision 0 (9.99 at %.0f -> "1" instead of "10").
+
+THE FIX (crates/j2r-runtime/src/formatter.rs::render_f, ~35 lines)
+
+Normalize the shortest repr to a plain digit string + a decimal-point
+position BEFORE the precision rounding — the same parse render_e
+already performs:
+  repr "6.149717374E-4" -> digits "6149717374", point = -3
+  point < 0 shifts leading zeros into the digit string (point -> 0)
+  round_idx = point + precision; round_digits HALF_UP
+  a carry that grows the result PAST round_idx shifts the point right
+    by the overflow (point += grown.len() - round_idx)
+  pad to point+precision, split at the (possibly shifted) point
+First implementation checked growth against the ORIGINAL digit length
+("999" vs "100" are both length 3) — the new pin render_f(9.99, 1)
+caught it ("1.00"); the check is against round_idx (the kept-prefix
+length). The pin-first law did its job on its own author.
+
+THE ORACLE + THE FIXTURE (O4)
+
+Oracle captured from Temurin-equivalent JDK 21.0.13 BEFORE the fixture
+landed (work/band_probe/ProbeBand.java, javac+java, 2026-11-13):
+  Xf 10-value band (6.149717374e-4, 9.99e-5, 1.0e-10, 1.2345678e-4,
+  5.0e-4, 9.999999e-4, 1.0e7, 1.2345678e7, 9.9999999e6, 1.0e-3) x
+  (%.9f, %.3f, %,f) + X1..X9 (%.1f/%.0f/%.2f of 9.99 and 9.9999,
+  %.4f of 9.99e-5, %e/%g/%s of 6.149717374e-4, negative, 0.0005
+  HALF_UP boundary) = 19 rows. The same rows are appended as section
+  X to corpus/FmtResidualProbe.java (the Temurin vector, 135 rows
+  total) AND to the differential fixture crates/j2r-cli/tests/suite/
+  Fmt.java — no new fixture, count unchanged (110 / 466).
+
+PROOF
+
+- Unit pins: render_f_pins extended to 19 assertions (E-form band,
+  negative band, carry re-splits) — runtime suite 243/0.
+- TARGETED END-TO-END: corpus/FmtResidualProbe compiled once by
+  javac (JDK 21.0.13) and once by j2r (this tree's debug binary,
+  generated crate cargo-release-built): stdout BYTE-IDENTICAL,
+  135 rows incl. all 19 X rows. exit 0 both.
+- diff_suite: 110 fixtures ZERO divergences (475.83 s) — includes the
+  extended Fmt fixture.
+- cfg_equiv: 109x3 ZERO divergences (350.25 s).
+- corpus_suite 1/1 (31.66 s); chunk A (classfile 41 + jni-ffi 17 +
+  runtime 243 + codegen 136) 437/0; cli fast + bin 25/0 —
+  full battery 466 tests, 0 failures.
+- fmt --all --check clean (one rustfmt nit in the new code applied);
+  clippy -D warnings clean.
+
+REPRODUCTION
+
+  source /home/z/my-project/work/env.sh
+  cd /home/z/my-project/work/j2r-fresh
+  cargo test -p j2r-runtime render_f_pins -- --nocapture
+  # targeted probe differential (as above), or:
+  cargo test -p j2r-cli --locked --test diff_suite
+
+HONESTY NOTES
+
+- The JDK reference channel this session is the byte-exact Temurin
+  21.0.13+9 (207,858,352 B, re-verified on rebootstrap), matching the
+  recorded recipe.
+- The carry half of the fix goes BEYOND the owner's written fix spec
+  (their ~40-line description covers the E-form normalization); the
+  pins prove both halves against the real JVM output.
+- No new fixture count: the rows extend the existing vector + fixture
+  in place (the FmtResidualProbe-wave pattern), so gate-11's
+  fixtures=110 tests=466 stands.

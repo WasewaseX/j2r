@@ -2362,3 +2362,35 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
 - Next: toolchain rebootstrap (§9, 6th validation) → baseline 466/0
   BEFORE any code → EXTERNAL-B1 (the formatter fix) with the O4
   fixture, then EXTERNAL-B2.
+
+### [2026-11-13, session 19b cont.] EXTERNAL-B1 LANDED — the formatter %f small-magnitude fix + the O4 band fixture
+
+- §9 rebootstrap completed first (6th validation): rustup-init
+  21,347,088 B + Temurin jdk-21.0.13+9 207,858,352 B byte-exact;
+  env.sh recreated; target/ survived → warm build 11.58 s. Baseline
+  re-proven BEFORE any edit: full battery 466/0 — chunk A 437 +
+  cli fast+bin 25 + corpus 1 (30.02 s) + cfg_equiv 1 (347.50 s) +
+  diff_suite 2 (464.76 s) — plus fmt + clippy clean.
+- THE FIX (render_f, ~35 lines): normalize the shortest repr to a
+  plain digit string + decimal-point position BEFORE the precision
+  rounding (the parse render_e already does); point < 0 shifts
+  leading zeros in; a HALF_UP carry growing the result PAST round_idx
+  shifts the point by the overflow. The first implementation compared
+  growth against the original digit length — its own new pin
+  render_f(9.99, 1) caught "1.00" and the check moved to round_idx.
+  SECOND latent bug fixed by the same change: the old fixed
+  split_at printed an extra fraction digit on rounding carry (9.99
+  %.1f -> "10.0" correct now) and truncated the integer part at
+  precision 0 (%.0f of 9.99 -> "10" correct now).
+- O4 FIXTURE: 19-row section X appended to corpus/FmtResidualProbe.java
+  (the Temurin vector, now 135 rows) AND tests/suite/Fmt.java — no new
+  fixture (110/466 unchanged). Oracle captured from the JDK BEFORE the
+  rows landed (ProbeBand, work/band_probe).
+- Proof: targeted end-to-end probe differential — BYTE-IDENTICAL 135
+  rows through a generated release binary (exit 0 both channels);
+  runtime 243/0 (19 new pin assertions); diff_suite 110 ZERO
+  divergences (475.83 s); cfg_equiv 109x3 ZERO (350.25 s); corpus
+  1/1; full battery **466/0**; fmt + clippy clean.
+- Evidence: scripts/evidence/external_b1/render_f_band_fix_2026-11-13.txt;
+  TODO.md EXTERNAL-B1 flipped [x]. Next: EXTERNAL-B2 (the partition
+  registry-hook fix + the O5 exception-table partition fixture).

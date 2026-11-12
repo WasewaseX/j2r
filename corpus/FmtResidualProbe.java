@@ -177,5 +177,28 @@ public class FmtResidualProbe {
         catch (UnknownFormatConversionException e) { System.out.println("W5: UFCE: " + e.getMessage()); }
         try { System.out.println("U15: [" + String.format("%a", nul) + "]"); }
         catch (Exception e) { System.out.println("U15: " + e.getClass().getSimpleName() + ": " + e.getMessage()); }
+
+        // X. B1 band (external jbox2d port report, 2026-11-12): %f of the
+        // scientific-repr magnitudes (< 1e-3, >= 1e7) + the rounding-carry
+        // re-splits — the old render_f treated the "E" tail as fraction
+        // digits and destroyed every %f/%,f of these rows; the fixed
+        // split_at also mis-printed the carry cases (9.99 at %.1f).
+        double[] xband = {
+            6.149717374e-4, 9.99e-5, 1.0e-10, 1.2345678e-4, 5.0e-4,
+            9.999999e-4, 1.0e7, 1.2345678e7, 9.9999999e6, 1.0e-3
+        };
+        for (double d : xband) {
+            System.out.println("Xf: [" + String.format("%.9f", d) + "] ["
+                + String.format("%.3f", d) + "] [" + String.format("%,f", d) + "]");
+        }
+        System.out.println("X1: [" + String.format("%.1f", 9.99) + "]");
+        System.out.println("X2: [" + String.format("%.0f", 9.99) + "]");
+        System.out.println("X3: [" + String.format("%.2f", 9.9999) + "]");
+        System.out.println("X4: [" + String.format("%.4f", 9.99e-5) + "]");
+        System.out.println("X5: [" + String.format("%e", 6.149717374e-4) + "]");
+        System.out.println("X6: [" + String.format("%g", 6.149717374e-4) + "]");
+        System.out.println("X7: [" + String.format("%s", 6.149717374e-4) + "]");
+        System.out.println("X8: [" + String.format("%.9f", -6.149717374e-4) + "]");
+        System.out.println("X9: [" + String.format("%.3f", 0.0005) + "]");
     }
 }
