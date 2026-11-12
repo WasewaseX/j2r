@@ -135,10 +135,12 @@ fn differential_suite_matches_jvm() {
     // StringWriter's write(int) 16-bit truncation law: 109 on disk, guard
     // one below that. R2 slice 1 (2026-11-12) added ReflectForName (the
     // Class.forName closed-world resolution fixture) — 110 on disk, guard
-    // one below that.
+    // one below that. External-B2/O5 (2026-11-13) added PartitionCatch
+    // (the exception-table partition law) — 111 on disk, guard one below
+    // that.
     assert!(
-        fixtures.len() >= 109,
-        "differential suite shrank: {} fixtures (expected >= 109)",
+        fixtures.len() >= 110,
+        "differential suite shrank: {} fixtures (expected >= 110)",
         fixtures.len()
     );
 

@@ -3,7 +3,7 @@
 //! compiled with `j2r test --partition-classes K` (a FORCED-tiny partition
 //! budget, so every fixture lands in 2+ crates) and compared against the
 //! JVM on all three channels by the same `j2r test` machinery the
-//! 109-fixture differential suite uses.
+//! 111-fixture differential suite uses.
 //!
 //! Why these fixtures: the partition seams are cross-partition direct
 //! calls, cross-partition clinit fn pointers (`tramp`), the shared
@@ -13,6 +13,12 @@
 //! composite lookup), `SingletonFactory` + `CyclicInit` (JLS 12.4.2
 //! `<clinit>` gates — the clinit fn pointers cross partitions), and
 //! `StringIoSemantics` (runtime natives + the shared pool).
+//! `PartitionCatch` (external-B2/O5, jbox2d port report 2026-11-13):
+//! exception TABLES in partitioned classes — try/catch + finally, a
+//! `<clinit>` that catches (the World$1 shape), catch-type resolution
+//! through the installed registry hook. Every earlier fixture was
+//! try/catch-free and the class this covers was invisible to the set
+//! (E0433: cannot find `registry` in the crate root).
 //!
 //! Skips silently when no JDK is available (CI installs one), exactly
 //! like diff_suite.
@@ -57,6 +63,7 @@ const FIXTURES: &[(&str, usize)] = &[
     ("SingletonFactory", 2),
     ("CyclicInit", 2),
     ("StringIoSemantics", 2),
+    ("PartitionCatch", 2),
 ];
 
 #[test]

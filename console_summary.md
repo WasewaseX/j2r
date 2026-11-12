@@ -1,5 +1,27 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. 2 — **EXTERNAL-B2 LANDED: the
+partitioned-emission registry-hook fix + the O5 exception-table
+fixture**). Reproduced first: a three-class probe at
+--partition-classes 2 (incl. a `<clinit>` that catches — the jbox2d
+World$1 shape) failed E0433 "cannot find `registry` in the crate root"
+in every partition crate with an exception table. The fix (partition.rs):
+the `crate::registry::` rewrite arm -> `support::registry_hook::`; a
+generated support/src/registry_hook.rs (OnceLock fn-pointer slots for
+parents + meta — the dispatch_slot/link pattern, loud on double
+install and on use-before-install); the app main template installs the
+composite `parents_of`/`meta_of` (already at app crate root) BEFORE any
+Java code; single-crate untouched. O5: NEW tests/suite/PartitionCatch.java
+(111th differential fixture, 7th partition stem at k=2) — try/catch +
+finally + a `<clinit>` catch + cross-partition calls; README 111/111,
+diff_suite guard 110. Proof: the probe byte-identical vs the JDK;
+partition_suite 7/7; diff_suite 111 ZERO divergences (485.48 s);
+cfg_equiv 109x3 ZERO (354.65 s); full battery **466/0**; gate-11
+fixtures=111 tests=466 + links + stubs green; fmt + clippy clean.
+Evidence: scripts/evidence/external_b2/registry_hook_fix_2026-11-13.txt.
+Next: EXTERNAL-B3..B12 (natives/jdk surface, fdlibm the biggest piece),
+then EXTERNAL-HARNESS.
+
 Updated 2026-11-13 (session 19b cont. — **EXTERNAL-B1 LANDED: the
 formatter %f small-magnitude fix + the O4 band fixture**). The §9
 rebootstrap completed (6th validation: rustup-init 21,347,088 B +

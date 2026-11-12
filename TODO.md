@@ -1944,29 +1944,34 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       (350.25 s); full battery **466/0**; fmt + clippy clean.
       Evidence: scripts/evidence/external_b1/
       render_f_band_fix_2026-11-13.txt.
-- [ ] **EXTERNAL-B2 — land the partitioned-emission registry-hook fix
-      (the owner-reported HARD BUILD FAILURE; exists at main)** —
-      emit.rs emits the exception-matcher helper as
-      is_subtype(thrown_class, "<catch>", Some(crate::registry::
-      parents_of)); partition.rs::rewrite_class_source rewrites
-      crate::statics::, crate::j2r_dispatch() and cross-partition
-      crate::classes:: but has NO arm for crate::registry::, so any
-      partitioned class carrying an exception table fails E0433
-      (jbox2d World$1.<clinit> was the first hit; every partition
-      fixture is try/catch-free, which is why our suites never saw it).
-      Spec (jbox2d_bug.md B2, 3 parts): (1) the rewrite arm
-      crate::registry:: → support::registry_hook::; (2) generated
-      support/src/registry_hook.rs — a OnceLock fn-slot pair (parents
-      + meta_of equivalents, the same process-global-slot pattern as
-      dispatch_slot/the link table); a miss panics loudly ("registry
-      hook not installed before use"), never returns a wrong subtype
-      answer (the app crate owns the composite route table and pN
-      cannot depend on app — cargo cycle, observed); (3) app main.rs
-      installs the hook at startup and exposes the composite table as
-      pub mod registry (forwarding fns over the per-part tables).
-      Companion fixture (O5): one class WITH an exception table,
-      --partition-classes 2, compile + run + compare. STATUS: not
-      started; queued behind EXTERNAL-B1.
+- [x] **EXTERNAL-B2 — the partitioned-emission registry-hook fix LANDED
+      (2026-11-13, session 19b)** — emit.rs emits the exception-matcher
+      helper with `crate::registry::parents_of` (the single-crate
+      shape); partition.rs::rewrite_class_source had NO arm for it, so
+      any partitioned class carrying an exception table failed E0433
+      ("cannot find `registry` in the crate root") — reproduced on this
+      tree BEFORE the fix (three-class probe incl. a `<clinit>` that
+      catches, the jbox2d World$1 shape; p0 and p1 both failed). The
+      fix: the rewrite arm `crate::registry::` →
+      `support::registry_hook::`; a generated support/src/
+      registry_hook.rs — two OnceLock fn-pointer slots (parents + meta,
+      the dispatch_slot/link pattern), double-install and
+      use-before-install both panic loud, never a wrong subtype answer;
+      the app main template installs `parents_of`/`meta_of` (already
+      composed at app crate root) BEFORE any Java code runs; single-
+      crate emission untouched. O5 fixture: NEW tests/suite/
+      PartitionCatch.java (the 111th differential fixture; try/catch +
+      finally + a `<clinit>` catch + cross-partition calls), registered
+      in partition_suite at k=2 — the exception-table path now runs on
+      every partition test (first draft hit String.join(Iterable) — a
+      loud gap, recorded under B3..B12; replaced with concatenation).
+      Count bumps: README 111/111 + 111 programs, diff_suite guard 110.
+      Proof: the probe builds, runs exit 0, byte-identical vs the JDK;
+      partition_suite 7/7 (29.80 s); diff_suite 111 ZERO divergences
+      (485.48 s); cfg_equiv 109x3 ZERO (354.65 s); full battery
+      **466/0**; gate-11 fixtures=111 tests=466 + doc-links + stubs
+      green; fmt + clippy clean. Evidence:
+      scripts/evidence/external_b2/registry_hook_fix_2026-11-13.txt.
 - [ ] **EXTERNAL-B3..B12 — the natives/jdk-surface wave measured by a
       real game-shaped program** — the nine loud gaps jbox2d hit (each
       a compile error — j2r's law, correct behavior; each specified in

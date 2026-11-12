@@ -1,0 +1,99 @@
+EXTERNAL-B2 — the partitioned-emission registry-hook fix + the O5 fixture
+Landed 2026-11-13 (session 19b) · owner-reported via the external jbox2d
+port report (docs/external-port/jbox2d_bug.md B2 + B14 + O5)
+
+THE BUG (owner's B2, reproduced on this tree before the fix)
+
+emit.rs emits the exception-matcher helper with the single-crate shape
+  is_subtype(thrown_class, "<catch>", Some(crate::registry::parents_of))
+partition.rs::rewrite_class_source rewrites crate::statics::,
+crate::j2r_dispatch() and cross-partition crate::classes:: — but had NO
+arm for crate::registry::, so the path survived verbatim into a
+partition crate, which has no registry module:
+
+  error[E0433]: cannot find `registry` in the crate root
+    --> p0/src/classes/PartCatch.rs:49:166
+     | ... Option::Some(crate::registry::parents_of)) ...
+
+Reproduction (work/b2_probe, three classes, --partition-classes 2):
+PartCatch (try/catch AIOOBE + finally), PartClinit (a <clinit> that
+CATCHES ArithmeticException — the jbox2d World$1 shape), PartAux. Every
+partition crate carrying an exception table failed E0433 (p0 twice,
+p1 once); a class without try/catch partitions fine — exactly the
+owner's report, and exactly why our partition fixtures (all
+try/catch-free) never saw it.
+
+Why the obvious fix is wrong (owner's finding, confirmed): pointing the
+path at the app crate is a cargo dependency cycle — app depends on
+p0..pN, so pN cannot depend on app.
+
+THE FIX (crates/j2r-codegen/src/partition.rs, 4 parts)
+
+1. rewrite_class_source gains the `crate::registry::` arm ->
+   `support::registry_hook::` (placed before the classes arm).
+2. A new generated support/src/registry_hook.rs (registry_hook_source()):
+   two OnceLock fn-pointer slots (parents + meta) — the same
+   process-global-slot pattern as dispatch_slot and the link table.
+   install() is loud on double install; a use-before-install panics
+   loudly ("registry hook not installed before use") — never a wrong
+   subtype answer.
+3. The app main.rs template installs the hook in the startup sequence,
+   after the link table + composite dispatch, BEFORE any Java code
+   (a <clinit> verify path can hit it first):
+     support::registry_hook::install({lib_crate}::parents_of, {lib_crate}::meta_of);
+   (the app crate already exposes the composite registry as free fns at
+   crate root — parents_of/meta_of over ROUTE_PARENTS_OF/ROUTE_META_OF —
+   so no new app module was needed; fn items coerce to the fn-pointer
+   parameter types.)
+4. Single-crate emission untouched (crate::registry:: exists there).
+
+THE FIXTURE (O5 — the exception-table partition law)
+
+NEW tests/suite/PartitionCatch.java (the 111th differential fixture):
+nested Op.risky (try/catch ArithmeticException + AIOOBE + finally), the
+nested Seed <clinit> that catches ArithmeticException (the World$1
+shape), a cross-partition call chain, and an NPE catch; deterministic
+single-line output. Registered in partition_suite.rs FIXTURES at k=2 —
+every partition seam (composite dispatch, shared statics, clinit
+pointers) AND the exception-table path now run on every partition test.
+First draft used String.join(CharSequence, Iterable) — a LOUD
+natives gap (correct j2r law, recorded as part of the B3..B12 surface
+evidence); replaced with plain concatenation, fixture kept on the
+supported surface.
+
+PROOF
+
+- Reproduction BEFORE the fix: E0433 in p0 and p1 (captured in the
+  transcript; the probe dir work/b2_probe keeps the failing tree).
+- AFTER the fix: the same three-class probe builds (release), runs
+  exit 0, stdout BYTE-IDENTICAL to the JDK; the rewritten partition
+  modules reference support::registry_hook::parents_of (p0 line 49/186).
+- partition_suite: 7/7 fixtures PASS at k=2 (1 test, 29.80 s) —
+  including PartitionCatch.
+- diff_suite: 111 fixtures ZERO divergences (485.48 s) — includes the
+  new PartitionCatch on the plain (non-partitioned) path.
+- cfg_equiv: 109x3 ZERO divergences (354.65 s).
+- chunk A (classfile 41 + jni-ffi 17 + runtime 243 + codegen 136)
+  437/0; cli fast 24/0 + partition 1/0; corpus 1/1 — full battery
+  466 tests, 0 failures.
+- Gates: gate-11 doc-counts (fixtures=111 tests=466), gate-19 doc-links,
+  gate-20 code-integrity — all green; fmt + clippy -D-warnings clean.
+- Count bumps: README 110/110 -> 111/111 (cfg fixture claim) and
+  "110 programs" -> "111 programs"; diff_suite guard 109 -> 110.
+
+REPRODUCTION
+
+  source /home/z/my-project/work/env.sh
+  cd /home/z/my-project/work/j2r-fresh
+  cargo test -p j2r-cli --locked --test partition_suite
+  cargo test -p j2r-cli --locked --test diff_suite   # 111 fixtures
+
+HONESTY NOTES
+
+- The app already composed the registry tables at crate root, so this
+  fix is SMALLER than the owner's written 3-part spec (their app needed
+  a new pub mod registry forwarding layer; ours forwards directly).
+  The mechanism (support-crate OnceLock hook, loud miss, install before
+  any Java code) is identical.
+- The partition fixture count is 7 stems inside ONE test fn — the test
+  total stays 466 (gate-11 verified).

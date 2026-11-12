@@ -2394,3 +2394,41 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
 - Evidence: scripts/evidence/external_b1/render_f_band_fix_2026-11-13.txt;
   TODO.md EXTERNAL-B1 flipped [x]. Next: EXTERNAL-B2 (the partition
   registry-hook fix + the O5 exception-table partition fixture).
+
+### [2026-11-13, session 19b cont. 2] EXTERNAL-B2 LANDED — the partitioned-emission registry-hook fix + the O5 fixture
+
+- REPRODUCED FIRST (house law): a three-class probe at
+  --partition-classes 2 (PartCatch try/catch+finally; PartClinit with a
+  `<clinit>` that CATCHES ArithmeticException — the jbox2d World$1
+  shape; PartAux) failed E0433 "cannot find `registry` in the crate
+  root" in EVERY partition crate carrying an exception table — exactly
+  the owner's B2. (En route: System.getProperty(String,String) and
+  String.join(CharSequence,Iterable) are loud gaps — B3..B12-class
+  surface evidence, recorded.)
+- THE FIX (partition.rs, 4 parts): the rewrite arm `crate::registry::`
+  -> `support::registry_hook::`; a generated support/src/
+  registry_hook.rs (two OnceLock fn-pointer slots for parents + meta —
+  the dispatch_slot/link pattern; double-install and use-before-install
+  panic loud, never a wrong subtype answer); the app main template
+  installs `{lib_crate}::parents_of`/`meta_of` (already composed at app
+  crate root — smaller than the owner's spec, which needed a new
+  forwarding module) BEFORE any Java code; single-crate emission
+  untouched. The cargo-cycle finding (app depends on p0..pN, so pN
+  cannot point at app) confirmed the owner's analysis.
+- O5 FIXTURE: NEW tests/suite/PartitionCatch.java — the 111th
+  differential fixture AND the 7th partition-suite stem at k=2: the
+  exception-table path (try/catch + finally + a `<clinit>` catch +
+  catch-type resolution through the installed hook + cross-partition
+  calls) now runs on EVERY partition test. Count bumps: README
+  111/111 + 111 programs; diff_suite guard 109 -> 110.
+- Proof: the same probe now builds, runs exit 0, byte-identical to the
+  JDK (rewritten modules reference support::registry_hook::parents_of);
+  partition_suite 7/7 (29.80 s); diff_suite 111 fixtures ZERO
+  divergences (485.48 s); cfg_equiv 109x3 ZERO (354.65 s); chunk A
+  437/0 + cli fast 24/0 + partition 1/0 + corpus 1/1 = full battery
+  **466/0**; gate-11 fixtures=111 tests=466 + doc-links + code-
+  integrity green; fmt + clippy clean.
+- Evidence: scripts/evidence/external_b2/registry_hook_fix_2026-11-13.txt;
+  TODO.md EXTERNAL-B2 flipped [x]. Next queued: EXTERNAL-B3..B12 (the
+  natives/jdk surface — fdlibm module the biggest piece), then
+  EXTERNAL-HARNESS.
