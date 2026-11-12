@@ -1,6 +1,6 @@
 # J2R Roadmap — Java → Rust compiler, M1 → M6
 
-Updated 2026-11-11 (M5 row refreshed: G2.1–G2.7 + G4.2 + G3.1 closed — all FOUR JamaBench kernels TypedReady; M6_PLAN.md rev 0 drafted; milestone renumbering per M4_PLAN §0: M4 = threads &
+Updated 2026-11-13 (external jbox2d validation persisted + integrated; M5 row refreshed: G2.1–G2.7 + G4.2 + G3.1 closed — all FOUR JamaBench kernels TypedReady; M6_PLAN.md rev 0 drafted; milestone renumbering per M4_PLAN §0: M4 = threads &
 concurrency — DONE; M5 = Minecraft readiness — IN PROGRESS; M6 = mod ecosystem — planning drafted) · every commit CI-green (runs recorded for substantive commits below)
 M1 architecture review: **APPROVE** ("PARTIALLY COMPLETE / Promising Milestone 1")
 M2 plan: `docs/M2_PLAN.md` — Revision 2 (2026-11-01) answers the
@@ -15,6 +15,20 @@ This file is the top-level map and the working todolist; the
 per-change specifications live in M2_PLAN. **M3 (JDK coverage) has
 begun**: `docs/M3_PLAN.md` rev 1 — five implementation waves, 23-task
 register (T01–T07 planning done, T08+ pending).
+
+**External validation (2026-11-13)**: an owner-run port of jbox2d
+2.2.1.1 (156 classes) on a 2 vCPU / 2 GB box — 6/6 workloads
+byte-identical to Temurin 21 through 1,980 chaotic physics steps,
+median 25× slower than the full JVM (6.9×–84×), 1.74×–4.80× lower RSS,
+26× faster startup — independently corroborates the typed-register
+track and the default-backend cost model. The report (result / bug /
+opt) lives in `docs/external-port/`; its land-waves are registered in
+TODO.md §3 (EXTERNAL-B1, EXTERNAL-B2, EXTERNAL-B3..B12,
+EXTERNAL-HARNESS, EXTERNAL-CORROB). The two formerly-deferred wave
+residuals the owner challenged are no longer deferred: depth-5 array
+descriptors are CLOSED (e6ace40, the recursive `Nest(Box<ElemKind>)`
+descriptor) and R2 slice 1 is landed (ac4af2d, Class.forName resolves
+the closed world; slice 2 = Field.get on statics registered).
 
 ---
 

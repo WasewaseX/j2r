@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-11.
+fix the board. Last updated: 2026-11-13.
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -1892,3 +1892,139 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       slices conclude (slices 1+2 landed this day: 0.918 → 0.913 →
       0.894). Evidence:
       scripts/evidence/g3_3/opening_census_2026-11-12.txt.
+- [x] **EXTERNAL PORT REPORT PERSISTED — jbox2d 2.2.1.1 (2026-11-13,
+      session 19b, owner directive: "add these in todo list and roadmap
+      to survive sandbox reset")** — the owner's independent port test
+      (run OUTSIDE this repo on a 2 vCPU / 2 GB box, against j2r @
+      c38fcdb plus ~1,100 lines of owner-written port-wave patches) is
+      now authoritative repo content: docs/external-port/{README.md,
+      jbox2d_result.md, jbox2d_bug.md, jbox2d_opt.md}. The result:
+      156 classes / 140,359 generated lines / 16.5 MB binary; 6/6
+      workloads byte-identical to Temurin 21 through 1,980 chaotic
+      physics steps + 1e6 trig evals; steady-state 6.9x–84x slower
+      than the JVM (median 25x, the gap grows with hot-loop time — the
+      same regime as our published JamaBench numbers); peak RSS
+      1.74x–4.80x LOWER; startup 26x faster; translate 156 ms vs javac
+      969 ms, then 111.8 s of cargo. The corroboration value: (a) the
+      default-backend cost ledger (Opt.md §1: refresh 13.3 M calls,
+      obj_get 58.7 M, ~337 M stack pops in pendulum-300; six runtime
+      primitives ≈ 50% of the run) independently measures the SAME
+      families register §5 attacks; (b) the owner's micro-bench (typed
+      u64 slots 0.60 ns vs Vec<Value> 3.05 ns = 5.1x) corroborates the
+      typed-register premise; (c) the port needed NO depth >= 5 array
+      descriptors and no reflection beyond Class.forName-shaped
+      resolution — both prior deferrals validated by a real program
+      (and both have since MOVED anyway: e6ace40 closed depth-5,
+      ac4af2d landed R2 slice 1). Evidence: docs/external-port/ (the
+      reports themselves are the evidence).
+- [ ] **EXTERNAL-B1 — land the formatter %f small-magnitude fix (the
+      owner-reported SILENT wrong-output bug; exists at main)** —
+      render_f (crates/j2r-runtime/src/formatter.rs) derives digits
+      from javafmt::double_to_string and splits on '.', but the JVM's
+      shortest repr goes scientific below 1e-3 and at/above 1e7, so
+      every %f/%.Nf/%,f of a value in those bands drops the exponent:
+      6.149717374e-4 printed "6.149717374" where Temurin prints
+      "0.000614972"; 1.0e-10 printed "1.0E-100000". This is the bug
+      that made the ported pendulum workload look like a physics bug
+      (jbox2d_bug.md B1). Spec: normalize the shortest repr to pure
+      digit strings BEFORE the precision rounding — split off the
+      exponent, shift the decimal point, then the existing HALF_UP
+      rounding (~40 lines). Companion fixture (O4): extend the corpus
+      formatter probe with the scientific-repr band — 15 values,
+      1e-4 … 1.2345678e7, %.9f/%.6f/%.3f/%,f/%e/%g/%s — differential
+      vs JDK 21. Gate: full battery + diff_suite. STATUS: not started;
+      NEXT after the baseline re-proof.
+- [ ] **EXTERNAL-B2 — land the partitioned-emission registry-hook fix
+      (the owner-reported HARD BUILD FAILURE; exists at main)** —
+      emit.rs emits the exception-matcher helper as
+      is_subtype(thrown_class, "<catch>", Some(crate::registry::
+      parents_of)); partition.rs::rewrite_class_source rewrites
+      crate::statics::, crate::j2r_dispatch() and cross-partition
+      crate::classes:: but has NO arm for crate::registry::, so any
+      partitioned class carrying an exception table fails E0433
+      (jbox2d World$1.<clinit> was the first hit; every partition
+      fixture is try/catch-free, which is why our suites never saw it).
+      Spec (jbox2d_bug.md B2, 3 parts): (1) the rewrite arm
+      crate::registry:: → support::registry_hook::; (2) generated
+      support/src/registry_hook.rs — a OnceLock fn-slot pair (parents
+      + meta_of equivalents, the same process-global-slot pattern as
+      dispatch_slot/the link table); a miss panics loudly ("registry
+      hook not installed before use"), never returns a wrong subtype
+      answer (the app crate owns the composite route table and pN
+      cannot depend on app — cargo cycle, observed); (3) app main.rs
+      installs the hook at startup and exposes the composite table as
+      pub mod registry (forwarding fns over the per-part tables).
+      Companion fixture (O5): one class WITH an exception table,
+      --partition-classes 2, compile + run + compare. STATUS: not
+      started; queued behind EXTERNAL-B1.
+- [ ] **EXTERNAL-B3..B12 — the natives/jdk-surface wave measured by a
+      real game-shaped program** — the nine loud gaps jbox2d hit (each
+      a compile error — j2r's law, correct behavior; each specified in
+      jbox2d_bug.md): B4 NoSuchFieldError hierarchy row (JLS 13.4.9
+      bridge catch); B5 StrictMath hierarchy row + 35 natives sharing
+      the Math implementations; B6 the 8 boxed classes instantiable,
+      <init> rows aliased to valueOf so the JDK identity cache applies
+      (new Integer(127) == new Integer(127) TRUE on HotSpot too); B7
+      AssertionError(Object) via the Throwable message-slot machinery;
+      B8 the four IEEE bit-reinterpretation statics rows (incl. the
+      floatToIntBits-NaN-canonicalizes vs floatToRawIntBits-does-not
+      distinction that Float.equals depends on); B9 the transcendental
+      surface as a faithful fdlibm module (sin/cos/tan/atan/atan2 from
+      musl's fdlibm, plain f64, NO FMA contraction, registered for
+      Math AND StrictMath; Payne–Hanek __rem_pio2_large loud-panic
+      residual stated in the module doc; honest O1 residual: HotSpot
+      itself differs from fdlibm on ~6.5 inputs per 100k); B10
+      java.util.Random as a real builtin object (seed slot + gaussian
+      cache slots, 12 natives: the JDK 48-bit LCG,
+      power-of-two/rejection nextInt(bound), polar nextGaussian,
+      nextBytes, JDK-exact exception strings); B11 ArrayList.toArray()
+      / toArray(T[]) with the JDK's two-branch contract; B12
+      Arrays.sort(T[],from,to[,Comparator]) range forms with JDK-exact
+      exception messages + Class.desiredAssertionStatus() → false.
+      Sequencing: B9's fdlibm module is the biggest piece; B4/B5/B7/B8
+      are table rows; B6/B10 are builtin-class machinery; B11/B12 are
+      jdkutil natives. STATUS: not started; pulled per-wave with the
+      differential gate after B1/B2.
+- [ ] **EXTERNAL-HARNESS — the four process items (Opt.md §6 + O6)** —
+      (1) `j2r cfg-report --surface`: the sorted, deduplicated JDK
+      member set the input needs, diffed against the NATIVES table
+      (would have shown B4–B12 in one page instead of ten compile
+      cycles); (2) a collect-all-diagnostics mode (walk every class,
+      report every unresolved member, then fail — the first unresolved
+      reference is only the first); (3) a --partition-classes 2
+      variant in the corpus/partition runner, and the partition
+      fixtures must include an exception table (B14's law); (4) the
+      differential harness pins its reference charset itself
+      (-J-Dfile.encoding=UTF-8) instead of inheriting the ambient
+      locale (O6 — five phantom failures on a C locale,
+      owner-verified). STATUS: not started.
+- [ ] **EXTERNAL-CORROB — Opt.md R1–R9 mapped onto the register (the
+      cross-reference recorded so the roadmap cites it; no new
+      claims)** — R1 (FrameGuard monitors lazy, owner prototype
+      MEASURED −4.7%/−4.9%) + R2 (refresh writes the slot in place,
+      needs the M4_PLAN L1/L2/L3 lock-scope audit FIRST) = runtime-
+      frame candidates, zero semantic change, recommended first pull
+      of the perf wave after the B1/B2 correctness fixes; R3 (refresh
+      only on reference change, 10–15% expected, >90% avoidable in
+      solver loops) = our ref-only refresh lever's next step (0.913
+      landed) — the owner's independent estimate corroborates the
+      projection and demands the same safety protocol (rooting
+      tripwires + forced-GC-every-N stress); R4 (typed operand stack,
+      block-linear emission, structured recovery) = the typed-register
+      track's endgame (ledger at 0.894; the owner's 5.1x stack-cost
+      micro and ~18%/35% stack-op shares measure the same family);
+      R5 (codegen-time invokevirtual resolution + a real vtable for
+      the polymorphic residue) = the registered obj_get/invoke-dispatch
+      residual; R6(c) (per-basic-block heap borrow region, removes
+      58.7 M lock/unlock pairs ≈ 9%) = NEW runtime-track candidate,
+      honest under the current architecture (no unsafe, no
+      memory-model change); R7 (perfect-hash dispatch table over the
+      2,169 string-tuple arms) = registered follow-up shape after R5;
+      R8 (target-cpu/codegen-units defaults; FMA stays OFF for JVM
+      parity) = cheap single-digit default flip; R9 (build cost:
+      111.8 s per 156 classes scales to ~14 h at 70k classes) = the
+      G2.6/M5 wall, now with a 2 GB-box OOM data point (B13:
+      single-crate rustc SIGKILL at just 156 classes). Opt.md §4's
+      do-NOT list (no copying GC, no NaN-boxing of Value, no
+      computed-goto, no manual vectorization, no platform-libm switch)
+      agrees with our standing laws. STATUS: mapping recorded.
