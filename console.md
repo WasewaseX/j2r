@@ -2291,3 +2291,32 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   §wave-order updated; TODO.md wave-residuals entry flipped to [x].
 - Next in this session: the R2 metadata generator opening (census +
   design + slice 1 scope) — the owner's other flagged leftover.
+
+### [2026-11-12, session 19 cont.] R2 OPENED — slice 1: Class.forName resolves the closed world (byte-identical fixture)
+
+- The owner's second flagged leftover, pulled forward the same session.
+  The opening census CORRECTED the premise: the M3 subset already
+  retained per-class metadata statics (UserClassInfo: fields/methods/
+  is_interface/simple_name, consumed via Dispatch::class_info) — the
+  loud string-lookup gap was `Class.forName(name-as-data)`.
+- SLICE 1 LANDED: forName(String) + forName(String, boolean,
+  ClassLoader) as natives resolving against the closed world (compiled
+  registry first, then the new `builtin_class_known` test); the 3-arg
+  form accepts the INERT ClassLoader (getSystemClassLoader registered —
+  the system loader IS the closed world); Temurin-21-exact contracts
+  oracle-captured BEFORE implementation (CNFE message IS the input
+  name; null → NPE "null"; "int" unresolvable; `[I` and
+  `[Ljava.lang.String;` resolve with dots-to-slashes inside `L...;`).
+- NEW FIXTURE ReflectForName.java (the 110th): **byte-identical vs
+  Temurin on the first differential run**. Doc-count gate updated
+  (fixtures=110 tests=466, checker green); diff_suite guard 108 → 109.
+- DISCOVERED EN ROUTE (registered, not fixed): Field.get on a STATIC of
+  a compiled class returns null — the M3 static-pool boundary; slice
+  2's first row. Registered remaining slices: static-pool access +
+  getModifiers, getDeclaredConstructors, retained annotations, static
+  proxies, --reflection=all.
+- Proof: cfg_equiv 110-class census ZERO divergences (354.84 s);
+  diff_suite 110 fixtures (464.41 s) ZERO; corpus 1/1; full battery
+  **466/0**; fmt + clippy zero findings.
+- Evidence: scripts/evidence/r2_opening/forname_slice1_2026-11-12.txt;
+  TODO.md R2 entry [ ] -> [~] with the slice plan.

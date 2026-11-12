@@ -23,6 +23,11 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/Number" => "java/lang/Object",
         // M4 Wave 2 (T06): java.lang.Thread joins the builtin hierarchy.
         "java/lang/Thread" => "java/lang/Object",
+        // R2 slice 1 (2026-11-12): ClassLoader joins the hierarchy as an
+        // INERT closed-world type — Class.forName's 3-arg overload accepts
+        // a loader and ignores it (the system loader IS the closed world).
+        // No loader-resolved lookup exists to hang behavior on.
+        "java/lang/ClassLoader" => "java/lang/Object",
         "java/lang/Integer" => "java/lang/Number",
         "java/lang/Long" => "java/lang/Number",
         "java/lang/Float" => "java/lang/Number",
@@ -214,6 +219,20 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         _ => return None,
     };
     Some(p)
+}
+
+/// Closed-world knowledge test for `Class.forName` (R2 slice 1, the
+/// metadata-retention opening): a name resolves iff it is the root, has a
+/// builtin parent, is a known builtin interface, carries builtin interface
+/// edges, or is otherwise modeled with an empty interface list
+/// (`java/io/Serializable`). Unmodeled JDK names stay loud
+/// (`ClassNotFoundException`) — the registered closed-world boundary, the
+/// same discipline as `getDeclaredField` on builtin classes.
+pub fn builtin_class_known(class: &str) -> bool {
+    class == "java/lang/Object"
+        || builtin_parent_of(class).is_some()
+        || builtin_is_interface(class)
+        || !builtin_interfaces_of(class).is_empty()
 }
 
 /// Interfaces a builtin class implements (beyond the single-parent chain).

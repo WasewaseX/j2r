@@ -133,10 +133,12 @@ fn differential_suite_matches_jvm() {
     // Temurin-21-empirical, reset-to-beginning before any mark, the
     // Objects.checkFromIndexRange bulk-range message, the close law) and
     // StringWriter's write(int) 16-bit truncation law: 109 on disk, guard
+    // one below that. R2 slice 1 (2026-11-12) added ReflectForName (the
+    // Class.forName closed-world resolution fixture) — 110 on disk, guard
     // one below that.
     assert!(
-        fixtures.len() >= 108,
-        "differential suite shrank: {} fixtures (expected >= 108)",
+        fixtures.len() >= 109,
+        "differential suite shrank: {} fixtures (expected >= 109)",
         fixtures.len()
     );
 

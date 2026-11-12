@@ -832,9 +832,27 @@ local full-gate sweep at the same tree).**
       gate-11 fixtures=95 tests=292 in sync. Note: the generated crate
       needs RUST_MIN_STACK=32MiB (rustc SIGSEGV otherwise — recorded in
       the runner and the wave doc).
-- [ ] **R2 metadata generator (post-M4 scope)** — reflection metadata
+- [~] **R2 metadata generator (post-M4 scope)** — reflection metadata
       retention so runtime string lookups resolve (closed-world design
-      in docs/STRATEGIC_GAPS.md).
+      in docs/STRATEGIC_GAPS.md). **OPENING + SLICE 1 LANDED
+      (2026-11-12, session 19, owner directive pulled it forward):**
+      `Class.forName(String)` + the 3-arg overload now resolve against
+      the closed world (the generated crate's metadata registry via
+      ctx.class_info + the new `builtin_class_known` test) —
+      Temurin-exact contracts (CNFE message IS the name; null → NPE
+      "null"; "int" unresolvable; `[I`/`[Ljava.lang.String;` array
+      forms), the inert `ClassLoader.getSystemClassLoader()` (the
+      system loader IS the closed world), and the 110th fixture
+      ReflectForName **byte-identical vs Temurin on the first
+      differential run**. The census corrected the premise: the M3
+      subset already retained the per-class metadata statics
+      (UserClassInfo fields/methods tables) — forName was the loud
+      string-lookup gap. Registered next slices: Field.get/set
+      static-pool access (discovered en route: Field.get on a static
+      of a compiled class returns null) + getModifiers; getDeclared
+      Constructors; retained annotations; static proxies;
+      `--reflection=all`. Evidence: scripts/evidence/r2_opening/
+      forname_slice1_2026-11-12.txt.
 - [~] **R5 benchmark harness** — policy locked (benchmarks observe,
       never gate; no performance sentence without a number, a date, and
       a reproduction command). **Harness LANDED 2026-11-05** (owner

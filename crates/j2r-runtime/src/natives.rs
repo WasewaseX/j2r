@@ -2448,6 +2448,96 @@ fn n_object_get_class(
     Ok(crate::reflect::class_value(&name))
 }
 
+/// A `Class.forName` binary name → the internal form the runtime keys on
+/// (dots → slashes; the array-descriptor form keeps its brackets and
+/// converts only inside `L...;`). Temurin accepts both `java.lang.String`
+/// and `[Ljava.lang.String;` (oracle capture, R2 slice 1 evidence).
+fn for_name_internal(name: &str) -> String {
+    if let Some(rest) = name.strip_prefix('[') {
+        format!("[{}", for_name_internal(rest))
+    } else if let Some(comp) = name.strip_prefix('L').and_then(|s| s.strip_suffix(';')) {
+        format!("L{};", comp.replace('.', "/"))
+    } else {
+        name.replace('.', "/")
+    }
+}
+
+/// Is `internal` an array whose component the closed world knows?
+/// Primitive components (`[I`) are always known; `L...;` components must
+/// resolve (recursively for nested descriptors).
+fn for_name_known(internal: &str, ctx: Dispatch) -> bool {
+    if let Some(rest) = internal.strip_prefix('[') {
+        return match rest.strip_prefix('L').and_then(|s| s.strip_suffix(';')) {
+            Some(comp) => for_name_known(comp, ctx),
+            // primitive component (or nested weirdness the verifier would
+            // have rejected) — primitives are always resolvable
+            None => true,
+        };
+    }
+    // compiled registry first (a compiled class shadows nothing — the
+    // closed world is disjoint — but the registry is authoritative for
+    // user classes), then the builtin tables.
+    ctx.class_info(internal).is_some() || crate::builtin::builtin_class_known(internal)
+}
+
+/// `Class.forName(String)` — the R2 slice-1 opening: runtime string
+/// lookups resolve against the closed world (the generated crate's
+/// metadata registry + the builtin tables). Oracle capture
+/// (Temurin 21.0.13, this session): unknown name →
+/// `ClassNotFoundException` whose message IS the input name; null name →
+/// `NullPointerException: null`; `int` is NOT resolvable (primitives are
+/// not classes by name); `[I` and `[Ljava.lang.String;` resolve; the
+/// message carries the BINARY name verbatim.
+fn n_class_for_name(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let name = match args.first() {
+        Some(Value::Ref(None)) => {
+            return Err(crate::throw_new(
+                "java/lang/NullPointerException",
+                Some("null"),
+            ))
+        }
+        Some(Value::Ref(Some(r))) => crate::object::string_value(r),
+        other => {
+            return Err(internal_error(&format!(
+                "Class.forName: expected string arg, found {other:?}"
+            )))
+        }
+    };
+    let internal = for_name_internal(&name);
+    if for_name_known(&internal, ctx) {
+        Ok(crate::reflect::class_value(&internal))
+    } else {
+        Err(crate::throw_new(
+            "java/lang/ClassNotFoundException",
+            Some(&name),
+        ))
+    }
+}
+
+/// `Class.forName(String, boolean, ClassLoader)` — the 3-arg overload:
+/// resolution is identical (closed world; the `initialize` flag is
+/// accepted — the runtime's lazy-clinit law already matches Temurin's
+/// observable timing — and the loader is ignored: the system loader IS
+/// the closed world).
+fn n_class_for_name3(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    n_class_for_name(_recv, &args[..1], ctx)
+}
+
+/// `ClassLoader.getSystemClassLoader()` — R2 slice 1: returns an inert
+/// `java/lang/ClassLoader` node. The closed world has exactly one loader
+/// (the system loader IS the world), so the node carries no state and no
+/// loader-resolved lookup exists to hang behavior on; `Class.forName`'s
+/// 3-arg overload accepts and ignores it (Temurin-observable behavior on
+/// the closed world is identical).
+fn n_classloader_get_system(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = crate::object::new_obj("java/lang/ClassLoader", 0)?;
+    Ok(Value::Ref(Some(r)))
+}
+
 fn n_class_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = this(recv, "Class.getName");
     let name = reflect::class_name_of(r);
@@ -5890,6 +5980,24 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "isPrimitive",
         "()Z",
         n_class_is_primitive,
+    ),
+    (
+        "java/lang/Class",
+        "forName",
+        "(Ljava/lang/String;)Ljava/lang/Class;",
+        n_class_for_name,
+    ),
+    (
+        "java/lang/Class",
+        "forName",
+        "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;",
+        n_class_for_name3,
+    ),
+    (
+        "java/lang/ClassLoader",
+        "getSystemClassLoader",
+        "()Ljava/lang/ClassLoader;",
+        n_classloader_get_system,
     ),
     (
         "java/lang/Class",

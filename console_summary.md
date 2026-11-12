@@ -38,7 +38,17 @@ growth; Copy dropped (mechanical 62-error ripple), runtime untouched
 (always depth-agnostic); depth-5 law test pins the typed chain +
 exact-shape errors; battery 466/0, cfg_equiv + diff_suite zero
 divergences, clippy clean. Evidence: scripts/evidence/depth5_closure/
-recursive_descriptor_2026-11-12.txt.
+recursive_descriptor_2026-11-12.txt. **R2 OPENED (same session):**
+slice 1 landed — Class.forName(String) + the 3-arg overload resolve
+against the closed world (compiled metadata registry + the new
+builtin_class_known test), Temurin-exact contracts, the inert
+getSystemClassLoader, and the 110th fixture ReflectForName
+byte-identical vs Temurin on the first differential run; census
+corrected the premise (the M3 subset already retained UserClassInfo
+statics — forName was the loud gap); Field.get-on-statics registered
+as slice 2 (discovered en route); battery 466/0, cfg_equiv + diff_suite
+zero divergences, doc-count gate green. Evidence:
+scripts/evidence/r2_opening/forname_slice1_2026-11-12.txt.
 
 Updated 2026-11-12 (session 18 — **the G3.2 opening measurement TAKEN**:
 the typed-payload re-measure at the all-four-kernels census). Reset #17

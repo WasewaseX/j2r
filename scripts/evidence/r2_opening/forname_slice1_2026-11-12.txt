@@ -1,0 +1,82 @@
+R2 metadata generator — the OPENING + slice 1 (Class.forName)
+==============================================================
+
+Date: 2026-11-12 (session 19; pulled forward with the depth-5 closure by
+the owner's directive "r2 metadata are still not done why?" — the second
+ask; post-M4 scope was already eligible since M4 closed).
+
+THE OPENING CENSUS (what exists vs what R2 needs):
+
+  ALREADY LANDED (M3_PLAN §8, the first metadata slice — more retained
+  than the TODO entry implied):
+  - Per-class metadata statics in the generated crate
+    (`META_{tag}: UserClassInfo` — is_interface, simple_name, fields
+    with descriptors + static/instance slots, methods with
+    name/desc/is_static/is_native), emitted by emit.rs/partition.rs and
+    consumed through `Dispatch::class_info`.
+  - reflect.rs: interned Class objects, getDeclaredField /
+    getDeclaredMethod / Field.get/set / Method.invoke over COMPILED
+    classes with Temurin-exact failure strings.
+  - Class literals (`X.class`) resolve; getName/getSimpleName/to_string/
+    isInstance/isAssignableFrom/isInterface/isArray/isPrimitive/
+    getSuperclass/getComponentType all live.
+
+  THE LOUD GAP (what "runtime string lookups resolve" named):
+  - `Class.forName(name-as-data)` — UNSUPPORTED (only the class-literal
+    path worked; M3_EVIDENCE.md recorded it loud). This is slice 1.
+
+SLICE 1 LANDED (this session):
+  - `Class.forName(String)` + the 3-arg overload
+    `forName(String, boolean, ClassLoader)` as natives, resolving
+    against the CLOSED WORLD: the generated crate's metadata registry
+    (`ctx.class_info`) first, then the builtin tables
+    (`builtin::builtin_class_known` — the new closed-world knowledge
+    test: root | builtin parent | builtin interface | builtin interface
+    edges). Unknown names stay LOUD with Temurin's exact contract:
+    ClassNotFoundException whose message IS the input name (oracle
+    capture this session); null name -> `NullPointerException: null`;
+    "int" is NOT resolvable (primitives are not classes by name);
+    the array descriptor forms (`[I`, `[Ljava.lang.String;`) resolve
+    with dot-to-slash conversion inside `L...;` only.
+  - `ClassLoader.getSystemClassLoader()` added as the INERT closed-world
+    loader (Class.forName's 3-arg form accepts and ignores it — the
+    system loader IS the closed world; no loader-resolved lookup exists
+    to hang behavior on). java/lang/ClassLoader joins the builtin
+    hierarchy as a parent-only type.
+  - NEW FIXTURE: crates/j2r-cli/tests/suite/ReflectForName.java (the
+    110th) — 13 deterministic lines, **byte-identical vs Temurin
+    21.0.13** on the first differential run (exit 0 both sides; oracle
+    captured in work/oracle before implementation).
+  - Gates: doc-count sync updated (fixtures=110, tests=466 — the
+    checker green); diff_suite guard 108 -> 109.
+
+  DISCOVERED EN ROUTE (registered, not fixed — slice-1 scope discipline):
+  - `Field.get` on a STATIC field of a COMPILED class returns null
+    ("Field.get: no static pool access" path) — the M3 subset's
+    static-pool boundary, now visible through forName-composed chains.
+    Registered as the next reflection slice's first row.
+
+REMAINING R2 Slices (registered, per docs/STRATEGIC_GAPS.md's
+closed-world design):
+  - slice 2: Field.get/set static-pool access for compiled classes +
+    getModifiers (the modifiers are derivable from the retained
+    is_static/is_native/interface facts; ACC_PUBLIC etc. need one more
+    retained bit per member).
+  - slice 3: getDeclaredConstructors (the <init> rows are already in
+    the methods tables — the slice is the Class API + modifier bits).
+  - slice 4: retained annotations (RuntimeVisibleAnnotations retention
+    in the metadata rows) — the design's "retained annotations" row.
+  - slice 5: static proxies for statically-known interface lists
+    (Proxy.newProxyInstance); unknown lists stay loud.
+  - `--reflection=all` mode (metadata for every classfile on the input
+    classpath, not just referenced ones) — expected mandatory for the
+    Minecraft milestone (mod scanning reflects over itself).
+
+PROOF (all on this tree):
+  - ReflectForName byte-identical vs Temurin (the fixture's first run).
+  - codegen 110/110; runtime incl. the new natives green (chunk A 437).
+  - cfg_equiv 110-class census ZERO divergences (354.84 s) — the
+    forName natives are dispatch-invisible to the equivalence proof.
+  - diff_suite 110 fixtures (2 tests, 464.41 s) ZERO divergences.
+  - corpus 1/1; full battery **466 tests, 0 failures**; fmt + clippy
+    zero findings; doc-count gate green (fixtures=110 tests=466).
