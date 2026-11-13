@@ -511,6 +511,7 @@ mod tests {
             is_static: false,
             instance_slot: 0,
             static_slot: 0,
+            modifiers: 0,
         },
         crate::UserField {
             name: "counter",
@@ -518,6 +519,7 @@ mod tests {
             is_static: true,
             instance_slot: 0,
             static_slot: 3,
+            modifiers: 0,
         },
     ];
     static DERIVED_FIELDS: [crate::UserField; 1] = [crate::UserField {
@@ -526,6 +528,7 @@ mod tests {
         is_static: false,
         instance_slot: 1,
         static_slot: 0,
+        modifiers: 0,
     }];
     static DERIVED_PARENTS: [&str; 1] = ["j2r/test/JniBase"];
 

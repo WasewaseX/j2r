@@ -1282,6 +1282,7 @@ mod tests {
             is_static,
             is_native: false,
             is_sync: false,
+            modifiers: 0,
             fn_name: "m_t".to_string(),
             instrs,
             exception_table: Vec::new(),

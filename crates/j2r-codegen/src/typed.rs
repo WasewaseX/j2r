@@ -2480,6 +2480,7 @@ mod tests {
             is_static: true,
             is_native: false,
             is_sync: false,
+            modifiers: 0,
             fn_name: "t".into(),
             instrs: vec![
                 (0, Instr::Goto(9)),                         // forward

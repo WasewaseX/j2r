@@ -847,12 +847,26 @@ local full-gate sweep at the same tree).**
       differential run**. The census corrected the premise: the M3
       subset already retained the per-class metadata statics
       (UserClassInfo fields/methods tables) — forName was the loud
-      string-lookup gap. Registered next slices: Field.get/set
-      static-pool access (discovered en route: Field.get on a static
-      of a compiled class returns null) + getModifiers; getDeclared
+      string-lookup gap. Registered next slices: getDeclared
       Constructors; retained annotations; static proxies;
       `--reflection=all`. Evidence: scripts/evidence/r2_opening/
       forname_slice1_2026-11-12.txt.
+      **SLICE 2 LANDED 2026-11-13** (evidence
+      scripts/evidence/r2_slice2/static_field_modifiers_2026-11-13.txt):
+      the register's "Field.get on a static returns null" premise was
+      CORRECTED by the probe — the static path already worked; the real
+      gaps were Class.getField (the public-member search law incl. the
+      inherited-public shadow quirk, NSFE/null-NPE contracts; the
+      interface-constants leg is a registered residual),
+      Field/Method.getModifiers (the raw ACC_* masks now flow
+      parse-time → FieldPlan/MethodPlan → UserField/UserMethod → the
+      Field object's new slot 6 / Method's slot 4, both metadata
+      emitters in lockstep), Field.getDeclaringClass, and the typed
+      getter/setter family with the JDK's widening table + the
+      Temurin-exact wrong-narrow message. New fixture ReflectStatic
+      (the 113th) byte-identical vs Temurin; diff_suite 113/0,
+      cfg_equiv 0, battery 468/0, fmt+clippy clean, doc counts
+      113/468 in sync.
 - [~] **R5 benchmark harness** — policy locked (benchmarks observe,
       never gate; no performance sentence without a number, a date, and
       a reproduction command). **Harness LANDED 2026-11-05** (owner

@@ -151,10 +151,16 @@ fn differential_suite_matches_jvm() {
     // desiredAssertionStatus — 112 on disk, guard one below that. It also
     // found a REAL pre-existing bug en route: a main() that touches none
     // of its own class's statics ran WITHOUT the `<clinit>` (the launcher
-    // now ensures the main class, JLS 12.4.2).
+    // now ensures the main class, JLS 12.4.2). R2 slice 2 (2026-11-13)
+    // added ReflectStatic — Class.getField's public-member search law
+    // (inherited-public through the superclass chain, the non-public
+    // shadow quirk), Field/Method.getModifiers (the raw ACC_* masks ride
+    // the metadata), the static Field.get/set paths and the typed
+    // getter/setter family with the JDK's widening table — 113 on disk,
+    // guard one below that.
     assert!(
-        fixtures.len() >= 111,
-        "differential suite shrank: {} fixtures (expected >= 111)",
+        fixtures.len() >= 112,
+        "differential suite shrank: {} fixtures (expected >= 112)",
         fixtures.len()
     );
 

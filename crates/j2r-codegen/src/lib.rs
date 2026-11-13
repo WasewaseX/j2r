@@ -256,6 +256,9 @@ pub struct FieldPlan {
     /// folded constants are JMM-safe): no final-field freeze semantics —
     /// marked like volatile.
     pub is_final: bool,
+    /// The raw access flags from the classfile (R2 slice 2:
+    /// `Field.getModifiers` — the reflection subset's modifier bits).
+    pub modifiers: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -280,6 +283,9 @@ pub struct MethodPlan {
     /// monitor acquisition on the receiver (instance) or the class's
     /// synthetic monitor object (static).
     pub is_sync: bool,
+    /// The raw access flags from the classfile (R2 slice 2:
+    /// `Method.getModifiers` — the reflection subset's modifier bits).
+    pub modifiers: u16,
     pub fn_name: String,
     pub instrs: Vec<(u32, ir::Instr)>,
     pub exception_table: Vec<(u32, u32, u32, Option<String>)>,
@@ -568,6 +574,7 @@ fn parse_and_add(
             // final + ConstantValue is folded (JMM-safe); only the
             // non-folded finals carry the boundary.
             is_final: f.is_final() && f.constant_value.is_none(),
+            modifiers: f.access,
         });
     }
 
@@ -971,6 +978,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
                     is_static: m.is_static(),
                     is_native: true,
                     is_sync: false,
+                    modifiers: m.access,
                     fn_name: method_fn_name(&m.name, &m.descriptor),
                     instrs: Vec::new(),
                     exception_table: Vec::new(),
@@ -1031,6 +1039,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
             is_static: m.is_static(),
             is_native: false,
             is_sync,
+            modifiers: m.access,
             fn_name: method_fn_name(&m.name, &m.descriptor),
             instrs,
             exception_table: code

@@ -450,12 +450,14 @@ mod tests {
             name: "nativeAdd",
             desc: "(II)I",
             is_static: false,
+            modifiers: 0,
             is_native: true,
         },
         crate::UserMethod {
             name: "nativeScale",
             desc: "(I)I",
             is_static: true,
+            modifiers: 0,
             is_native: true,
         },
     ];

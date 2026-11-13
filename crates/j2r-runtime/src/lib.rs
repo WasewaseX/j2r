@@ -162,6 +162,8 @@ pub struct UserField {
     pub instance_slot: usize,
     /// Static-pool slot (meaningful only when `is_static`).
     pub static_slot: u32,
+    /// The raw ACC_* access flags (R2 slice 2: `Field.getModifiers`).
+    pub modifiers: u16,
 }
 
 /// Compile-time facts of a compiled class that the reflection subset needs
@@ -186,6 +188,8 @@ pub struct UserMethod {
     pub name: &'static str,
     pub desc: &'static str,
     pub is_static: bool,
+    /// The raw ACC_* access flags (R2 slice 2: `Method.getModifiers`).
+    pub modifiers: u16,
     /// `ACC_NATIVE` (T12, M5_JNI_NATIVES.md §5): the method has no
     /// bytecode body — its implementation arrives via `RegisterNatives`.
     /// The metadata rows carry the flag so the JNI declared-native check

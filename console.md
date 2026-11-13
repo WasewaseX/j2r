@@ -2550,3 +2550,41 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   registered R2 ladder), then G3.3's specialized-map implementation,
   then the CLINIT-THROW and SORT-NULL-CMP follow-ups discovered by the
   B-wave.
+
+## 2026-11-13 — session 19b cont. 5 (R2 SLICE 2 LANDED)
+
+- **R2 slice 2 — static-pool Field.get/set + getModifiers — LANDED**,
+  with the register's premise corrected first: the minimal probe proved
+  getDeclaredField().get(null) on statics ALREADY worked byte-identical
+  (the registered "returns null" observation was a different shape or
+  fixed en route). The real gaps, all landed:
+  * **Class.getField(String)** — the OpenJDK getField0 law: own PUBLIC
+    fields, then the superclass chain recursively; the non-public
+    shadow does NOT block (pinned: the Child quirk returns the
+    superclass field, getDeclaringClass proves it); NSFE(name) miss,
+    plain NPE on a null name. The interface-constants leg is a
+    registered residual (UserClassInfo carries no interfaces table).
+  * **Field.getModifiers / Method.getModifiers** — the raw ACC_* masks
+    flow parse-time (FieldPlan/MethodPlan.modifiers) → the metadata
+    (UserField/UserMethod.modifiers, BOTH emitters: single-crate +
+    partitioned) → the Field object's new slot 6 (6→7 slots) and the
+    Method object's slot 4 (4→5).
+  * **Field.getDeclaringClass()** + **the typed getter/setter family**
+    (getInt/.../getByte + the eight setters) with the JDK's widening
+    table and the Temurin-exact wrong-narrow message ("Attempt to get
+    double field \"NarrowMsg.D\" with illegal data type conversion to
+    int" — NarrowMsg oracle). GET widening is JDK-exact; the SET
+    cross-kind message follows the shape but is not pinned (honest).
+- **Fixture ReflectStatic** (the 113th) — static Field.get across the
+  three payload shapes + boxed class names, a static set round-trip,
+  seven exact modifier masks, the getField law end to end:
+  byte-identical vs Temurin on the run.
+- **Proof**: diff_suite **113 fixtures ZERO divergences** (496.53 s);
+  cfg_equiv zero (361.89 s); partition 8/8 (the partitioned metadata
+  emitter proven in lockstep); corpus/jar/jni/soe/surface_report 10/0;
+  units lib/bins 425/0 + codegen 136/0; fmt + clippy clean; doc counts
+  fixtures=113 tests=468 in sync. Battery **468 tests, 0 failures**.
+- Evidence: scripts/evidence/r2_slice2/static_field_modifiers_2026-11-13.txt.
+- Next (registered): getDeclaredFields/getFields array forms +
+  getDeclaredConstructors (slice 3), then G3.3's specialized-map
+  implementation; CLINIT-THROW and SORT-NULL-CMP stay queued.

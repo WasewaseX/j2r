@@ -1,5 +1,24 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. 5 — **R2 SLICE 2 LANDED:
+static-pool Field.get/set + getModifiers + the getField law**). The
+register's premise was corrected first: the probe proved getDeclared
+Field().get(null) on statics ALREADY worked byte-identical. Landed: the
+real gaps — Class.getField's OpenJDK search law (own public, then the
+superclass chain, the non-public shadow quirk pinned via
+getDeclaringClass; NSFE/null-NPE contracts; the interface-constants leg
+is a registered residual), Field/Method.getModifiers (the raw ACC_*
+masks flow parse-time → plans → metadata → the Field object's new slot
+6 / Method's slot 4, both emitters in lockstep), Field.getDeclaring
+Class, and the typed getter/setter family (JDK widening table +
+Temurin-exact wrong-narrow message). New fixture **ReflectStatic** (the
+113th) byte-identical vs Temurin; diff_suite **113/0 divergences**
+(496.53 s); cfg_equiv 0 (361.89 s); partition 8/8; battery **468/0**;
+fmt+clippy clean; doc counts 113/468 in sync. Evidence:
+scripts/evidence/r2_slice2/static_field_modifiers_2026-11-13.txt.
+Next: getDeclaredFields/getFields + getDeclaredConstructors (slice 3),
+then G3.3's specialized-map; CLINIT-THROW / SORT-NULL-CMP queued.
+
 Updated 2026-11-13 (session 19b cont. 4 — **EXTERNAL-HARNESS LANDED:
 all four process items (Opt.md §6 + O6)**). `cfg-report --surface`
 prints the sorted dedup JDK member surface the inputs need, classified

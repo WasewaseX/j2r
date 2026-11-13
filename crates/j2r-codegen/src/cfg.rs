@@ -2098,6 +2098,7 @@ mod tests {
             is_static: true,
             is_native: false,
             is_sync: false,
+            modifiers: 0,
             instrs,
             exception_table: vec![],
             max_locals: 2,

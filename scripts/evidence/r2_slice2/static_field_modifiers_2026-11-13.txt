@@ -1,0 +1,90 @@
+R2 SLICE 2 — static-pool Field.get/set + getModifiers (+ the getField law)
+Landed 2026-11-13 (session 19b cont. 5) · spec: TODO.md R2 opening item
+("Registered next slices: Field.get/set static-pool access ... +
+getModifiers")
+
+PREMISE CORRECTED BY THE PROBE (the code wins over the register)
+
+The registered text said "Field.get on a static of a compiled class
+returns null (discovered en route)". The minimal probe (ReflStatic2:
+getDeclaredField on statics int/String/double + .get(null) + the boxed
+class names) PASSED byte-identical on the first run — the static path
+(ctx.static_get + box_by_desc) already worked; whatever the register
+observed was a different shape or fixed by a later wave. The REAL gaps
+the probe found, and what this slice lands:
+
+1. **Class.getField(String)** — the public-member search law (OpenJDK
+   getField0): own PUBLIC fields first, then the SUPERCLASS chain
+   recursively; a non-public same-name field does NOT block the walk
+   (the JDK quirk — pinned: Child shadows the inherited public
+   PUB_STATIC with a package-private one and getField returns the
+   SUPERCLASS field, getDeclaringClass proves it). The
+   interface-constants leg of the JDK walk is a registered residual
+   (UserClassInfo carries no interfaces table — that lands with the
+   getFields/getDeclaredConstructors slice). Miss → NSFE(name); null
+   name → plain NPE (oracle-pinned).
+2. **Field.getModifiers / Method.getModifiers** — the raw ACC_* masks.
+   The metadata now carries them end to end: FieldPlan/MethodPlan gain
+   `modifiers` (the classfile's raw access flags at parse time),
+   UserField/UserMethod gain `modifiers`, BOTH metadata emitters
+   (single-crate emit.rs + partitioned partition.rs) write them, and
+   the Field object grew slot 6 (6→7 total slots), the Method object
+   slot 4 (4→5).
+3. **Field.getDeclaringClass()** — the owner class (needed by the
+   inherited-field pin).
+4. **The typed getter/setter family** — getInt/getLong/getFloat/
+   getDouble/getBoolean/getChar/getShort/getByte + the eight setters,
+   with the JDK's widening table (jdk.internal.reflect canConvert: to
+   Z/B only themselves; C from B/S; S from B; I from B/C/S; J/F/D the
+   widening lattice) and the Temurin-exact wrong-narrow message
+   (NarrowMsg oracle): `Attempt to get double field "NarrowMsg.D" with
+   illegal data type conversion to int`. The GET widening (getInt on a
+   long field etc.) is JDK-exact; the SET cross-kind message follows
+   the JDK shape but is not pinned (honest residual — exact-kind sets
+   are pinned).
+
+FIXTURE
+
+crates/j2r-cli/tests/suite/ReflectStatic.java (the 113th): static
+Field.get(null) across int/String/double + the boxed class names, a
+static Field.set round-trip read back both reflectively and directly,
+seven exact modifier masks (static=8, private static=10, public
+static=9, public=1, public static method=9, private method=2,
+getType().getName()), the getField law (own public, instance read via
+getInt(new ...), the inherited shadow quirk with getDeclaringClass, the
+package-private miss NSFE, the nope NSFE, the null-name NPE).
+`j2r test` PASS — byte-identical vs Temurin 21.0.13.
+
+PROOF
+
+- diff_suite: 113 fixtures ZERO divergences (496.53 s).
+- cfg_equiv: zero divergences (361.89 s).
+- partition_suite 8/8 (the partitioned metadata emitter carries the
+  modifier masks — covered by the shared compile path).
+- corpus/jar/jni_parity/native_e2e/soe_e2e/surface_report: 10 tests 0
+  failures.
+- units: lib/bins 425/0 (the jni test UserField/UserMethod literals
+  gained modifiers: 0), codegen 136/0 (the verify/cfg/typed test
+  MethodPlan literals likewise).
+- fmt --all --check clean; clippy -D warnings clean; doc counts
+  fixtures=113 tests=468 in sync; links resolve; no stubs.
+
+REPRODUCTION
+
+  source /home/z/my-project/work/env.sh
+  cd /home/z/my-project/work/j2r-fresh
+  cargo run -p j2r-cli -- test crates/j2r-cli/tests/suite/ReflectStatic.java
+  cargo test -p j2r-cli --locked --test diff_suite
+
+HONESTY NOTES
+
+- The register's "returns null" premise is recorded as corrected: the
+  probe and the fixture prove the static path was already sound; the
+  missing pieces were getField/getModifiers/the typed family, all
+  landed here.
+- getFields(), getDeclaredFields() (array forms), getDeclaredMethod's
+  modifier filtering, and the interface-constants leg remain the next
+  reflection slice's scope (as registered).
+- The partitioned metadata emitter was updated in the same commit;
+  partition_suite's 8 stems (incl. the B-wave Externals at k=2) prove
+  both emitters stay in lockstep.

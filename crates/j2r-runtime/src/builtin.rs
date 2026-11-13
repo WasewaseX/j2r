@@ -394,8 +394,11 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // name payload; Field: owner/name/desc/is_static/instance_slot/
         // static_slot; Method: owner/name/desc/is_static.
         | "java/lang/Class" => 1,
-        "java/lang/reflect/Field" => 6,
-        "java/lang/reflect/Method" => 4,
+        // R2 slice 2: slot 6 = the raw ACC_* modifiers (Field), slot 4 =
+        // the raw ACC_* modifiers (Method) — getModifiers rides the
+        // metadata like every other reflection slot.
+        "java/lang/reflect/Field" => 7,
+        "java/lang/reflect/Method" => 5,
         // M3 Wave 2 layouts (documented in collections.rs):
         // ArrayList: size, modCount, elements ref
         "java/util/ArrayList" => 3,

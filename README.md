@@ -14,7 +14,7 @@ Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM (Temurin 21), compiled with J2R, run natively,
 and **stdout, stderr and exit codes** must match (stderr with JVM
 stack-trace frames — and nothing else — normalized away).
-**112 fixture programs** cover arithmetic and integer/long edge cases,
+**113 fixture programs** cover arithmetic and integer/long edge cases,
 shifts, casts and
 saturating conversions, control flow (switch fallthrough, labeled
 break/continue), strings, string building, one- and two-dimensional arrays,
@@ -184,7 +184,7 @@ A **JDK-coverage milestone** (M3, [docs/ROADMAP.md](ROADMAP.md)) landed on
   generation-tagged handles (M2 Waves 1–2; see the milestone section above)
 * Investigation tooling: `j2r shape-report` (typed-storage decisions) and
   `j2r cfg-report` / `--emit-cfg` (CFG lift prototype, default off —
-  112/112 fixtures output-identical in both modes)
+  113/113 fixtures output-identical in both modes)
 * **Build manifest, incremental recompiles** (M5 wave 1, T06/T07):
   `out/j2r-manifest.tsv` maps each class's input hash to its emitted-file
   hash under a global gate (emitter version, emission options, the
@@ -295,7 +295,7 @@ $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar
 ```
 
-The differential suite (`crates/j2r-cli/tests/suite/*.java`, 112 programs)
+The differential suite (`crates/j2r-cli/tests/suite/*.java`, 113 programs)
 skips itself gracefully when no JDK is present; CI installs Temurin 21.
 Runtime guarantees and the panic-path inventory live in
 [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).

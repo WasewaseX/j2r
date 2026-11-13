@@ -217,12 +217,13 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
             }
             let _ = writeln!(
                 registry,
-                "    ::j2r_runtime::UserField {{ name: {:?}, desc: {:?}, is_static: {}, instance_slot: {}, static_slot: {} }},",
+                "    ::j2r_runtime::UserField {{ name: {:?}, desc: {:?}, is_static: {}, instance_slot: {}, static_slot: {}, modifiers: {} }},",
                 f.name,
                 f.desc,
                 f.is_static,
                 f.instance_slot.unwrap_or(0),
-                f.static_slot.unwrap_or(0)
+                f.static_slot.unwrap_or(0),
+                f.modifiers
             );
         }
         let _ = writeln!(registry, "];");
@@ -239,8 +240,8 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
         for m in &declared_methods {
             let _ = writeln!(
                 registry,
-                "    ::j2r_runtime::UserMethod {{ name: {:?}, desc: {:?}, is_static: {}, is_native: {} }},",
-                m.name, m.desc, m.is_static, m.is_native
+                "    ::j2r_runtime::UserMethod {{ name: {:?}, desc: {:?}, is_static: {}, is_native: {}, modifiers: {} }},",
+                m.name, m.desc, m.is_static, m.is_native, m.modifiers
             );
         }
         let _ = writeln!(registry, "];");

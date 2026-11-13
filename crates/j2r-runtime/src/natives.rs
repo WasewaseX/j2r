@@ -3178,6 +3178,104 @@ fn n_class_get_declared_field(
     reflect::get_declared_field(ctx, &owner, args)
 }
 
+/// R2 slice 2: `Class.getField(String)` — the public-member search law
+/// (own public, then the superclass chain; see reflect::get_field).
+fn n_class_get_field(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getField");
+    let owner = reflect::class_name_of(r);
+    reflect::get_field(ctx, &owner, args)
+}
+
+// R2 slice 2: the typed getter/setter family (`Field.getInt` and
+// friends). Each delegates to field_get/field_set (the JDK's
+// receiver-mismatch IAE and NPE laws already live there) and then
+// narrows the boxed Value to the requested primitive kind. A narrow
+// mismatch (getInt on a double field) throws IllegalArgumentException
+// with a named message — the fixture pins the correct-narrow shapes;
+// the wrong-narrow message follows the JDK shape but is not pinned.
+macro_rules! field_typed_getter {
+    ($name:ident, $want:expr) => {
+        fn $name(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+            let f = this(recv, "Field.typed get");
+            let obj = match args.first() {
+                Some(Value::Ref(r)) => r.as_ref(),
+                _ => return Err(internal_error("Field typed get needs a receiver argument")),
+            };
+            reflect::field_get_typed(ctx, f, obj, $want)
+        }
+    };
+}
+
+macro_rules! field_typed_setter {
+    ($name:ident, $want:expr) => {
+        fn $name(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+            let f = this(recv, "Field.typed set");
+            let obj = match args.first() {
+                Some(Value::Ref(r)) => r.as_ref(),
+                _ => return Err(internal_error("Field typed set needs a receiver argument")),
+            };
+            let value = match args.get(1) {
+                Some(v) => v.clone(),
+                None => return Err(internal_error("Field typed set needs a value argument")),
+            };
+            reflect::field_set_typed(ctx, f, obj, &value, $want)?;
+            Ok(Value::Void)
+        }
+    };
+}
+
+field_typed_getter!(n_field_get_int, 'I');
+field_typed_getter!(n_field_get_long, 'J');
+field_typed_getter!(n_field_get_float, 'F');
+field_typed_getter!(n_field_get_double, 'D');
+field_typed_getter!(n_field_get_boolean, 'Z');
+field_typed_getter!(n_field_get_char, 'C');
+field_typed_getter!(n_field_get_short, 'S');
+field_typed_getter!(n_field_get_byte, 'B');
+
+field_typed_setter!(n_field_set_int, 'I');
+field_typed_setter!(n_field_set_long, 'J');
+field_typed_setter!(n_field_set_float, 'F');
+field_typed_setter!(n_field_set_double, 'D');
+field_typed_setter!(n_field_set_boolean, 'Z');
+field_typed_setter!(n_field_set_char, 'C');
+field_typed_setter!(n_field_set_short, 'S');
+field_typed_setter!(n_field_set_byte, 'B');
+
+/// R2 slice 2: `Field.getModifiers()` — the raw ACC_* mask from the
+/// classfile, carried in the Field object's slot 6.
+fn n_field_get_modifiers(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let f = this(recv, "Field.getModifiers");
+    let (_, _, _, _, _, _, modifiers) = reflect::field_slots(f);
+    Ok(Value::Int(modifiers as i32))
+}
+
+/// R2 slice 2: `Field.getDeclaringClass()` — the owner class from slot 0.
+fn n_field_get_declaring_class(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let f = this(recv, "Field.getDeclaringClass");
+    let (owner, _, _, _, _, _, _) = reflect::field_slots(f);
+    Ok(Value::Ref(Some(reflect::class_ref(&owner))))
+}
+
+/// R2 slice 2: `Method.getModifiers()` — the raw ACC_* mask (slot 4).
+fn n_method_get_modifiers(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let m = this(recv, "Method.getModifiers");
+    let (_, _, _, _, modifiers) = reflect::method_slots(m);
+    Ok(Value::Int(modifiers as i32))
+}
+
 fn n_class_get_declared_method(
     recv: Option<&JRef>,
     args: &[Value],
@@ -3223,7 +3321,7 @@ fn n_method_invoke(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result
 
 fn n_field_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let f = this(recv, "Field.getName");
-    let (_, name, _, _, _, _) = reflect::field_slots(f);
+    let (_, name, _, _, _, _, _) = reflect::field_slots(f);
     Ok(Value::Ref(Some(object::new_string(&name))))
 }
 
@@ -3235,7 +3333,7 @@ fn n_field_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Res
 /// == int.class` holds end to end (BigCache oracle).
 fn n_field_get_type(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let f = this(recv, "Field.getType");
-    let (_, _, desc, _, _, _) = reflect::field_slots(f);
+    let (_, _, desc, _, _, _, _) = reflect::field_slots(f);
     let d = desc.as_str();
     let key: &str = if d.starts_with('[') {
         d
@@ -3250,7 +3348,7 @@ fn n_field_get_type(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Res
 
 fn n_method_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let m = this(recv, "Method.getName");
-    let (_, name, _, _) = reflect::method_slots(m);
+    let (_, name, _, _, _) = reflect::method_slots(m);
     Ok(Value::Ref(Some(object::new_string(&name))))
 }
 
@@ -3266,8 +3364,8 @@ fn n_method_equals(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resul
             let is_method =
                 crate::heap::with_obj(*other, |o| o.jclass.as_ref() == "java/lang/reflect/Method");
             is_method && {
-                let (o0, o1, o2, _) = reflect::method_slots(other);
-                let (s0, s1, s2, _) = reflect::method_slots(m);
+                let (o0, o1, o2, _, _) = reflect::method_slots(other);
+                let (s0, s1, s2, _, _) = reflect::method_slots(m);
                 o0 == s0 && o1 == s1 && o2 == s2
             }
         }
@@ -6887,6 +6985,128 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "getDeclaredField",
         "(Ljava/lang/String;)Ljava/lang/reflect/Field;",
         n_class_get_declared_field,
+    ),
+    // R2 slice 2: the public-member search + the modifier masks
+    (
+        "java/lang/Class",
+        "getField",
+        "(Ljava/lang/String;)Ljava/lang/reflect/Field;",
+        n_class_get_field,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getModifiers",
+        "()I",
+        n_field_get_modifiers,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getDeclaringClass",
+        "()Ljava/lang/Class;",
+        n_field_get_declaring_class,
+    ),
+    // the typed getter/setter family (R2 slice 2)
+    (
+        "java/lang/reflect/Field",
+        "getInt",
+        "(Ljava/lang/Object;)I",
+        n_field_get_int,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getLong",
+        "(Ljava/lang/Object;)J",
+        n_field_get_long,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getFloat",
+        "(Ljava/lang/Object;)F",
+        n_field_get_float,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getDouble",
+        "(Ljava/lang/Object;)D",
+        n_field_get_double,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getBoolean",
+        "(Ljava/lang/Object;)Z",
+        n_field_get_boolean,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getChar",
+        "(Ljava/lang/Object;)C",
+        n_field_get_char,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getShort",
+        "(Ljava/lang/Object;)S",
+        n_field_get_short,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "getByte",
+        "(Ljava/lang/Object;)B",
+        n_field_get_byte,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "setInt",
+        "(Ljava/lang/Object;I)V",
+        n_field_set_int,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "setLong",
+        "(Ljava/lang/Object;J)V",
+        n_field_set_long,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "setFloat",
+        "(Ljava/lang/Object;F)V",
+        n_field_set_float,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "setDouble",
+        "(Ljava/lang/Object;D)V",
+        n_field_set_double,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "setBoolean",
+        "(Ljava/lang/Object;Z)V",
+        n_field_set_boolean,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "setChar",
+        "(Ljava/lang/Object;C)V",
+        n_field_set_char,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "setShort",
+        "(Ljava/lang/Object;S)V",
+        n_field_set_short,
+    ),
+    (
+        "java/lang/reflect/Field",
+        "setByte",
+        "(Ljava/lang/Object;B)V",
+        n_field_set_byte,
+    ),
+    (
+        "java/lang/reflect/Method",
+        "getModifiers",
+        "()I",
+        n_method_get_modifiers,
     ),
     (
         "java/lang/Class",
