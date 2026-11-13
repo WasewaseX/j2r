@@ -2666,3 +2666,47 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   bumped to 113; README counts 114 fixtures / 472 tests; gate-11 in
   sync. FORNAME-INIT registered as a residual (Class.forName does not
   RUN the clinit — pre-existing, out of this wave's scope).
+
+## 2026-11-13 — session 19b cont. 8 — R2 SLICE 3 LANDED (the array forms + the Constructor surface)
+
+- **Temurin laws, probed first** (ReflectProbe, 21.0.13+9):
+  getDeclaredFields = declaration order, any modifier, no inheritance;
+  getFields = OWN publics in declaration order, then the superclass
+  chain's publics AFTER them, NO dedupe of shadowed names (Child's
+  pubBase AND Base's pubBase both listed); getDeclaredConstructors =
+  CLASSFILE order REVERSED (javac emits ctors in source order; Temurin
+  prints the LAST one first); Constructor.toString = modifier word +
+  binary name + dotted params, comma WITHOUT a trailing space;
+  getModifiers = raw ACC_*; getConstructor = public-only; NSME miss
+  message = "Owner.<init>(float)" (binary owner, <init>, dotted params,
+  no return type); newInstance on a same-package private ctor SUCCEEDS
+  (caller-sensitivity — no IllegalAccessException for the same-package
+  caller).
+- **Metadata**: the CTORS_{tag} tables (desc + modifiers, CLASSFILE
+  order) ride BOTH emitters in lockstep (single-crate + partition); the
+  <init> rows stay OUT of `methods` (the JDK also refuses Method.invoke
+  on ctors). The Temurin reversal is applied at RUNTIME (reflect.rs
+  .rev()), the metadata stays a fact.
+- **Surface**: getDeclaredFields/getFields (the array forms), getDeclared
+  Constructors/getConstructors, getDeclaredConstructor/getConstructor
+  (exact param match UP TO THE CLOSING PAREN — the bare-"(" no-arg shape
+  must not prefix-match every descriptor; the fixture caught exactly
+  that), Constructor's getName/getModifiers/getParameterTypes/
+  getDeclaringClass/toString, and Modifier.toString(int) (JDK canonical
+  bit order — the fixture prints masks through it). The varargs
+  descriptor law: javac compiles getDeclaredConstructor(Class...) to
+  `([Ljava/lang/Class;)…` — the rows carry the array form.
+- **CLINIT-THROW completion**: the TYPED emitter's three ensure sites
+  (getstatic/putstatic/invokestatic) still discarded the clinit throw —
+  the cfg_equiv gate caught ClinitThrow diverging under emit_typed; all
+  three now ride try_wrap (the typed body's j2r_try lowering). The gate
+  is exactly why it exists.
+- **Fixture ReflectDeclared** (the 115th) — byte-identical vs Temurin
+  21.0.13+9 on all three channels (exit 0 == 0). diff_suite 2 shards
+  green (re-run with slice-3 code), cfg_equiv 0 (403 s), partition/
+  corpus/soe/jar/surface/native/jni green, units 473/0, fmt+clippy
+  clean, doc counts 115/473 in sync.
+- **NEW-INSTANCE registered** (Constructor.newInstance): needs the
+  user-layout dispatch hook (the runtime cannot know a user class's
+  slot spec; JNI's NewObject is a stub today — same machinery);
+  registered with the design note, not landed.

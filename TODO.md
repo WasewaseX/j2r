@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-13 (session 19b cont. 7: SORT-NULL-CMP + CLINIT-THROW landed; next R2 slice 3).
+fix the board. Last updated: 2026-11-13 (session 19b cont. 8: R2 slice 3 landed; next G3.3 specialized-map).
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -2097,6 +2097,33 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       fn). ReflectForName's fixture never noticed: its classes were
       already initialized by earlier first-uses. STATUS: registered,
       not started.
+- [x] **R2 slice 3 — getDeclaredFields/getFields +
+      getDeclaredConstructors (2026-11-13)** — the CTORS_{tag} metadata
+      tables (desc + modifiers, CLASSFILE order) ride both emitters; the
+      Temurin REVERSAL (last-declared ctor prints first) is a runtime
+      law. getFields: own publics then the superclass chain's, NO shadow
+      dedupe (oracle ReflectProbe); the interface-constants leg stays a
+      residual. getDeclaredConstructor/getConstructor: exact param match
+      up to the closing paren; the NSME message "Owner.<init>(float)";
+      varargs descriptors are `([Ljava/lang/Class;)...`. Constructor's
+      read-only surface (getName/getModifiers/getParameterTypes/
+      getDeclaringClass/toString) + Modifier.toString(int). Fixture
+      **ReflectDeclared** (the 115th) byte-identical vs Temurin
+      21.0.13+9; cfg_equiv 0 (it caught the TYPED emitter's three ensure
+      sites still discarding the clinit throw — now try_wrap-wrapped);
+      units 473/0.
+- [ ] **NEW-INSTANCE — Constructor.newInstance / the user-layout hook
+      (registered 2026-11-13 during slice 3)** — the runtime cannot
+      allocate a user class by name (the slot spec lives in generated
+      code at each `new` site; JNI's NewObject is an unimplemented stub,
+      slot 28). Design: a Dispatch hook (`user_layout: fn(&str) ->
+      Option<(&'static str, usize)>` — spec + total slots) emitted into
+      j2r_dispatch by both modes, then newInstance = ensure (the clinit
+      law! errant NCDFE propagates) + new_obj + set_defaults + the
+      <init> call through find_method; Temurin's caller-sensitivity
+      (same-package private ctor SUCCEEDS for a same-package caller) is
+      unmodelable without a caller concept — register the honest
+      residual. STATUS: registered, not started.
 - [ ] **EXTERNAL-CORROB — Opt.md R1–R9 mapped onto the register (the
       cross-reference recorded so the roadmap cites it; no new
       claims)** — R1 (FrameGuard monitors lazy, owner prototype

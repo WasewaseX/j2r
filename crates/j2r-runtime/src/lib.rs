@@ -180,6 +180,25 @@ pub struct UserClassInfo {
     /// rides along because `Method.invoke` must know whether to null-check
     /// the receiver (Temurin ignores it for statics).
     pub methods: &'static [UserMethod],
+    /// Declared constructors in CLASSFILE order (R2 slice 3:
+    /// `getDeclaredConstructors` — the runtime applies Temurin's
+    /// reversal).
+    pub ctors: &'static [UserCtor],
+}
+
+/// One declared CONSTRUCTOR of a compiled class (R2 slice 3:
+/// `getDeclaredConstructors`). The `<init>` rows are filtered out of
+/// `methods` — ctors are not `Method.invoke`-able in the JDK either, but
+/// `Class.getDeclaredConstructors` needs them, so they ride a dedicated
+/// table in CLASSFILE order (the Temurin REVERSAL is applied at runtime —
+/// ReflectProbe capture: Temurin lists the protected 3-arg ctor of a
+/// four-ctor class first, javac's classfile lists it last).
+#[derive(Debug)]
+pub struct UserCtor {
+    /// Full descriptor `(ILjava/lang/String;)V`.
+    pub desc: &'static str,
+    /// The raw ACC_* access flags.
+    pub modifiers: u16,
 }
 
 /// One declared method of a compiled class.

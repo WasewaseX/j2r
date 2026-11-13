@@ -3186,6 +3186,168 @@ fn n_class_get_field(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
     reflect::get_field(ctx, &owner, args)
 }
 
+// R2 slice 3: the array forms + the Constructor surface.
+fn n_class_get_declared_fields(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getDeclaredFields");
+    let owner = reflect::class_name_of(r);
+    reflect::get_declared_fields(ctx, &owner)
+}
+
+fn n_class_get_fields(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getFields");
+    let owner = reflect::class_name_of(r);
+    reflect::get_fields(ctx, &owner)
+}
+
+fn n_class_get_declared_ctors(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getDeclaredConstructors");
+    let owner = reflect::class_name_of(r);
+    reflect::get_declared_constructors(ctx, &owner)
+}
+
+fn n_class_get_ctors(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getConstructors");
+    let owner = reflect::class_name_of(r);
+    reflect::get_constructors(ctx, &owner)
+}
+
+fn n_class_get_declared_ctor(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getDeclaredConstructor");
+    let owner = reflect::class_name_of(r);
+    reflect::get_declared_constructor(ctx, &owner, args)
+}
+
+fn n_class_get_ctor(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Class.getConstructor");
+    let owner = reflect::class_name_of(r);
+    reflect::get_constructor(ctx, &owner, args)
+}
+
+fn n_ctor_get_name(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Constructor.getName");
+    let (owner, _, _) = reflect::ctor_slots(r);
+    Ok(Value::Ref(Some(crate::object::new_string(
+        &reflect::binary_name(&owner),
+    ))))
+}
+
+fn n_ctor_get_modifiers(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Constructor.getModifiers");
+    let (_, _, mods) = reflect::ctor_slots(r);
+    Ok(Value::Int(mods as i32))
+}
+
+fn n_ctor_get_parameter_types(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Constructor.getParameterTypes");
+    let (_, desc, _) = reflect::ctor_slots(r);
+    let items: Vec<Value> = reflect::desc_params(&desc)
+        .iter()
+        .map(|p| reflect::class_value(p))
+        .collect();
+    reflect::class_array(items, ctx)
+}
+
+fn n_ctor_get_declaring_class(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Constructor.getDeclaringClass");
+    let (owner, _, _) = reflect::ctor_slots(r);
+    Ok(reflect::class_value(&owner))
+}
+
+fn n_ctor_to_string(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Constructor.toString");
+    let (owner, desc, mods) = reflect::ctor_slots(r);
+    let modw = match mods & 0x0007 {
+        0x0001 => "public ",
+        0x0002 => "private ",
+        0x0004 => "protected ",
+        _ => "",
+    };
+    let params = reflect::desc_params(&desc)
+        .iter()
+        .map(|p| reflect::binary_name(p))
+        .collect::<Vec<String>>()
+        .join(",");
+    Ok(Value::Ref(Some(crate::object::new_string(&format!(
+        "{}{}({})",
+        modw,
+        reflect::binary_name(&owner),
+        params
+    )))))
+}
+
+/// `java.lang.reflect.Modifier.toString(int)` — the canonical bit order
+/// (JDK source): public protected private abstract static final transient
+/// volatile synchronized native strictfp interface. R2 slice 3 (the
+/// fixture renders modifier masks through it).
+fn n_modifier_to_string(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let mut mod_ = match args.first() {
+        Some(Value::Int(i)) => *i as u32,
+        other => {
+            return Err(internal_error(&format!(
+                "Modifier.toString: expected int arg, found {other:?}"
+            )))
+        }
+    };
+    // The JDK reads `mod` after masking the INTERFACE bit out of the
+    // ordinary pass — replicated bit-for-bit from Modifier.toString.
+    let mut has_interface = false;
+    if (mod_ & 0x0200) != 0 {
+        has_interface = true;
+        mod_ &= !0x0200;
+    }
+    let mut sb = String::new();
+    let push = |sb: &mut String, bit: u32, word: &str| {
+        if (mod_ & bit) != 0 {
+            sb.push_str(word);
+            sb.push(' ');
+        }
+    };
+    push(&mut sb, 0x0001, "public");
+    push(&mut sb, 0x0004, "protected");
+    push(&mut sb, 0x0002, "private");
+    push(&mut sb, 0x0400, "abstract");
+    push(&mut sb, 0x0008, "static");
+    push(&mut sb, 0x0010, "final");
+    push(&mut sb, 0x0080, "transient");
+    push(&mut sb, 0x0040, "volatile");
+    push(&mut sb, 0x0020, "synchronized");
+    push(&mut sb, 0x0100, "native");
+    push(&mut sb, 0x0800, "strictfp");
+    if has_interface {
+        push(&mut sb, 0x0200, "interface");
+    }
+    let out = sb.strip_suffix(' ').unwrap_or(&sb).to_string();
+    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+}
+
 // R2 slice 2: the typed getter/setter family (`Field.getInt` and
 // friends). Each delegates to field_get/field_set (the JDK's
 // receiver-mismatch IAE and NPE laws already live there) and then
@@ -6992,6 +7154,81 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "getField",
         "(Ljava/lang/String;)Ljava/lang/reflect/Field;",
         n_class_get_field,
+    ),
+    // R2 slice 3: the array forms + the Constructor surface.
+    (
+        "java/lang/Class",
+        "getDeclaredFields",
+        "()[Ljava/lang/reflect/Field;",
+        n_class_get_declared_fields,
+    ),
+    (
+        "java/lang/Class",
+        "getFields",
+        "()[Ljava/lang/reflect/Field;",
+        n_class_get_fields,
+    ),
+    (
+        "java/lang/Class",
+        "getDeclaredConstructors",
+        "()[Ljava/lang/reflect/Constructor;",
+        n_class_get_declared_ctors,
+    ),
+    (
+        "java/lang/Class",
+        "getConstructors",
+        "()[Ljava/lang/reflect/Constructor;",
+        n_class_get_ctors,
+    ),
+    (
+        "java/lang/Class",
+        "getDeclaredConstructor",
+        "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;",
+        n_class_get_declared_ctor,
+    ),
+    (
+        "java/lang/Class",
+        "getConstructor",
+        "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;",
+        n_class_get_ctor,
+    ),
+    (
+        "java/lang/reflect/Constructor",
+        "getName",
+        "()Ljava/lang/String;",
+        n_ctor_get_name,
+    ),
+    (
+        "java/lang/reflect/Constructor",
+        "getModifiers",
+        "()I",
+        n_ctor_get_modifiers,
+    ),
+    (
+        "java/lang/reflect/Constructor",
+        "getParameterTypes",
+        "()[Ljava/lang/Class;",
+        n_ctor_get_parameter_types,
+    ),
+    (
+        "java/lang/reflect/Constructor",
+        "getDeclaringClass",
+        "()Ljava/lang/Class;",
+        n_ctor_get_declaring_class,
+    ),
+    (
+        "java/lang/reflect/Constructor",
+        "toString",
+        "()Ljava/lang/String;",
+        n_ctor_to_string,
+    ),
+    // R2 slice 3: the modifier-mask renderer (the fixture prints masks
+    // through it; JDK-canonical bit order).
+    (
+        "java/lang/reflect/Modifier",
+        "toString",
+        "(I)Ljava/lang/String;",
+        n_modifier_to_string,
     ),
     (
         "java/lang/reflect/Field",

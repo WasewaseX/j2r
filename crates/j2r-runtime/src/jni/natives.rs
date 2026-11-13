@@ -469,12 +469,14 @@ mod tests {
             simple_name: Some("NativesBase"),
             fields: &[],
             methods: &BASE_METHODS,
+            ctors: &[],
         };
         static DERIVED_INFO: crate::UserClassInfo = crate::UserClassInfo {
             is_interface: false,
             simple_name: Some("NativesDerived"),
             fields: &[],
             methods: &[],
+            ctors: &[],
         };
         match c {
             "j2r/test/NativesBase" => Some(&BASE_INFO),

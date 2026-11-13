@@ -245,13 +245,29 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
             );
         }
         let _ = writeln!(registry, "];");
+        // R2 slice 3: declared constructors in CLASSFILE order (the
+        // Temurin reversal is the runtime's law, not the metadata's).
+        let ctors: Vec<_> = c.methods.iter().filter(|m| m.name == "<init>").collect();
+        let _ = writeln!(
+            registry,
+            "static CTORS_{tag}: [::j2r_runtime::UserCtor; {}] = [",
+            ctors.len()
+        );
+        for m in &ctors {
+            let _ = writeln!(
+                registry,
+                "    ::j2r_runtime::UserCtor {{ desc: {:?}, modifiers: {} }},",
+                m.desc, m.modifiers
+            );
+        }
+        let _ = writeln!(registry, "];");
         let simple = match &c.simple_name {
             Some(s) => format!("::core::option::Option::Some({s:?})"),
             None => "::core::option::Option::None".to_string(),
         };
         let _ = writeln!(
             registry,
-            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag} }};",
+            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag} }};",
             c.is_interface, simple
         );
     }

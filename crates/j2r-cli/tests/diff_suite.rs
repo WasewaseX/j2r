@@ -172,10 +172,21 @@ fn differential_suite_matches_jvm() {
     // which also
     // forced the builtin parent rows for ExceptionInInitializerError and
     // NoClassDefFoundError (both invisible to catch matching before) —
-    // 114 on disk, guard one below that.
+    // 114 on disk. The R2 slice 3 wave (2026-11-13) added ReflectDeclared
+    // — the reflection ARRAY forms + the Constructor surface:
+    // getDeclaredFields (declaration order), getFields (own publics then
+    // the superclass chain's, NO shadow dedupe), getDeclaredConstructors
+    // (CLASSFILE order REVERSED — Temurin lists the last-declared ctor
+    // first), getConstructors (public-only), getDeclaredConstructor /
+    // getConstructor (exact param match up to the closing paren — the
+    // bare-"(" no-arg shape must not prefix-match every descriptor),
+    // Constructor's toString/getParameterTypes/getName/getModifiers/
+    // getDeclaringClass, and Modifier.toString(int) (JDK canonical bit
+    // order); the CTORS_{tag} metadata tables ride both emitters — 115 on
+    // disk, guard one below that.
     assert!(
-        fixtures.len() >= 113,
-        "differential suite shrank: {} fixtures (expected >= 113)",
+        fixtures.len() >= 114,
+        "differential suite shrank: {} fixtures (expected >= 114)",
         fixtures.len()
     );
 

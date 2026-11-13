@@ -122,6 +122,9 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/StrictMath" => "java/lang/Object",
         "java/lang/reflect/Field" => "java/lang/Object",
         "java/lang/reflect/Method" => "java/lang/Object",
+        // R2 slice 3: the Constructor reflective object (3 slots: owner/
+        // desc/modifiers — ctor_slots).
+        "java/lang/reflect/Constructor" => "java/lang/Object",
         "java/lang/ReflectiveOperationException" => "java/lang/Exception",
         "java/lang/NoSuchFieldException" => "java/lang/ReflectiveOperationException",
         "java/lang/NoSuchMethodException" => "java/lang/ReflectiveOperationException",
@@ -414,6 +417,8 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // metadata like every other reflection slot.
         "java/lang/reflect/Field" => 7,
         "java/lang/reflect/Method" => 5,
+        // R2 slice 3: Constructor — owner class, descriptor, modifiers.
+        "java/lang/reflect/Constructor" => 3,
         // M3 Wave 2 layouts (documented in collections.rs):
         // ArrayList: size, modCount, elements ref
         "java/util/ArrayList" => 3,

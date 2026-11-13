@@ -1220,12 +1220,14 @@ mod tests {
             simple_name: Some("CallBase"),
             fields: &[],
             methods: &BASE_METHODS,
+            ctors: &[],
         };
         static DERIVED_INFO: crate::UserClassInfo = crate::UserClassInfo {
             is_interface: false,
             simple_name: Some("CallDerived"),
             fields: &[],
             methods: &DERIVED_METHODS,
+            ctors: &[],
         };
         match c {
             "j2r/test/CallBase" => Some(&BASE_INFO),

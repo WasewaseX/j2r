@@ -1,5 +1,25 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. 8 — **R2 SLICE 3 LANDED: the
+reflection array forms + the Constructor surface**). Temurin laws
+probed first (ReflectProbe): getDeclaredFields = declaration order;
+getFields = own publics then the superclass chain's, NO shadow dedupe;
+getDeclaredConstructors = CLASSFILE order REVERSED (Temurin prints the
+last-declared ctor first); Constructor.toString dotted params, no
+space; NSME = "Owner.<init>(float)". The CTORS_{tag} metadata tables
+ride both emitters in lockstep; the reversal is a runtime law. The
+closing-paren exact-match (the no-arg "(" must not prefix-match every
+descriptor) was caught by the fixture before any push.
+Modifier.toString(int) added (canonical bit order). CLINIT-THROW
+completion: the TYPED emitter's three ensure sites still discarded the
+throw — cfg_equiv caught ClinitThrow diverging under emit_typed; all
+three now ride try_wrap. New fixture **ReflectDeclared** (the 115th)
+byte-identical vs Temurin on all three channels; diff shards green,
+cfg_equiv 0 (403 s), partition/corpus/soe/jar/surface/native/jni green;
+units **473/0**; fmt+clippy clean; doc counts 115/473 in sync.
+NEW-INSTANCE registered (Constructor.newInstance needs the user-layout
+dispatch hook; JNI NewObject is a stub). Next: G3.3's specialized-map.
+
 Updated 2026-11-13 (session 19b cont. 7 — **CLINIT-THROW LANDED: the
 JLS 12.4.2 EIIIE machinery**). The Temurin contract probed, not assumed:
 Errors (EIIE included) rethrow AS-IS from a throwing clinit; anything

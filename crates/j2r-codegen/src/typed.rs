@@ -1633,8 +1633,12 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let v = ctx.wrap_s(pc, vs[k - 1]);
             ctx.out.push(format!("let __v = {v};"));
             for (id, expr) in crate::emit::ensure_calls(ctx.prog, class) {
-                ctx.out
-                    .push(format!("crate::statics::ensure({id}u32, {expr});"));
+                // CLINIT-THROW: the clinit throw rides the exception table
+                // in typed bodies too (same j2r_try lowering).
+                ctx.out.push(format!(
+                    "{};",
+                    try_wrap(&fault, format!("crate::statics::ensure({id}u32, {expr})"))
+                ));
             }
             ctx.out
                 .push(format!("crate::statics::set({slot}u32, __v);"));
@@ -1762,8 +1766,11 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             match crate::resolve_call_pub(ctx.prog, class, name, desc).expect("validated call") {
                 crate::CallTarget::User { module, fn_name } => {
                     for (id, expr) in crate::emit::ensure_calls(ctx.prog, class) {
-                        ctx.out
-                            .push(format!("crate::statics::ensure({id}u32, {expr});"));
+                        // CLINIT-THROW: same lowering as the default body.
+                        ctx.out.push(format!(
+                            "{};",
+                            try_wrap(&fault, format!("crate::statics::ensure({id}u32, {expr})"))
+                        ));
                     }
                     let call = try_wrap(
                         &fault,
@@ -2322,7 +2329,7 @@ fn emit_cmp_typed(ctx: &mut Ctx<'_>, pc: u32, kind: crate::ir::CmpKind, vs: &[us
     ctx.push_result(a_slot, target, expr, Src::Prim(Prim::I), false, Kind::Int);
 }
 
-fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, _fault: &str, class: &str, field: &str) {
+fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, fault: &str, class: &str, field: &str) {
     fn push_value(ctx: &mut Ctx<'_>, pc: u32, expr: String) {
         // Every call site pushes a REF (System.out/err, Locale.US, TYPE,
         // any ref-typed static): a ref epoch means the position is a Cell
@@ -2361,8 +2368,11 @@ fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, _fault: &str, class: &str, f
             ctx.refresh(pc);
         }
         for (id, expr) in ensures {
-            ctx.out
-                .push(format!("crate::statics::ensure({id}u32, {expr});"));
+            // CLINIT-THROW: same lowering as the default body.
+            ctx.out.push(format!(
+                "{};",
+                try_wrap(&fault, format!("crate::statics::ensure({id}u32, {expr})"))
+            ));
         }
         let kind = desc_kind_of(&f.desc);
         let push_slot = ctx.shape(pc).stack.len();

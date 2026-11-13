@@ -538,12 +538,14 @@ mod tests {
             simple_name: Some("JniBase"),
             fields: &BASE_FIELDS,
             methods: &[],
+            ctors: &[],
         };
         static DERIVED_INFO: UserClassInfo = UserClassInfo {
             is_interface: false,
             simple_name: Some("JniDerived"),
             fields: &DERIVED_FIELDS,
             methods: &[],
+            ctors: &[],
         };
         match c {
             "j2r/test/JniBase" => Some(&BASE_INFO),
