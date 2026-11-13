@@ -1,5 +1,31 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. 3 — **EXTERNAL-B4..B12 LANDED:
+the natives/jdk-surface wave from the jbox2d port report**). Reset #19
+recovered per §9 (7th full-download validation: rustup-init 21,347,088 B
+→ 1.99.1 pinned, Temurin 207,858,352 B byte-exact, env.sh recreated,
+warm build 10.94 s); baseline re-proven BEFORE the code (424/0 libs).
+All nine gaps reimplemented from the owner's written spec: fdlibm.rs
+(verbatim musl rem_pio2/sin/cos/tan/atan/atan2 + OpenJDK's own Hypot;
+no FMA) registered for Math AND StrictMath (12 rows) + 38 StrictMath
+mirror rows (B5); NoSuchFieldError row (B4); AssertionError family
+(B7 — JDK 21 dropped the null reset, Temurin-pinned); reverse IEEE bit
+statics (B8); 8 boxed classes FRESH-box instantiable (B6 — owner's
+identity-cache claim CORRECTED: `new Integer(127) == new Integer(127)`
+is FALSE on Temurin); java.util.Random builtin + 12 natives, the 48-bit
+LCG BIT-IDENTICAL incl. nextGaussian/nextBytes (B10); ArrayList.toArray
+two-branch (B11); Arrays.sort ranges + null-cmp fallback + reverseOrder
++ desiredAssertionStatus (B12). EN-ROUTE BUG fixed: main() touching no
+own statics ran WITHOUT the <clinit> (JLS 12.4.2 launcher law) — both
+main templates now ensure the main class. New fixture **Externals**
+(112th) byte-identical vs Temurin; diff_suite **112/0 divergences**
+(471.62 s); cfg_equiv 0 (355.83 s); partition 7/7; battery **467/0**;
+fmt+clippy clean; doc counts 112/467 in sync. Follow-ups registered:
+CLINIT-THROW (EIIIE machinery), SORT-NULL-CMP. Evidence:
+scripts/evidence/external_b3_b12/natives_surface_2026-11-13.txt.
+Next: EXTERNAL-HARNESS (the four process items) or R2 slice 2
+(static-pool Field.get + getModifiers), then G3.3's specialized-map.
+
 Updated 2026-11-13 (session 19b cont. 2 — **EXTERNAL-B2 LANDED: the
 partitioned-emission registry-hook fix + the O5 exception-table
 fixture**). Reproduced first: a three-class probe at

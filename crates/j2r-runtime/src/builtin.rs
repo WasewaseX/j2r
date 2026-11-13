@@ -87,6 +87,13 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         // the same family (the T11 pending shape).
         "java/lang/UnsatisfiedLinkError" => "java/lang/LinkageError",
         "java/lang/NoSuchMethodError" => "java/lang/IncompatibleClassChangeError",
+        // EXTERNAL-B4 (jbox2d port, 2026-11-13): javac emits
+        // `catch (NoSuchFieldError)` for the JLS 13.4.9 field-resolution
+        // bridge in <clinit> of classes that reference fields removed
+        // between compilation rounds (World$1 in jbox2d); the verifier
+        // rejects the whole class unless the catch type resolves. Same
+        // LinkageError family as NoSuchMethodError above.
+        "java/lang/NoSuchFieldError" => "java/lang/IncompatibleClassChangeError",
         "java/lang/IncompatibleClassChangeError" => "java/lang/LinkageError",
         "java/lang/LinkageError" => "java/lang/Error",
         // M3 Wave 5: reflection subset (M3_PLAN §8). The reflective failure
@@ -94,6 +101,10 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         // JDK so exception-handler matching (`catch (NoSuchFieldException)`
         // and friends) resolves through the builtin parent chain.
         "java/lang/Class" => "java/lang/Object",
+        // EXTERNAL-B5 (jbox2d port): StrictMath is its own class in the
+        // JDK (the verifier must resolve calls into it); its surface
+        // mirrors Math's natives (see the NATIVES B5 block).
+        "java/lang/StrictMath" => "java/lang/Object",
         "java/lang/reflect/Field" => "java/lang/Object",
         "java/lang/reflect/Method" => "java/lang/Object",
         "java/lang/ReflectiveOperationException" => "java/lang/Exception",
@@ -101,6 +112,9 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/NoSuchMethodException" => "java/lang/ReflectiveOperationException",
         "java/lang/reflect/InvocationTargetException" => "java/lang/ReflectiveOperationException",
         // M3 Wave 2: java.util collections (M3_PLAN §5)
+        // EXTERNAL-B10 (jbox2d port): Random is a real builtin object —
+        // seed + gaussian-cache slots (behavior natives in natives.rs).
+        "java/util/Random" => "java/lang/Object",
         "java/util/ArrayList" => "java/lang/Object",
         "java/util/ArrayList$Itr" => "java/lang/Object",
         "java/util/HashMap" => "java/lang/Object",
@@ -137,6 +151,11 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/function/UnaryOperator" => "java/lang/Object",
         "java/util/function/BinaryOperator" => "java/lang/Object",
         "java/util/Comparator" => "java/lang/Object",
+        // EXTERNAL-B12 (jbox2d port wave): Comparator.reverseOrder()'s
+        // singleton — the JDK's java.util.Comparators.ReverseComparator
+        // (compare(a,b) = b.compareTo(a), a fresh builtin object per
+        // reverseOrder() call here since the class carries no state).
+        "java/util/Comparators$ReverseComparator" => "java/lang/Object",
         // Real-program surface (jdkutil.rs): utility classes are never
         // instantiated, the SubList view is.
         "java/util/Arrays" => "java/lang/Object",
@@ -352,6 +371,9 @@ pub fn builtin_is_interface(class: &str) -> bool {
 fn builtin_own_slots(class: &str) -> Option<usize> {
     let n = match class {
         "java/lang/Object" | "java/lang/System" | "java/lang/Math" | "java/lang/Number" => 0,
+        // EXTERNAL-B5 (jbox2d port): StrictMath resolves as its own class
+        // (a static facade — no instance state).
+        "java/lang/StrictMath" => 0,
         "java/lang/Throwable" => 3,
         // M4 Wave 2 (T06): runnable, name, daemon, started, tid;
         // T14 (Wave 4) added slot 5: pendingInterrupt.
@@ -450,6 +472,13 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // Enum: slot 0 = name (Str), slot 1 = ordinal (Int). The generated
         // subclass (javac's WrapperType) starts at base 2.
         "java/lang/Enum" => 2,
+        // EXTERNAL-B12: ReverseComparator carries no state.
+        "java/util/Comparators$ReverseComparator" => 0,
+        // EXTERNAL-B10 (jbox2d port): java.util.Random — slot 0 = the
+        // scrambled 48-bit seed (Long), slot 1 = haveNextNextGaussian (Int
+        // 0/1), slot 2 = nextNextGaussian (Double). Behavior in natives.rs
+        // (the JDK's 48-bit LCG, byte-exact).
+        "java/util/Random" => 3,
         _ => {
             // exception families own no extra fields
             if builtin_parent_of(class).is_some() {
@@ -516,6 +545,13 @@ mod tests {
         );
         assert_eq!(
             builtin_parent_of("java/lang/NoSuchMethodError"),
+            Some("java/lang/IncompatibleClassChangeError")
+        );
+        // EXTERNAL-B4 (jbox2d port): javac's JLS 13.4.9 field-resolution
+        // bridge catches NoSuchFieldError in <clinit>; the verifier must
+        // resolve the catch type through the same LinkageError family.
+        assert_eq!(
+            builtin_parent_of("java/lang/NoSuchFieldError"),
             Some("java/lang/IncompatibleClassChangeError")
         );
         assert_eq!(

@@ -137,10 +137,24 @@ fn differential_suite_matches_jvm() {
     // Class.forName closed-world resolution fixture) — 110 on disk, guard
     // one below that. External-B2/O5 (2026-11-13) added PartitionCatch
     // (the exception-table partition law) — 111 on disk, guard one below
-    // that.
+    // that. The EXTERNAL-B4..B12 wave (2026-11-13, the jbox2d port
+    // report) added Externals — NoSuchFieldError catch-type verification,
+    // StrictMath's full mirrored surface, the 8 boxed constructors (fresh
+    // boxes: `new Integer(127) == new Integer(127)` is FALSE, the owner's
+    // bug.md cache claim corrected against the pinned JVM vector), the
+    // AssertionError primitive/Object family, the reverse IEEE bit
+    // statics, the fdlibm transcendental band (StrictMath pinned
+    // bit-exactly; Math carries the documented HotSpot-intrinsic 1-ulp
+    // residual O1), java.util.Random's 48-bit LCG bit-identical incl.
+    // nextGaussian/nextBytes, the ArrayList.toArray two-branch contract,
+    // Arrays.sort range forms with JDK-exact messages + reverseOrder +
+    // desiredAssertionStatus — 112 on disk, guard one below that. It also
+    // found a REAL pre-existing bug en route: a main() that touches none
+    // of its own class's statics ran WITHOUT the `<clinit>` (the launcher
+    // now ensures the main class, JLS 12.4.2).
     assert!(
-        fixtures.len() >= 110,
-        "differential suite shrank: {} fixtures (expected >= 110)",
+        fixtures.len() >= 111,
+        "differential suite shrank: {} fixtures (expected >= 111)",
         fixtures.len()
     );
 

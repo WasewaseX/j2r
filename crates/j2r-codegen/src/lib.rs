@@ -457,6 +457,24 @@ fn builtin_is_instantiable(class: &str) -> bool {
             | "java/io/StreamTokenizer"
             | "java/text/DecimalFormat"
             | "java/text/DecimalFormatSymbols"
+            // EXTERNAL-B6 (jbox2d port, 2026-11-13): the 8 boxed classes
+            // — JDK-deprecated-but-alive constructors (jbox2d emits
+            // `new Integer(int)` in World.<clinit>). Fresh boxes: the
+            // <init> natives set the payload slot without the valueOf
+            // identity cache (new Integer(127) == new Integer(127) is
+            // FALSE on HotSpot; see the NATIVES B6 block).
+            | "java/lang/Integer"
+            | "java/lang/Long"
+            | "java/lang/Double"
+            | "java/lang/Float"
+            | "java/lang/Boolean"
+            | "java/lang/Character"
+            | "java/lang/Short"
+            | "java/lang/Byte"
+            // EXTERNAL-B10 (jbox2d port): java.util.Random — a real
+            // builtin object with per-instance state (seed in slot 0,
+            // gaussian cache in slots 1-2; behavior natives in natives.rs).
+            | "java/util/Random"
     ) {
         return true;
     }
@@ -1530,6 +1548,13 @@ pub fn resolve_field_pub<'a>(
 pub struct MainInfo {
     pub module: String,
     pub fn_name: String,
+    /// The main class's statics id + `<clinit>` fn name: the JVM launcher
+    /// initializes the main class BEFORE invoking main (JLS 12.4.2); the
+    /// generated app main must ensure it (a main() that touches none of
+    /// its own class's statics otherwise runs WITHOUT the `<clinit>` —
+    /// found by the EXTERNAL-B wave's Externals fixture, 2026-11-13).
+    pub class_id: u32,
+    pub clinit_fn: Option<String>,
 }
 
 pub fn main_entry(prog: &Program) -> Option<MainInfo> {
@@ -1539,6 +1564,8 @@ pub fn main_entry(prog: &Program) -> Option<MainInfo> {
                 .map(|m| MainInfo {
                     module: c.module.clone(),
                     fn_name: m.fn_name.clone(),
+                    class_id: c.id,
+                    clinit_fn: c.clinit_fn.clone(),
                 })
         })
     })

@@ -28,6 +28,7 @@ pub mod clinit;
 pub mod collections;
 pub mod concat;
 pub mod desc;
+pub mod fdlibm;
 pub mod formatter;
 pub mod frame;
 pub mod heap;

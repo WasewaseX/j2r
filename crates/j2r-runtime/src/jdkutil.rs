@@ -1337,3 +1337,245 @@ pub fn n_unmod_last_index_of(
     let backing = unmod_backing(recv, "UnmodifiableList.lastIndexOf")?;
     collections::n_al_last_index_of(Some(&backing), args, ctx)
 }
+
+// ---------------------------------------------------------------------------
+// EXTERNAL-B11 (jbox2d port, 2026-11-13): ArrayList.toArray() and
+// toArray(T[]) — the JDK's two-branch contract, byte-exact.
+//
+// OpenJDK ArrayList.java:
+//   toArray()        -> Arrays.copyOf(elementData, size)  (Object[])
+//   toArray(T[] a)   -> a.length < size : a fresh array of A'S RUNTIME
+//                                        component type, size elements
+//                      a.length >= size : copy into a; a.length > size
+//                                        writes the null terminator;
+//                                        returns a itself.
+// The runtime component type comes from the passed array's descriptor,
+// so `Integer[]` lists land in `Number[]` or `Object[]` receivers with
+// the JDK's exact ArrayStoreException law when the store is illegal
+// (array_store implements the JVM's aastore check).
+
+/// `ArrayList.toArray()` — a fresh `Object[]` of exactly `size` slots.
+pub fn n_al_to_array(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let list = match recv {
+        Some(r) => r,
+        None => return Err(null_arg("ArrayList.toArray")),
+    };
+    let (size, _mc, elems) = collections::al_state(list);
+    let out = array::array_new_ref("java/lang/Object", size)?;
+    for i in 0..size {
+        let v = arr_load(&elems, i)?;
+        arr_store(&out, i, v, ctx)?;
+    }
+    Ok(Value::Ref(Some(out)))
+}
+
+/// Component class of a ref-array descriptor ("[Ljava/lang/String;" ->
+/// "java/lang/String"; "[I" -> "I" — a primitive component that will
+/// fail the aastore law on the first store, exactly like the JDK).
+fn array_component(desc: &str) -> String {
+    if let Some(rest) = desc.strip_prefix("[L") {
+        rest.trim_end_matches(';').to_string()
+    } else {
+        desc[1..].to_string()
+    }
+}
+
+/// `ArrayList.toArray(T[])` — the two-branch contract above.
+pub fn n_al_to_array_typed(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let list = match recv {
+        Some(r) => r,
+        None => return Err(null_arg("ArrayList.toArray")),
+    };
+    let a = match args.first() {
+        Some(Value::Ref(Some(r))) => *r,
+        // JDK: `a` null is an ordinary NPE at the first dereference
+        Some(Value::Ref(None)) | None => {
+            return Err(throw_new("java/lang/NullPointerException", None))
+        }
+        other => {
+            return Err(crate::internal_error(&format!(
+                "j2r internal: ArrayList.toArray arg {other:?}"
+            )))
+        }
+    };
+    let (size, _mc, elems) = collections::al_state(list);
+    let (alen, adesc) = with_obj(a, |o| {
+        (o.slots[0].clone().expect_int(), o.jclass.to_string())
+    });
+    if alen < size {
+        let out = array::array_new_ref(&array_component(&adesc), size)?;
+        for i in 0..size {
+            let v = arr_load(&elems, i)?;
+            arr_store(&out, i, v, ctx)?;
+        }
+        return Ok(Value::Ref(Some(out)));
+    }
+    for i in 0..size {
+        let v = arr_load(&elems, i)?;
+        arr_store(&a, i, v, ctx)?;
+    }
+    if alen > size {
+        arr_store(&a, size, Value::Ref(None), ctx)?;
+    }
+    Ok(Value::Ref(Some(a)))
+}
+
+// ---------------------------------------------------------------------------
+// EXTERNAL-B12 (jbox2d port, 2026-11-13): Arrays.sort range forms + the
+// assertion-status static. The JDK's rangeCheck with exact messages:
+//   fromIndex > toIndex  -> IllegalArgumentException("fromIndex(5) > toIndex(2)")
+//   fromIndex < 0        -> ArrayIndexOutOfBoundsException("Array index out of range: -1")
+//   toIndex > length     -> ArrayIndexOutOfBoundsException("Array index out of range: 12")
+// and a null comparator FALLS BACK to natural ordering (OpenJDK's
+// sort(T[], int, int, Comparator) first branch) rather than throwing.
+
+/// The JDK's private `rangeCheck(arrayLength, fromIndex, toIndex)`.
+fn arrays_range_check(len: i32, from: i32, to: i32) -> Result<(), Throw> {
+    if from > to {
+        return Err(throw_new(
+            "java/lang/IllegalArgumentException",
+            Some(&format!("fromIndex({from}) > toIndex({to})")),
+        ));
+    }
+    if from < 0 {
+        return Err(throw_new(
+            "java/lang/ArrayIndexOutOfBoundsException",
+            Some(&format!("Array index out of range: {from}")),
+        ));
+    }
+    if to > len {
+        return Err(throw_new(
+            "java/lang/ArrayIndexOutOfBoundsException",
+            Some(&format!("Array index out of range: {to}")),
+        ));
+    }
+    Ok(())
+}
+
+/// `Arrays.sort(Object[], int fromIndex, int toIndex)` — natural ordering
+/// on the slice, stable merge (the same law as the whole-array form).
+pub fn n_arrays_sort_obj_range(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let _ = recv;
+    let a = match args.first() {
+        Some(Value::Ref(Some(r))) => r,
+        _ => return Err(null_arg("Arrays.sort")),
+    };
+    let (from, to) = match (args.get(1), args.get(2)) {
+        (Some(f), Some(t)) => (f.expect_int(), t.expect_int()),
+        _ => return Err(null_arg("Arrays.sort")),
+    };
+    let len = arr_elems(a)?;
+    arrays_range_check(len, from, to)?;
+    let mut vals: Vec<Value> = Vec::with_capacity((to - from).max(0) as usize);
+    for i in from..to {
+        vals.push(arr_load(a, i)?);
+    }
+    merge_sort_stable(&mut vals, &|x, y| compare_to_dispatch(x, y, ctx))?;
+    for (i, v) in vals.iter().enumerate() {
+        arr_store(a, from + i as i32, v.clone(), ctx)?;
+    }
+    Ok(Value::Void)
+}
+
+/// `Arrays.sort(Object[], int, int, Comparator)` — comparator ordering;
+/// a null comparator delegates to the natural-ordering form (JDK-exact).
+pub fn n_arrays_sort_obj_range_cmp(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let _ = recv;
+    match args.get(3) {
+        Some(Value::Ref(Some(cmp))) => {
+            let a = match args.first() {
+                Some(Value::Ref(Some(r))) => r,
+                _ => return Err(null_arg("Arrays.sort")),
+            };
+            let (from, to) = match (args.get(1), args.get(2)) {
+                (Some(f), Some(t)) => (f.expect_int(), t.expect_int()),
+                _ => return Err(null_arg("Arrays.sort")),
+            };
+            let len = arr_elems(a)?;
+            arrays_range_check(len, from, to)?;
+            let mut vals: Vec<Value> = Vec::with_capacity((to - from).max(0) as usize);
+            for i in from..to {
+                vals.push(arr_load(a, i)?);
+            }
+            merge_sort_stable(&mut vals, &|x, y| comparator_compare(cmp, x, y, ctx))?;
+            for (i, v) in vals.iter().enumerate() {
+                arr_store(a, from + i as i32, v.clone(), ctx)?;
+            }
+            Ok(Value::Void)
+        }
+        // null comparator: natural ordering (the JDK's exact fallback)
+        _ => n_arrays_sort_obj_range(recv, args, ctx),
+    }
+}
+
+/// `Class.desiredAssertionStatus()` — assertions are not a j2r feature,
+/// so the JDK default (assertions disabled: false) is the honest answer.
+pub fn n_class_desired_assertion_status(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    Ok(Value::Int(0))
+}
+
+/// `Comparator.reverseOrder()` — a ReverseComparator builtin object
+/// (OpenJDK java.util.Comparators.ReverseComparator: compare(a,b) is
+/// `((Comparable<U>) b).compareTo(a)` — the arguments swap, the NPE law
+/// follows compareTo's).
+pub fn n_comparator_reverse_order(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = object::new_builtin("java/util/Comparators$ReverseComparator")?;
+    Ok(Value::Ref(Some(r)))
+}
+
+/// ReverseComparator.compare(a, b) — b.compareTo(a) through the ordinary
+/// dispatch walk (compare_to_dispatch already pins the null law).
+pub fn n_reverse_comparator_compare(
+    _recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let a = match args.first() {
+        Some(v) => v,
+        None => return Err(null_arg("ReverseComparator.compare")),
+    };
+    let b = match args.get(1) {
+        Some(v) => v,
+        None => return Err(null_arg("ReverseComparator.compare")),
+    };
+    // b.compareTo(a): dispatch compareTo on b with a as the argument
+    if let (Value::Ref(None), _) | (_, Value::Ref(None)) = (b, a) {
+        return Err(throw_new("java/lang/NullPointerException", None));
+    }
+    let out = invoke_virtual(
+        match b {
+            Value::Ref(Some(x)) => x,
+            other => {
+                return Err(crate::internal_error(&format!(
+                    "j2r internal: ReverseComparator on {other:?}"
+                )))
+            }
+        },
+        "java/lang/Comparable",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        std::slice::from_ref(a),
+        ctx,
+    )?;
+    Ok(Value::Int(out.expect_int()))
+}

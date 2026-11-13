@@ -2432,3 +2432,74 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   TODO.md EXTERNAL-B2 flipped [x]. Next queued: EXTERNAL-B3..B12 (the
   natives/jdk surface — fdlibm module the biggest piece), then
   EXTERNAL-HARNESS.
+
+---
+
+## 2026-11-13 — session 19b cont. 3 (reset #19 recovery → EXTERNAL-B4..B12 LANDED)
+
+- **Sandbox reset #19 recovered per §9 (7th full-download validation)**:
+  fetch + ff → `84a5242` == origin/main (the boards' rule held: nothing
+  local was lost because everything was pushed). Toolchain rebootstrap
+  byte-exact: rustup-init **21,347,088 B** → rustc/cargo **1.99.1**,
+  rustfmt 1.10.0, clippy 0.1.99 (the new stable 1.100.0 was explicitly
+  rejected — the §3.1 pin stands); Temurin **jdk-21.0.13+9 207,858,352 B
+  byte-exact** (GitHub releases-asset route) → `tools/jdk-21.0.13+9`;
+  env.sh recreated (work/env.sh + project root copy); warm build 10.94 s.
+- **Baseline re-proven BEFORE the wave code (T05's law)**: fmt + clippy
+  clean, libs/bins 424/0 + codegen 136/0 + cli fast 15/0 at `84a5242`.
+- **EXTERNAL-B4..B12 LANDED — the natives/jdk-surface wave from the
+  owner's jbox2d report, all nine gaps reimplemented from the written
+  spec** (the owner's patches are not in this repo):
+  * **B9 fdlibm.rs** (~700 lines): verbatim musl transliteration —
+    __rem_pio2 (medium path: toint rint trick, three Cody-Waite rounds),
+    __sin/__cos/__tan, atan, atan2 — plus hypot from OpenJDK's own
+    java.lang.FdLibm.Hypot. Plain f64, no FMA. 12 rows for Math +
+    StrictMath. O1 demonstrated on FIXED inputs this session (sin(10.1),
+    sin(2.0943951), tan(10.1) 1 ulp off Temurin Math — HotSpot's
+    intrinsics; StrictMath bit-exact). O2 verified live: the fixture's
+    own LCG band hit 3.3e7 and the named Payne-Hanek panic fired.
+  * **B5** StrictMath hierarchy + 38 mirror rows; **B4** NoSuchFieldError
+    row + pin; **B7** AssertionError family (7 rows; JDK 21 dropped the
+    null-message reset — Temurin-pinned "java.lang.AssertionError:
+    null"); **B8** intBitsToFloat/longBitsToDouble raw-move rows;
+    **B6** 8 boxed classes instantiable, FRESH boxes (owner's cache
+    claim corrected: `new Integer(127) == new Integer(127)` is FALSE on
+    Temurin — JLS 5.1.7 caching is valueOf-only), 15 rows with the
+    JDK-exact Short/Byte range messages.
+  * **B10 java.util.Random**: real builtin object (seed/gaussian slots),
+    12 natives, the 48-bit LCG BIT-IDENTICAL vs Temurin (nextInt,
+    bounds incl. power-of-two + rejection, nextLong/Boolean/Float/
+    Double/Gaussian/Bytes, setSeed determinism; nextGaussian's log rides
+    f64::ln == the same system libm HotSpot's intrinsic calls — proven).
+  * **B11** ArrayList.toArray()/toArray(T[]) two-branch contract;
+    **B12** Arrays.sort range forms with JDK-exact messages +
+    null-comparator fallback + Comparator.reverseOrder() (a new
+    ReverseComparator builtin) + desiredAssertionStatus→false.
+- **EN-ROUTE BUG (real, pre-existing, fixed)**: a main() that touches
+  none of its own class's statics ran WITHOUT the `<clinit>` — the
+  launcher law (JLS 12.4.2) was unimplemented in the generated app main.
+  Fix: MainInfo carries class_id + clinit_fn; both main templates
+  (single-crate + partitioned) emit the ensure line. Found by the new
+  fixture's first run (clinit print missing); minimal probes proved
+  before/after; diff_suite proves no regressions.
+- **Registered follow-ups (TODO.md)**: CLINIT-THROW (the JLS 12.4.2
+  ExceptionInInitializerError/errant-class machinery — clinit.rs
+  discards a clinit's Throw today; out of this wave's scope) and
+  SORT-NULL-CMP (the old sort(T[],C) row NPEs on a null comparator
+  where the JDK falls back).
+- **Proof**: NEW fixture **Externals** (the 112th) — the whole
+  B4-B12 surface in one program, byte-identical vs Temurin 21.0.13
+  (the harness compares live); diff_suite **112 fixtures ZERO
+  divergences (471.62 s)**; cfg_equiv zero (355.83 s); partition 7/7;
+  corpus 1/1; jar 3/0; lambda_neg 2/0; jni_parity 1/0; native_e2e 2/0;
+  soe_e2e 1/0; unit chunks lib/bins 425/0 + codegen 136/0 + cli 15/0;
+  fmt --all --check clean; clippy -D warnings clean (fdlibm.rs carries
+  a documented scoped allow: the C-verbatim constants trip
+  approx_constant/excessive_precision/eq_op); doc counts 112/467 in
+  sync; links resolve; no stubs. Full battery **467 tests, 0 failures**.
+- Evidence: scripts/evidence/external_b3_b12/
+  natives_surface_2026-11-13.txt.
+- Next: EXTERNAL-HARNESS (the four process items: cfg-report --surface,
+  collect-all-diagnostics, partition exception-table fixtures, the
+  charset pin) — or R2 slice 2 (static-pool Field.get + getModifiers)
+  per the §8 ladder. Then G3.3's specialized-map implementation.

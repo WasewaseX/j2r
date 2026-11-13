@@ -423,6 +423,11 @@ fn main_run() -> i32 {{
     ::j2r_runtime::heap::set_statics_scanner({lib_crate}::statics::gc_scan_roots);
     let args: ::std::vec::Vec<::std::string::String> = ::std::env::args().skip(1).collect();
     let args_array = ::j2r_runtime::object::new_string_array(&args);
+    // JLS 12.4.2: the JVM launcher initializes the main class BEFORE
+    // invoking main (EXTERNAL-B wave finding, 2026-11-13: a main() that
+    // touches none of its own class's statics otherwise runs without the
+    // `<clinit>`). No-op when the class has no `<clinit>`.
+    {main_clinit_ensure}
     let code = match {lib_crate}::classes::{module}::{main_fn}(
         ::core::option::Option::None,
         &[::j2r_runtime::Value::Ref(::core::option::Option::Some(args_array))],
@@ -457,6 +462,7 @@ fn main_run() -> i32 {{
             main_fn = m.fn_name,
             defaults = static_defaults_literal(prog, &lib_crate),
             constants = static_constants_literal(prog),
+            main_clinit_ensure = main_clinit_ensure_line(&lib_crate, m),
         );
         emit_glue(
             out,
@@ -2107,6 +2113,21 @@ pub(crate) fn new_obj_lines(prog: &Program, class: &str, fault: &str, out: &mut 
         out.push(format!(
             "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_builtin({class:?}));"
         ));
+    }
+}
+
+/// The JLS 12.4.2 launcher line for the app main template: ensure the
+/// main class's `<clinit>` before main() runs. Empty when the class has
+/// none. `crate_path` is `classes::` prefixed from the app crate root in
+/// both emission modes (single-crate: `{lib_crate}::`; partitioned: the
+/// owning partition crate `pN::`).
+pub(crate) fn main_clinit_ensure_line(lib_crate: &str, m: &crate::MainInfo) -> String {
+    match &m.clinit_fn {
+        Some(fname) => format!(
+            "{lib_crate}::statics::ensure({}u32, ::core::option::Option::Some({lib_crate}::classes::{}::{} as ::j2r_runtime::MethodFn));",
+            m.class_id, m.module, fname
+        ),
+        None => String::new(),
     }
 }
 

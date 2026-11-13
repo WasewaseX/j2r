@@ -1,0 +1,153 @@
+EXTERNAL-B4..B12 — the natives/jdk-surface wave from the jbox2d port report
+Landed 2026-11-13 (session 19b cont. 3) · spec: docs/external-port/
+jbox2d_bug.md B4-B12 + TODO.md §"EXTERNAL PORT (jbox2d 2026-11-12)"
+
+SCOPE
+
+Every loud gap the owner's independent jbox2d 2.2.1.1 port hit,
+reimplemented from the written spec and verified by our own gates
+(the owner's patches are NOT in this repo — every row below is our
+own code):
+
+- B4  builtin.rs: "java/lang/NoSuchFieldError" => IncompatibleClassChangeError
+      (the JLS 13.4.9 bridge-catch verification fix; one row + unit pin).
+- B5  builtin.rs StrictMath hierarchy row + 38 NATIVES rows mirroring the
+      Math implementations (the owner's "35" at their base + the
+      …Exact(J,I) trio that landed here since c38fcdb).
+- B9  crates/j2r-runtime/src/fdlibm.rs (~700 lines): faithful
+      transliteration of the fdlibm kernels AS MUSL CARRIES THEM —
+      __rem_pio2 (medium path, verbatim incl. the toint rint trick and
+      the three Cody-Waite rounds), __sin, __cos, __tan, atan, atan2 —
+      fetched verbatim from git.musl-libc.org 2026-11-13 — plus hypot
+      from the JDK's own java.lang.FdLibm.Hypot (OpenJDK 21u, the code
+      StrictMath.hypot specifies). Plain f64, NO FMA contraction
+      (Rust never contracts; module doc forbids mul_add rewrites).
+      Registered for Math AND StrictMath: 12 rows.
+      O1 residual (open, honest): HotSpot's Math intrinsics differ from
+      fdlibm on ~6.5 inputs/100k (owner: 4 sin + 9 cos / 200k; this
+      session re-hit it on fixed inputs: sin(10.1), sin(2.0943951),
+      tan(10.1) were 1-ulp off vs Temurin Math). The Externals fixture
+      pins STRICTMATH bit-exactly over specials + two 64-value LCG
+      bands (1e-4..<1e5) and pins Math on the aligned specials only.
+      O2 residual (open, loud): __rem_pio2_large (Payne-Hanek) absent —
+      |x| >= 2^20·pi/2 (~3.3e6) panics with a named message. The
+      fixture's own LCG band first generated 3.3e7 and triggered the
+      panic during bring-up — the designed law, then re-banded.
+- B6  The 8 boxed classes instantiable (codegen allow-list) + 15 NATIVES
+      rows (prim + String ctors each, Character prim-only). CORRECTION
+      of the owner's bug.md: the <init> rows are NOT valueOf aliases.
+      Temurin 21.0.13 pinned by the fixture: `new Integer(127) ==
+      new Integer(127)` is FALSE — the JLS 5.1.7 identity cache belongs
+      to boxing conversion (valueOf/autobox) only; `new` fresh-allocates.
+      (String) forms delegate to the JDK-exact parse helpers;
+      Short/Byte range-check with the JDK message
+      `Value out of range. Value:"70000" Radix:10` (quoting the string).
+- B7  7 NATIVES rows for AssertionError (Z C I J F D Object): message =
+      String.valueOf rendering (float/double through Float/Double.toString
+      — "0.5", "6.149717374E-4" pinned), Object through real toString
+      dispatch. Temurin correction discovered by the fixture: JDK 21
+      REMOVED the reset-detailMessage-to-null branch — `new
+      AssertionError((Object) null)` keeps the MESSAGE "null"
+      (toString "java.lang.AssertionError: null"). () and (String)
+      resolve through the Throwable rows via parent-chain dispatch.
+- B8  The two reverse bit statics (floatToIntBits/floatToRawIntBits/
+      doubleToLongBits/doubleToRawLongBits existed since the F4 wave):
+      Float.intBitsToFloat(I)F + Double.longBitsToDouble(J)D as raw
+      bit moves (from_bits). Pinned: NaN payload round-trips through
+      raw bits while floatToIntBits still canonicalizes (0x7fc12345 ->
+      raw=7fc12345, canon=7fc00000), longBitsToDouble(-0.0 bits) = -inf.
+- B10 java.util.Random as a real builtin object (hierarchy row, 3 own
+      slots: seed Long / haveNextNextGaussian Int / nextNextGaussian
+      Double) + 12 natives: <init>() (uniquifier CAS loop x
+      1181783497276652981 ^ nanoTime — unspecified stream),
+      <init>(J), setSeed, next(I), nextInt(), nextInt(bound)
+      (power-of-two + rejection, IAE "bound must be positive"),
+      nextLong, nextBoolean, nextFloat, nextDouble, nextGaussian
+      (JDK polar method; the internal Math.log rides Rust f64::ln =
+      the same correctly-rounded system libm HotSpot's Math.log
+      intrinsic calls — proven byte-identical by the fixture),
+      nextBytes (the 4-bytes-per-rnd JDK loop). The fixture pins
+      new Random(42) streams BIT-IDENTICALLY: nextInt x8, bound 17/64/1,
+      nextLong x6, nextBoolean x20, nextFloat/nextDouble x8, 10
+      gaussians, 11 nextBytes, setSeed determinism.
+- B11 ArrayList.toArray() + toArray(T[]) in jdkutil.rs: the JDK
+      two-branch contract — a.length < size allocates a fresh array of
+      A'S RUNTIME component type (from the descriptor); else fills and
+      writes the null terminator when a.length > size; returns a
+      itself. 2 rows.
+- B12 Arrays.sort(Object[],II) + sort(Object[],II,Comparator) with the
+      JDK-exact rangeCheck messages ("fromIndex(3) > toIndex(1)",
+      "Array index out of range: -1/-6") + null-comparator fallback to
+      natural ordering (OpenJDK's first branch) + a ReverseComparator
+      builtin (Comparator.reverseOrder(), compare(a,b)=b.compareTo(a))
+      + Class.desiredAssertionStatus() -> false. 6 rows.
+
+FOLLOW-UP FOUND EN ROUTE (the fixture's first failure)
+
+A main() that touches none of its own class's statics ran WITHOUT the
+<clinit>: the generated app main never ensured the main class, so the
+JVM's launcher law (JLS 12.4.2: main class initialized before main)
+was unimplemented. Fix: MainInfo gains class_id + clinit_fn; BOTH main
+templates (single-crate emit.rs, partitioned partition.rs) emit the
+ensure line before invoking main (no-op when the class has no clinit).
+Proven: ClinitPrint5/6 minimal probes (before: clinit output missing;
+after: byte-identical), diff_suite 112/0 green with the change.
+Registered follow-up (pre-existing, out of wave scope): clinit.rs line
+`let _ = f(None, &[])` DISCARDS a clinit's Throw and marks Done — the
+JLS 12.4.2 ExceptionInInitializerError / errant-class machinery is
+unimplemented (no ExceptionInInitializerError anywhere in the tree;
+the CyclicInit fixture pins only the in-progress-recursion law).
+
+Registered follow-up #2 (spotted, out of scope): the pre-existing
+Arrays.sort(T[], Comparator) row NPEs on a null comparator where the
+JDK falls back to natural ordering (my new range-comparator row has
+the JDK fallback; the old whole-array row is unchanged).
+
+PROOF (all with Temurin 21.0.13+9 as the reference channel)
+
+- New differential fixture crates/j2r-cli/tests/suite/Externals.java
+  (112th): B4-B12 in one program; `j2r test` byte-compares stdout/
+  stderr/exit vs javac+java LIVE — PASS, zero divergences.
+- diff_suite: 112 fixtures ZERO divergences (471.62 s) — includes the
+  launcher change with no regressions.
+- cfg_equiv: zero divergences (355.83 s).
+- partition_suite 7/7 (1 test, 29.77 s); corpus_suite 1/1 (30.07 s);
+  jar_suite 3/0; lambda_neg 2/0; jni_parity 1/0; native_e2e 2/0;
+  soe_e2e 1/0.
+- Unit: lib/bins 425/0 (runtime 244 incl. the new fdlibm pin test +
+  the B4 hierarchy pin), codegen 136/0, cli fast+bin 15/0.
+- fmt --all --check clean; clippy -D warnings clean (fdlibm.rs carries
+  a scoped allow for approx_constant/excessive_precision/eq_op — the
+  C-source-verbatim transliteration contract, documented in-file).
+- doc counts in sync (fixtures=112 tests=467); doc links resolve;
+  no stubs.
+
+REPRODUCTION
+
+  source /home/z/my-project/work/env.sh
+  cd /home/z/my-project/work/j2r-fresh
+  cargo test -p j2r-runtime --lib fdlibm -- --nocapture
+  cargo run -p j2r-cli -- test crates/j2r-cli/tests/suite/Externals.java
+  cargo test -p j2r-cli --locked --test diff_suite
+
+HONESTY NOTES
+
+- The O1 residual is now DEMONSTRATED on fixed inputs (previously
+  owner-measured on random LCG samples): Math.sin(10.1),
+  Math.sin(2.0943951), Math.tan(10.1) are 1 ulp off Temurin Math —
+  HotSpot's intrinsics, not fixable from fdlibm sources. StrictMath is
+  bit-exact (it IS fdlibm). Closing O1 = porting HotSpot's actual
+  intrinsic polynomials; registered as the Opt.md §5 top item.
+- The fixture pins Math only on the aligned set — stated in the
+  fixture source, same policy as MathSemantics' NaN-payload note.
+- The owner's B6 identity-cache claim and the AssertionError null
+  law are both corrected against the pinned JVM vector, with the
+  evidence in this file; bug.md stays as the owner wrote it (their
+  report, their words), the corrections live HERE and in the fixture
+  comments.
+- nextGaussian's log channel: f64::ln == HotSpot Math.log holds on
+  this box (both reach the system libm). If the JDK ever bundles its
+  own log the fixture will catch it; the fdlibm log kernel is the
+  registered fallback.
+- The O2 panic threshold was verified live (3.3e7 input panicked with
+  the named message during fixture bring-up).

@@ -1998,8 +1998,25 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       exception messages + Class.desiredAssertionStatus() → false.
       Sequencing: B9's fdlibm module is the biggest piece; B4/B5/B7/B8
       are table rows; B6/B10 are builtin-class machinery; B11/B12 are
-      jdkutil natives. STATUS: not started; pulled per-wave with the
-      differential gate after B1/B2.
+      jdkutil natives. STATUS: **LANDED 2026-11-13** (commit
+      external-b3..b12; evidence
+      scripts/evidence/external_b3_b12/natives_surface_2026-11-13.txt):
+      fdlibm.rs transliterated verbatim from musl (rem_pio2 medium path,
+      sin/cos/tan/atan/atan2) + the JDK's own FdLibm.Hypot; Math+StrictMath
+      12 trans rows + 38 StrictMath mirror rows; NoSuchFieldError row;
+      AssertionError family (7 rows); reverse bit statics; 8 boxed
+      classes with FRESH-box ctors (owner's cache claim CORRECTED vs the
+      pinned JVM vector: new Integer(127) == new Integer(127) is FALSE);
+      java.util.Random builtin (3 slots, 12 natives, 48-bit LCG
+      bit-identical incl. nextGaussian via f64::ln == HotSpot's log);
+      ArrayList.toArray both forms; Arrays.sort ranges + null-comparator
+      fallback + reverseOrder + desiredAssertionStatus. NEW fixture
+      Externals (112th) byte-identical vs Temurin; diff_suite 112/0
+      (471.62 s), cfg_equiv 0 (355.83 s), battery 467/0, fmt+clippy
+      clean, doc counts 112/467 in sync. EN-ROUTE BUG FIXED: a main()
+      touching none of its own class's statics ran WITHOUT the <clinit>
+      (JLS 12.4.2 launcher law) — both main templates now ensure the
+      main class; diff_suite proves no regressions.
 - [ ] **EXTERNAL-HARNESS — the four process items (Opt.md §6 + O6)** —
       (1) `j2r cfg-report --surface`: the sorted, deduplicated JDK
       member set the input needs, diffed against the NATIVES table
@@ -2013,6 +2030,28 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       (-J-Dfile.encoding=UTF-8) instead of inheriting the ambient
       locale (O6 — five phantom failures on a C locale,
       owner-verified). STATUS: not started.
+- [ ] **CLINIT-THROW — the JLS 12.4.2 ExceptionInInitializerError
+      machinery (found 2026-11-13 by the EXTERNAL-B wave)** — clinit.rs
+      discards a <clinit>'s Throw (`let _ = f(None, &[])`) and marks
+      the class Done: a throwing clinit silently proceeds (both
+      ClinitPrint probes showed it before the launcher fix). The JDK
+      law: the first thrower gets ExceptionInInitializerError(cause)
+      (or the Error itself if it already is one of the seven allowed
+      types), the class is marked ERRANT and every later first-use
+      throws NoClassDefFoundError with cause the original — needs an
+      Err state in the clinit state machine, the EIIIE wrapper, and
+      the errant-class law at every ensure site; differential
+      fixtures pin all three shapes. No ExceptionInInitializerError
+      exists anywhere in the tree today; CyclicInit pins only the
+      in-progress-recursion half of 12.4.2. STATUS: registered, not
+      started.
+- [ ] **SORT-NULL-CMP — Arrays.sort(T[], Comparator) null fallback
+      (spotted 2026-11-13)** — the pre-existing whole-array comparator
+      row NPEs on a null comparator; OpenJDK falls back to natural
+      ordering (the JDK source's first branch). The NEW range form
+      (n_arrays_sort_obj_range_cmp) already implements the fallback;
+      bring the whole-array row in line + a fixture row. One-liner
+      plus pin. STATUS: registered, not started.
 - [ ] **EXTERNAL-CORROB — Opt.md R1–R9 mapped onto the register (the
       cross-reference recorded so the roadmap cites it; no new
       claims)** — R1 (FrameGuard monitors lazy, owner prototype

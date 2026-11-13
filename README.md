@@ -14,7 +14,7 @@ Every feature is validated by **differential testing**: fixtures
 are compiled with `javac`, run on the JVM (Temurin 21), compiled with J2R, run natively,
 and **stdout, stderr and exit codes** must match (stderr with JVM
 stack-trace frames — and nothing else — normalized away).
-**110 fixture programs** cover arithmetic and integer/long edge cases,
+**112 fixture programs** cover arithmetic and integer/long edge cases,
 shifts, casts and
 saturating conversions, control flow (switch fallthrough, labeled
 break/continue), strings, string building, one- and two-dimensional arrays,
@@ -28,7 +28,7 @@ classpath/JAR loading, lambdas and method references, `synchronized`
 monitors, and a reflection subset (`X.class`, `Field.get/set`,
 `Method.invoke`) — all green, plus the workspace unit and integration
 suites (241 tests at the build-manifest wave that introduced them; the
-measured aggregate is 466 — see Testing below for the full scope;
+measured aggregate is 467 — see Testing below for the full scope;
 gate-11 measures the live counts, hand-edited ones are banned), incl.
 the build-manifest suite (per-class reuse, body-edit isolation,
 surface/layout invalidation, corrupt-manifest fallback),
@@ -184,7 +184,7 @@ A **JDK-coverage milestone** (M3, [docs/ROADMAP.md](ROADMAP.md)) landed on
   generation-tagged handles (M2 Waves 1–2; see the milestone section above)
 * Investigation tooling: `j2r shape-report` (typed-storage decisions) and
   `j2r cfg-report` / `--emit-cfg` (CFG lift prototype, default off —
-  111/111 fixtures output-identical in both modes)
+  112/112 fixtures output-identical in both modes)
 * **Build manifest, incremental recompiles** (M5 wave 1, T06/T07):
   `out/j2r-manifest.tsv` maps each class's input hash to its emitted-file
   hash under a global gate (emitter version, emission options, the
@@ -289,13 +289,13 @@ the runtime natives table.
 ## Testing
 
 ```console
-$ cargo test                       # 466 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the G2.6 array-literal peephole tests + the G2.2 manifest fast-path behavioral test + the G2.3 stage-instrumentation test + the G2.5 ZIP64 jar-reader tests (classic round-trip, >65,535 entries, sentinel-without-locator rejection) + the G4.2 JMM-boundary enforcement test (sidecar + per-access markers) + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests + the T10 JNI string-marshalling, class/field-ID, field-accessor array-family tests + the pending-exception machinery + the T11 mock-dispatch invoke tests (all thirty Call*MethodA + all thirty Call*MethodV slots, virtual/static/nonvirtual) + the T12 native-binding registry and ACC_NATIVE call-through tests + the T13 foreign-call thunk tests (a real C-compiled probe, linked into its test binary only) + the T13 13c C-harness parity battery (the ONE harness .so, compiled once, three-channel vs Temurin on both runtimes) + the T13 13d attach-lifecycle tests (the MEASURED oracle contract: EDETACHED/attach/detach/re-attach, plus the loud-v1-gap abort pins)
+$ cargo test                       # 467 tests: unit + differential/partition/forced-GC/SOE-e2e/cfg-equivalence/jar suites + the G2.6 array-literal peephole tests + the G2.2 manifest fast-path behavioral test + the G2.3 stage-instrumentation test + the G2.5 ZIP64 jar-reader tests (classic round-trip, >65,535 entries, sentinel-without-locator rejection) + the G4.2 JMM-boundary enforcement test (sidecar + per-access markers) + the T08 JNI-table tests + the T09 JNI handle-bridge and audited-FFI tests + the T10 JNI string-marshalling, class/field-ID, field-accessor array-family tests + the pending-exception machinery + the T11 mock-dispatch invoke tests (all thirty Call*MethodA + all thirty Call*MethodV slots, virtual/static/nonvirtual) + the T12 native-binding registry and ACC_NATIVE call-through tests + the T13 foreign-call thunk tests (a real C-compiled probe, linked into its test binary only) + the T13 13c C-harness parity battery (the ONE harness .so, compiled once, three-channel vs Temurin on both runtimes) + the T13 13d attach-lifecycle tests (the MEASURED oracle contract: EDETACHED/attach/detach/re-attach, plus the loud-v1-gap abort pins)
 $ J2R_GC_EVERY_N=1 cargo test -p j2r-cli --test diff_suite   # rooting proof: collection at every allocation
 $ ./target/debug/j2r test crates/j2r-cli/tests/suite/Arrays.java
 $ ./target/debug/j2r compile -p app.jar --main-class com.example.Main -o out   # compile straight from a jar
 ```
 
-The differential suite (`crates/j2r-cli/tests/suite/*.java`, 111 programs)
+The differential suite (`crates/j2r-cli/tests/suite/*.java`, 112 programs)
 skips itself gracefully when no JDK is present; CI installs Temurin 21.
 Runtime guarantees and the panic-path inventory live in
 [docs/RUNTIME_SAFETY.md](docs/RUNTIME_SAFETY.md).

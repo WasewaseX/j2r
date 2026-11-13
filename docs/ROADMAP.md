@@ -24,7 +24,20 @@ median 25× slower than the full JVM (6.9×–84×), 1.74×–4.80× lower RSS,
 track and the default-backend cost model. The report (result / bug /
 opt) lives in `docs/external-port/`; its land-waves are registered in
 TODO.md §3 (EXTERNAL-B1, EXTERNAL-B2, EXTERNAL-B3..B12,
-EXTERNAL-HARNESS, EXTERNAL-CORROB). The two formerly-deferred wave
+EXTERNAL-HARNESS, EXTERNAL-CORROB). Landed so far: B1 (the formatter %f
+small-magnitude fix), B2 (the partitioned-emission registry-hook fix)
+and B3..B12 — the whole natives/jdk-surface wave (fdlibm
+sin/cos/tan/atan/atan2/hypot for Math AND StrictMath, StrictMath's
+mirrored surface, NoSuchFieldError verification, the AssertionError
+family, the reverse IEEE bit statics, the 8 boxed constructors as
+FRESH boxes — the owner's identity-cache claim corrected against the
+pinned Temurin vector — java.util.Random's 48-bit LCG bit-identical,
+ArrayList.toArray's two-branch contract, Arrays.sort range forms +
+reverseOrder + desiredAssertionStatus; new fixture Externals, the
+112th, byte-identical vs Temurin; battery 467/0). The wave also fixed
+a real pre-existing bug: a main() touching no own statics ran without
+the `<clinit>` (JLS 12.4.2 launcher law; both main templates now
+ensure the main class). The two formerly-deferred wave
 residuals the owner challenged are no longer deferred: depth-5 array
 descriptors are CLOSED (e6ace40, the recursive `Nest(Box<ElemKind>)`
 descriptor) and R2 slice 1 is landed (ac4af2d, Class.forName resolves

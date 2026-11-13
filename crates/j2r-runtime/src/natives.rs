@@ -16,6 +16,7 @@
 
 use crate::collections as c;
 use crate::concat;
+use crate::fdlibm as fd;
 use crate::formatter;
 use crate::heap::with_obj;
 use crate::heap::JRef;
@@ -1607,6 +1608,116 @@ fn n_throwable_get_message(
     Ok(crate::heap::with_obj(*r, |o| o.slots[0].clone()))
 }
 
+// EXTERNAL-B7 (jbox2d port, 2026-11-13): AssertionError's primitive and
+// Object constructors. OpenJDK AssertionError.java: every constructor
+// delegates `super(String.valueOf(detailMessage))` — so the message is the
+// String.valueOf rendering of the argument (float/double through
+// Float/Double.toString, Object through real virtual toString dispatch).
+// The (Object) form: Temurin 21.0.13 pins `new
+// AssertionError((Object) null).toString()` = "java.lang.AssertionError:
+// null" — the old reset-the-message-to-null branch is gone upstream, so a
+// null argument stores the MESSAGE "null" (getMessage() is the string
+// "null", not Java null). The primitive forms can never produce a null
+// message. (() and (String) already resolve through the Throwable rows
+// above via the parent-chain dispatch; (String, Throwable) rides
+// n_throwable_init_msg_cause the same way.)
+
+/// String.valueOf rendering for the primitive constructor arguments
+/// (int/long/float/double share one native, matched by value shape).
+/// Booleans and chars arrive as Value::Int, so they get their own natives
+/// below — the descriptor is the only thing that tells them apart.
+fn assertion_error_message(v: &Value, ctx: Dispatch) -> Result<Value, Throw> {
+    let text = match v {
+        Value::Int(i) => i.to_string(),
+        Value::Long(l) => l.to_string(),
+        Value::Float(f) => crate::javafmt::float_to_string(*f),
+        Value::Double(d) => crate::javafmt::double_to_string(*d),
+        // String.valueOf law: null -> "null"; anything else renders through
+        // real toString dispatch so a user override wins (the same law
+        // n_throwable_init_cause states). Temurin 21.0.13 pinned (the
+        // Externals fixture): AssertionError((Object) null).toString() is
+        // "java.lang.AssertionError: null" — the old
+        // reset-detailMessage-to-null branch is gone upstream, so a null
+        // argument leaves the MESSAGE "null", unlike Throwable(String).
+        Value::Ref(_) => {
+            if let Value::Ref(Some(o)) = v {
+                let _nr = crate::frame::NativeRoots::push(&[*o]);
+            }
+            concat::format_value(v, 'L', ctx)?
+        }
+        other => {
+            return Err(internal_error(&format!(
+                "AssertionError.<init> arg {other:?}"
+            )))
+        }
+    };
+    Ok(Value::Ref(Some(object::new_string(&text))))
+}
+
+/// Stores the message + the two null Throwable slots (the same shape
+/// n_throwable_init_s writes).
+fn set_throwable_message(r: &JRef, msg: Value) {
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = msg;
+        o.slots[1] = Value::Ref(None);
+        o.slots[2] = Value::Ref(None);
+    });
+}
+
+/// `AssertionError(int|long|float|double)` — String.valueOf rendering.
+fn n_assertion_error_init(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "AssertionError.<init>");
+    let msg = assertion_error_message(arg(args, "AssertionError.<init>"), ctx)?;
+    set_throwable_message(r, msg);
+    Ok(Value::Void)
+}
+
+/// `AssertionError(boolean)` — String.valueOf(Z): "true"/"false".
+fn n_assertion_error_init_z(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "AssertionError.<init>");
+    let b = arg(args, "AssertionError.<init>").expect_int();
+    let msg = Value::Ref(Some(object::new_string(if b != 0 {
+        "true"
+    } else {
+        "false"
+    })));
+    set_throwable_message(r, msg);
+    Ok(Value::Void)
+}
+
+/// `AssertionError(char)` — String.valueOf(C): the one-character string.
+fn n_assertion_error_init_c(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "AssertionError.<init>");
+    let i = arg(args, "AssertionError.<init>").expect_int();
+    let ch = char::from_u32(i as u32).unwrap_or(char::REPLACEMENT_CHARACTER);
+    let msg = Value::Ref(Some(object::new_string(&ch.to_string())));
+    set_throwable_message(r, msg);
+    Ok(Value::Void)
+}
+
+/// `AssertionError(Object)` — String.valueOf rendering; a null argument
+/// stores the MESSAGE "null" (Temurin 21.0.13-pinned; see the
+/// assertion_error_message note), so it shares the generic native.
+fn n_assertion_error_init_obj(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    n_assertion_error_init(recv, args, ctx)
+}
+
 fn n_throwable_get_cause(
     recv: Option<&JRef>,
     _args: &[Value],
@@ -1812,6 +1923,23 @@ fn n_double_to_raw_long_bits(
             .expect_double()
             .to_bits() as i64,
     ))
+}
+
+// EXTERNAL-B8 (jbox2d port, 2026-11-13): the two reverse
+// bit-reinterpretation statics. Raw bit moves, exactly like HotSpot's
+// intrinsics: intBitsToFloat(longBitsToDouble) of any pattern — NaN
+// payloads included — preserves the bits (floatToRawIntBits of the result
+// round-trips), while floatToIntBits still canonicalizes the NaN on the
+// way OUT, which is the distinction Float.equals is specified through.
+fn n_int_bits_to_float(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Float(f32::from_bits(
+        arg(args, "Float.intBitsToFloat").expect_int() as u32,
+    )))
+}
+fn n_long_bits_to_double(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Double(f64::from_bits(
+        arg(args, "Double.longBitsToDouble").expect_long() as u64,
+    )))
 }
 
 macro_rules! boxed_class {
@@ -2033,6 +2161,393 @@ boxed_class! {
     value_of: n_character_value_of, slot_get: expect_int,
     unbox: n_character_char_value, Int,
     to_string: n_character_to_string, 'C', cache: 0, 127
+}
+
+// EXTERNAL-B6 (jbox2d port, 2026-11-13): the boxed classes are
+// instantiable — `new Integer(int)` and friends now resolve. JDK-exact
+// law: a constructor FRESH-allocates. The JLS 5.1.7 identity cache
+// belongs to boxing conversion (valueOf/autoboxing) only; on Temurin
+// 21.0.13 `new Integer(127) == new Integer(127)` is FALSE, so the
+// <init> rows deliberately do NOT route through the valueOf caches.
+// (The owner's bug.md said the rows "alias valueOf so the identity
+// cache applies" — the pinned JVM vector says otherwise; the fixture
+// carries the real output and the correction is recorded in the wave
+// evidence.) The (String) forms delegate to the JDK-exact parse
+// helpers; Short/Byte range-check with the JDK's exact
+// "Value out of range" message quoting the input string.
+
+fn boxed_init_slot(recv: Option<&JRef>, v: Value) -> Result<Value, Throw> {
+    let r = this(recv, "boxed <init>");
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = v);
+    Ok(Value::Void)
+}
+
+macro_rules! boxed_init_prim {
+    ($name:ident, $who:expr) => {
+        fn $name(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+            let v = arg(args, $who).clone();
+            boxed_init_slot(recv, v)
+        }
+    };
+}
+
+boxed_init_prim!(n_integer_init_i, "Integer.<init>");
+boxed_init_prim!(n_long_init_j, "Long.<init>");
+boxed_init_prim!(n_double_init_d, "Double.<init>");
+boxed_init_prim!(n_float_init_f, "Float.<init>");
+boxed_init_prim!(n_boolean_init_z, "Boolean.<init>");
+boxed_init_prim!(n_character_init_c, "Character.<init>");
+boxed_init_prim!(n_short_init_s_prim, "Short.<init>");
+boxed_init_prim!(n_byte_init_b_prim, "Byte.<init>");
+
+/// `Integer(String)` — `this(parseInt(s, 10))`, fresh box.
+fn n_integer_init_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let v = n_integer_parse_int(None, args, ctx)?;
+    boxed_init_slot(recv, v)
+}
+
+/// `Long(String)` — `this(parseLong(s, 10))`, fresh box.
+fn n_long_init_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let v = n_long_parse_long(None, args, ctx)?;
+    boxed_init_slot(recv, v)
+}
+
+/// `Float(String)` — `this(parseFloat(s))`, fresh box.
+fn n_float_init_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let v = n_float_parse_float(None, args, ctx)?;
+    boxed_init_slot(recv, v)
+}
+
+/// `Double(String)` — `this(parseDouble(s))`, fresh box.
+fn n_double_init_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let v = n_double_parse_double(None, args, ctx)?;
+    boxed_init_slot(recv, v)
+}
+
+/// `Boolean(String)` — `this(parseBoolean(s))`: exactly
+/// `"true".equalsIgnoreCase(s)`; null yields false like the JDK.
+fn n_boolean_init_s(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let v = match arg(args, "Boolean.<init>") {
+        Value::Ref(Some(r)) if is_string(r) => {
+            let s = object::string_value(r);
+            // "true" is pure ASCII, so ASCII case-folding reproduces the
+            // JDK's Character-based equalsIgnoreCase exactly here.
+            Value::Int(if s.eq_ignore_ascii_case("true") { 1 } else { 0 })
+        }
+        Value::Ref(None) => Value::Int(0),
+        other => return Err(internal_error(&format!("Boolean.<init> arg {other:?}"))),
+    };
+    boxed_init_slot(recv, v)
+}
+
+/// Shared shape of `Short(String)` / `Byte(String)`: parse as int, then
+/// the JDK's exact range message (`"Value:\"" + s + "\" Radix:" + radix`
+/// with radix 10).
+fn boxed_init_narrow(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+    lo: i64,
+    hi: i64,
+    who: &str,
+) -> Result<Value, Throw> {
+    let v = n_integer_parse_int(None, args, ctx)?.expect_int() as i64;
+    if v < lo || v > hi {
+        let s = match arg(args, who) {
+            Value::Ref(Some(r)) if is_string(r) => object::string_value(r).to_string(),
+            _ => String::new(),
+        };
+        return Err(throw_new(
+            "java/lang/NumberFormatException",
+            Some(&format!("Value out of range. Value:\"{s}\" Radix:10")),
+        ));
+    }
+    boxed_init_slot(recv, Value::Int(v as i32))
+}
+
+fn n_short_init_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    boxed_init_narrow(
+        recv,
+        args,
+        ctx,
+        i16::MIN as i64,
+        i16::MAX as i64,
+        "Short.<init>",
+    )
+}
+
+fn n_byte_init_s(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    boxed_init_narrow(
+        recv,
+        args,
+        ctx,
+        i8::MIN as i64,
+        i8::MAX as i64,
+        "Byte.<init>",
+    )
+}
+
+// EXTERNAL-B10 (jbox2d port, 2026-11-13): java.util.Random as a real
+// builtin object — the JDK's 48-bit LCG reproduced exactly from OpenJDK
+// Random.java (seed in slot 0 as a Long; haveNextNextGaussian in slot 1
+// as an Int flag; nextNextGaussian in slot 2 as a Double). jbox2d's
+// MathUtils uses it for contact-jitter, so the produced stream must be
+// BIT-IDENTICAL to the JDK's — `new Random(42)` is fully deterministic
+// and every one of these natives is differential-fixture-pinned below.
+// The no-arg constructor is seeded from the uniquifier XOR nanoTime like
+// the JDK: deliberately unspecified, never printed in a fixture.
+
+const RANDOM_MULTIPLIER: i64 = 0x5DEECE66D;
+const RANDOM_ADDEND: i64 = 0xB;
+const RANDOM_MASK: i64 = (1i64 << 48) - 1;
+const RANDOM_DOUBLE_UNIT: f64 = f64::from_bits(0x3CA0000000000000); // 2^-53
+
+/// The JDK scramble: `this.seed = (seed ^ multiplier) & mask`.
+fn random_scramble(s: i64) -> i64 {
+    (s ^ RANDOM_MULTIPLIER) & RANDOM_MASK
+}
+
+fn random_seed_of(r: &JRef) -> i64 {
+    crate::heap::with_obj(*r, |o| o.slots[0].clone().expect_long())
+}
+
+/// `next(bits)` — the LCG core: seed = (seed*multiplier + addend) & mask;
+/// return (int)(seed >>> (48 - bits)).
+fn random_next(r: &JRef, bits: i32) -> i32 {
+    let seed = random_seed_of(r);
+    let next = seed
+        .wrapping_mul(RANDOM_MULTIPLIER)
+        .wrapping_add(RANDOM_ADDEND)
+        & RANDOM_MASK;
+    crate::heap::with_obj_mut(*r, |o| o.slots[0] = Value::Long(next));
+    ((next as u64) >> (48 - bits) as u64) as i32
+}
+
+/// The shared seed-uniquifier state (JDK: an AtomicLong stepped by the
+/// odd multiplier each no-arg construction).
+static RANDOM_UNIQUIFIER: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(8682522807148012);
+
+/// The JDK's CAS loop (`seedUniquifier()`): multiply by the odd constant
+/// until the compare-and-set wins.
+fn random_next_uniquifier() -> i64 {
+    use std::sync::atomic::Ordering;
+    loop {
+        let current = RANDOM_UNIQUIFIER.load(Ordering::SeqCst);
+        let next = current.wrapping_mul(1181783497276652981);
+        if RANDOM_UNIQUIFIER
+            .compare_exchange_weak(current, next, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            return current;
+        }
+    }
+}
+
+/// `Random()` — seedUniquifier ^ System.nanoTime (unspecified stream).
+fn n_random_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Random.<init>");
+    let uniq = random_next_uniquifier();
+    let nano = n_system_nano_time(None, &[], _ctx)?.expect_long();
+    let seed = random_scramble(uniq ^ nano);
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = Value::Long(seed);
+        o.slots[1] = Value::Int(0);
+        o.slots[2] = Value::Double(0.0);
+    });
+    Ok(Value::Void)
+}
+
+/// `Random(long seed)` — the deterministic JDK constructor.
+fn n_random_init_j(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Random.<init>");
+    let seed = random_scramble(arg(args, "Random.<init>").expect_long());
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = Value::Long(seed);
+        o.slots[1] = Value::Int(0);
+        o.slots[2] = Value::Double(0.0);
+    });
+    Ok(Value::Void)
+}
+
+/// `setSeed(long)` — the same scramble + gaussian-cache reset.
+fn n_random_set_seed(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Random.setSeed");
+    let seed = random_scramble(arg(args, "Random.setSeed").expect_long());
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[0] = Value::Long(seed);
+        o.slots[1] = Value::Int(0);
+        o.slots[2] = Value::Double(0.0);
+    });
+    Ok(Value::Void)
+}
+
+/// `nextInt()` — next(32).
+fn n_random_next_int(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Random.nextInt");
+    Ok(Value::Int(random_next(r, 32)))
+}
+
+/// `nextInt(bound)` — the JDK's power-of-two / rejection algorithm with
+/// the exact IllegalArgumentException("bound must be positive").
+fn n_random_next_int_bound(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Random.nextInt");
+    let bound = arg(args, "Random.nextInt").expect_int();
+    if bound <= 0 {
+        return Err(throw_new(
+            "java/lang/IllegalArgumentException",
+            Some("bound must be positive"),
+        ));
+    }
+    let m = bound - 1;
+    if (bound & m) == 0 {
+        // power of two: (int)((bound * (long)next(31)) >> 31)
+        let r31 = random_next(r, 31) as i64;
+        return Ok(Value::Int(((bound as i64 * r31) >> 31) as i32));
+    }
+    // rejection loop: JDK `for (int u = r; u - (r = u % bound) + m < 0; u = next(31));`
+    let mut u = random_next(r, 31);
+    let mut res = u % bound;
+    while u.wrapping_sub(res).wrapping_add(m) < 0 {
+        u = random_next(r, 31);
+        res = u % bound;
+    }
+    Ok(Value::Int(res))
+}
+
+/// `nextLong()` — ((long)next(32) << 32) + next(32).
+fn n_random_next_long(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Random.nextLong");
+    let hi = random_next(r, 32) as i64;
+    let lo = random_next(r, 32) as i64;
+    Ok(Value::Long((hi << 32).wrapping_add(lo)))
+}
+
+/// `nextBoolean()` — next(1) != 0.
+fn n_random_next_boolean(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Random.nextBoolean");
+    Ok(Value::Int(if random_next(r, 1) != 0 { 1 } else { 0 }))
+}
+
+/// `nextFloat()` — next(24) / (float)(1 << 24).
+fn n_random_next_float(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Random.nextFloat");
+    let v = random_next(r, 24) as f32;
+    Ok(Value::Float(v / 16777216.0f32))
+}
+
+/// `nextDouble()` — ((long)next(26) << 27 + next(27)) * 2^-53.
+fn n_random_next_double(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Random.nextDouble");
+    let hi = random_next(r, 26) as i64;
+    let lo = random_next(r, 27) as i64;
+    Ok(Value::Double(
+        ((hi << 27).wrapping_add(lo)) as f64 * RANDOM_DOUBLE_UNIT,
+    ))
+}
+
+/// `nextGaussian()` — the JDK's polar method with the one-slot cache
+/// (slots 1-2): strictly follow Random.java's loop and branch order.
+/// The internal `Math.log(s)` rides Rust's `f64::ln`, which on this
+/// platform is the same correctly-rounded system libm the HotSpot
+/// Math.log intrinsic calls — the Externals fixture proves the produced
+/// stream byte-identical vs Temurin 21.0.13.
+fn n_random_next_gaussian(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Random.nextGaussian");
+    let cached = crate::heap::with_obj(*r, |o| o.slots[1].clone().expect_int());
+    if cached != 0 {
+        crate::heap::with_obj_mut(*r, |o| o.slots[1] = Value::Int(0));
+        return Ok(crate::heap::with_obj(*r, |o| o.slots[2].clone()));
+    }
+    let (v1, v2, s) = loop {
+        // 2 * nextDouble() - 1, through the same generator state
+        let d1 = match n_random_next_double(Some(r), &[], ctx)? {
+            Value::Double(d) => d,
+            _ => unreachable!("nextDouble returns a double"),
+        };
+        let d2 = match n_random_next_double(Some(r), &[], ctx)? {
+            Value::Double(d) => d,
+            _ => unreachable!("nextDouble returns a double"),
+        };
+        let v1 = 2.0 * d1 - 1.0;
+        let v2 = 2.0 * d2 - 1.0;
+        let s = v1 * v1 + v2 * v2;
+        if s < 1.0 && s != 0.0 {
+            break (v1, v2, s);
+        }
+    };
+    let multiplier = (-2.0 * s.ln() / s).sqrt();
+    let result = v1 * multiplier;
+    let next_next = v2 * multiplier;
+    crate::heap::with_obj_mut(*r, |o| {
+        o.slots[1] = Value::Int(1);
+        o.slots[2] = Value::Double(next_next);
+    });
+    Ok(Value::Double(result))
+}
+
+/// `next(int bits)` — protected; exposed for subclasses (jbox2d does not
+/// subclass Random, but the JDK method is part of the surface).
+fn n_random_next(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = this(recv, "Random.next");
+    Ok(Value::Int(random_next(
+        r,
+        arg(args, "Random.next").expect_int(),
+    )))
+}
+
+/// `nextBytes(byte[])` — the JDK's 4-bytes-per-rnd loop:
+/// `for (i = 0; i < len; ) for (rnd = nextInt(), n = min(len-i, 4);
+/// n-- > 0; rnd >>= 8) bytes[i++] = (byte)rnd;`
+fn n_random_next_bytes(
+    recv: Option<&JRef>,
+    args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = this(recv, "Random.nextBytes");
+    let arr = match arg(args, "Random.nextBytes") {
+        Value::Ref(Some(a)) => *a,
+        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", None)),
+        other => return Err(internal_error(&format!("Random.nextBytes arg {other:?}"))),
+    };
+    let len = crate::array::array_length(&arr)?;
+    let mut i: i32 = 0;
+    while i < len {
+        let mut rnd = random_next(r, 32);
+        let n = (len - i).min(4);
+        let mut k = n;
+        while k > 0 {
+            crate::array::array_store(&arr, i, Value::Int(rnd as i8 as i32), _ctx)?;
+            i += 1;
+            rnd >>= 8;
+            k -= 1;
+        }
+    }
+    Ok(Value::Void)
 }
 
 fn n_integer_to_string_static(
@@ -3323,6 +3838,52 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/Throwable;)V",
         n_throwable_init_cause,
     ),
+    // EXTERNAL-B7 (jbox2d port): AssertionError's primitive and Object
+    // constructors — String.valueOf rendering into the message slot.
+    // () and (String) resolve through the Throwable rows above via the
+    // parent-chain dispatch; (String, Throwable) rides msg_cause.
+    (
+        "java/lang/AssertionError",
+        "<init>",
+        "(Z)V",
+        n_assertion_error_init_z,
+    ),
+    (
+        "java/lang/AssertionError",
+        "<init>",
+        "(C)V",
+        n_assertion_error_init_c,
+    ),
+    (
+        "java/lang/AssertionError",
+        "<init>",
+        "(I)V",
+        n_assertion_error_init,
+    ),
+    (
+        "java/lang/AssertionError",
+        "<init>",
+        "(J)V",
+        n_assertion_error_init,
+    ),
+    (
+        "java/lang/AssertionError",
+        "<init>",
+        "(F)V",
+        n_assertion_error_init,
+    ),
+    (
+        "java/lang/AssertionError",
+        "<init>",
+        "(D)V",
+        n_assertion_error_init,
+    ),
+    (
+        "java/lang/AssertionError",
+        "<init>",
+        "(Ljava/lang/Object;)V",
+        n_assertion_error_init_obj,
+    ),
     (
         "java/lang/Throwable",
         "getMessage",
@@ -3682,6 +4243,60 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/String;)Ljava/lang/Double;",
         n_double_value_of_s,
     ),
+    // EXTERNAL-B6 (jbox2d port): the boxed constructors — JDK-deprecated
+    // but alive, and jbox2d emits `new Integer(int)`. Fresh boxes (no
+    // identity cache — see the B6 block above); (String) forms parse
+    // with the JDK-exact helpers.
+    ("java/lang/Integer", "<init>", "(I)V", n_integer_init_i),
+    (
+        "java/lang/Integer",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_integer_init_s,
+    ),
+    ("java/lang/Long", "<init>", "(J)V", n_long_init_j),
+    (
+        "java/lang/Long",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_long_init_s,
+    ),
+    ("java/lang/Double", "<init>", "(D)V", n_double_init_d),
+    (
+        "java/lang/Double",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_double_init_s,
+    ),
+    ("java/lang/Float", "<init>", "(F)V", n_float_init_f),
+    (
+        "java/lang/Float",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_float_init_s,
+    ),
+    ("java/lang/Boolean", "<init>", "(Z)V", n_boolean_init_z),
+    (
+        "java/lang/Boolean",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_boolean_init_s,
+    ),
+    ("java/lang/Character", "<init>", "(C)V", n_character_init_c),
+    ("java/lang/Short", "<init>", "(S)V", n_short_init_s_prim),
+    (
+        "java/lang/Short",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_short_init_s,
+    ),
+    ("java/lang/Byte", "<init>", "(B)V", n_byte_init_b_prim),
+    (
+        "java/lang/Byte",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        n_byte_init_s,
+    ),
     // parseFloat/parseDouble (corpus wave 1)
     (
         "java/lang/Float",
@@ -3719,6 +4334,20 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "doubleToRawLongBits",
         "(D)J",
         n_double_to_raw_long_bits,
+    ),
+    // EXTERNAL-B8: the reverse bit-reinterpretation statics (jbox2d's
+    // Vec2/Vec3 MathUtils needs them for its bit tricks)
+    (
+        "java/lang/Float",
+        "intBitsToFloat",
+        "(I)F",
+        n_int_bits_to_float,
+    ),
+    (
+        "java/lang/Double",
+        "longBitsToDouble",
+        "(J)D",
+        n_long_bits_to_double,
     ),
     (
         "java/lang/Float",
@@ -4318,6 +4947,45 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     // (implementations live in `collections.rs`; heap-resident state, see
     // the slot-layout table in its module header)
     // java/util/ArrayList
+    // EXTERNAL-B10 (jbox2d port): java.util.Random — the JDK's 48-bit
+    // LCG as a real builtin object (behavior fns above, byte-exact).
+    ("java/util/Random", "<init>", "()V", n_random_init),
+    ("java/util/Random", "<init>", "(J)V", n_random_init_j),
+    ("java/util/Random", "setSeed", "(J)V", n_random_set_seed),
+    ("java/util/Random", "next", "(I)I", n_random_next),
+    ("java/util/Random", "nextInt", "()I", n_random_next_int),
+    (
+        "java/util/Random",
+        "nextInt",
+        "(I)I",
+        n_random_next_int_bound,
+    ),
+    ("java/util/Random", "nextLong", "()J", n_random_next_long),
+    (
+        "java/util/Random",
+        "nextBoolean",
+        "()Z",
+        n_random_next_boolean,
+    ),
+    ("java/util/Random", "nextFloat", "()F", n_random_next_float),
+    (
+        "java/util/Random",
+        "nextDouble",
+        "()D",
+        n_random_next_double,
+    ),
+    (
+        "java/util/Random",
+        "nextGaussian",
+        "()D",
+        n_random_next_gaussian,
+    ),
+    (
+        "java/util/Random",
+        "nextBytes",
+        "([B)V",
+        n_random_next_bytes,
+    ),
     ("java/util/ArrayList", "<init>", "()V", c::n_al_init),
     ("java/util/ArrayList", "<init>", "(I)V", c::n_al_init),
     // <init>(Collection) — the copy constructor (corpus wave 1)
@@ -4344,6 +5012,20 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "get",
         "(I)Ljava/lang/Object;",
         c::n_al_get,
+    ),
+    // EXTERNAL-B11 (jbox2d port): the two toArray forms with the JDK's
+    // two-branch contract (behavior in jdkutil.rs).
+    (
+        "java/util/ArrayList",
+        "toArray",
+        "()[Ljava/lang/Object;",
+        ju::n_al_to_array,
+    ),
+    (
+        "java/util/ArrayList",
+        "toArray",
+        "([Ljava/lang/Object;)[Ljava/lang/Object;",
+        ju::n_al_to_array_typed,
     ),
     (
         "java/util/ArrayList",
@@ -5323,6 +6005,158 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(JI)J",
         le::n_math_multiply_exact_ji,
     ),
+    // ------------------------------------------------ EXTERNAL-B9/B5
+    // (jbox2d port, 2026-11-13): the transcendental surface from the
+    // fdlibm module — registered for BOTH Math and StrictMath, exactly
+    // like the owner's port (the honest O1 residual: HotSpot's own
+    // intrinsics differ from fdlibm on ~6.5 inputs per 100k; see the
+    // fdlibm.rs module doc).
+    ("java/lang/Math", "sin", "(D)D", fd::n_math_sin),
+    ("java/lang/Math", "cos", "(D)D", fd::n_math_cos),
+    ("java/lang/Math", "tan", "(D)D", fd::n_math_tan),
+    ("java/lang/Math", "atan", "(D)D", fd::n_math_atan),
+    ("java/lang/Math", "atan2", "(DD)D", fd::n_math_atan2),
+    ("java/lang/Math", "hypot", "(DD)D", fd::n_math_hypot),
+    ("java/lang/StrictMath", "sin", "(D)D", fd::n_math_sin),
+    ("java/lang/StrictMath", "cos", "(D)D", fd::n_math_cos),
+    ("java/lang/StrictMath", "tan", "(D)D", fd::n_math_tan),
+    ("java/lang/StrictMath", "atan", "(D)D", fd::n_math_atan),
+    ("java/lang/StrictMath", "atan2", "(DD)D", fd::n_math_atan2),
+    ("java/lang/StrictMath", "hypot", "(DD)D", fd::n_math_hypot),
+    // EXTERNAL-B5 (jbox2d port): StrictMath is a separate class in the
+    // JDK — its full surface mirrors the Math implementations (B5's
+    // "35 rows" at the owner's base; 38 here because the …Exact(J,I)
+    // trio landed after the owner's snapshot). StrictMath.random shares
+    // Math.random's generator: both are deliberately unpredictable and
+    // unspecified, no differential fixture may print either.
+    ("java/lang/StrictMath", "abs", "(I)I", n_math_abs_i),
+    ("java/lang/StrictMath", "abs", "(J)J", n_math_abs_j),
+    ("java/lang/StrictMath", "abs", "(F)F", n_math_abs_f),
+    ("java/lang/StrictMath", "abs", "(D)D", n_math_abs_d),
+    ("java/lang/StrictMath", "max", "(II)I", n_math_max_i),
+    ("java/lang/StrictMath", "max", "(JJ)J", n_math_max_j),
+    ("java/lang/StrictMath", "max", "(FF)F", n_math_max_f),
+    ("java/lang/StrictMath", "max", "(DD)D", n_math_max_d),
+    ("java/lang/StrictMath", "min", "(II)I", n_math_min_i),
+    ("java/lang/StrictMath", "min", "(JJ)J", n_math_min_j),
+    ("java/lang/StrictMath", "min", "(FF)F", n_math_min_f),
+    ("java/lang/StrictMath", "min", "(DD)D", n_math_min_d),
+    (
+        "java/lang/StrictMath",
+        "floorDiv",
+        "(II)I",
+        le::n_math_floor_div_i,
+    ),
+    (
+        "java/lang/StrictMath",
+        "floorDiv",
+        "(JJ)J",
+        le::n_math_floor_div_j,
+    ),
+    (
+        "java/lang/StrictMath",
+        "floorDiv",
+        "(JI)J",
+        le::n_math_floor_div_ji,
+    ),
+    (
+        "java/lang/StrictMath",
+        "floorMod",
+        "(II)I",
+        le::n_math_floor_mod_i,
+    ),
+    (
+        "java/lang/StrictMath",
+        "floorMod",
+        "(JJ)J",
+        le::n_math_floor_mod_j,
+    ),
+    (
+        "java/lang/StrictMath",
+        "floorMod",
+        "(JI)I",
+        le::n_math_floor_mod_ji,
+    ),
+    ("java/lang/StrictMath", "round", "(D)J", le::n_math_round_d),
+    ("java/lang/StrictMath", "round", "(F)I", le::n_math_round_f),
+    ("java/lang/StrictMath", "sqrt", "(D)D", le::n_math_sqrt),
+    ("java/lang/StrictMath", "cbrt", "(D)D", le::n_math_cbrt),
+    ("java/lang/StrictMath", "pow", "(DD)D", le::n_math_pow),
+    ("java/lang/StrictMath", "random", "()D", le::n_math_random),
+    ("java/lang/StrictMath", "floor", "(D)D", le::n_math_floor),
+    ("java/lang/StrictMath", "ceil", "(D)D", le::n_math_ceil),
+    (
+        "java/lang/StrictMath",
+        "signum",
+        "(D)D",
+        le::n_math_signum_d,
+    ),
+    (
+        "java/lang/StrictMath",
+        "signum",
+        "(F)F",
+        le::n_math_signum_f,
+    ),
+    (
+        "java/lang/StrictMath",
+        "toIntExact",
+        "(J)I",
+        le::n_math_to_int_exact,
+    ),
+    (
+        "java/lang/StrictMath",
+        "addExact",
+        "(II)I",
+        le::n_math_add_exact_i,
+    ),
+    (
+        "java/lang/StrictMath",
+        "subtractExact",
+        "(II)I",
+        le::n_math_subtract_exact_i,
+    ),
+    (
+        "java/lang/StrictMath",
+        "multiplyExact",
+        "(II)I",
+        le::n_math_multiply_exact_i,
+    ),
+    (
+        "java/lang/StrictMath",
+        "addExact",
+        "(JJ)J",
+        le::n_math_add_exact_j,
+    ),
+    (
+        "java/lang/StrictMath",
+        "subtractExact",
+        "(JJ)J",
+        le::n_math_subtract_exact_j,
+    ),
+    (
+        "java/lang/StrictMath",
+        "multiplyExact",
+        "(JJ)J",
+        le::n_math_multiply_exact_j,
+    ),
+    (
+        "java/lang/StrictMath",
+        "addExact",
+        "(JI)J",
+        le::n_math_add_exact_ji,
+    ),
+    (
+        "java/lang/StrictMath",
+        "subtractExact",
+        "(JI)J",
+        le::n_math_subtract_exact_ji,
+    ),
+    (
+        "java/lang/StrictMath",
+        "multiplyExact",
+        "(JI)J",
+        le::n_math_multiply_exact_ji,
+    ),
     (
         "java/lang/Integer",
         "toBinaryString",
@@ -5640,6 +6474,35 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "sort",
         "([Ljava/lang/Object;Ljava/util/Comparator;)V",
         ju::n_arrays_sort_obj_cmp,
+    ),
+    // EXTERNAL-B12 (jbox2d port): the range forms with the JDK's exact
+    // rangeCheck messages; a null comparator falls back to natural
+    // ordering (OpenJDK's first branch).
+    (
+        "java/util/Arrays",
+        "sort",
+        "([Ljava/lang/Object;II)V",
+        ju::n_arrays_sort_obj_range,
+    ),
+    (
+        "java/util/Arrays",
+        "sort",
+        "([Ljava/lang/Object;IILjava/util/Comparator;)V",
+        ju::n_arrays_sort_obj_range_cmp,
+    ),
+    // EXTERNAL-B12: Comparator.reverseOrder() — the Comparators
+    // ReverseComparator singleton shape (behavior in jdkutil.rs).
+    (
+        "java/util/Comparator",
+        "reverseOrder",
+        "()Ljava/util/Comparator;",
+        ju::n_comparator_reverse_order,
+    ),
+    (
+        "java/util/Comparators$ReverseComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        ju::n_reverse_comparator_compare,
     ),
     // Collections: sort (comparator + natural), reverse, swap — dispatch
     // through List.get/set so any List implementation works.
@@ -5975,6 +6838,14 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         n_class_is_interface,
     ),
     ("java/lang/Class", "isArray", "()Z", n_class_is_array),
+    // EXTERNAL-B12 (jbox2d port): assertions are not a j2r feature, so
+    // the JDK default (disabled) is the honest answer.
+    (
+        "java/lang/Class",
+        "desiredAssertionStatus",
+        "()Z",
+        ju::n_class_desired_assertion_status,
+    ),
     (
         "java/lang/Class",
         "isPrimitive",

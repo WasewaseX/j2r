@@ -956,6 +956,10 @@ fn main_run() -> i32 {{
     ::j2r_runtime::heap::set_statics_scanner(support::statics::gc_scan_roots);
     let args: ::std::vec::Vec<::std::string::String> = ::std::env::args().skip(1).collect();
     let args_array = ::j2r_runtime::object::new_string_array(&args);
+    // JLS 12.4.2: the JVM launcher initializes the main class BEFORE
+    // invoking main (EXTERNAL-B wave finding, 2026-11-13). No-op when the
+    // class has no `<clinit>`.
+    {main_clinit_ensure}
     let code = match p{main_part}::classes::{module}::{main_fn}(
         ::core::option::Option::None,
         &[::j2r_runtime::Value::Ref(::core::option::Option::Some(args_array))],
@@ -990,6 +994,13 @@ fn main_run() -> i32 {{
         constants_regs = constants_regs,
         module = m.module,
         main_fn = m.fn_name,
+        main_clinit_ensure = match &m.clinit_fn {
+            Some(fname) => format!(
+                "support::statics::ensure({}u32, ::core::option::Option::Some(p{}::classes::{}::{} as ::j2r_runtime::MethodFn));",
+                m.class_id, main_part, m.module, fname
+            ),
+            None => String::new(),
+        },
     );
     ws.glue_write("app/src/main.rs", main_rs.as_bytes())?;
     Ok(())
