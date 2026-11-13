@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-13.
+fix the board. Last updated: 2026-11-13 (session 19b cont. 7: SORT-NULL-CMP + CLINIT-THROW landed; next R2 slice 3).
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -2054,21 +2054,28 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       k=2 (8/8); the reference channel pins -Dfile.encoding=UTF-8;
       durable pin tests/surface_report.rs; battery 468/0, diff_suite
       112/0, cfg_equiv 0, partition 8/8.
-- [ ] **CLINIT-THROW — the JLS 12.4.2 ExceptionInInitializerError
-      machinery (found 2026-11-13 by the EXTERNAL-B wave)** — clinit.rs
-      discards a <clinit>'s Throw (`let _ = f(None, &[])`) and marks
-      the class Done: a throwing clinit silently proceeds (both
-      ClinitPrint probes showed it before the launcher fix). The JDK
-      law: the first thrower gets ExceptionInInitializerError(cause)
-      (or the Error itself if it already is one of the seven allowed
-      types), the class is marked ERRANT and every later first-use
-      throws NoClassDefFoundError with cause the original — needs an
-      Err state in the clinit state machine, the EIIIE wrapper, and
-      the errant-class law at every ensure site; differential
-      fixtures pin all three shapes. No ExceptionInInitializerError
-      exists anywhere in the tree today; CyclicInit pins only the
-      in-progress-recursion half of 12.4.2. STATUS: registered, not
-      started.
+- [x] **CLINIT-THROW — the JLS 12.4.2 ExceptionInInitializerError
+      machinery (found 2026-11-13 by the EXTERNAL-B wave, LANDED
+      2026-11-13)** — clinit.rs discarded a <clinit>'s Throw and marked
+      the class Done: a throwing clinit silently proceeded. LANDED: the
+      Temurin contract probed (ClinitProbe/ClinitProbe2) — Errors (EIIE
+      included) rethrow as-is, everything else wraps in a message-null
+      EIIE with the original as cause (the JDK's EIIE(Throwable) ctor
+      shape); the class goes Errant with two pre-formatted strings (never
+      a JRef — the state table is GC-invisible) and every later first-use
+      throws NCDFE "Could not initialize class <binary>" with a fresh-EIIE
+      cause "Exception <E> [in thread \"<failing thread>\"]" (name captured
+      at failure time). ensure() returns Result; all four bytecode ensure
+      sites (getstatic/putstatic/invokestatic/new) ride j2r_try; both
+      launchers route a throwing main-class clinit into the uncaught
+      path; register_class_names feeds the binary-name message. Two
+      builtin parent rows forced: EIIE → LinkageError (user `new EIIE`
+      was unsupported) and NoClassDefFoundError → LinkageError (the
+      errant NCDFE was invisible to catch(Throwable)). Fixture
+      **ClinitThrow** (the 114th) pins five shapes x two accesses,
+      byte-identical vs Temurin 21.0.13+9 on all three channels.
+      Residual registered: FORNAME-INIT (Class.forName does not RUN the
+      clinit — pre-existing, separate wave).
 - [x] **SORT-NULL-CMP — Arrays.sort(T[], Comparator) null fallback
       (spotted 2026-11-13, FIXED 2026-11-13)** — the pre-existing
       whole-array comparator row NPE'd on a null comparator; OpenJDK
@@ -2078,6 +2085,18 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       already implemented); ArraysSurface extended IN PLACE with two
       null-comparator pins (String + Integer arrays), byte-identical vs
       Temurin 21.0.13 on all three channels.
+- [ ] **FORNAME-INIT — Class.forName does not RUN the <clinit>
+      (registered 2026-11-13 during CLINIT-THROW)** — forName resolves
+      the closed world and returns the Class object without ensuring
+      initialization; on Temurin, forName(name) = forName(name, true,
+      loader) and a first-use through forName RUNS the clinit (and a
+      throwing one surfaces the EIIE law). n_class_for_name needs the
+      ensure walk for user classes (the id → clinit fn mapping lives in
+      the generated statics registry; the runtime needs a
+      class-id-for-name hook or the metadata registry gains the clinit
+      fn). ReflectForName's fixture never noticed: its classes were
+      already initialized by earlier first-uses. STATUS: registered,
+      not started.
 - [ ] **EXTERNAL-CORROB — Opt.md R1–R9 mapped onto the register (the
       cross-reference recorded so the roadmap cites it; no new
       claims)** — R1 (FrameGuard monitors lazy, owner prototype

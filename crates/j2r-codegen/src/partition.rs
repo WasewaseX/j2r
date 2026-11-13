@@ -945,6 +945,7 @@ fn main_run() -> i32 {{
     // installed here, after the composite exists, before any Java code.
     ::j2r_runtime::jni::install_host_dispatch(support::dispatch_slot::dispatch());
     support::statics::init_pool({statics}usize, {classes}usize);
+    {clinit_names}
     let mut defaults: ::std::vec::Vec<(u32, u32, support::statics::Df)> =
         ::std::vec::Vec::new();
     {defaults_regs}
@@ -959,29 +960,33 @@ fn main_run() -> i32 {{
     let args_array = ::j2r_runtime::object::new_string_array(&args);
     // JLS 12.4.2: the JVM launcher initializes the main class BEFORE
     // invoking main (EXTERNAL-B wave finding, 2026-11-13). No-op when the
-    // class has no `<clinit>`.
-    {main_clinit_ensure}
-    let code = match p{main_part}::classes::{module}::{main_fn}(
-        ::core::option::Option::None,
-        &[::j2r_runtime::Value::Ref(::core::option::Option::Some(args_array))],
-    ) {{
-        ::core::result::Result::Ok(_) => 0,
-        ::core::result::Result::Err(t) => {{
-            eprintln!(
-                "Exception in thread \"main\" {{}}",
-                ::j2r_runtime::throwable_display(&t, {lib_crate}::j2r_dispatch())
-            );
-            // Audit A2: the enclosed trace sections (Suppressed:/Caused by:)
-            // ride behind the header, matching the JVM's printStackTrace
-            // order; frame lines are not rendered (no LineNumberTable yet)
-            // and the harness normalizes them away on the JVM side.
-            let trace =
-                ::j2r_runtime::throwable_enclosed_trace(&t, {lib_crate}::j2r_dispatch());
-            if !trace.is_empty() {{
-                eprint!("{{trace}}");
-            }}
-            1
+    // class has no `<clinit>`. CLINIT-THROW: a throwing clinit surfaces
+    // as Err — the SAME uncaught path as a main() that throws.
+    let uncaught = |t: ::j2r_runtime::Throw| -> i32 {{
+        eprintln!(
+            "Exception in thread \"main\" {{}}",
+            ::j2r_runtime::throwable_display(&t, {lib_crate}::j2r_dispatch())
+        );
+        // Audit A2: the enclosed trace sections (Suppressed:/Caused by:)
+        // ride behind the header, matching the JVM's printStackTrace
+        // order; frame lines are not rendered (no LineNumberTable yet)
+        // and the harness normalizes them away on the JVM side.
+        let trace =
+            ::j2r_runtime::throwable_enclosed_trace(&t, {lib_crate}::j2r_dispatch());
+        if !trace.is_empty() {{
+            eprint!("{{trace}}");
         }}
+        1
+    }};
+    let code = match {main_clinit_ensure} {{
+        ::core::result::Result::Err(t) => uncaught(t),
+        ::core::result::Result::Ok(()) => match p{main_part}::classes::{module}::{main_fn}(
+            ::core::option::Option::None,
+            &[::j2r_runtime::Value::Ref(::core::option::Option::Some(args_array))],
+        ) {{
+            ::core::result::Result::Ok(_) => 0,
+            ::core::result::Result::Err(t) => uncaught(t),
+        }},
     }};
     // JVM shutdown rule (M4 Wave 2): the process waits for non-daemon
     // threads before the exit code is produced (T15 owns edge cases).
@@ -991,16 +996,17 @@ fn main_run() -> i32 {{
 "#,
         statics = prog.total_statics,
         classes = prog.classes.len(),
+        clinit_names = crate::emit::clinit_names_line(prog),
         defaults_regs = defaults_regs,
         constants_regs = constants_regs,
         module = m.module,
         main_fn = m.fn_name,
         main_clinit_ensure = match &m.clinit_fn {
             Some(fname) => format!(
-                "support::statics::ensure({}u32, ::core::option::Option::Some(p{}::classes::{}::{} as ::j2r_runtime::MethodFn));",
+                "support::statics::ensure({}u32, ::core::option::Option::Some(p{}::classes::{}::{} as ::j2r_runtime::MethodFn))",
                 m.class_id, main_part, m.module, fname
             ),
-            None => String::new(),
+            None => "::core::result::Result::Ok(())".to_string(),
         },
     );
     ws.glue_write("app/src/main.rs", main_rs.as_bytes())?;

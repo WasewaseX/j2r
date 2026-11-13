@@ -414,6 +414,7 @@ fn main_run() -> i32 {{
     // attaches — docs/M5_JNI_HARNESS.md §9).
     ::j2r_runtime::jni::attach::mark_attached();
     {lib_crate}::statics::init_pool({statics}usize, {classes}usize);
+    {clinit_names}
     {lib_crate}::statics::apply_defaults({defaults});
     {lib_crate}::statics::set_constants({constants});
     // T10 slice 3 (docs/M5_JNI_CLASSES.md §1): the JNI env-table slots
@@ -427,29 +428,35 @@ fn main_run() -> i32 {{
     // JLS 12.4.2: the JVM launcher initializes the main class BEFORE
     // invoking main (EXTERNAL-B wave finding, 2026-11-13: a main() that
     // touches none of its own class's statics otherwise runs without the
-    // `<clinit>`). No-op when the class has no `<clinit>`.
-    {main_clinit_ensure}
-    let code = match {lib_crate}::classes::{module}::{main_fn}(
-        ::core::option::Option::None,
-        &[::j2r_runtime::Value::Ref(::core::option::Option::Some(args_array))],
-    ) {{
-        ::core::result::Result::Ok(_) => 0,
-        ::core::result::Result::Err(t) => {{
-            eprintln!(
-                "Exception in thread \"main\" {{}}",
-                ::j2r_runtime::throwable_display(&t, {lib_crate}::j2r_dispatch())
-            );
-            // Audit A2: the enclosed trace sections (Suppressed:/Caused by:)
-            // ride behind the header, matching the JVM's printStackTrace
-            // order; frame lines are not rendered (no LineNumberTable yet)
-            // and the harness normalizes them away on the JVM side.
-            let trace =
-                ::j2r_runtime::throwable_enclosed_trace(&t, {lib_crate}::j2r_dispatch());
-            if !trace.is_empty() {{
-                eprint!("{{trace}}");
-            }}
-            1
+    // `<clinit>`). No-op when the class has no `<clinit>`. CLINIT-THROW:
+    // a throwing clinit surfaces as Err — the SAME uncaught path as a
+    // main() that throws (Temurin: "Exception in thread \"main\" java.lang
+    // .ExceptionInInitializerError").
+    let uncaught = |t: ::j2r_runtime::Throw| -> i32 {{
+        eprintln!(
+            "Exception in thread \"main\" {{}}",
+            ::j2r_runtime::throwable_display(&t, {lib_crate}::j2r_dispatch())
+        );
+        // Audit A2: the enclosed trace sections (Suppressed:/Caused by:)
+        // ride behind the header, matching the JVM's printStackTrace
+        // order; frame lines are not rendered (no LineNumberTable yet)
+        // and the harness normalizes them away on the JVM side.
+        let trace =
+            ::j2r_runtime::throwable_enclosed_trace(&t, {lib_crate}::j2r_dispatch());
+        if !trace.is_empty() {{
+            eprint!("{{trace}}");
         }}
+        1
+    }};
+    let code = match {main_clinit_ensure} {{
+        ::core::result::Result::Err(t) => uncaught(t),
+        ::core::result::Result::Ok(()) => match {lib_crate}::classes::{module}::{main_fn}(
+            ::core::option::Option::None,
+            &[::j2r_runtime::Value::Ref(::core::option::Option::Some(args_array))],
+        ) {{
+            ::core::result::Result::Ok(_) => 0,
+            ::core::result::Result::Err(t) => uncaught(t),
+        }},
     }};
     // JVM shutdown rule (M4 Wave 2): the process waits for non-daemon
     // threads before the exit code is produced (T15 owns edge cases).
@@ -459,6 +466,7 @@ fn main_run() -> i32 {{
 "#,
             statics = prog.total_statics,
             classes = prog.classes.len(),
+            clinit_names = clinit_names_line(prog),
             module = m.module,
             main_fn = m.fn_name,
             defaults = static_defaults_literal(prog, &lib_crate),
@@ -695,11 +703,11 @@ pub fn pool_set_value(idx: u32, v: &::j2r_runtime::Value) {
 /// Runs `<clinit>` for the class (by id) exactly once, before first use of
 /// its statics / first instantiation. Delegates to the runtime's JLS
 /// 12.4.2 gate (clinit.rs): concurrent first-touchers BLOCK until the
-/// winner's clinit completes; same-thread re-entry is free. The old
-/// flag-before-clinit scheme let a loser thread skip the clinit and read
-/// raw default values (null statics → NPE; caught by MonitorContention).
-pub fn ensure(class_id: u32, clinit: ::core::option::Option<::j2r_runtime::MethodFn>) {
-    ::j2r_runtime::clinit::ensure(class_id, clinit);
+/// winner's clinit completes; same-thread re-entry is free. A throwing
+/// clinit marks the class errant and surfaces as Err (the EIIE wrapper or
+/// the raw Error, JLS 12.4.2 step 11) — CLINIT-THROW.
+pub fn ensure(class_id: u32, clinit: ::core::option::Option<::j2r_runtime::MethodFn>) -> ::core::result::Result<(), ::j2r_runtime::Throw> {
+    ::j2r_runtime::clinit::ensure(class_id, clinit)
 }
 
 /// Collector hook (M2_PLAN §4.4): every reference in the statics pool is a
@@ -1665,7 +1673,12 @@ fn emit_instr(
                     out.push("__frame.refresh(&locals, &stack, &thrown);".into());
                 }
                 for (id, expr) in ensures {
-                    out.push(format!("crate::statics::ensure({id}u32, {expr});"));
+                    // CLINIT-THROW: a throwing clinit surfaces HERE as an
+                    // Err — the EIIE wrapper (or the raw Error) must ride
+                    // the method's exception table like any other throw.
+                    out.push(format!(
+                        "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::statics::ensure({id}u32, {expr}));"
+                    ));
                 }
                 out.push(format!("stack.push(crate::statics::get({slot}u32));"));
             }
@@ -1682,7 +1695,10 @@ fn emit_instr(
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             for (id, expr) in ensure_calls(prog, class) {
-                out.push(format!("crate::statics::ensure({id}u32, {expr});"));
+                // CLINIT-THROW: the putstatic's clinit throw propagates.
+                out.push(format!(
+                    "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::statics::ensure({id}u32, {expr}));"
+                ));
             }
             out.push(format!("crate::statics::set({slot}u32, __v);"));
         }
@@ -1744,7 +1760,11 @@ fn emit_instr(
             match crate::resolve_call_pub(prog, class, name, desc).expect("validated call") {
                 CallTarget::User { module, fn_name } => {
                     for (id, expr) in ensure_calls(prog, class) {
-                        out.push(format!("crate::statics::ensure({id}u32, {expr});"));
+                        // CLINIT-THROW: the invokestatic's clinit throw
+                        // propagates before the call.
+                        out.push(format!(
+                            "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::statics::ensure({id}u32, {expr}));"
+                        ));
                     }
                     out.push(format!(
                         "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::classes::{module}::{fn_name}(::core::option::Option::None, &__a));"
@@ -2102,7 +2122,11 @@ pub(crate) fn new_obj_lines(prog: &Program, class: &str, fault: &str, out: &mut 
         }
         let spec_str: String = spec.iter().map(|&c| c as char).collect();
         for (id, expr) in ensure_calls(prog, class) {
-            out.push(format!("crate::statics::ensure({id}u32, {expr});"));
+            // CLINIT-THROW: the new's clinit throw propagates before the
+            // allocation.
+            out.push(format!(
+                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::statics::ensure({id}u32, {expr}));"
+            ));
         }
         out.push(format!(
             "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize));"
@@ -2125,11 +2149,29 @@ pub(crate) fn new_obj_lines(prog: &Program, class: &str, fault: &str, out: &mut 
 pub(crate) fn main_clinit_ensure_line(lib_crate: &str, m: &crate::MainInfo) -> String {
     match &m.clinit_fn {
         Some(fname) => format!(
-            "{lib_crate}::statics::ensure({}u32, ::core::option::Option::Some({lib_crate}::classes::{}::{} as ::j2r_runtime::MethodFn));",
+            "{lib_crate}::statics::ensure({}u32, ::core::option::Option::Some({lib_crate}::classes::{}::{} as ::j2r_runtime::MethodFn))",
             m.class_id, m.module, fname
         ),
-        None => String::new(),
+        None => "::core::result::Result::Ok(())".to_string(),
     }
+}
+
+/// The CLINIT-THROW name registration line: internal class names indexed
+/// by class id, registered before any code runs so an errant clinit's
+/// NCDFE message can carry the binary class name (Temurin's shape). Both
+/// emission modes call it right after `init_pool`.
+pub(crate) fn clinit_names_line(prog: &Program) -> String {
+    let mut names: Vec<(u32, &str)> = prog
+        .classes
+        .iter()
+        .map(|c| (c.id, c.name.as_str()))
+        .collect();
+    names.sort_by_key(|(id, _)| *id);
+    let list: Vec<String> = names.iter().map(|(_, n)| format!("{n:?}")).collect();
+    format!(
+        "::j2r_runtime::clinit::register_class_names(&[{}]);",
+        list.join(", ")
+    )
 }
 
 fn emit_arith(op: ArithOp, kind: NumKind, fault: &str, out: &mut Vec<String>) {

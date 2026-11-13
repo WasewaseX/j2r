@@ -1,5 +1,27 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. 7 — **CLINIT-THROW LANDED: the
+JLS 12.4.2 EIIIE machinery**). The Temurin contract probed, not assumed:
+Errors (EIIE included) rethrow AS-IS from a throwing clinit; anything
+else wraps in a message-null EIIE with the original as cause; every
+later first-use of the errant class throws NCDFE "Could not initialize
+class <binary>" with a fresh-EIIE cause "Exception <E> [in thread
+\"main\"]" (the FAILING thread's name, captured at failure time).
+Runtime: the Errant state stores two pre-formatted strings (never a
+JRef — the table is GC-invisible), ensure() returns Result, both
+launchers route a throwing main-class clinit into the uncaught path,
+all four bytecode ensure sites ride j2r_try. Two builtin parent rows
+forced: EIIE → LinkageError (else user `new EIIE` was unsupported) and
+NoClassDefFoundError → LinkageError (else the errant NCDFE was invisible
+to catch(Throwable)). New fixture **ClinitThrow** (the 114th)
+byte-identical vs Temurin on all three channels; diff_suite guard 113;
+README 114 fixtures / 472 tests; gate-11 in sync. Two lock-law scars
+recorded (L2: no alloc under STATES; L3: the test helper that nested
+string_value inside with_obj self-deadlocked — the non-reentrant heap
+lock). FORNAME-INIT registered (forName does not RUN the clinit;
+pre-existing residual). Next: R2 slice 3
+(getDeclaredFields/getFields/getDeclaredConstructors), then G3.3.
+
 Updated 2026-11-13 (session 19b cont. 6 — **SORT-NULL-CMP FIXED**).
 The whole-array sort(T[], C) row NPE'd on a null comparator; the JDK
 source's first branch is `if (c == null) { sort(a); }` — the row now

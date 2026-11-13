@@ -156,17 +156,26 @@ fn differential_suite_matches_jvm() {
     // (inherited-public through the superclass chain, the non-public
     // shadow quirk), Field/Method.getModifiers (the raw ACC_* masks ride
     // the metadata), the static Field.get/set paths and the typed
-    // getter/setter family with the JDK's widening table — 113 on disk,
-    // guard one below that. The SORT-NULL-CMP fix (2026-11-13) extended
+    // getter/setter family with the JDK's widening table — 113 on disk.
+    // The SORT-NULL-CMP fix (2026-11-13) extended
     // ArraysSurface IN PLACE (count unchanged): the whole-array
     // sort(T[], C) row with a NULL comparator must fall back to natural
     // ordering (the JDK source's first branch, `if (c == null)
     // { sort(a); }`) — the old row NPE'd where the range row already
     // delegated; two pins (String + Integer arrays) ride the existing
-    // fixture.
+    // fixture. The CLINIT-THROW wave (2026-11-13) added ClinitThrow — the
+    // JLS 12.4.2 steps 11-12 machinery end to end: non-Error wrapped in a
+    // message-null EIIE (cause = the original), Error and EIIE rethrown
+    // as-is, the static-block form, and the errant law at every later
+    // first-use (NCDFE "Could not initialize class <binary name>" with a
+    // fresh-EIIE cause carrying "Exception <E> [in thread \"main\"]"),
+    // which also
+    // forced the builtin parent rows for ExceptionInInitializerError and
+    // NoClassDefFoundError (both invisible to catch matching before) —
+    // 114 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 112,
-        "differential suite shrank: {} fixtures (expected >= 112)",
+        fixtures.len() >= 113,
+        "differential suite shrank: {} fixtures (expected >= 113)",
         fixtures.len()
     );
 

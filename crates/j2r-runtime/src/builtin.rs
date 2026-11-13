@@ -95,6 +95,21 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         // LinkageError family as NoSuchMethodError above.
         "java/lang/NoSuchFieldError" => "java/lang/IncompatibleClassChangeError",
         "java/lang/IncompatibleClassChangeError" => "java/lang/LinkageError",
+        // CLINIT-THROW (2026-11-13): ExceptionInInitializerError — the
+        // JLS 12.4.2 wrapper class itself. A user clinit may throw it
+        // DIRECTLY (Temurin rethrows it as-is: it is an Error subclass),
+        // and the runtime's errant path builds fresh EIIEs for the NCDFE
+        // cause chain. Parent row feeds catch-type matching, the
+        // instantiable walk (its <init> rides the native Throwable <init>
+        // rows), and first_thrower_law's is_subtype check.
+        "java/lang/ExceptionInInitializerError" => "java/lang/LinkageError",
+        // CLINIT-THROW (2026-11-13): NoClassDefFoundError — the errant
+        // class's later first-use throw (JLS 12.4.2 step 5). Without the
+        // row the errant NCDFE was INVISIBLE to `catch (Throwable)` (no
+        // parent walk) and its uncaught header fell back to the slash
+        // form — both Temurin divergences, caught by the ClinitThrow
+        // fixture's first differential run.
+        "java/lang/NoClassDefFoundError" => "java/lang/LinkageError",
         "java/lang/LinkageError" => "java/lang/Error",
         // M3 Wave 5: reflection subset (M3_PLAN §8). The reflective failure
         // classes hang off `ReflectiveOperationException` exactly like the

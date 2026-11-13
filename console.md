@@ -2619,3 +2619,50 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   green; full diff_suite re-run comes with the session's closing gate.
 - fmt + clippy clean on the touched tree. STATUS: one queued finding
   closed; CLINIT-THROW next (the EIIIE machinery), then R2 slice 3.
+
+## 2026-11-13 — session 19b cont. 7 — CLINIT-THROW LANDED (the JLS 12.4.2 EIIIE machinery)
+
+- **The Temurin contract, probed not assumed** (ClinitProbe/ClinitProbe2,
+  Temurin 21.0.13+9): first thrower — an Error subclass (EIIE included)
+  is RETHROWN AS-IS (JLS 12.4.2 step 11 rethrows Errors unwrapped; the
+  TODO's "seven allowed types" was a misremembering, the law is simply
+  Error-or-EIIE); anything else is wrapped in a fresh EIIE with a NULL
+  message and the original in the cause slot (the JDK's EIIE(Throwable)
+  ctor shape: getException() AND getCause() both answer the original).
+  Errant access — every later first-use (getstatic/invokestatic/new/
+  forName probed) throws NoClassDefFoundError "Could not initialize
+  class <binary name>" whose cause is a FRESH EIIE built with the STRING
+  ctor: message "Exception <E.toString()> [in thread \"<failing thread
+  name>\"]", getException() and getCause() both null — and the thread
+  name is the FAILING thread's, captured at failure time (an errant
+  access from worker-7 still prints "main").
+- **Runtime**: clinit.rs gained the Errant state (two pre-formatted
+  strings — never a JRef: the state table is process-global and
+  GC-invisible, so the original throwable cannot live there; the errant
+  path rebuilds fresh throwables per access exactly like the JVM);
+  register_class_names (internal names by class id, emitted from
+  main_run); ensure() now returns Result — the first thrower's law runs
+  with the state lock DROPPED (the toString dispatch re-enters Java).
+  Two lock-law scars from the bring-up, both now comments in the file:
+  L2 (errant_throw must not allocate under STATES) and L3 (a TEST helper
+  nested string_value inside with_obj — the non-reentrant heap lock
+  self-deadlocked six test runs before the futex-address dump pointed
+  at the closure; the L3 comment now names the trap).
+- **Codegen**: the four bytecode ensure sites (getstatic/putstatic/
+  invokestatic/new) ride j2r_try so the clinit throw enters the
+  method's exception table like any other throw; the statics shim
+  returns Result; BOTH launchers (single-crate + partition) match on
+  ensure's Result first — a throwing main-class clinit hits the SAME
+  uncaught path as a throwing main (Temurin header + Caused-by chain).
+- **Two builtin rows the wave forced**: ExceptionInInitializerError →
+  LinkageError (without it `throw new EIIE(...)` was "instantiation of
+  JDK class not supported") and NoClassDefFoundError → LinkageError
+  (without it the errant NCDFE was INVISIBLE to `catch (Throwable)` and
+  its uncaught header printed the slash form — the first differential
+  run caught both).
+- **Fixture ClinitThrow** (the 114th): five shapes x two accesses —
+  rt/err/eiie/blk + the errant repeats. Byte-identical vs Temurin
+  21.0.13+9 on all three channels (exit 0 == 0). diff_suite guard
+  bumped to 113; README counts 114 fixtures / 472 tests; gate-11 in
+  sync. FORNAME-INIT registered as a residual (Class.forName does not
+  RUN the clinit — pre-existing, out of this wave's scope).
