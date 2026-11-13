@@ -1,0 +1,92 @@
+EXTERNAL-HARNESS — the four process items (Opt.md §6 + O6)
+Landed 2026-11-13 (session 19b cont. 3, second wave) · spec:
+TODO.md §"EXTERNAL-HARNESS" + docs/external-port/jbox2d_opt.md §6
+
+THE FOUR ITEMS
+
+1. H-1 `j2r cfg-report --surface` — the sorted, deduplicated JDK member
+   surface the inputs need, each site marked ok/MISSING by the
+   compiler's OWN resolution functions (resolve_call, validate_virtual,
+   resolve_field, builtin_is_instantiable, the ANewArray element law —
+   the report calls the same code the gate calls, so it can never
+   disagree with a later real compile). New module
+   crates/j2r-codegen/src/surface.rs: Site {owner, name, desc, kind}
+   over Call/Field/Instantiate/ClassRef — the walk covers all five
+   invoke shapes, all four field shapes, new, anewarray/checkcast/
+   instanceof, ldc Class constants AND the exception-table catch types
+   (the World$1 shape the owner hit). Exit 0 when clean, 1 when any
+   site is MISSING.
+
+2. H-2 `--surface --diagnostics` — collect-all-then-fail: prints only
+   the MISSING rows and exits 1. THE ENABLER: compile() was split into
+   compile() (the unchanged hard gate: verify -> validate -> main-class,
+   exact original order preserved) and compile_unchecked() (parse/plan
+   only) — the surface walk runs on the UNCHECKED program, so it sees
+   PAST the first unsupported shape instead of dying on it. Emission
+   still goes through compile() only.
+
+3. H-3 the partition runner's exception-table law — already satisfied
+   by PartitionCatch (external-B2/O5, k=2) — extended: the B-wave's
+   Externals fixture joins the partition set at k=2 (an
+   exception-table-bearing class whose <clinit> also catches + the JLS
+   12.4.2 launcher ensure line through the PARTITIONED main template).
+   partition_suite now 8 stems, PASS.
+
+4. H-4 / O6 the reference charset pin — run_java_program (the `j2r
+   test` reference channel) now passes -Dfile.encoding=UTF-8 itself
+   instead of inheriting the ambient locale. The owner's five phantom
+   failures (BigJson, CharClassify, StringExt, StringIoSemantics, Utf16
+   writing ASCII `?` for non-ASCII under a C locale) are structurally
+   impossible from this harness path forward.
+
+THE ONE-PAGE PROOF (jbox2d-shaped probe, tests/surface_probe/
+SurfProbe.java — 26 jdk sites: StrictMath trans, boxed ctors, Random,
+intBitsToFloat, AssertionError(Object), catch NoSuchFieldError in a
+clinit bridge, toArray, sort ranges):
+
+  full mode:   "j2r surface report: 26 jdk sites (25 ok, 1 missing)"
+  diagnostics: "j2r surface diagnostics: 26 jdk sites, 1 missing
+                MISSING java/lang/Math.asin(D)D call — ...cannot resolve
+                method asin(D)D starting at java/lang/Math..."
+  exit 1. ONE page. (At the owner's base this same report would have
+  named every one of B4-B12 in a single run instead of ten ~10 s
+  compile cycles.) asin is DELIBERATELY not implemented — the fdlibm
+  module carries sin/cos/tan/atan/atan2/hypot only — which makes it
+  the honest live demonstration of the MISSING path.
+
+DURABLE PIN
+
+crates/j2r-cli/tests/surface_report.rs (javac-gated like diff_suite):
+- the clean Externals fixture surface exits 0 with "0 missing";
+- the gap probe's diagnostics name exactly ONE missing (Math.asin)
+  and exit 1;
+- the full mode marks every site and exits 1 on missing>0.
+
+PROOF (this wave's re-runs after the harness changes)
+
+- unit: lib/bins 425/0, codegen 136/0 (compile/compile_unchecked split
+  regression-free), surface_report 1/0.
+- diff_suite: 112 fixtures ZERO divergences (487.79 s) — the O6 charset
+  pin does not perturb the suite (UTF-8 is already the JDK 18+ default;
+  the pin makes it version- and locale-independent).
+- cfg_equiv: zero divergences (357.26 s).
+- partition_suite: 8/8 stems incl. the new Externals at k=2 (35.51 s).
+- corpus 1/1, jar 3/0, lambda_neg 2/0, jni_parity 1/0, native_e2e 2/0,
+  soe_e2e 1/0.
+- fmt --all --check clean; clippy -D warnings clean; doc counts
+  fixtures=112 tests=468 in sync; links resolve; no stubs.
+
+HONESTY NOTES
+
+- The surface walk covers the jbox2d class of gaps (JDK member
+  resolution). It does NOT model the partitioned-only failure class
+  (B2's E0433) or emission-time shapes — the registered --partition-2
+  runner variant + the exception-table fixture law cover those.
+- The report's `ok` means "the compiler's resolution law accepts the
+  site" — the same contract as a successful compile; runtime-surface
+  depth (e.g. a native that throws a loud gap) is a different axis and
+  stays the natives table's business.
+- compile()/compile_unchecked() split touches the pipeline's public
+  shape; the full battery re-ran green (diff 112/0, cfg 0, partition
+  8/8, units 561/0) and the gate order inside compile() is preserved
+  byte-for-byte.

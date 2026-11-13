@@ -2017,8 +2017,8 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       touching none of its own class's statics ran WITHOUT the <clinit>
       (JLS 12.4.2 launcher law) — both main templates now ensure the
       main class; diff_suite proves no regressions.
-- [ ] **EXTERNAL-HARNESS — the four process items (Opt.md §6 + O6)** —
-      (1) `j2r cfg-report --surface`: the sorted, deduplicated JDK
+- [x] **EXTERNAL-HARNESS — the four process items (Opt.md §6 + O6)**
+      — (1) `j2r cfg-report --surface`: the sorted, deduplicated JDK
       member set the input needs, diffed against the NATIVES table
       (would have shown B4–B12 in one page instead of ten compile
       cycles); (2) a collect-all-diagnostics mode (walk every class,
@@ -2029,7 +2029,17 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       differential harness pins its reference charset itself
       (-J-Dfile.encoding=UTF-8) instead of inheriting the ambient
       locale (O6 — five phantom failures on a C locale,
-      owner-verified). STATUS: not started.
+      owner-verified). STATUS: **LANDED 2026-11-13** (evidence
+      scripts/evidence/external_harness/harness_items_2026-11-13.txt):
+      surface.rs walks all invoke/field/new/class-ref shapes + catch
+      types and classifies with the compiler's OWN resolution fns;
+      compile() split into the unchanged hard gate + compile_unchecked
+      (the walk sees past the first failure); the probe proof names
+      Math.asin — deliberately unimplemented — as the ONE missing site
+      in one page (26 sites); Externals joins the partition runner at
+      k=2 (8/8); the reference channel pins -Dfile.encoding=UTF-8;
+      durable pin tests/surface_report.rs; battery 468/0, diff_suite
+      112/0, cfg_equiv 0, partition 8/8.
 - [ ] **CLINIT-THROW — the JLS 12.4.2 ExceptionInInitializerError
       machinery (found 2026-11-13 by the EXTERNAL-B wave)** — clinit.rs
       discards a <clinit>'s Throw (`let _ = f(None, &[])`) and marks

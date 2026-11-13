@@ -137,6 +137,16 @@ enum Cmd {
     CfgReport {
         /// Input .class files.
         inputs: Vec<PathBuf>,
+        /// EXTERNAL-HARNESS H-1: instead of the CFG-lift table, print the
+        /// sorted, deduplicated JDK member surface the inputs need, each
+        /// site marked ok/MISSING by the compiler's own resolution law.
+        #[arg(long)]
+        surface: bool,
+        /// EXTERNAL-HARNESS H-2 (with --surface): walk EVERY class,
+        /// report every unresolved member, then exit 1 — the first
+        /// unresolved reference is only the first.
+        #[arg(long)]
+        diagnostics: bool,
     },
     /// Wave-3 shape report (M2_PLAN §5.2): verify each input class and
     /// print the per-method typed-storage specialization decision table.
@@ -217,7 +227,20 @@ fn main() {
             partition_classes,
             args,
         } => cmd_test(&file, release, partition_classes, &args),
-        Cmd::CfgReport { inputs } => cmd_cfg_report(&inputs),
+        Cmd::CfgReport {
+            inputs,
+            surface,
+            diagnostics,
+        } => {
+            if surface {
+                cmd_surface_report(&inputs, diagnostics)
+            } else if diagnostics {
+                eprintln!("j2r: --diagnostics requires --surface");
+                2
+            } else {
+                cmd_cfg_report(&inputs)
+            }
+        }
         Cmd::ShapeReport { inputs } => cmd_shape_report(&inputs),
         Cmd::ReadinessReport { inputs } => cmd_readiness_report(&inputs),
     };
@@ -602,6 +625,14 @@ fn run_java_program(
     let dotted = main_class.replace('/', ".");
     let output = Command::new(java)
         .arg("-XX:+EnableDynamicAgentLoading")
+        // EXTERNAL-HARNESS O6 (owner-verified 2026-11-12): the reference
+        // channel must pin its own charset — j2r's differential harness
+        // compares raw bytes, so an ambient C/POSIX locale made the JDK
+        // write ASCII `?` for non-ASCII and produced five phantom
+        // failures (BigJson, CharClassify, StringExt, StringIoSemantics,
+        // Utf16). JEP 400 made UTF-8 the JDK 18+ default, but the pin
+        // must not depend on the JDK version either.
+        .arg("-Dfile.encoding=UTF-8")
         .arg("-cp")
         .arg(classes_dir)
         .arg(&dotted)
@@ -747,4 +778,46 @@ fn nanos() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0)
+}
+
+/// EXTERNAL-HARNESS H-1/H-2 (jbox2d process findings): the JDK member
+/// surface the inputs need, diffed against the NATIVES table by the
+/// compiler's own resolution law. Full mode = the one-page surface
+/// report (H-1); `--diagnostics` = only the MISSING rows, exit 1 (H-2,
+/// collect-all-then-fail — the first unresolved reference is only the
+/// first).
+fn cmd_surface_report(inputs: &[PathBuf], diagnostics: bool) -> i32 {
+    let opts = j2r_codegen::Options {
+        inputs: inputs.to_vec(),
+        classpath: Vec::new(),
+        main_class: None,
+        crate_name: "j2r-surface".to_string(),
+        out_dir: std::env::temp_dir().join("j2r-surface"),
+        emit_cfg: false,
+        emit_typed: false,
+        partition: None,
+    };
+    match j2r_codegen::compile_unchecked(&opts) {
+        Ok(prog) => {
+            // compile_UNCHECKED on purpose (H-2's whole point): the
+            // verify+validate gate hard-fails on the FIRST unsupported
+            // shape; the surface walk must see past it and name every
+            // gap at once. The classification predicates are the same
+            // functions the gate calls, so the report can never
+            // disagree with a later real compile.
+            let (report, missing) = j2r_codegen::surface::render(&prog, diagnostics);
+            print!("{report}");
+            if missing > 0 {
+                1
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            // parse/plan-level failures (malformed classfile, IO) — the
+            // walk never got a program to inspect.
+            eprintln!("j2r: {e}");
+            1
+        }
+    }
 }

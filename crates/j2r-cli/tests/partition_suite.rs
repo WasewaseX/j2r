@@ -64,6 +64,12 @@ const FIXTURES: &[(&str, usize)] = &[
     ("CyclicInit", 2),
     ("StringIoSemantics", 2),
     ("PartitionCatch", 2),
+    // EXTERNAL-HARNESS H-3 (2026-11-13): the B-wave's Externals joins the
+    // partition runner — an exception-table-bearing class whose clinit
+    // also catches (the World$1 shape) plus the JLS 12.4.2 launcher
+    // ensure line through the PARTITIONED main template (the B2
+    // registry-hook machinery carries it end-to-end).
+    ("Externals", 2),
 ];
 
 #[test]

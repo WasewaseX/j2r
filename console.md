@@ -2503,3 +2503,50 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   collect-all-diagnostics, partition exception-table fixtures, the
   charset pin) — or R2 slice 2 (static-pool Field.get + getModifiers)
   per the §8 ladder. Then G3.3's specialized-map implementation.
+
+## 2026-11-13 — session 19b cont. 4 (EXTERNAL-HARNESS LANDED)
+
+- **EXTERNAL-HARNESS — all four process items (Opt.md §6 + O6) landed**
+  in one wave:
+  * **H-1 `cfg-report --surface`**: the sorted, deduplicated JDK member
+    surface the inputs need, each site marked ok/MISSING by the
+    compiler's OWN resolution functions (resolve_call, validate_virtual,
+    resolve_field, builtin_is_instantiable, the ANewArray law) — the
+    report can never disagree with a later compile. The walk covers all
+    invoke/field shapes, new, anewarray/checkcast/instanceof, ldc Class
+    constants AND exception-table catch types (the World$1 shape).
+  * **H-2 `--surface --diagnostics`**: collect-all-then-fail. Enabler:
+    compile() split into compile() (the UNCHANGED hard gate: verify →
+    validate → main-class, exact order preserved) and compile_unchecked()
+    (parse/plan only) — the walk sees PAST the first unsupported shape.
+    Emission still goes through compile() only.
+  * **H-3**: the B-wave's Externals joins the partition runner at k=2
+    (exception table in a clinit-catch class + the JLS 12.4.2 launcher
+    ensure through the PARTITIONED main template) — partition_suite
+    8/8 stems.
+  * **H-4 / O6**: the reference channel (run_java_program) pins
+    -Dfile.encoding=UTF-8 itself — the owner's five phantom C-locale
+    failures are structurally impossible from this path forward.
+- **The one-page proof** (tests/surface_probe/SurfProbe.java, a
+  jbox2d-shaped probe): full mode "26 jdk sites (25 ok, 1 missing)";
+  diagnostics names exactly `MISSING java/lang/Math.asin(D)D` — asin is
+  DELIBERATELY unimplemented (the fdlibm module carries
+  sin/cos/tan/atan/atan2/hypot only) — the honest live demonstration.
+  At the owner's base the same run would have named every one of
+  B4-B12 in ONE pass instead of ten ~10 s compile cycles.
+- **Durable pin**: crates/j2r-cli/tests/surface_report.rs — clean
+  Externals surface exits 0 with "0 missing"; the gap probe's
+  diagnostics name exactly one MISSING and exit 1 (javac-gated like
+  diff_suite).
+- **Proof**: units lib/bins 425/0 + codegen 136/0 (the compile/
+  compile_unchecked split regression-free) + surface_report 1/0;
+  diff_suite **112 fixtures ZERO divergences** (487.79 s — the charset
+  pin perturbs nothing); cfg_equiv zero (357.26 s); partition 8/8
+  (35.51 s); corpus/jar/jni/soe green; fmt + clippy clean; doc counts
+  fixtures=112 tests=468 in sync. Battery **468 tests, 0 failures**.
+- Evidence: scripts/evidence/external_harness/
+  harness_items_2026-11-13.txt (+ the captured full/diagnostics runs).
+- Next: R2 slice 2 (static-pool Field.get + getModifiers — the
+  registered R2 ladder), then G3.3's specialized-map implementation,
+  then the CLINIT-THROW and SORT-NULL-CMP follow-ups discovered by the
+  B-wave.

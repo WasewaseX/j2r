@@ -28,6 +28,7 @@ pub mod peephole;
 pub mod readiness;
 pub mod sha256;
 pub mod specialize;
+pub mod surface;
 pub mod typed;
 pub mod verify;
 
@@ -607,6 +608,63 @@ fn parse_and_add(
 }
 
 pub fn compile(opts: &Options) -> Result<Program> {
+    let mut prog = compile_unchecked(opts)?;
+    // 5b. verify + 6. validate every instruction --------------------------
+    // (the full pipeline's hard gate: malformed bytecode must fail here
+    // with a structured diagnostic, not reach the panic paths of the
+    // generated code or runtime. The surface report walks the program
+    // BEFORE this gate — that is its entire reason to exist.)
+    let _sp_verify = crate::StageGuard::enter("stage4_verify_validate");
+    for c in &prog.classes {
+        verify::verify_class(&prog, c)?;
+    }
+    for c in &prog.classes {
+        validate_class(&prog, c)?;
+    }
+
+    // 7. main class ---------------------------------------------------------
+    let main_class = match &opts.main_class {
+        Some(m) => {
+            let internal = to_internal(m);
+            if !prog.is_user(&internal) {
+                return Err(CodegenError::Semantic {
+                    class: internal.clone(),
+                    message: "--main-class not found among the inputs".to_string(),
+                });
+            }
+            let plan = prog.class(&internal).unwrap();
+            if plan.method("main", "([Ljava/lang/String;)V").is_none() {
+                return Err(CodegenError::Semantic {
+                    class: internal.clone(),
+                    message: "--main-class has no public static void main(String[])".to_string(),
+                });
+            }
+            Some(internal)
+        }
+        None => {
+            // Programmatic default only (first declared main in input
+            // order). The `j2r test` differential path (audit A3) now
+            // always passes an explicit --main-class selected once for
+            // BOTH sides, so the JVM run and the native run cannot pick
+            // different mains.
+            let found = prog.classes.iter().find(|c| {
+                c.method("main", "([Ljava/lang/String;)V")
+                    .map(|m| m.is_static)
+                    .unwrap_or(false)
+            });
+            found.map(|c| c.name.clone())
+        }
+    };
+    prog.main_class = main_class;
+
+    Ok(prog)
+}
+
+/// The parse/plan pipeline WITHOUT the verify+validate hard gate — the
+/// surface report's entry point (EXTERNAL-HARNESS H-1/H-2): the whole
+/// question is "what WOULD fail", so the walk must see past the first
+/// unsupported shape. Emission must always go through `compile`.
+pub fn compile_unchecked(opts: &Options) -> Result<Program> {
     if opts.inputs.is_empty() && opts.classpath.is_empty() {
         return Err(CodegenError::Semantic {
             class: "-".to_string(),
@@ -804,52 +862,8 @@ pub fn compile(opts: &Options) -> Result<Program> {
     drop(_sp_plan);
 
     // 5. verify every method body (before emitting any code) ---------------
-    // Malformed bytecode must fail here with a structured diagnostic, not
-    // reach the panic paths of the generated code or runtime.
-    let _sp_verify = crate::StageGuard::enter("stage4_verify_validate");
-    for c in &prog.classes {
-        verify::verify_class(&prog, c)?;
-    }
-
-    // 6. validate every instruction ----------------------------------------
-    for c in &prog.classes {
-        validate_class(&prog, c)?;
-    }
-
-    // 7. main class ---------------------------------------------------------
-    let main_class = match &opts.main_class {
-        Some(m) => {
-            let internal = to_internal(m);
-            if !prog.is_user(&internal) {
-                return Err(CodegenError::Semantic {
-                    class: internal.clone(),
-                    message: "--main-class not found among the inputs".to_string(),
-                });
-            }
-            let plan = prog.class(&internal).unwrap();
-            if plan.method("main", "([Ljava/lang/String;)V").is_none() {
-                return Err(CodegenError::Semantic {
-                    class: internal.clone(),
-                    message: "--main-class has no public static void main(String[])".to_string(),
-                });
-            }
-            Some(internal)
-        }
-        None => {
-            // Programmatic default only (first declared main in input
-            // order). The `j2r test` differential path (audit A3) now
-            // always passes an explicit --main-class selected once for
-            // BOTH sides, so the JVM run and the native run cannot pick
-            // different mains.
-            let found = prog.classes.iter().find(|c| {
-                c.method("main", "([Ljava/lang/String;)V")
-                    .map(|m| m.is_static)
-                    .unwrap_or(false)
-            });
-            found.map(|c| c.name.clone())
-        }
-    };
-    prog.main_class = main_class;
+    // (verify + validate + the main-class gate moved to `compile` — the
+    // surface walk deliberately sees past them)
 
     Ok(prog)
 }

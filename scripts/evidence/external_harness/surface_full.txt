@@ -1,0 +1,27 @@
+j2r surface report: 26 jdk sites (25 ok, 1 missing)
+  ok      java/io/PrintStream.println(D)V call
+  ok      java/io/PrintStream.println(Ljava/lang/String;)V call
+  ok      java/lang/AssertionError::<new>
+  ok      java/lang/AssertionError.<init>(Ljava/lang/Object;)V call
+  ok      java/lang/Float.intBitsToFloat(I)F call
+  ok      java/lang/Integer::<new>
+  ok      java/lang/Integer.<init>(I)V call
+  ok      java/lang/Integer.intValue()I call
+  MISSING java/lang/Math.asin(D)D call
+  ok      java/lang/Math.hypot(DD)D call
+  ok      java/lang/NoSuchFieldError::<class>
+  ok      java/lang/Object.<init>()V call
+  ok      java/lang/Object.hashCode()I call
+  ok      java/lang/StrictMath.cos(D)D call
+  ok      java/lang/StrictMath.sin(D)D call
+  ok      java/lang/String::<class>
+  ok      java/lang/String.valueOf(Ljava/lang/Object;)Ljava/lang/String; call
+  ok      java/lang/System.out field
+  ok      java/util/ArrayList::<new>
+  ok      java/util/ArrayList.<init>()V call
+  ok      java/util/ArrayList.add(Ljava/lang/Object;)Z call
+  ok      java/util/ArrayList.toArray([Ljava/lang/Object;)[Ljava/lang/Object; call
+  ok      java/util/Arrays.sort([Ljava/lang/Object;IILjava/util/Comparator;)V call
+  ok      java/util/Random::<new>
+  ok      java/util/Random.<init>(J)V call
+  ok      java/util/Random.nextDouble()D call

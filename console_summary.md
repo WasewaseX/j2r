@@ -1,5 +1,26 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. 4 — **EXTERNAL-HARNESS LANDED:
+all four process items (Opt.md §6 + O6)**). `cfg-report --surface`
+prints the sorted dedup JDK member surface the inputs need, classified
+by the compiler's OWN resolution fns (can never disagree with a later
+compile); the walk covers invoke/field/new/class-ref shapes + catch
+types. `--diagnostics` = collect-all-then-fail, enabled by the
+compile()/compile_unchecked() split (the unchanged hard gate preserved
+byte-for-byte; emission still goes through compile() only). Proof: a
+jbox2d-shaped probe reports "26 jdk sites (25 ok, 1 missing)" and the
+diagnostics name exactly `MISSING java/lang/Math.asin(D)D` — asin
+deliberately unimplemented — ONE page where the owner needed ten
+compile cycles for B4-B12. Externals joins the partition runner at k=2
+(8/8 stems, the launcher ensure line exercised partitioned). The
+reference channel pins -Dfile.encoding=UTF-8 (O6 closed structurally).
+Durable pin surface_report.rs. Battery **468/0**: diff_suite 112/0
+(487.79 s), cfg_equiv 0 (357.26 s), units 561/0, fmt+clippy clean,
+doc counts 112/468 in sync. Evidence:
+scripts/evidence/external_harness/harness_items_2026-11-13.txt.
+Next: R2 slice 2 (static-pool Field.get + getModifiers), then G3.3's
+specialized-map, then the CLINIT-THROW / SORT-NULL-CMP follow-ups.
+
 Updated 2026-11-13 (session 19b cont. 3 — **EXTERNAL-B4..B12 LANDED:
 the natives/jdk-surface wave from the jbox2d port report**). Reset #19
 recovered per §9 (7th full-download validation: rustup-init 21,347,088 B

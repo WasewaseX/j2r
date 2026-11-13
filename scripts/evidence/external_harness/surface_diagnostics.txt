@@ -1,0 +1,2 @@
+j2r surface diagnostics: 26 jdk sites, 1 missing
+  MISSING java/lang/Math.asin(D)D call — error in class java/lang/Math: cannot resolve method asin(D)D starting at java/lang/Math (is its class in the inputs, or is it an unsupported JDK method?)
