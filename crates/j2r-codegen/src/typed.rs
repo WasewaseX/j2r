@@ -2371,7 +2371,7 @@ fn emit_getstatic_typed(ctx: &mut Ctx<'_>, pc: u32, fault: &str, class: &str, fi
             // CLINIT-THROW: same lowering as the default body.
             ctx.out.push(format!(
                 "{};",
-                try_wrap(&fault, format!("crate::statics::ensure({id}u32, {expr})"))
+                try_wrap(fault, format!("crate::statics::ensure({id}u32, {expr})"))
             ));
         }
         let kind = desc_kind_of(&f.desc);
@@ -2491,6 +2491,8 @@ mod tests {
             is_native: false,
             is_sync: false,
             modifiers: 0,
+            signature: None,
+            lvtt: Vec::new(),
             fn_name: "t".into(),
             instrs: vec![
                 (0, Instr::Goto(9)),                         // forward

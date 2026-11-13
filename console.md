@@ -45,7 +45,9 @@ file disagrees with memory, this file wins.
   T17–T21 mixins · T22–T23 inline caches (order pinned by
   docs/REVIEW_CHECKLIST.md G5: after the JNI + scale gates).
 - **Toolchain:** `source /home/z/my-project/env.sh` → rustc/cargo 1.99.1,
-  Temurin javac 21.0.13 (the pinned CI versions). Sandbox: 2 vCPU,
+  Temurin javac 21.0.13 (the pinned CI versions); since reset #21 the
+  install lives UNDER the repo tree (`work/j2r-fresh/tools/`, gitignored)
+  so work-layer resets never re-download. Sandbox: 2 vCPU,
   4 GiB RAM, no swap. Persistent state lives under `/home/z/my-project/`;
   `/tmp` does NOT survive sandbox recycles (see mistake #4).
 - **The rustc cliff (measured, T01):** one rustc process burns ~4.2 MB peak
@@ -2710,3 +2712,70 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   user-layout dispatch hook (the runtime cannot know a user class's
   slot spec; JNI's NewObject is a stub today — same machinery);
   registered with the design note, not landed.
+
+---
+
+## SESSION 19b cont. 9 — 2026-11-13 (reset #21; G3.3 SLICE 1: the signature-pin layer)
+
+- **Reset #21 recovery (9th full-download)**: local tree back at
+  pre-R2 `b4badea` while origin/main held `dd1b2ff`; ff-merged, tree
+  clean. `tools/` + `env.sh` were AGAIN reverted away (the snapshot's
+  persistent layer predates last session's move-under-the-tree), so the
+  rebootstrap paid the full download: rustup-init **21,347,088 B
+  byte-exact** → pinned **cargo/rustc 1.99.1 + rustfmt 1.10.0 + clippy
+  0.1.99**; Temurin **jdk-21.0.13+9 tarball 207,858,352 B byte-exact**
+  (GitHub releases-asset route). The install now lives UNDER the repo
+  tree (`work/j2r-fresh/tools/{cargo,rustup2,jdk-21.0.13+9}`,
+  gitignored — same layer as the 509 MB `target/` that survived this
+  very reset); `env.sh` recreated as the one-line bootstrap pointing
+  there. `target/` survived → warm workspace build 17.8 s.
+- **G3.3 SLICE 1 LANDED — the signature-pin layer** (the registered
+  opening's step 1): j2r-classfile now reads the `Signature` attribute
+  at class/field/method level (JVMS §4.7.9, strict
+  attribute_length==2 after the A4 lesson) and the
+  `LocalVariableTypeTable` Code sub-attribute (JVMS §4.7.14, precise
+  truncation errors). New `j2r-codegen/src/signature.rs`: the full
+  generic-signature grammar parser (type params + bounds, wildcards
+  `*`/`+`/`-`, nested generics, arrays, prims, type vars; loud
+  byte-positioned errors; the spec's `.` nested-class suffix parses to
+  the `$` binary name and REJECTS suffix type arguments — javac emits
+  the `$` form) + the pin helpers `BoxedPrim::boxed_prim_of` (the
+  JLS cache law carried in the pin: Double/Float never cached,
+  Integer/Long [-128,127]) and `map_value_boxed` (the map family's
+  value parameter; exact `In()` args ONLY — raw, wildcard and
+  type-var values pin to NOTHING, the conservative no-rewrite
+  default). Plans carry the raw strings: FieldPlan.signature,
+  MethodPlan.signature, MethodPlan.lvtt (class-level rides the
+  retained ClassFile).
+- **TWO javac laws probed live** (scripts/evidence/g3_3/
+  signature_pin_2026-11-13.txt, SigProbe vs pinned javac 21.0.13):
+  (1) `Signature` attributes need NO -g — generic fields/method params
+  are always pinned on disk; (2) **the LVTT needs `-g`** — under the
+  harness's plain `javac -d` a generic LOCAL's type arguments exist
+  NOWHERE on disk, so the slice-2 receiver pin resolves field/method
+  signatures and -g inputs, with the valueOf/checkcast adjacency
+  patterns carrying the local case. Bonus law: a RAW `Map` local never
+  appears in the LVTT at all (javac records only generic references).
+  These are design-shaping facts, recorded in TODO.md's slice-2 next
+  note.
+- **Generated code UNCHANGED by construction** (the slice only adds
+  parse-time information): cfg_equiv **zero divergences** (383.45 s);
+  diff_suite **2 shards green, 115 fixtures, three channels, zero
+  divergences** (546.14 s). Battery: classfile 48 (+7), codegen lib
+  120 (+10), runtime 249, jni-ffi 15, cli bin 15, e2e/malformed/
+  manifest/wide_ids/jmm_boundary/signature_probe (env-gated skip
+  without javac, the real pass in the evidence run)/jar 3/partition 2/
+  lambda_neg 2/native_e2e/soe/corpus/jni_parity/surface_report green;
+  units **491/0**; fmt + clippy `-D warnings` clean; gate-11
+  fixtures=115 tests=491 in sync (README aggregate 473 → 491).
+- **Gate-2 drive-by repairs (recorded, not silent)**: typed.rs:2374
+  needless_borrow was a dd1b2ff LATENT — a fresh clippy lint at the
+  clean tree caught it; the previous session's clippy-clean claim was
+  a warm-cache artifact (cargo reused the survived target/ fingerprint).
+  Lesson recorded: after a reset, clippy must be re-run FRESH (touch or
+  clean the crate) before claiming the gate. Plus the CLINIT-THROW
+  test's unused loop var (`for k` → `for _k`).
+- **Next**: slice 2 — the put/get rewrites (`map_put_prim`/
+  `map_get_prim` natives in collections.rs, the dataflow-window guard)
+  on the signature-pinned + adjacency-pinned shapes; then FORNAME-INIT
+  and NEW-INSTANCE (design notes registered in TODO.md).

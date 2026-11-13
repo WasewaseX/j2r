@@ -1,5 +1,34 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. 9 — **G3.3 SLICE 1 LANDED: the
+signature-pin layer**, after reset #21). Reset paid the 9th
+full-download (tools/ + env.sh reverted away again); the toolchain now
+lives UNDER the repo tree (`work/j2r-fresh/tools/`, gitignored — the
+same layer whose 509 MB `target/` survived this very reset): rust
+1.99.1 / rustfmt 1.10.0 / clippy 0.1.99 + Temurin jdk-21.0.13+9, both
+tarballs byte-exact vs the recorded sizes, `env.sh` the one-line
+bootstrap. Landed: j2r-classfile reads `Signature` (class/field/
+method, strict length) + `LocalVariableTypeTable`; new signature.rs
+parses the full JVMS §4.7.9.1 grammar (type params, wildcards, nested
+generics, arrays, type vars, loud positioned errors) with the G3.3 pin
+helpers (`map_value_boxed` — exact args only; raw/wildcard/type-var
+refuse, `BoxedPrim` carries the JLS cache law); FieldPlan.signature +
+MethodPlan.signature/lvtt threaded. TWO javac laws probed live
+(SigProbe): Signature attrs need no -g; **the LVTT needs -g — under
+the harness's plain `javac -d` a generic local's type args are
+nowhere on disk** (slice 2 pins locals via the valueOf/checkcast
+adjacency patterns); a RAW Map local never appears in the LVTT.
+Generated code UNCHANGED: cfg_equiv zero (383 s), diff_suite 115
+fixtures three-channel zero divergences (546 s); units **491/0**
+(+7 classfile, +10 grammar, +1 env-gated probe); fmt+clippy clean;
+gate-11 115/491 in sync. Drive-by recorded: a dd1b2ff clippy latent
+(typed.rs needless_borrow) repaired — the prior clean claim was a
+warm-cache artifact; after a reset clippy must be re-run FRESH.
+Next: slice 2 — the put/get rewrites (map_put_prim/map_get_prim +
+the dataflow-window guard); FORNAME-INIT and NEW-INSTANCE registered
+with design notes.
+
+
 Updated 2026-11-13 (session 19b cont. 8 — **R2 SLICE 3 LANDED: the
 reflection array forms + the Constructor surface**). Temurin laws
 probed first (ReflectProbe): getDeclaredFields = declaration order;

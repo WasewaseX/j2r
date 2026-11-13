@@ -27,6 +27,7 @@ pub mod partition;
 pub mod peephole;
 pub mod readiness;
 pub mod sha256;
+pub mod signature;
 pub mod specialize;
 pub mod surface;
 pub mod typed;
@@ -259,6 +260,11 @@ pub struct FieldPlan {
     /// The raw access flags from the classfile (R2 slice 2:
     /// `Field.getModifiers` — the reflection subset's modifier bits).
     pub modifiers: u16,
+    /// The `Signature` attribute (JVMS §4.7.9), raw and unparsed — the
+    /// G3.3 signature-pin layer parses it at use sites
+    /// ([`signature::parse_field_signature`]). `None` for non-generic
+    /// fields.
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -286,6 +292,17 @@ pub struct MethodPlan {
     /// The raw access flags from the classfile (R2 slice 2:
     /// `Method.getModifiers` — the reflection subset's modifier bits).
     pub modifiers: u16,
+    /// The `Signature` attribute (JVMS §4.7.9), raw and unparsed — the
+    /// G3.3 signature-pin layer parses it at use sites
+    /// ([`signature::parse_method_signature`]). `None` for non-generic
+    /// methods.
+    pub signature: Option<String>,
+    /// The method body's `LocalVariableTypeTable` (JVMS §4.7.14), in
+    /// classfile order — where javac records the GENERIC type of a local
+    /// (`Map<String, Double>` for the erased `Ljava/util/Map;` slot). The
+    /// receiver-pin resolution of the G3.3 rewrite slices looks the
+    /// receiver's slot up here.
+    pub lvtt: Vec<j2r_classfile::LocalVarType>,
     pub fn_name: String,
     pub instrs: Vec<(u32, ir::Instr)>,
     pub exception_table: Vec<(u32, u32, u32, Option<String>)>,
@@ -575,6 +592,7 @@ fn parse_and_add(
             // non-folded finals carry the boundary.
             is_final: f.is_final() && f.constant_value.is_none(),
             modifiers: f.access,
+            signature: f.signature.clone(),
         });
     }
 
@@ -979,6 +997,8 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
                     is_native: true,
                     is_sync: false,
                     modifiers: m.access,
+                    signature: m.signature.clone(),
+                    lvtt: Vec::new(),
                     fn_name: method_fn_name(&m.name, &m.descriptor),
                     instrs: Vec::new(),
                     exception_table: Vec::new(),
@@ -1040,6 +1060,8 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
             is_native: false,
             is_sync,
             modifiers: m.access,
+            signature: m.signature.clone(),
+            lvtt: code.lvtt.clone(),
             fn_name: method_fn_name(&m.name, &m.descriptor),
             instrs,
             exception_table: code

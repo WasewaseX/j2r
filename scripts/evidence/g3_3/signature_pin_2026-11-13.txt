@@ -1,0 +1,35 @@
+== G3.3 slice 1: the signature-pin evidence run ==
+date: 2026-11-13 12:21:21 UTC
+javac: javac 21.0.13
+
+== step 1: javac compiles SigProbe.java — DEFAULT flags AND -g ==
+(the recorded law: default javac -g:source,lines emits Signature
+ attributes but NO LocalVariableTypeTable; -g adds the LVTT)
+Note: /home/z/my-project/work/j2r-fresh/scripts/evidence/g3_3/SigProbe.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+Note: /home/z/my-project/work/j2r-fresh/scripts/evidence/g3_3/SigProbe.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+-rw-rw-r-- 1 z z 2023 Nov 13 12:21 /home/z/my-project/work/j2r-fresh/scripts/evidence/g3_3/.probe_work/default/SigProbe.class
+-rw-rw-r-- 1 z z 2432 Nov 13 12:21 /home/z/my-project/work/j2r-fresh/scripts/evidence/g3_3/.probe_work/g/SigProbe.class
+
+== step 2: javap -v — the attributes javac 21 actually emits (-g build) ==
+   #88 = Utf8               LocalVariableTypeTable
+  static java.util.Map<java.lang.String, java.lang.Double> cache;
+    descriptor: Ljava/util/Map;
+    Signature: #79                          // Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;
+      LocalVariableTypeTable:
+    Signature: #89                          // (Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;Ljava/lang/String;)D
+      LocalVariableTypeTable:
+
+== step 3: the env-gated j2r parse + pin extraction (both builds) ==
+running 1 test
+field cache: desc=Ljava/util/Map; sig=Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;
+method blend: sig=(Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;Ljava/lang/String;)D
+local m: slot=1 sig=Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;
+local im: sig=Ljava/util/Map<Ljava/lang/String;Ljava/lang/Integer;>;
+local rm: absent from the LVTT (raw Map — javac's own law)
+local wm: sig=Ljava/util/Map<Ljava/lang/String;+Ljava/lang/Number;>;
+test javac_sig_probe_pins ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

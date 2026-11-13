@@ -319,12 +319,31 @@ pub struct ExceptionEntry {
     pub catch_type: Option<String>,
 }
 
+/// One `LocalVariableTypeTable` entry (JVMS §4.7.14): the GENERIC type of
+/// one local-variable slot over one pc range. This is where javac records
+/// `Map<String, Double>` for a local declared with that type — the erased
+/// descriptor says `Ljava/util/Map;`, only the LVTT carries the type
+/// arguments. The G3.3 signature-pin layer reads exactly this.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocalVarType {
+    pub start_pc: u16,
+    pub length: u16,
+    pub name: String,
+    /// The raw generic signature (JVMS §4.7.9.1), unparsed.
+    pub signature: String,
+    /// The local-variable slot index (category-2 types still use one index).
+    pub index: u16,
+}
+
 #[derive(Clone, Debug)]
 pub struct CodeAttribute {
     pub max_stack: u16,
     pub max_locals: u16,
     pub code: Vec<u8>,
     pub exception_table: Vec<ExceptionEntry>,
+    /// `LocalVariableTypeTable` entries, in classfile order (JVMS says no
+    /// canonical order; javac emits them in slot order). Empty when absent.
+    pub lvtt: Vec<LocalVarType>,
 }
 
 #[derive(Clone, Debug)]
@@ -334,6 +353,10 @@ pub struct FieldInfo {
     pub descriptor: String,
     /// `ConstantValue` for static finals, if present.
     pub constant_value: Option<ConstantValue>,
+    /// `Signature` attribute (JVMS §4.7.9): the field's generic signature
+    /// (e.g. `Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;`),
+    /// unparsed. `None` for non-generic fields.
+    pub signature: Option<String>,
 }
 
 impl FieldInfo {
@@ -372,6 +395,9 @@ pub struct MethodInfo {
     pub name: String,
     pub descriptor: String,
     pub code: Option<CodeAttribute>,
+    /// `Signature` attribute (JVMS §4.7.9): the method's generic signature
+    /// (type parameters, parameter type arguments, throws), unparsed.
+    pub signature: Option<String>,
 }
 
 impl MethodInfo {
@@ -454,6 +480,10 @@ pub struct ClassFile {
     /// metadata) or this class has no entry of its own; `Some("")` marks an
     /// anonymous class. `Class.getSimpleName` uses this verbatim.
     pub inner_name: Option<String>,
+    /// `Signature` attribute (JVMS §4.7.9): the class's generic signature
+    /// (type parameters, superclass and superinterface type arguments),
+    /// unparsed. `None` for non-generic classes.
+    pub signature: Option<String>,
 }
 
 impl ClassFile {
@@ -522,11 +552,13 @@ impl ClassFile {
         }
         let fields = parse_fields(&mut r, &constant_pool)?;
         let methods = parse_methods(&mut r, &constant_pool)?;
-        // Class-level attributes: BootstrapMethods (invokedynamic) and
-        // InnerClasses (reflection simple names, M3_PLAN §8.1); the rest are
+        // Class-level attributes: BootstrapMethods (invokedynamic),
+        // InnerClasses (reflection simple names, M3_PLAN §8.1) and
+        // Signature (the generic-signature pin, G3.3); the rest are
         // skipped by length per the class-file format.
         let mut bootstrap_methods = Vec::new();
         let mut inner_name: Option<String> = None;
+        let mut signature: Option<String> = None;
         let attr_count = r.u2()?;
         for _ in 0..attr_count {
             let name_idx = r.u2()?;
@@ -539,6 +571,17 @@ impl ClassFile {
                 "InnerClasses" => {
                     let body = r.bytes(len as usize)?;
                     inner_name = parse_inner_classes(body, &constant_pool, &this_class)?;
+                }
+                "Signature" => {
+                    // JVMS §4.7.9: exactly one u2, the signature_index.
+                    if len != 2 {
+                        return Err(Error::new(
+                            r.pos,
+                            format!("Signature.attribute_length must be 2, got {len}"),
+                        ));
+                    }
+                    let idx = r.u2()?;
+                    signature = Some(constant_pool.utf8(idx)?.to_string());
                 }
                 _ => {
                     r.skip(len as usize)?;
@@ -558,6 +601,7 @@ impl ClassFile {
             methods,
             bootstrap_methods,
             inner_name,
+            signature,
         })
     }
 }
@@ -795,6 +839,7 @@ fn parse_fields(r: &mut Reader<'_>, cp: &ConstantPool) -> Result<Vec<FieldInfo>>
         let name = cp.utf8(r.u2()?)?.to_string();
         let descriptor = cp.utf8(r.u2()?)?.to_string();
         let mut constant_value = None;
+        let mut signature = None;
         let attr_count = r.u2()?;
         for _ in 0..attr_count {
             let attr_name = cp.utf8(r.u2()?)?.to_string();
@@ -824,6 +869,17 @@ fn parse_fields(r: &mut Reader<'_>, cp: &ConstantPool) -> Result<Vec<FieldInfo>>
                         ))
                     }
                 });
+            } else if attr_name == "Signature" {
+                // JVMS §4.7.9: exactly one u2, the signature_index (same
+                // strict-length law as ConstantValue, audit A4's lesson).
+                if len != 2 {
+                    return Err(Error::new(
+                        r.pos,
+                        format!("Signature.attribute_length must be 2, got {len}"),
+                    ));
+                }
+                let idx = r.u2()?;
+                signature = Some(cp.utf8(idx)?.to_string());
             } else {
                 r.skip(len as usize)?;
             }
@@ -833,6 +889,7 @@ fn parse_fields(r: &mut Reader<'_>, cp: &ConstantPool) -> Result<Vec<FieldInfo>>
             name,
             descriptor,
             constant_value,
+            signature,
         });
     }
     Ok(fields)
@@ -846,6 +903,7 @@ fn parse_methods(r: &mut Reader<'_>, cp: &ConstantPool) -> Result<Vec<MethodInfo
         let name = cp.utf8(r.u2()?)?.to_string();
         let descriptor = cp.utf8(r.u2()?)?.to_string();
         let mut code = None;
+        let mut signature = None;
         let attr_count = r.u2()?;
         for _ in 0..attr_count {
             let attr_name = cp.utf8(r.u2()?)?.to_string();
@@ -853,6 +911,15 @@ fn parse_methods(r: &mut Reader<'_>, cp: &ConstantPool) -> Result<Vec<MethodInfo
             if attr_name == "Code" {
                 let body = r.bytes(len as usize)?;
                 code = Some(parse_code(body, cp)?);
+            } else if attr_name == "Signature" {
+                if len != 2 {
+                    return Err(Error::new(
+                        r.pos,
+                        format!("Signature.attribute_length must be 2, got {len}"),
+                    ));
+                }
+                let idx = r.u2()?;
+                signature = Some(cp.utf8(idx)?.to_string());
             } else {
                 r.skip(len as usize)?;
             }
@@ -862,6 +929,7 @@ fn parse_methods(r: &mut Reader<'_>, cp: &ConstantPool) -> Result<Vec<MethodInfo
             name,
             descriptor,
             code,
+            signature,
         });
     }
     Ok(methods)
@@ -909,12 +977,20 @@ fn parse_code(body: &[u8], cp: &ConstantPool) -> Result<CodeAttribute> {
     // validating each name index and length instead of trusting the
     // enclosing slice — a truncated or padded Code body is now a precise
     // error, and the pool walk catches garbage name indices (audit A4).
+    // LocalVariableTypeTable (JVMS §4.7.14) is kept: the G3.3
+    // signature-pin layer reads the generic types of locals from it.
     let sub_count = r.u2()?;
+    let mut lvtt = Vec::new();
     for _ in 0..sub_count {
         let sub_name_idx = r.u2()?;
         let sub_len = r.u4()? as usize;
-        cp.utf8(sub_name_idx)?;
-        r.skip(sub_len)?;
+        let sub_name = cp.utf8(sub_name_idx)?;
+        if sub_name == "LocalVariableTypeTable" {
+            let body = r.bytes(sub_len)?;
+            lvtt = parse_lvtt(body, cp)?;
+        } else {
+            r.skip(sub_len)?;
+        }
     }
     if r.pos != body.len() {
         return Err(Error::new(
@@ -930,7 +1006,45 @@ fn parse_code(body: &[u8], cp: &ConstantPool) -> Result<CodeAttribute> {
         max_locals,
         code,
         exception_table,
+        lvtt,
     })
+}
+
+/// Parses a `LocalVariableTypeTable` body (JVMS §4.7.14): u2 count, then
+/// per entry start_pc u2, length u2, name_index u2, signature_index u2,
+/// index u2. A truncated body is a precise error, same law as the
+/// enclosing Code walk (audit A4).
+fn parse_lvtt(body: &[u8], cp: &ConstantPool) -> Result<Vec<LocalVarType>> {
+    let mut r = Reader {
+        bytes: body,
+        pos: 0,
+    };
+    let count = r.u2()?;
+    let mut out = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let start_pc = r.u2()?;
+        let length = r.u2()?;
+        let name_idx = r.u2()?;
+        let sig_idx = r.u2()?;
+        let index = r.u2()?;
+        out.push(LocalVarType {
+            start_pc,
+            length,
+            name: cp.utf8(name_idx)?.to_string(),
+            signature: cp.utf8(sig_idx)?.to_string(),
+            index,
+        });
+    }
+    if r.pos != body.len() {
+        return Err(Error::new(
+            r.pos,
+            format!(
+                "LocalVariableTypeTable has {} unread trailing byte(s)",
+                body.len() - r.pos
+            ),
+        ));
+    }
+    Ok(out)
 }
 
 /// Parses an `InnerClasses` attribute and returns the `inner_name` of the
@@ -1588,5 +1702,243 @@ mod tests {
             "{}",
             err.message
         );
+    }
+
+    // --- the G3.3 signature-pin layer: Signature + LocalVariableTypeTable
+
+    /// Encodes one field with arbitrary attributes (the test counterpart
+    /// of javac emitting a Signature attribute next to ConstantValue).
+    fn field_with_attrs(access: u16, name_idx: u16, desc_idx: u16, attrs: &[&[u8]]) -> Vec<u8> {
+        let mut f = Vec::new();
+        f.extend_from_slice(&access.to_be_bytes());
+        f.extend_from_slice(&name_idx.to_be_bytes());
+        f.extend_from_slice(&desc_idx.to_be_bytes());
+        f.extend_from_slice(&(attrs.len() as u16).to_be_bytes());
+        for a in attrs {
+            f.extend_from_slice(a);
+        }
+        f
+    }
+
+    /// Encodes `name u2; len u4; body` — one attribute_info.
+    fn attr(name_idx: u16, body: &[u8]) -> Vec<u8> {
+        let mut a = Vec::new();
+        a.extend_from_slice(&name_idx.to_be_bytes());
+        a.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        a.extend_from_slice(body);
+        a
+    }
+
+    #[test]
+    fn field_signature_attribute_parses() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let f_name = b.utf8("m");
+        let f_desc = b.utf8("Ljava/util/Map;");
+        let sig_str = b.utf8("Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;");
+        let sig_name = b.utf8("Signature");
+        let field = field_with_attrs(
+            flags::ACC_PUBLIC,
+            f_name,
+            f_desc,
+            &[&attr(sig_name, &sig_str.to_be_bytes())],
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[&field], &[], &[]);
+        let cf = ClassFile::parse(&bytes).unwrap();
+        assert_eq!(
+            cf.field("m").unwrap().signature.as_deref(),
+            Some("Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;")
+        );
+    }
+
+    #[test]
+    fn method_signature_attribute_parses() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let m_name = b.utf8("run");
+        let m_desc = b.utf8("()V");
+        let code_name = b.utf8("Code");
+        let sig_str = b.utf8("(Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;)V");
+        let sig_name = b.utf8("Signature");
+        // Two method-level attributes: Code + Signature (hand-rolled —
+        // `testclass::method` emits exactly one).
+        let mut body = Vec::new();
+        body.extend_from_slice(&1u16.to_be_bytes()); // max_stack
+        body.extend_from_slice(&0u16.to_be_bytes()); // max_locals
+        body.extend_from_slice(&1u32.to_be_bytes()); // code_length
+        body.extend_from_slice(&[0xB1]); // return
+        body.extend_from_slice(&0u16.to_be_bytes()); // exception_table_length
+        body.extend_from_slice(&0u16.to_be_bytes()); // sub-attributes
+        let mut m = Vec::new();
+        m.extend_from_slice(&flags::ACC_PUBLIC.to_be_bytes());
+        m.extend_from_slice(&m_name.to_be_bytes());
+        m.extend_from_slice(&m_desc.to_be_bytes());
+        m.extend_from_slice(&2u16.to_be_bytes()); // attributes_count
+        m.extend_from_slice(&attr(code_name, &body));
+        m.extend_from_slice(&attr(sig_name, &sig_str.to_be_bytes()));
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
+        let cf = ClassFile::parse(&bytes).unwrap();
+        assert_eq!(
+            cf.method("run", "()V").unwrap().signature.as_deref(),
+            Some("(Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;)V")
+        );
+    }
+
+    #[test]
+    fn class_signature_attribute_parses() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let sig_str =
+            b.utf8("<K:Ljava/lang/Object;V:Ljava/lang/Object;>Ljava/util/AbstractMap<TK;TV;>;");
+        let sig_name = b.utf8("Signature");
+        let bytes = b.finish(
+            flags::ACC_PUBLIC,
+            cls,
+            obj_cls,
+            &[],
+            &[],
+            &[],
+            &[&attr(sig_name, &sig_str.to_be_bytes())],
+        );
+        let cf = ClassFile::parse(&bytes).unwrap();
+        assert_eq!(
+            cf.signature.as_deref(),
+            Some("<K:Ljava/lang/Object;V:Ljava/lang/Object;>Ljava/util/AbstractMap<TK;TV;>;")
+        );
+    }
+
+    #[test]
+    fn field_signature_wrong_length_is_rejected() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let f_name = b.utf8("m");
+        let f_desc = b.utf8("Ljava/util/Map;");
+        let sig_name = b.utf8("Signature");
+        // attribute_length claims 3 (must be 2) — the A4 law: a wrong
+        // length would shift the reader onto the next attribute.
+        let field = field_with_attrs(
+            flags::ACC_PUBLIC,
+            f_name,
+            f_desc,
+            &[&attr_len(sig_name, 3, &[0x00, 0x00, 0x00])],
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[&field], &[], &[]);
+        let err = ClassFile::parse(&bytes).unwrap_err();
+        assert!(err.message.contains("Signature"), "{}", err.message);
+    }
+
+    /// `attr` with a deliberately wrong length (negative tests).
+    fn attr_len(name_idx: u16, len: u32, body: &[u8]) -> Vec<u8> {
+        let mut a = Vec::new();
+        a.extend_from_slice(&name_idx.to_be_bytes());
+        a.extend_from_slice(&len.to_be_bytes());
+        a.extend_from_slice(body);
+        a
+    }
+
+    #[test]
+    fn local_variable_type_table_parses() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let m_name = b.utf8("run");
+        let m_desc = b.utf8("()V");
+        let code_name = b.utf8("Code");
+        let lvtt_name = b.utf8("LocalVariableTypeTable");
+        let lv_name = b.utf8("m");
+        let lv_sig = b.utf8("Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;");
+        // One LVTT entry: start_pc 0, length 1, name lv_name, sig lv_sig, slot 0.
+        let mut lvtt_body = Vec::new();
+        lvtt_body.extend_from_slice(&1u16.to_be_bytes());
+        for v in [0u16, 1u16, lv_name, lv_sig, 0u16] {
+            lvtt_body.extend_from_slice(&v.to_be_bytes());
+        }
+        let lvtt = attr(lvtt_name, &lvtt_body);
+        let m = testclass::method_with_sub_attrs(
+            flags::ACC_PUBLIC | flags::ACC_STATIC,
+            m_name,
+            m_desc,
+            1,
+            1,
+            &[0xB1],
+            &[&lvtt],
+            code_name,
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
+        let cf = ClassFile::parse(&bytes).unwrap();
+        let code = cf.method("run", "()V").unwrap().code().unwrap();
+        assert_eq!(code.lvtt.len(), 1);
+        let e = &code.lvtt[0];
+        assert_eq!(e.start_pc, 0);
+        assert_eq!(e.length, 1);
+        assert_eq!(e.name, "m");
+        assert_eq!(
+            e.signature,
+            "Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;"
+        );
+        assert_eq!(e.index, 0);
+    }
+
+    #[test]
+    fn lvtt_trailing_bytes_are_rejected() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let m_name = b.utf8("run");
+        let m_desc = b.utf8("()V");
+        let code_name = b.utf8("Code");
+        let lvtt_name = b.utf8("LocalVariableTypeTable");
+        // count=0 but 2 stray trailing bytes — must be a precise error.
+        let mut lvtt_body = Vec::new();
+        lvtt_body.extend_from_slice(&0u16.to_be_bytes());
+        lvtt_body.extend_from_slice(&[0xAA, 0xBB]);
+        let lvtt = attr(lvtt_name, &lvtt_body);
+        let m = testclass::method_with_sub_attrs(
+            flags::ACC_PUBLIC | flags::ACC_STATIC,
+            m_name,
+            m_desc,
+            1,
+            1,
+            &[0xB1],
+            &[&lvtt],
+            code_name,
+        );
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
+        let err = ClassFile::parse(&bytes).unwrap_err();
+        assert!(
+            err.message.contains("LocalVariableTypeTable"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn no_signature_attributes_means_none() {
+        let mut b = Builder::new();
+        let name = b.utf8("T");
+        let cls = b.class(name);
+        let obj_name = b.utf8("java/lang/Object");
+        let obj_cls = b.class(obj_name);
+        let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[], &[]);
+        let cf = ClassFile::parse(&bytes).unwrap();
+        assert_eq!(cf.signature, None);
+        assert!(cf.fields.iter().all(|f| f.signature.is_none()));
+        assert!(cf.methods.iter().all(|m| m.signature.is_none()));
     }
 }

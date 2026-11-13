@@ -434,7 +434,7 @@ mod tests {
         }
         let _ = ensure(c, Some(thrower)).expect_err("first access throws");
         // Second and third access (the law must be repeatable).
-        for k in 0..2 {
+        for _k in 0..2 {
             let t = ensure(c, None).expect_err("errant access throws");
             assert_eq!(t.java_class(), "java/lang/NoClassDefFoundError");
             assert_eq!(

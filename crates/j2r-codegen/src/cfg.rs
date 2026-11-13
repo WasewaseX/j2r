@@ -2099,6 +2099,8 @@ mod tests {
             is_native: false,
             is_sync: false,
             modifiers: 0,
+            signature: None,
+            lvtt: Vec::new(),
             instrs,
             exception_table: vec![],
             max_locals: 2,

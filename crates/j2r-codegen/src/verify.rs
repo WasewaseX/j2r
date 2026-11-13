@@ -1283,6 +1283,8 @@ mod tests {
             is_native: false,
             is_sync: false,
             modifiers: 0,
+            signature: None,
+            lvtt: Vec::new(),
             fn_name: "m_t".to_string(),
             instrs,
             exception_table: Vec::new(),
@@ -1793,6 +1795,7 @@ mod tests {
             methods: Vec::new(),
             bootstrap_methods: Vec::new(),
             inner_name: None,
+            signature: None,
         };
         let c = ClassPlan {
             name: "T".to_string(),

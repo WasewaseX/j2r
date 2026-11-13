@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-13 (session 19b cont. 8: R2 slice 3 landed; next G3.3 specialized-map).
+fix the board. Last updated: 2026-11-13 (session 19b cont. 9: G3.3 slice 1, the signature-pin layer, landed; next slice 2, the put/get rewrites).
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -1906,6 +1906,45 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       slices conclude (slices 1+2 landed this day: 0.918 → 0.913 →
       0.894). Evidence:
       scripts/evidence/g3_3/opening_census_2026-11-12.txt.
+- [x] **G3.3 SLICE 1 — the signature-pin layer LANDED (2026-11-13,
+      session 19b cont. 9, after reset #21)** — the generic-signature
+      grammar (JVMS §4.7.9.1) parsed and threaded, opening the
+      specialized-map track. Landed: (a) j2r-classfile reads the
+      `Signature` attribute at class/field/method level (strict
+      attribute_length==2, the A4 law) and the `LocalVariableTypeTable`
+      sub-attribute of Code (per-entry precise errors); (b)
+      j2r-codegen/src/signature.rs — full grammar parser
+      (SigType/SigArg/MethodSig/ClassSig: type params with bounds,
+      wildcards `*`/`+`/`-`, nested generics, arrays, prims, type
+      variables, loud positioned errors) + the pin helpers
+      (`BoxedPrim::boxed_prim_of`, `map_value_boxed` — the map family's
+      value parameter, exact `In()` args ONLY: raw types, bounded
+      wildcards and type-variable values pin to NOTHING, the
+      conservative no-rewrite default); (c) plans carry the raw
+      signatures (FieldPlan.signature, MethodPlan.signature +
+      MethodPlan.lvtt; class-level via the retained ClassFile). TWO
+      javac laws probed live (evidence run, SigProbe vs Temurin javac
+      21.0.13): Signature attributes need no -g (fields/params always
+      pinned); **the LVTT needs `-g` — under the harness's plain
+      `javac -d` a generic LOCAL has its type args nowhere on disk**, so
+      the rewrite slices' receiver pin resolves field/method signatures
+      and the -g input, with the valueOf/checkcast adjacency patterns
+      carrying the local case (registered in the slice-2 design). Also
+      probed: a RAW `Map` local never appears in the LVTT at all.
+      Generated code UNCHANGED (the slice only adds parse-time info):
+      cfg_equiv zero divergences (383 s), diff_suite 115 fixtures
+      three-channel zero divergences (546 s). Units **491/0** (was
+      473: +7 classfile, +10 signature grammar, +1 env-gated
+      signature_probe). Drive-by: gate-2 repair of a dd1b2ff latent
+      (typed.rs needless_borrow — the prior clippy-clean claim was a
+      warm-cache artifact, fresh lint caught it) + the CLINIT-THROW
+      test's unused loop var. fmt+clippy clean, gate-11 fixtures=115
+      tests=491 in sync. Evidence:
+      scripts/evidence/g3_3/{signature_pin_2026-11-13.txt,
+      run_signature_probe.sh, SigProbe.java}. NEXT: slice 2 — the
+      put/get rewrites (map_put_prim/map_get_prim natives, the
+      dataflow-window guard) on the signature-pinned + adjacency-pinned
+      shapes.
 - [x] **EXTERNAL PORT REPORT PERSISTED — jbox2d 2.2.1.1 (2026-11-13,
       session 19b, owner directive: "add these in todo list and roadmap
       to survive sandbox reset")** — the owner's independent port test
