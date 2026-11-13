@@ -157,7 +157,13 @@ fn differential_suite_matches_jvm() {
     // shadow quirk), Field/Method.getModifiers (the raw ACC_* masks ride
     // the metadata), the static Field.get/set paths and the typed
     // getter/setter family with the JDK's widening table — 113 on disk,
-    // guard one below that.
+    // guard one below that. The SORT-NULL-CMP fix (2026-11-13) extended
+    // ArraysSurface IN PLACE (count unchanged): the whole-array
+    // sort(T[], C) row with a NULL comparator must fall back to natural
+    // ordering (the JDK source's first branch, `if (c == null)
+    // { sort(a); }`) — the old row NPE'd where the range row already
+    // delegated; two pins (String + Integer arrays) ride the existing
+    // fixture.
     assert!(
         fixtures.len() >= 112,
         "differential suite shrank: {} fixtures (expected >= 112)",

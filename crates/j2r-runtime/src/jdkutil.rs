@@ -665,14 +665,22 @@ pub fn n_arrays_sort_obj(
     Ok(Value::Void)
 }
 
+/// `Arrays.sort(Object[], Comparator)` — comparator ordering; a null
+/// comparator delegates to the natural-ordering form (the JDK source's
+/// first branch, `if (c == null) { sort(a); }` — same law the range row
+/// implements).
 pub fn n_arrays_sort_obj_cmp(
     recv: Option<&JRef>,
     args: &[Value],
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let (a, cmp) = match (args.first(), args.get(1)) {
-        (Some(Value::Ref(Some(r))), Some(Value::Ref(Some(c)))) => (r, c),
+    let cmp = match args.get(1) {
+        Some(Value::Ref(Some(c))) => c,
+        _ => return n_arrays_sort_obj(recv, args, ctx),
+    };
+    let a = match args.first() {
+        Some(Value::Ref(Some(r))) => r,
         _ => return Err(null_arg("Arrays.sort")),
     };
     let len = arr_elems(a)?;

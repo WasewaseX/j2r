@@ -1,6 +1,7 @@
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -93,6 +94,15 @@ public class ArraysSurface {
         String[] recs = {"b2", "a1", "b1", "a3", "b3", "a2"};
         Arrays.sort(recs, (x, y) -> Character.compare(x.charAt(0), y.charAt(0)));
         System.out.println(Arrays.toString(recs));
+
+        // --- NULL comparator: the JDK source's first branch falls back to
+        // natural ordering — must NOT throw NPE ---
+        String[] nats = {"bb", "a", "cc", "b", "aa"};
+        Arrays.sort(nats, (Comparator<String>) null);
+        System.out.println(Arrays.toString(nats));
+        Integer[] natsN = {7, -1, 3};
+        Arrays.sort(natsN, (Comparator<Integer>) null);
+        System.out.println(Arrays.toString(natsN));
 
         // --- Collections.sort on a List, both forms ---
         List<String> words = new ArrayList<String>();

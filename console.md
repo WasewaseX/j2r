@@ -2588,3 +2588,34 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
 - Next (registered): getDeclaredFields/getFields array forms +
   getDeclaredConstructors (slice 3), then G3.3's specialized-map
   implementation; CLINIT-THROW and SORT-NULL-CMP stay queued.
+
+## 2026-11-13 — session 19b cont. 6 — SORT-NULL-CMP FIXED (the queued one-liner)
+
+- **Reset #20 recovery first**: local clone was stale at the m2 era
+  (b4badea); fast-forwarded to origin/main 37213a7 — every prior session
+  commit confirmed pushed, nothing re-derivable was lost. The Rust
+  toolchain was re-downloaded for the EIGHTH time — this session it
+  moved UNDER the project tree (toolchain/{cargo,rustup} + the pinned
+  Temurin 21.0.13+9 JDK alongside) so future resets stop paying the
+  400 MB re-download; scripts/env.sh (outside the repo) bootstraps PATH
+  in one line. rustc 1.99.1 byte-exact (matches the CI pin), Temurin
+  javac 21.0.13 on PATH, baseline build + unit battery green on the
+  pulled tree before any edit.
+- **SORT-NULL-CMP closed** (spotted by the EXTERNAL-B4..B12 wave):
+  n_arrays_sort_obj_cmp matched the old `(array, comparator)` tuple
+  shape that NPE'd on a null comparator. The JDK source's first branch
+  is `if (c == null) { sort(a); }` — natural ordering. The whole-array
+  row now delegates to n_arrays_sort_obj exactly the way the range row
+  (n_arrays_sort_obj_range_cmp) already delegates to
+  n_arrays_sort_obj_range. Delegation keeps the null-ARRAY law too:
+  sort(null, null) still NPEs through the natural-ordering row's
+  null_arg, same as the JDK.
+- **Pin**: ArraysSurface extended IN PLACE (count stays 113) — two
+  null-comparator rows (String[] via `(Comparator<String>) null`,
+  Integer[] via `(Comparator<Integer>) null`), expected natural order
+  `[a, aa, b, bb, cc]` / `[-1, 3, 7]`. Direct three-channel proof:
+  j2r-built binary vs Temurin 21.0.13+9 — stdout byte-identical, stderr
+  byte-identical, exit 0 == 0. J2R_DIFF_FIXTURES=ArraysSurface leg
+  green; full diff_suite re-run comes with the session's closing gate.
+- fmt + clippy clean on the touched tree. STATUS: one queued finding
+  closed; CLINIT-THROW next (the EIIIE machinery), then R2 slice 3.

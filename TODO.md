@@ -2069,13 +2069,15 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       exists anywhere in the tree today; CyclicInit pins only the
       in-progress-recursion half of 12.4.2. STATUS: registered, not
       started.
-- [ ] **SORT-NULL-CMP — Arrays.sort(T[], Comparator) null fallback
-      (spotted 2026-11-13)** — the pre-existing whole-array comparator
-      row NPEs on a null comparator; OpenJDK falls back to natural
-      ordering (the JDK source's first branch). The NEW range form
-      (n_arrays_sort_obj_range_cmp) already implements the fallback;
-      bring the whole-array row in line + a fixture row. One-liner
-      plus pin. STATUS: registered, not started.
+- [x] **SORT-NULL-CMP — Arrays.sort(T[], Comparator) null fallback
+      (spotted 2026-11-13, FIXED 2026-11-13)** — the pre-existing
+      whole-array comparator row NPE'd on a null comparator; OpenJDK
+      falls back to natural ordering (the JDK source's first branch).
+      FIXED: n_arrays_sort_obj_cmp now delegates to the natural-ordering
+      row on a null comparator (the same delegation the range row
+      already implemented); ArraysSurface extended IN PLACE with two
+      null-comparator pins (String + Integer arrays), byte-identical vs
+      Temurin 21.0.13 on all three channels.
 - [ ] **EXTERNAL-CORROB — Opt.md R1–R9 mapped onto the register (the
       cross-reference recorded so the roadmap cites it; no new
       claims)** — R1 (FrameGuard monitors lazy, owner prototype

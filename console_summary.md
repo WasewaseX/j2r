@@ -1,5 +1,19 @@
 # j2r console summary — the state board
 
+Updated 2026-11-13 (session 19b cont. 6 — **SORT-NULL-CMP FIXED**).
+The whole-array sort(T[], C) row NPE'd on a null comparator; the JDK
+source's first branch is `if (c == null) { sort(a); }` — the row now
+delegates to the natural-ordering form exactly like the range row
+already did (null-ARRAY law preserved through the delegation:
+sort(null, null) still NPEs). ArraysSurface extended IN PLACE with two
+null-comparator pins, byte-identical vs Temurin 21.0.13+9 on all three
+channels (exit 0 == 0). Reset #20 recovery folded in: toolchain moved
+UNDER the project tree (ends the 8th re-download; env.sh bootstraps in
+one line), fast-forward to 37213a7 confirmed everything pushed.
+Counters unchanged: 113 fixtures, battery 468/0. Next: CLINIT-THROW
+(the JLS 12.4.2 EIIIE machinery), then R2 slice 3
+(getDeclaredFields/getFields/getDeclaredConstructors), then G3.3.
+
 Updated 2026-11-13 (session 19b cont. 5 — **R2 SLICE 2 LANDED:
 static-pool Field.get/set + getModifiers + the getField law**). The
 register's premise was corrected first: the probe proved getDeclared
