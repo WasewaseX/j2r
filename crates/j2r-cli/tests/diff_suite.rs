@@ -207,9 +207,17 @@ fn differential_suite_matches_jvm() {
     // succeeds, an abstract class throws the message-null
     // InstantiationException, and a ctor's own throw wraps in
     // InvocationTargetException — 119 on disk, guard one below that.
+    // The R5 slice-2 wave (2026-11-15) added VTableDispatch — the
+    // codegen-time vtable + the interface closure: the implementor
+    // closure (sub-interfaces and super chains included), the
+    // monomorphic interface fold, the polymorphic interface and
+    // class-typed sites dispatching through per-class vtable arms
+    // (same-target receivers grouped under one arm), the inherited
+    // interface method landing on the base's compiled method — 120 on
+    // disk, guard one below that.
     assert!(
-        fixtures.len() >= 118,
-        "differential suite shrank: {} fixtures (expected >= 118)",
+        fixtures.len() >= 119,
+        "differential suite shrank: {} fixtures (expected >= 119)",
         fixtures.len()
     );
 

@@ -95,6 +95,16 @@ pub fn obj_get(r: &JRef, idx: usize) -> Value {
     with_obj(*r, |o| o.slots[idx].clone())
 }
 
+/// The concrete class of a heap object (R5 slice 2 vtables): the same
+/// `jclass` field the dispatch walk starts from, cloned out under the heap
+/// lock (one `Arc` incref, no borrow escapes the lock). Generated vtable
+/// matches compare this against the closed-world receiver-class names; the
+/// fallback arm re-enters the full dynamic walk, so a mismatched class
+/// behaves byte-identically to the pre-vtable emission.
+pub fn object_class(r: &JRef) -> Arc<str> {
+    with_obj(*r, |o| o.jclass.clone())
+}
+
 /// Writes a field slot.
 pub fn obj_set(r: &JRef, idx: usize, v: Value) {
     with_obj_mut(*r, |o| o.slots[idx] = v);
@@ -313,5 +323,18 @@ mod tests {
         with_obj_mut(r, |o| o.slots[1] = Value::Int(9));
         assert_eq!(obj_get(&r, 0).expect_int(), 7);
         assert_eq!(obj_get(&r, 1).expect_int(), 9);
+    }
+
+    #[test]
+    fn object_class_reads_the_jclass_field() {
+        // R5 slice 2: the vtable match reads the same field the dispatch
+        // walk starts from — exactly, including array and string objects.
+        let _rt = crate::test_support::runtime();
+        let r = new_obj("probe/Impl", 1).unwrap();
+        assert_eq!(&*object_class(&r), "probe/Impl");
+        let s = new_string("vtable");
+        assert_eq!(&*object_class(&s), "java/lang/String");
+        let arr = new_string_array(&["x".into()]);
+        assert_eq!(&*object_class(&arr), "[Ljava/lang/String;");
     }
 }

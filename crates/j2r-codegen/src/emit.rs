@@ -1779,6 +1779,12 @@ fn emit_instr(
             // The refresh, the pop_ref null law and the try-wrap are
             // byte-identical; only the dispatch walk is elided. Anything
             // unresolved keeps the dynamic path below.
+            // R5 slice 2: when the resolution diverges (the polymorphic
+            // residue), the codegen-time VTABLE places each receiver
+            // class's own target behind ONE class read — the same
+            // `jclass` field the dynamic walk starts from — with the full
+            // dynamic walk as the fallback arm (byte-identical for every
+            // receiver outside the closed-world arms).
             match crate::resolve_virtual_target_pub(prog, class, name, desc) {
                 Some(crate::CallTarget::User { module, fn_name }) => {
                     out.push(format!(
@@ -1790,11 +1796,45 @@ fn emit_instr(
                         "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::Some(&__r), &__a, crate::j2r_dispatch()));"
                     ));
                 }
-                None => {
-                    out.push(format!(
-                        "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch()));"
-                    ));
-                }
+                None => match crate::resolve_vtable_pub(prog, class, name, desc) {
+                    Some(arms) => {
+                        out.push("let __v = {".into());
+                        out.push(format!("let __cls = {RT}::object_class(&__r);"));
+                        out.push("match &*__cls {".into());
+                        for arm in &arms {
+                            let pats = arm
+                                .classes
+                                .iter()
+                                .map(|c| format!("{c:?}"))
+                                .collect::<Vec<_>>()
+                                .join(" | ");
+                            match &arm.target {
+                                crate::CallTarget::User { module, fn_name } => {
+                                    out.push(format!(
+                                        "{pats} => {RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::classes::{module}::{fn_name}(::core::option::Option::Some(&__r), &__a)),"
+                                    ));
+                                }
+                                crate::CallTarget::Native { class: ncls } => {
+                                    out.push(format!(
+                                        "{pats} => {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::Some(&__r), &__a, crate::j2r_dispatch())),"
+                                    ));
+                                }
+                            }
+                        }
+                        out.push(format!(
+                            "_ => {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch())),"
+                        ));
+                        // The match is the block's tail expression — no
+                        // semicolon, or `__v` collapses to `()`.
+                        out.push("}".into());
+                        out.push("};".into());
+                    }
+                    None => {
+                        out.push(format!(
+                            "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch()));"
+                        ));
+                    }
+                },
             }
             if !returns_void(desc) {
                 out.push("stack.push(__v);".into());

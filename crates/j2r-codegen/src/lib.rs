@@ -228,7 +228,7 @@ impl Options {
 
 // ---------------------------------------------------------------- model
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallTarget {
     /// A method compiled from the inputs.
     User { module: String, fn_name: String },
@@ -1665,29 +1665,7 @@ pub fn resolve_virtual_target(
     if !prog.is_user(declared) {
         return None;
     }
-    // Interface-declared receivers are the implementor closure, not the
-    // super-chain closure — a different receiver set with different walk
-    // reach (interface defaults are not on the runtime super-chain walk).
-    // Conservative slice 1: keep every interface-typed site dynamic.
-    if prog.class(declared).map(|c| c.is_interface).unwrap_or(true) {
-        return None;
-    }
-    // The possible runtime receiver classes: the declared class plus every
-    // transitive user subclass (through `super_name` links only — an
-    // `implements` edge does not make a runtime subclass for dispatch).
-    let mut receivers: Vec<String> = vec![declared.to_string()];
-    let mut i = 0;
-    while i < receivers.len() {
-        let cur = receivers[i].clone();
-        i += 1;
-        for c in &prog.classes {
-            if c.super_name.as_deref() == Some(cur.as_str())
-                && !receivers.iter().any(|r| r == &c.name)
-            {
-                receivers.push(c.name.clone());
-            }
-        }
-    }
+    let receivers = virtual_receiver_set(prog, declared)?;
     // Unify every possible receiver's walk.
     let mut unified: Option<CallTarget> = None;
     for recv in &receivers {
@@ -1714,6 +1692,106 @@ pub fn resolve_virtual_target(
         }
     }
     unified
+}
+
+/// The closed-world receiver set of a virtual/interface call site whose
+/// declared type is the user class or interface `declared` (R5 slices 1–2).
+///
+/// * a user CLASS: the class plus every transitive user subclass through
+///   `super_name` links (an `implements` edge does not make a runtime
+///   subclass for dispatch);
+/// * a user INTERFACE: the implementor closure — every user class whose
+///   subtype closure reaches the interface through the user tables
+///   ([`interface_receiver_closure`]).
+///
+/// `None` = the declared type is not a user class/interface, or the
+/// closure is empty (no compiled class can carry the receiver — the site
+/// can only ever NPE or die the internal Error, and the dynamic path
+/// already does that faithfully).
+pub fn virtual_receiver_set(prog: &Program, declared: &str) -> Option<Vec<String>> {
+    if prog.class(declared).map(|c| c.is_interface).unwrap_or(true) {
+        interface_receiver_closure(prog, declared)
+    } else {
+        // The declared class plus every transitive user subclass
+        // (through `super_name` links only).
+        let mut receivers: Vec<String> = vec![declared.to_string()];
+        let mut i = 0;
+        while i < receivers.len() {
+            let cur = receivers[i].clone();
+            i += 1;
+            for c in &prog.classes {
+                if c.super_name.as_deref() == Some(cur.as_str())
+                    && !receivers.iter().any(|r| r == &c.name)
+                {
+                    receivers.push(c.name.clone());
+                }
+            }
+        }
+        Some(receivers)
+    }
+}
+
+/// The closed-world receiver set for a USER-interface-typed call site
+/// (R5 slice 2): every user class whose subtype closure reaches `iface`
+/// through the user tables (`super_name` + `interfaces` edges,
+/// transitively — the same traversal the runtime's subtype check makes
+/// over the generated parents table, minus the builtin edges, which
+/// provably cannot contribute: the builtin tables never name user
+/// classes, so once a chain passes into builtin land it can never reach
+/// a user interface).
+///
+/// Interfaces themselves are excluded: an interface is never a concrete
+/// receiver — it cannot be instantiated, and lambdas targeting USER
+/// functional interfaces are a loud compile error (the closure object's
+/// class is the interface, but only the M3 builtin interface set is
+/// supported — `lambda.rs`'s `SUPPORTED_INTERFACES` gate). A builtin
+/// interface-typed site keeps its fully dynamic path at the
+/// `!prog.is_user` gate above.
+///
+/// Deterministic: the classes iterate in declaration order, so the
+/// emitted arm order (and the bytes) are stable across runs.
+fn interface_receiver_closure(prog: &Program, iface: &str) -> Option<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    for c in &prog.classes {
+        if c.is_interface {
+            continue;
+        }
+        // Upward BFS from c through user edges only (see the doc above).
+        let mut frontier: Vec<&str> = vec![&c.name];
+        let mut visited: Vec<&str> = vec![&c.name];
+        let mut reaches = false;
+        while let Some(cur) = frontier.pop() {
+            if cur == iface {
+                reaches = true;
+                break;
+            }
+            if let Some(plan) = prog.class(cur) {
+                let mut edges: Vec<&str> = Vec::new();
+                if !plan.is_interface {
+                    if let Some(sup) = &plan.super_name {
+                        edges.push(sup);
+                    }
+                }
+                for itf in &plan.interfaces {
+                    edges.push(itf);
+                }
+                for e in edges {
+                    if !visited.contains(&e) {
+                        visited.push(e);
+                        frontier.push(e);
+                    }
+                }
+            }
+        }
+        if reaches {
+            out.push(c.name.clone());
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// One receiver's walk, mirroring [`j2r_runtime::invoke_virtual`] exactly:
@@ -1762,6 +1840,107 @@ pub fn resolve_virtual_target_pub(
     desc: &str,
 ) -> Option<CallTarget> {
     resolve_virtual_target(prog, declared, name, desc)
+}
+
+/// One vtable arm (R5 slice 2): every receiver class listed in `classes`
+/// walks to the SAME `target`, so the emitter groups them under one match
+/// pattern. `classes` keeps first-seen declaration order; `target` is
+/// exactly what [`j2r_runtime::invoke_virtual`]'s walk returns for each
+/// listed receiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VtableArm {
+    pub classes: Vec<String>,
+    pub target: CallTarget,
+}
+
+/// The codegen-time vtable of a polymorphic virtual/interface site (R5
+/// slice 2): per-receiver direct targets for the closed-world receiver
+/// set, emitted as a match on the receiver's concrete class with the full
+/// dynamic walk as the fallback arm. The direct fold
+/// ([`resolve_virtual_target`]) stays the first choice — a vtable is
+/// planned only when it would NOT fire (multiple distinct targets, or
+/// walks that would die the internal Error) and at least two DISTINCT
+/// groups exist (otherwise the match adds nothing over the dynamic path).
+///
+/// Faithfulness: every arm's target is what the runtime walk returns for
+/// that receiver class; a receiver whose walk would die the Error gets NO
+/// arm (the fallback re-enters the dynamic walk and dies it identically);
+/// any class outside the receiver set — impossible in the closed world —
+/// also falls back, byte-identically. The refresh, the `pop_ref` NPE law
+/// and the `j2r_try!` wrap ride the same code for every arm.
+pub fn resolve_vtable(
+    prog: &Program,
+    declared: &str,
+    name: &str,
+    desc: &str,
+) -> Option<Vec<VtableArm>> {
+    // The single-target fold already covers this site.
+    if resolve_virtual_target(prog, declared, name, desc).is_some() {
+        return None;
+    }
+    if !prog.is_user(declared) {
+        return None;
+    }
+    let receivers = virtual_receiver_set(prog, declared)?;
+    // Group the receivers by their walk target; first-seen order.
+    let mut arms: Vec<VtableArm> = Vec::new();
+    for recv in &receivers {
+        let target = match walk_virtual_chain(prog, recv, name, desc) {
+            Some(t) => t,
+            // A receiver whose walk would die the internal Error gets no
+            // arm — the emitter's fallback re-enters the dynamic walk and
+            // throws the identical Error.
+            None => continue,
+        };
+        if let Some(arm) = arms.iter_mut().find(|a| a.target == target) {
+            arm.classes.push(recv.clone());
+        } else {
+            arms.push(VtableArm {
+                classes: vec![recv.clone()],
+                target,
+            });
+        }
+    }
+    // A single group adds nothing over the dynamic path (and the
+    // all-receivers-unified case already returned at the fold gate
+    // above): stay dynamic.
+    if arms.len() < 2 {
+        return None;
+    }
+    Some(arms)
+}
+
+/// Emitter wrapper (same rationale as [`resolve_call_pub`]).
+pub fn resolve_vtable_pub(
+    prog: &Program,
+    declared: &str,
+    name: &str,
+    desc: &str,
+) -> Option<Vec<VtableArm>> {
+    resolve_vtable(prog, declared, name, desc)
+}
+
+/// R5 slice 2 measurement: how many virtual/interface sites carry a
+/// vtable plan and how many grouped arms those vtables hold in total.
+/// Observability only — the emission itself decides per site.
+pub fn count_vtable_sites(prog: &Program) -> (usize, usize) {
+    let mut sites = 0;
+    let mut arms = 0;
+    for c in &prog.classes {
+        for m in &c.methods {
+            for (_pc, instr) in &m.instrs {
+                if let ir::Instr::InvokeVirtual { class, name, desc }
+                | ir::Instr::InvokeInterface { class, name, desc } = instr
+                {
+                    if let Some(plan) = resolve_vtable(prog, class, name, desc) {
+                        sites += 1;
+                        arms += plan.len();
+                    }
+                }
+            }
+        }
+    }
+    (sites, arms)
 }
 
 /// R5 slice 1 measurement: over every user method's instructions, how
@@ -2063,16 +2242,263 @@ mod virtual_resolution_tests {
         assert!(resolve_virtual_target(&p, "NotHere", "m", MV).is_none());
     }
 
+    // ------------------------------------------- R5 slice 2: interface closure + vtables
+
+    /// An interface plan (no methods unless given).
+    fn itf_plan(name: &str, extends: &[&str], methods: &[(&str, &str)]) -> ClassPlan {
+        let mut c = plan(name, Some("java/lang/Object"), methods);
+        c.is_interface = true;
+        c.interfaces = extends.iter().map(|s| s.to_string()).collect();
+        c
+    }
+
+    /// A class plan implementing `impls`.
+    fn impl_plan(
+        name: &str,
+        sup: Option<&str>,
+        impls: &[&str],
+        methods: &[(&str, &str)],
+    ) -> ClassPlan {
+        let mut c = plan(name, sup, methods);
+        c.interfaces = impls.iter().map(|s| s.to_string()).collect();
+        c
+    }
+
     #[test]
-    fn interface_declared_sites_stay_dynamic_in_slice_1() {
-        // The implementor closure is a different receiver set; slice 1
-        // keeps every interface-typed site on the dynamic path.
-        let mut itf = plan("I", Some("java/lang/Object"), &[]);
-        itf.is_interface = true;
-        let mut implr = plan("Impl", Some("java/lang/Object"), &[("m", MV)]);
-        implr.interfaces = vec!["I".to_string()];
-        let p = prog(vec![itf, implr]);
+    fn slice2_monomorphic_interface_site_folds() {
+        // Supersedes the slice-1 gate above: with the implementor closure
+        // the ONE-implementor interface site folds to that implementor.
+        let p = prog(vec![
+            itf_plan("I", &[], &[]),
+            impl_plan("Impl", None, &["I"], &[("m", MV)]),
+        ]);
+        let folded = user_target(resolve_virtual_target(&p, "I", "m", MV)).unwrap();
+        assert_eq!(
+            (folded.0.as_str(), folded.1.as_str()),
+            ("Impl", method_fn_name("m", MV).as_str())
+        );
+    }
+
+    #[test]
+    fn slice2_interface_receiver_set_is_the_implementor_closure() {
+        // The closure collects implementors through super chains AND
+        // sub-interfaces; unrelated classes stay out; interfaces are never
+        // receivers.
+        let p = prog(vec![
+            itf_plan("Top", &[], &[]),
+            itf_plan("Mid", &["Top"], &[]),
+            impl_plan("ViaMid", None, &["Mid"], &[("m", MV)]),
+            impl_plan("InhBase", None, &["Top"], &[]),
+            impl_plan("InhSub", Some("InhBase"), &[], &[]),
+            impl_plan("Other", None, &[], &[("m", MV)]),
+            itf_plan("Unrelated", &[], &[]),
+        ]);
+        assert_eq!(
+            virtual_receiver_set(&p, "Top").unwrap(),
+            vec![
+                "ViaMid".to_string(),
+                "InhBase".to_string(),
+                "InhSub".to_string()
+            ]
+        );
+        // Sub-interface closures reach their super-interfaces' sites.
+        assert_eq!(
+            virtual_receiver_set(&p, "Mid").unwrap(),
+            vec!["ViaMid".to_string()]
+        );
+        // An interface nobody implements: no possible non-null receiver.
+        assert!(virtual_receiver_set(&p, "Unrelated").is_none());
+    }
+
+    #[test]
+    fn slice2_subinterface_and_inherited_walks_fold() {
+        // ViaMid.m via the Top-typed site: the walk starts at the concrete
+        // class and the sub-interface edge only decides MEMBERSHIP.
+        let p = prog(vec![
+            itf_plan("Top", &[], &[]),
+            itf_plan("Mid", &["Top"], &[]),
+            impl_plan("ViaMid", None, &["Mid"], &[("m", MV)]),
+        ]);
+        let folded = user_target(resolve_virtual_target(&p, "Top", "m", MV)).unwrap();
+        assert_eq!(
+            (folded.0.as_str(), folded.1.as_str()),
+            ("ViaMid", method_fn_name("m", MV).as_str())
+        );
+        // The inherited form: InhSub carries no m — the walk lands on
+        // InhBase.m, so even the interface-typed site folds to the BASE.
+        let p2 = prog(vec![
+            itf_plan("Inh", &[], &[]),
+            impl_plan("InhBase", None, &["Inh"], &[("m", MV)]),
+            impl_plan("InhSub", Some("InhBase"), &[], &[]),
+        ]);
+        let folded2 = user_target(resolve_virtual_target(&p2, "Inh", "m", MV)).unwrap();
+        assert_eq!(
+            (folded2.0.as_str(), folded2.1.as_str()),
+            ("InhBase", method_fn_name("m", MV).as_str())
+        );
+    }
+
+    #[test]
+    fn slice2_polymorphic_interface_site_gets_a_vtable() {
+        // Two implementors diverge: no single fold, but a two-arm vtable
+        // grouped per implementor (declaration order preserved).
+        let p = prog(vec![
+            itf_plan("Poly", &[], &[]),
+            impl_plan("P1", None, &["Poly"], &[("m", MV)]),
+            impl_plan("P2", None, &["Poly"], &[("m", MV)]),
+        ]);
+        assert!(resolve_virtual_target(&p, "Poly", "m", MV).is_none());
+        let arms = resolve_vtable(&p, "Poly", "m", MV).unwrap();
+        assert_eq!(arms.len(), 2);
+        assert_eq!(arms[0].classes, vec!["P1".to_string()]);
+        assert_eq!(user_target(Some(arms[0].target.clone())).unwrap().0, "P1");
+        assert_eq!(arms[1].classes, vec!["P2".to_string()]);
+        assert_eq!(user_target(Some(arms[1].target.clone())).unwrap().0, "P2");
+    }
+
+    #[test]
+    fn slice2_vtable_groups_same_target_receivers() {
+        // DBase.m; DMid inherits it; DSub overrides — the Top-typed site
+        // has two distinct targets and {DBase, DMid} share one arm.
+        let p = prog(vec![
+            itf_plan("Deep", &[], &[]),
+            impl_plan("DBase", None, &["Deep"], &[("m", MV)]),
+            impl_plan("DMid", Some("DBase"), &[], &[]),
+            impl_plan("DSub", Some("DMid"), &[], &[("m", MV)]),
+        ]);
+        assert!(resolve_virtual_target(&p, "Deep", "m", MV).is_none());
+        let arms = resolve_vtable(&p, "Deep", "m", MV).unwrap();
+        assert_eq!(arms.len(), 2);
+        assert_eq!(
+            arms[0].classes,
+            vec!["DBase".to_string(), "DMid".to_string()]
+        );
+        assert_eq!(
+            user_target(Some(arms[0].target.clone())).unwrap().0,
+            "DBase"
+        );
+        assert_eq!(arms[1].classes, vec!["DSub".to_string()]);
+        assert_eq!(user_target(Some(arms[1].target.clone())).unwrap().0, "DSub");
+    }
+
+    #[test]
+    fn slice2_class_typed_polymorphic_site_gets_a_vtable() {
+        // The DispatchOrder shape: A.m; B extends A and overrides — the
+        // A-typed site gets the per-receiver vtable.
+        let p = prog(vec![
+            plan("A", Some("java/lang/Object"), &[("m", MV)]),
+            plan("B", Some("A"), &[("m", MV)]),
+        ]);
+        assert!(resolve_virtual_target(&p, "A", "m", MV).is_none());
+        let arms = resolve_vtable(&p, "A", "m", MV).unwrap();
+        assert_eq!(arms.len(), 2);
+        assert_eq!(arms[0].classes, vec!["A".to_string()]);
+        assert_eq!(arms[1].classes, vec!["B".to_string()]);
+    }
+
+    #[test]
+    fn slice2_vtable_fallback_covers_the_error_walk() {
+        // One implementor's walk would die the internal Error (no m on its
+        // chain): it gets NO arm; the fallback re-enters the dynamic walk.
+        // Two healthy implementors still give a usable vtable.
+        let p = prog(vec![
+            itf_plan("I", &[], &[]),
+            impl_plan("Ok1", None, &["I"], &[("m", MV)]),
+            impl_plan("Ok2", None, &["I"], &[("m", MV)]),
+            impl_plan("Dying", None, &["I"], &[]),
+        ]);
         assert!(resolve_virtual_target(&p, "I", "m", MV).is_none());
+        let arms = resolve_vtable(&p, "I", "m", MV).unwrap();
+        assert_eq!(arms.len(), 2);
+        for arm in &arms {
+            assert!(!arm.classes.iter().any(|c| c == "Dying"));
+        }
+        // A receiver set with exactly ONE healthy group (the rest dying):
+        // the match adds nothing — stay dynamic.
+        let p2 = prog(vec![
+            itf_plan("I2", &[], &[]),
+            impl_plan("Only", None, &["I2"], &[("m", MV)]),
+            impl_plan("Dying2", None, &["I2"], &[]),
+        ]);
+        assert!(resolve_vtable(&p2, "I2", "m", MV).is_none());
+    }
+
+    #[test]
+    fn slice2_empty_and_builtin_interface_sites_stay_dynamic() {
+        // Nobody implements the interface: no possible non-null receiver —
+        // the site can only NPE (faithful already); never fold.
+        let p = prog(vec![
+            itf_plan("Lonely", &[], &[]),
+            plan("Bystander", Some("java/lang/Object"), &[]),
+        ]);
+        assert!(resolve_virtual_target(&p, "Lonely", "m", MV).is_none());
+        assert!(resolve_vtable(&p, "Lonely", "m", MV).is_none());
+        // A builtin interface has an open receiver set (builtins implement
+        // it; lambda closures carry its class) — fully dynamic.
+        let p2 = prog(vec![plan("A", Some("java/lang/Object"), &[])]);
+        assert!(resolve_virtual_target(
+            &p2,
+            "java/lang/Comparable",
+            "compareTo",
+            "(Ljava/lang/Object;)I"
+        )
+        .is_none());
+        assert!(resolve_vtable(
+            &p2,
+            "java/lang/Comparable",
+            "compareTo",
+            "(Ljava/lang/Object;)I"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn slice2_fold_beats_vtable_single_target() {
+        // When the walk unifies, resolve_vtable must NOT plan a match —
+        // the direct fold is the emission.
+        let p = prog(vec![
+            itf_plan("I", &[], &[]),
+            impl_plan("Impl", None, &["I"], &[("m", MV)]),
+        ]);
+        assert!(resolve_virtual_target(&p, "I", "m", MV).is_some());
+        assert!(resolve_vtable(&p, "I", "m", MV).is_none());
+    }
+
+    #[test]
+    fn slice2_count_vtable_sites_tallies() {
+        // Poly-typed site → 1 vtable site with 2 arms; the Impl-typed site
+        // folds direct (not counted); the Poly2 site (single implementor)
+        // folds too.
+        let mut main = plan(
+            "Main",
+            Some("java/lang/Object"),
+            &[("main", "([Ljava/lang/String;)V")],
+        );
+        main.methods[0].instrs = vec![
+            (
+                0,
+                ir::Instr::InvokeInterface {
+                    class: "Poly".to_string(),
+                    name: "m".to_string(),
+                    desc: MV.to_string(),
+                },
+            ),
+            (
+                3,
+                ir::Instr::InvokeVirtual {
+                    class: "P1".to_string(),
+                    name: "m".to_string(),
+                    desc: MV.to_string(),
+                },
+            ),
+        ];
+        let p = prog(vec![
+            itf_plan("Poly", &[], &[]),
+            impl_plan("P1", None, &["Poly"], &[("m", MV)]),
+            impl_plan("P2", None, &["Poly"], &[("m", MV)]),
+            main,
+        ]);
+        assert_eq!(count_vtable_sites(&p), (1, 2));
     }
 
     #[test]
