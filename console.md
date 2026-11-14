@@ -3134,3 +3134,32 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   counter) — units 461 lib / 0 failed (codegen 130 → 141); codegen
   e2e + malformed + wide_ids green; fmt + clippy clean (one
   question_mark lint fixed en route).
+
+## SESSION 19b cont. 12 (cont. 2) — 2026-11-15 (R5 SLICE 1 CLOSED: full battery green, measured)
+
+- **The full battery, all green**: lib units 461/0 (codegen 130 →
+  141 — the 11 law tests); codegen e2e 1/1, malformed 12/12,
+  wide_ids 1/1; **diff_suite 119 fixtures three-channel ZERO
+  divergences** (sharded 1/2 = 319.28 s + 0/2 = 322.12 s — the
+  harness's shard legs are ZERO-based, "bad shard spec 2/2" taught
+  that); **cfg_equiv zero** (388.40 s — the partitioned emitter
+  shares the fold arm); fmt + clippy clean FRESH.
+- **MEASURED (same-session before/after, identical inputs)**: the
+  four dispatch-heavy fixtures (DispatchOrder, Inherit, Interfaces,
+  Objects; 15 classes) compiled pre-fold (a 424b0a4 worktree) and
+  with the fold: dynamic invoke_virtual sites 56 → 48, direct forms
+  17 → 25 — **8 of the 56 dynamic sites fold** (−14.3%). The residue:
+  interface-typed sites (slice 1 keeps them dynamic) + genuinely
+  polymorphic sites. Evidence: scripts/evidence/r5/
+  virtual_resolution_2026-11-15.txt.
+- **gate-11**: README 507 → 520 tests (the checker measured;
+  fixtures=119 unchanged). TODO.md R5 SLICE 1 flipped [x].
+- **Board hygiene delivered as promised**: scripts/
+  bootstrap_toolchain.sh + env.sh are TRACKED now (they were
+  local-only and died with every reset); the script's two own bugs
+  fixed en route (rustup-init runs as a binary; the proxies need
+  RUSTUP_HOME/CARGO_HOME).
+- **Next**: R5 slice 2 — the interface-closure receiver set + the
+  vtable for the polymorphic residue; R7's perfect-hash dispatch
+  table follows R5 per the register. The continuation cycle (5 runs,
+  2 h apart) carries the queue forward; runs 2-5 are scheduled.

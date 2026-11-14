@@ -1,0 +1,71 @@
+R5 SLICE 1 — codegen-time virtual resolution — evidence
+=========================================================
+Date: 2026-11-15 (session 19b cont. 12, reset #23 recovery)
+Commits: 424b0a4 (plan) → 57bf181 (the fold) → this evidence
+
+TOOLCHAIN
+---------
+rustc 1.99.1 (58cf8f9c3 2026-10-13) — byte-exact re-bootstrap
+javac    OpenJDK 21.0.13 LTS (Temurin 21.0.13+9 tree, bootstrapped
+         from the persistent scripts/bootstrap_toolchain.sh; the
+         script's two own bugs found+fixed this session: rustup-init
+         runs as a binary, and the proxies need RUSTUP_HOME/CARGO_HOME)
+
+THE LAW (j2r-codegen/src/lib.rs, resolve_virtual_target)
+--------------------------------------------------------
+The generated crate is a closed world. A receiver statically typed as
+the user class C carries, at run time, exactly C plus its transitive
+user subclasses through super_name links. For every possible receiver
+the walk mirrors j2r_runtime::invoke_virtual level for level:
+  1. compiled method at the level (ClassPlan::method — the same
+     source the registry match arms come from),
+  2. natives row at the level (natives::lookup_exact; user levels
+     included — the order user-method-then-native is the law and it
+     holds even for a user class shadowing a builtin name),
+  3. the parent: user super_name (java/lang/Object default), then
+     builtin::builtin_parent_of.
+Some(target) only when EVERY possible receiver's walk lands on the
+same single target; the emitter then places the direct call in the
+InvokeSpecial forms (Option::Some(&__r)) — the frame refresh, the
+pop_ref NPE law and the j2r_try! wrap are byte-identical. None keeps
+the dynamic path: diverging walks, walks that would die the internal
+Error, and — slice 1's conservative gate — ALL interface-typed sites
+(the implementor closure is a different receiver set; interface
+defaults are not on the runtime super-chain walk), plus every builtin
+and array declared type (open receiver sets).
+
+MEASUREMENT (same-session before/after, identical inputs)
+---------------------------------------------------------
+Inputs: DispatchOrder + Inherit + Interfaces + Objects (the four
+dispatch-heavy suite fixtures, 15 classes) compiled to crates with
+the release CLI. The emitted code census:
+                          pre-fold (424b0a4)   with fold (57bf181)
+  dynamic invoke_virtual        56                   48
+  direct forms                  17                   25
+  → the fold converted 8 of the 56 dynamic sites to direct calls
+    (−14.3% dynamic sites). The residue is dominated by the
+    interface-typed sites (slice 1 keeps them dynamic) and the
+    genuinely polymorphic sites — Inherit/Interfaces are
+    override-heavy by design. count_virtual_sites(prog) is the
+    program-wide counter for the corpus runs.
+
+GATES
+-----
+- lib units: 461 passed / 0 failed (codegen 130 → 141: the 11 law
+  tests — fold-to-owner, polymorphic-stays-dynamic, user-override-
+  beats-native, user-vs-native divergence, native fold, deep chain,
+  sibling overrides, builtin/array/unknown gates, interface gate,
+  error-walk gate, counter).
+- codegen integration: e2e 1/1, malformed 12/12, wide_ids 1/1.
+- diff_suite: 119 fixtures, three channels (stdout/stderr/exit),
+  ZERO divergences (sharded 1/2 + 0/2: 319.28 s + 322.12 s).
+- cfg_equiv: zero divergences (388.40 s) — the partitioned emitter
+  shares the fold arm.
+- fmt + clippy: clean FRESH (one question_mark lint fixed en route).
+- gate-11: README 507 → 520 tests; fixtures=119 unchanged.
+
+NEXT
+----
+Slice 2 (planned only after this lands clean — it did): the
+interface-closure receiver set + the vtable for the polymorphic
+residue; R7's perfect-hash dispatch table follows R5 per the register.

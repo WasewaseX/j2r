@@ -2341,10 +2341,10 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       do-NOT list (no copying GC, no NaN-boxing of Value, no
       computed-goto, no manual vectorization, no platform-libm switch)
       agrees with our standing laws. STATUS: mapping recorded.
-- [~] **R5 SLICE 1 — codegen-time virtual resolution (the Opt.md R5
-      first pull; planned 2026-11-15, session 19b cont. 12)** — every
-      `invokevirtual`/`invokeinterface` site is resolved against the
-      CLOSED user-class table at codegen time. The possible runtime
+- [x] **R5 SLICE 1 — codegen-time virtual resolution (the Opt.md R5
+      first pull; planned + LANDED 2026-11-15, session 19b cont. 12)** —
+      every `invokevirtual`/`invokeinterface` site is resolved against
+      the CLOSED user-class table at codegen time. The possible runtime
       receiver classes of a user-declared class C are exactly C plus
       its transitive user subclasses (the generated crate is a closed
       world; builtins/arrays cannot carry a user-typed receiver). For
@@ -2359,8 +2359,20 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       `Option::Some(&__r)`), keeping the frame refresh, the `pop_ref`
       NPE path and the `j2r_try!` wrap byte-identical. Any divergence,
       any walk that would die the internal Error, and any builtin/
-      array/open-world declared type keep the dynamic path. Unit tests
-      pin the fold/diverge/native-shadow laws; full battery after;
-      EmitStats gains the site counters for the corpus measurement.
-      Slice 2 (the vtable for the polymorphic residue) plans only
-      after this lands clean.
+      array/open-world declared type keep the dynamic path; SLICE 1
+      ALSO keeps every interface-typed site dynamic (the implementor
+      closure is a different receiver set — slice 2). LANDED:
+      `resolve_virtual_target` + `walk_virtual_chain` +
+      `count_virtual_sites` in j2r-codegen/src/lib.rs, the fold in the
+      emitter's InvokeVirtual/InvokeInterface arm. 11 law tests;
+      MEASURED same-session before/after on the four dispatch-heavy
+      fixtures: 8 of 56 dynamic sites fold to direct calls (56 → 48
+      dynamic, 17 → 25 direct forms; scripts/evidence/r5/
+      virtual_resolution_2026-11-15.txt). Battery: lib units 461/0
+      (codegen 130 → 141), codegen e2e/malformed/wide_ids green,
+      diff_suite 119 fixtures three-channel ZERO divergences
+      (319.28 s + 322.12 s sharded), cfg_equiv zero (388.40 s),
+      fmt+clippy clean FRESH, gate-11 README 507 → 520 tests,
+      fixtures=119 unchanged. Next: slice 2 — the interface-closure
+      receiver set + the vtable for the polymorphic residue; R7's
+      perfect-hash dispatch table follows R5 per the register.
