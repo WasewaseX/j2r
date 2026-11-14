@@ -668,8 +668,8 @@ fn emit_part(
         };
         let _ = writeln!(
             lib,
-            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ id: {}, is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag}, clinit: {} }};",
-            c.id, c.is_interface, simple, clinit_expr
+            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ id: {}, is_interface: {}, is_abstract: {}, simple_name: {}, total_slots: {}, defaults_spec: {:?}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag}, clinit: {} }};",
+            c.id, c.is_interface, c.is_abstract, simple, c.total_slots, c.default_spec, clinit_expr
         );
     }
     let _ = writeln!(

@@ -3589,6 +3589,22 @@ fn n_system_gc(_recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<
     Ok(Value::Void)
 }
 
+/// `Constructor.newInstance(Object...)` — NEW-INSTANCE: the args array
+/// rides unmarshaled into the `<init>` through the dispatch table (the
+/// implementation and the probed laws live in `reflect::ctor_new_instance`).
+fn n_ctor_new_instance(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let k = this(recv, "Constructor.newInstance");
+    let argv = match args.first() {
+        Some(Value::Ref(r)) => r.as_ref(),
+        _ => {
+            return Err(internal_error(
+                "Constructor.newInstance needs the args array",
+            ))
+        }
+    };
+    reflect::ctor_new_instance(ctx, k, argv)
+}
+
 // ---------------------------------------------------------------- Table
 // ---------------------------------------------------------- java/lang/Thread
 // M4 Wave 2 (T06): thin wrappers onto `crate::thread` (implementation,
@@ -7275,6 +7291,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "toString",
         "()Ljava/lang/String;",
         n_ctor_to_string,
+    ),
+    (
+        "java/lang/reflect/Constructor",
+        "newInstance",
+        "([Ljava/lang/Object;)Ljava/lang/Object;",
+        n_ctor_new_instance,
     ),
     // R2 slice 3: the modifier-mask renderer (the fixture prints masks
     // through it; JDK-canonical bit order).

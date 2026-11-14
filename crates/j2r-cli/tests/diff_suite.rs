@@ -198,11 +198,18 @@ fn differential_suite_matches_jvm() {
     // JLS 12.4.2 machine as the bytecode sites (the EIIIE wrap, the
     // errant NCDFE, the Error as-is), the 3-arg initialize=false skips
     // it, the array descriptor resolves without initializing the
-    // component, and Class.getClassLoader joins the surface — 118 on
-    // disk, guard one below that.
+    // component, and Class.getClassLoader joins the surface. The
+    // NEW-INSTANCE wave (2026-11-14) added NewInstance —
+    // Constructor.newInstance: the clinit runs through the same ensure
+    // (the bare EIIE / errant NCDFE UNWRAPPED), the ctor sees the JLS
+    // defaults (the layout spec rides the metadata), args type-check
+    // through the shared unmarshal, a same-package private ctor
+    // succeeds, an abstract class throws the message-null
+    // InstantiationException, and a ctor's own throw wraps in
+    // InvocationTargetException — 119 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 117,
-        "differential suite shrank: {} fixtures (expected >= 117)",
+        fixtures.len() >= 118,
+        "differential suite shrank: {} fixtures (expected >= 118)",
         fixtures.len()
     );
 

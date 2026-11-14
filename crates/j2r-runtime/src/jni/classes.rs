@@ -536,6 +536,9 @@ mod tests {
         static BASE_INFO: UserClassInfo = UserClassInfo {
             id: 0,
             clinit: None,
+            is_abstract: false,
+            total_slots: 0,
+            defaults_spec: "",
             is_interface: false,
             simple_name: Some("JniBase"),
             fields: &BASE_FIELDS,
@@ -545,6 +548,9 @@ mod tests {
         static DERIVED_INFO: UserClassInfo = UserClassInfo {
             id: 0,
             clinit: None,
+            is_abstract: false,
+            total_slots: 0,
+            defaults_spec: "",
             is_interface: false,
             simple_name: Some("JniDerived"),
             fields: &DERIVED_FIELDS,

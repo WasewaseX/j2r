@@ -1099,7 +1099,45 @@ pub fn method_invoke(
             params.len()
         )));
     }
-    // Type-check + unmarshal arguments (Temurin: `argument type mismatch`).
+    let cooked = unmarshal_args(ctx, &params, &actual)?;
+    let recv_for_call: Option<&JRef> = if is_static {
+        // Temurin ignores the receiver on static invokes (oracle: a non-null
+        // receiver of the wrong class still succeeds).
+        None
+    } else {
+        match recv {
+            None => return Err(throw_npe_null_recv()),
+            Some(r) => {
+                let jc = with_obj(*r, |ob| ob.jclass.to_string());
+                if !ctx.is_subtype(&jc, &owner) {
+                    return Err(throw_ill_arg(
+                        "object is not an instance of declaring class",
+                    ));
+                }
+                Some(r)
+            }
+        }
+    };
+    match f(recv_for_call, &cooked) {
+        Ok(v) => {
+            if ret == TypeDesc::Void {
+                Ok(Value::Ref(None))
+            } else {
+                box_by_desc(v, &ret.field_desc())
+            }
+        }
+        Err(t) => Err(wrap_in_ite(t)),
+    }
+}
+
+/// Type-check + unmarshal reflective arguments (Temurin:
+/// `argument type mismatch` / the IllegalArgumentException family) — the
+/// one law Method.invoke and Constructor.newInstance share.
+fn unmarshal_args(
+    ctx: Dispatch,
+    params: &[TypeDesc],
+    actual: &[Value],
+) -> Result<Vec<Value>, Throw> {
     let mut cooked: Vec<Value> = Vec::with_capacity(params.len());
     for (t, a) in params.iter().zip(actual.iter()) {
         match t {
@@ -1128,32 +1166,71 @@ pub fn method_invoke(
             _ => cooked.push(unbox_by_desc(a, &t.field_desc())?),
         }
     }
-    let recv_for_call: Option<&JRef> = if is_static {
-        // Temurin ignores the receiver on static invokes (oracle: a non-null
-        // receiver of the wrong class still succeeds).
-        None
-    } else {
-        match recv {
-            None => return Err(throw_npe_null_recv()),
-            Some(r) => {
-                let jc = with_obj(*r, |ob| ob.jclass.to_string());
-                if !ctx.is_subtype(&jc, &owner) {
-                    return Err(throw_ill_arg(
-                        "object is not an instance of declaring class",
-                    ));
-                }
-                Some(r)
-            }
-        }
+    Ok(cooked)
+}
+
+/// `Constructor.newInstance` — NEW-INSTANCE (registered 2026-11-13,
+/// fixed 2026-11-14, probes NewProbe/NewProbe2 vs Temurin 21.0.13+9):
+///   P1 the clinit runs (once) before the ctor, and the ctor sees the
+///      JLS §4.12.5 defaults (x=0 before assignment) — the layout
+///      defaults ride the metadata (defaults_spec, total_slots);
+///   P4/P7 the clinit's EIIE propagates UNWRAPPED (bare
+///      ExceptionInInitializerError with the original as cause), and
+///      the errant NCDFE with the fresh-EIIE cause on later accesses —
+///      the ensure throws are NOT InvocationTargetException-wrapped;
+///   P5 a same-package private ctor succeeds (the caller-sensitivity
+///      residual: j2r has no caller concept, so the invoke ALWAYS runs;
+///      the DIFFERENT-package IllegalAccessException is the registered
+///      residual);
+///   P6 an abstract class throws the message-null
+///      InstantiationException (NOT wrapped);
+///   P9 a ctor's own throw wraps in InvocationTargetException with the
+///      original as cause (exactly Method.invoke's law).
+pub fn ctor_new_instance(ctx: Dispatch, ctor: &JRef, args: Option<&JRef>) -> Result<Value, Throw> {
+    let (owner, desc, _modifiers) = ctor_slots(ctor);
+    let Some(info) = ctx.class_info(&owner) else {
+        return Err(crate::internal_error(
+            "reflection on builtin classes is outside the R2 subset (Constructor.newInstance)",
+        ));
     };
-    match f(recv_for_call, &cooked) {
-        Ok(v) => {
-            if ret == TypeDesc::Void {
-                Ok(Value::Ref(None))
-            } else {
-                box_by_desc(v, &ret.field_desc())
-            }
-        }
+    // The clinit law: the ensure's EIIE / errant NCDFE propagate UNWRAPPED
+    // (probes P7/P8 — the class-init exception escapes the reflection
+    // wrap).
+    crate::clinit::ensure(info.id, info.clinit)?;
+    if info.is_abstract {
+        return Err(crate::throw_new("java/lang/InstantiationException", None));
+    }
+    let Some(f) = ctx.find_method(&owner, "<init>", &desc) else {
+        return Err(crate::internal_error(&format!(
+            "reflective target {owner}.<init>{desc} not in dispatch table"
+        )));
+    };
+    // Arrays keep their length in slot 0; elements start at slot 1.
+    let actual: Vec<Value> = match args {
+        None => Vec::new(),
+        Some(arr) => with_obj(*arr, |o| o.slots.iter().skip(1).cloned().collect()),
+    };
+    let Some((params, _ret)) = parse_method_desc(&desc) else {
+        return Err(crate::internal_error(&format!("bad ctor desc {desc:?}")));
+    };
+    if actual.len() != params.len() {
+        return Err(throw_ill_arg(&format!(
+            "wrong number of arguments: {} expected: {}",
+            actual.len(),
+            params.len()
+        )));
+    }
+    let cooked = unmarshal_args(ctx, &params, &actual)?;
+    // The JLS §4.12.5 default-slot fill over the WHOLE flattened layout
+    // (the ctor sees x=0 before assignment — probe P1). set_defaults
+    // applies the spec from the tail: the builtin base region stays Void
+    // exactly like the emitted `new` sites.
+    let obj = crate::object::new_obj(&owner, info.total_slots)?;
+    crate::object::set_defaults(&obj, info.defaults_spec);
+    // The <init> runs ON the fresh object (the receiver rides the call,
+    // exactly like the generated `new` sequence's invokespecial).
+    match f(Some(&obj), &cooked) {
+        Ok(_) => Ok(Value::Ref(Some(obj))),
         Err(t) => Err(wrap_in_ite(t)),
     }
 }

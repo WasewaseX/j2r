@@ -1,5 +1,37 @@
 # j2r console summary — the state board
 
+Updated 2026-11-14 (session 19b cont. 11 cont. 2 — **NEW-INSTANCE
+LANDED**, the third wave of the session). Probed first
+(NewProbe/NewProbe2/NP3 vs Temurin 21.0.13+9): the clinit runs before
+the ctor (once) and the ctor sees the JLS §4.12.5 defaults (x=0 —
+P1); no re-run (P2); args flow (P3); a same-package private ctor
+succeeds without setAccessible (P5); an abstract class throws the
+message-null InstantiationException (P6); the ensure throws ESCAPE the
+reflection wrap — the bare EIIE with the original cause on the first
+access, the errant NCDFE with the fresh-EIIE cause on later ones
+(P7/P8); a ctor's own throw wraps in InvocationTargetException (P9).
+Landed: ClassPlan.default_spec — the default-slot spec computed ONCE
+in compute_layouts (second pass) and consumed by new_obj_lines (the
+local walk deleted, one source of truth) AND both META tables;
+UserClassInfo gains is_abstract/total_slots/defaults_spec;
+reflect::ctor_new_instance = ensure (UNWRAPPED) + the abstract law +
+set_defaults + the <init> ON the fresh object through the dispatch
+table with the shared unmarshal_args + the ITE wrap. NEW SURFACE:
+Constructor.newInstance + InstantiationException/IllegalAccessException
+parents rows. The differential caught two en-route bugs: the <init>
+receiver (None → ITE — the ctor runs ON the fresh object) and the
+missing hierarchy row (the abstract throw escaped uncaught). Fixture
+NewInstance (the 119th) byte-identical vs Temurin on all three
+channels; battery: units 507/0, diff_suite 119 fixtures zero
+divergences (551.45 s), cfg_equiv zero (394.05 s), fmt+clippy clean
+FRESH, gate-11 119/507 in sync. Residual: the DIFFERENT-package
+private-ctor IllegalAccessException (no caller concept). Evidence:
+scripts/evidence/g3_3/{new_instance_2026-11-14.txt, NewProbe.java,
+NewProbe2.java, NP3.java}. The session's three waves closed the G3.3
+specialized-map track's opening items entirely.
+
+---
+
 Updated 2026-11-14 (session 19b cont. 11 cont. — **FORNAME-INIT
 LANDED**, the same session as slice 3). Probed first (ForNameProbe vs
 Temurin 21.0.13+9): forName(name) RUNS the clinit of a never-touched

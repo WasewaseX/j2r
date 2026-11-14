@@ -129,6 +129,12 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/lang/NoSuchFieldException" => "java/lang/ReflectiveOperationException",
         "java/lang/NoSuchMethodException" => "java/lang/ReflectiveOperationException",
         "java/lang/reflect/InvocationTargetException" => "java/lang/ReflectiveOperationException",
+        // NEW-INSTANCE: the two newInstance failure classes hang off the
+        // same JDK chain (the abstract law throws InstantiationException;
+        // the access law's IllegalAccessException is the registered
+        // residual but its hierarchy row costs nothing).
+        "java/lang/InstantiationException" => "java/lang/ReflectiveOperationException",
+        "java/lang/IllegalAccessException" => "java/lang/ReflectiveOperationException",
         // M3 Wave 2: java.util collections (M3_PLAN §5)
         // EXTERNAL-B10 (jbox2d port): Random is a real builtin object —
         // seed + gaussian-cache slots (behavior natives in natives.rs).

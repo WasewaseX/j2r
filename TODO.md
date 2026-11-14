@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-14 (session 19b cont. 11: G3.3 slice 3 landed AND FORNAME-INIT closed — forName runs the clinit through the JLS 12.4.2 machine, the 3-arg initialize=false skips it, the array descriptor resolves without initializing the component; next NEW-INSTANCE).
+fix the board. Last updated: 2026-11-14 (session 19b cont. 11: THREE waves landed — G3.3 slice 3 (the field/materialization layer), FORNAME-INIT (forName runs the clinit), NEW-INSTANCE (Constructor.newInstance: the ensure law unwrapped, the layout defaults, the shared unmarshal, the abstract law, ITE on the ctor's own throw). The G3.3 specialized-map track's opening items are ALL closed; next: the register's remaining perf items (R5 resolution/vtable, R7 dispatch table) or the G3.3 TreeMap/LinkedHashMap follow-ons, per the roadmap order.
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -2273,18 +2273,38 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       21.0.13+9; cfg_equiv 0 (it caught the TYPED emitter's three ensure
       sites still discarding the clinit throw — now try_wrap-wrapped);
       units 473/0.
-- [ ] **NEW-INSTANCE — Constructor.newInstance / the user-layout hook
-      (registered 2026-11-13 during slice 3)** — the runtime cannot
-      allocate a user class by name (the slot spec lives in generated
-      code at each `new` site; JNI's NewObject is an unimplemented stub,
-      slot 28). Design: a Dispatch hook (`user_layout: fn(&str) ->
-      Option<(&'static str, usize)>` — spec + total slots) emitted into
-      j2r_dispatch by both modes, then newInstance = ensure (the clinit
-      law! errant NCDFE propagates) + new_obj + set_defaults + the
-      <init> call through find_method; Temurin's caller-sensitivity
-      (same-package private ctor SUCCEEDS for a same-package caller) is
-      unmodelable without a caller concept — register the honest
-      residual. STATUS: registered, not started.
+- [x] **NEW-INSTANCE — Constructor.newInstance (registered 2026-11-13
+      during slice 3, FIXED 2026-11-14, session 19b cont. 11)** —
+      probed first (NewProbe/NewProbe2/NP3 vs Temurin 21.0.13+9): the
+      clinit runs before the ctor (once) and the ctor sees the JLS
+      §4.12.5 defaults (P1), a second newInstance does not re-run it
+      (P2), args flow type-checked (P3), a same-package private ctor
+      succeeds without setAccessible (P5), an abstract class throws the
+      message-null InstantiationException (P6), the ensure throws
+      ESCAPE the reflection wrap (P7 bare EIIE with the original as
+      cause; P8 the errant NCDFE with the fresh-EIIE cause), a ctor's
+      own throw wraps in InvocationTargetException (P9). LANDED:
+      ClassPlan.default_spec — the JLS §4.12.5 default-slot spec
+      computed ONCE in compute_layouts (second pass) and consumed by
+      new_obj_lines (the local walk deleted — one source of truth) AND
+      both META tables; UserClassInfo gains is_abstract/total_slots/
+      defaults_spec; reflect::ctor_new_instance (ensure UNWRAPPED, the
+      abstract law, set_defaults, the <init> ON the fresh object through
+      the dispatch table with the shared unmarshal_args, the ctor's own
+      throw wrapped in ITE). NEW SURFACE:
+      java/lang/reflect/Constructor.newInstance + the builtin parents
+      rows for InstantiationException/IllegalAccessException. The
+      differential caught two en-route bugs: the <init> receiver (None
+      → ITE at the first call — the ctor runs ON the fresh object) and
+      the missing hierarchy row (the abstract throw escaped uncaught).
+      Fixture **NewInstance** (the 119th) byte-identical vs Temurin
+      21.0.13+9 on all three channels; battery: units 507/0, diff_suite
+      119 fixtures zero divergences (551.45 s), cfg_equiv zero
+      (394.05 s), fmt+clippy clean FRESH, gate-11 119/507 in sync.
+      Residual registered: the DIFFERENT-package private-ctor
+      IllegalAccessException (no caller concept). Evidence:
+      scripts/evidence/g3_3/{new_instance_2026-11-14.txt, NewProbe.java,
+      NewProbe2.java, NP3.java}.
 - [ ] **EXTERNAL-CORROB — Opt.md R1–R9 mapped onto the register (the
       cross-reference recorded so the roadmap cites it; no new
       claims)** — R1 (FrameGuard monitors lazy, owner prototype

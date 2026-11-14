@@ -329,6 +329,12 @@ pub struct ClassPlan {
     pub base_slots: usize,
     /// Total instance slots (including inherited ones).
     pub total_slots: usize,
+    /// The JLS §4.12.5 default-slot spec over `[base_slots, total_slots)`
+    /// (NEW-INSTANCE): one char per slot — `i`/`j`/`f`/`d`/`r` — the SAME
+    /// spec the emitted `new` sites apply, computed once here so the
+    /// single-crate META, the partitioned META and `new_obj_lines` share
+    /// one source of truth.
+    pub default_spec: String,
     pub fields: Vec<FieldPlan>,
     pub methods: Vec<MethodPlan>,
     /// `Some(fn_name)` when the class needs a `<clinit>` (declared or
@@ -619,6 +625,7 @@ fn parse_and_add(
         id,
         base_slots: 0,
         total_slots: 0,
+        default_spec: String::new(),
         fields,
         methods: Vec::new(),
         clinit_fn: None,
@@ -985,6 +992,46 @@ fn compute_layouts(prog: &mut Program) -> Result<()> {
                 slot += 1;
             }
         }
+    }
+    // Second pass — the default-slot spec (NEW-INSTANCE). Runs after every
+    // base_slots is settled so the root user class's base is final. The
+    // chain walk mirrors new_obj_lines' (root upward, subclass overrides
+    // last); the layouts are dense and non-overlapping.
+    let names: Vec<String> = prog.classes.iter().map(|c| c.name.clone()).collect();
+    for name in &names {
+        let idx = prog.user_index[name];
+        let mut chain: Vec<String> = Vec::new();
+        let mut cur = name.clone();
+        loop {
+            chain.push(cur.clone());
+            let sup = prog.classes[prog.user_index[&cur]].super_name.clone();
+            match sup {
+                Some(s) if prog.is_user(&s) => cur = s,
+                _ => break,
+            }
+        }
+        let root_name = chain.last().unwrap().clone();
+        let spec_base = prog.classes[prog.user_index[&root_name]].base_slots;
+        let total = prog.classes[idx].total_slots;
+        let mut spec = vec![b'i'; total - spec_base];
+        for cls in chain.iter().rev() {
+            let ci = prog.user_index[cls];
+            let slots: Vec<(usize, String)> = prog.classes[ci]
+                .fields
+                .iter()
+                .filter_map(|f| f.instance_slot.map(|s| (s, f.desc.clone())))
+                .collect();
+            for (abs, d) in slots {
+                spec[abs - spec_base] = match d.as_str() {
+                    "B" | "C" | "S" | "I" | "Z" => b'i',
+                    "J" => b'j',
+                    "F" => b'f',
+                    "D" => b'd',
+                    _ => b'r',
+                };
+            }
+        }
+        prog.classes[idx].default_spec = spec.iter().map(|&c| c as char).collect();
     }
     Ok(())
 }

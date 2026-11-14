@@ -1218,6 +1218,9 @@ mod tests {
         static BASE_INFO: crate::UserClassInfo = crate::UserClassInfo {
             id: 0,
             clinit: None,
+            is_abstract: false,
+            total_slots: 0,
+            defaults_spec: "",
             is_interface: false,
             simple_name: Some("CallBase"),
             fields: &[],
@@ -1227,6 +1230,9 @@ mod tests {
         static DERIVED_INFO: crate::UserClassInfo = crate::UserClassInfo {
             id: 0,
             clinit: None,
+            is_abstract: false,
+            total_slots: 0,
+            defaults_spec: "",
             is_interface: false,
             simple_name: Some("CallDerived"),
             fields: &[],

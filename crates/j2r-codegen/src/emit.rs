@@ -278,8 +278,8 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
         };
         let _ = writeln!(
             registry,
-            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ id: {}, is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag}, clinit: {} }};",
-            c.id, c.is_interface, simple, clinit_expr
+            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ id: {}, is_interface: {}, is_abstract: {}, simple_name: {}, total_slots: {}, defaults_spec: {:?}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag}, clinit: {} }};",
+            c.id, c.is_interface, c.is_abstract, simple, c.total_slots, c.default_spec, clinit_expr
         );
     }
     let _ = writeln!(
@@ -2150,49 +2150,13 @@ pub(crate) fn new_obj_lines(prog: &Program, class: &str, fault: &str, out: &mut 
         let target = prog.class(class).unwrap();
         let total = target.total_slots;
         // JLS §4.12.5: instance fields carry default values (0, false,
-        // null) between allocation and the constructor body. The spec
-        // must span the WHOLE user-ancestor chain — a subclass allocating
-        // without running `new Parent()` anywhere still gets its
-        // inherited fields defaulted. The builtin-parent region below the
-        // root user class stays Void: those are the builtin's internals,
-        // written by its constructors before any user code can read them.
-        let mut root_name = class.to_string();
-        loop {
-            let sup = prog.class(&root_name).and_then(|c| c.super_name.clone());
-            match sup {
-                Some(s) if prog.is_user(&s) => root_name = s,
-                _ => break,
-            }
-        }
-        let spec_base = prog.class(&root_name).unwrap().base_slots;
-        let mut spec = vec![b'i'; total - spec_base];
-        // Fill from the root user class downward so the subclass
-        // overrides any shadowed region (layouts are dense and
-        // non-overlapping, so the walk order only matters for sanity).
-        let mut chain = Vec::new();
-        let mut cur = class.to_string();
-        loop {
-            chain.push(cur.clone());
-            match prog.class(&cur).and_then(|c| c.super_name.clone()) {
-                Some(s) if prog.is_user(&s) => cur = s,
-                _ => break,
-            }
-        }
-        for cls in chain.iter().rev() {
-            let plan = prog.class(cls).unwrap();
-            for f in &plan.fields {
-                if let Some(abs) = f.instance_slot {
-                    spec[abs - spec_base] = match f.desc.as_str() {
-                        "B" | "C" | "S" | "I" | "Z" => b'i',
-                        "J" => b'j',
-                        "F" => b'f',
-                        "D" => b'd',
-                        _ => b'r',
-                    };
-                }
-            }
-        }
-        let spec_str: String = spec.iter().map(|&c| c as char).collect();
+        // null) between allocation and the constructor body. The spec is
+        // the plan's own `default_spec` (NEW-INSTANCE: one computation,
+        // shared with the META tables Constructor.newInstance reads at
+        // runtime) and spans the WHOLE user-ancestor chain. The
+        // builtin-parent region below the root user class stays Void:
+        // those are the builtin's internals, written by its constructors
+        // before any user code can read them.
         for (id, expr) in ensure_calls(prog, class) {
             // CLINIT-THROW: the new's clinit throw propagates before the
             // allocation.
@@ -2204,7 +2168,8 @@ pub(crate) fn new_obj_lines(prog: &Program, class: &str, fault: &str, out: &mut 
             "let __nobj = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::new_obj({class:?}, {total}usize));"
         ));
         out.push(format!(
-            "{RT}::object::set_defaults(&__nobj, {spec_str:?});"
+            "{RT}::object::set_defaults(&__nobj, {:?});",
+            target.default_spec
         ));
     } else {
         out.push(format!(

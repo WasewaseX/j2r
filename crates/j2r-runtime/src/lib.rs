@@ -176,9 +176,20 @@ pub struct UserClassInfo {
     pub id: u32,
     /// `ACC_INTERFACE` (drives `isInterface` / `getSuperclass == null`).
     pub is_interface: bool,
+    /// `ACC_ABSTRACT` (NEW-INSTANCE: `Constructor.newInstance` throws the
+    /// message-null `InstantiationException`, Temurin probe P6).
+    pub is_abstract: bool,
     /// `InnerClasses` `inner_name` (`None` = top-level / absent attribute,
     /// `Some("")` = anonymous). `getSimpleName` uses it verbatim.
     pub simple_name: Option<&'static str>,
+    /// Total instance slots including inherited ones (NEW-INSTANCE: the
+    /// `new_obj` arity).
+    pub total_slots: usize,
+    /// The JLS §4.12.5 default-slot spec over the tail of the layout
+    /// (NEW-INSTANCE: the ctor sees x=0 before assignment — probe P1;
+    /// `object::set_defaults` applies it from the tail, the builtin base
+    /// region stays Void exactly like the emitted `new` sites).
+    pub defaults_spec: &'static str,
     pub fields: &'static [UserField],
     /// Declared methods — the `getDeclaredMethod` search space. `is_static`
     /// rides along because `Method.invoke` must know whether to null-check

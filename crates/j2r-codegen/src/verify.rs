@@ -1838,6 +1838,7 @@ mod tests {
             id: 0,
             base_slots: 0,
             total_slots: 0,
+            default_spec: String::new(),
             fields: Vec::new(),
             methods: vec![m],
             clinit_fn: None,
