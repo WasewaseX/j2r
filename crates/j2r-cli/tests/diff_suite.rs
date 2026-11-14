@@ -193,10 +193,16 @@ fn differential_suite_matches_jvm() {
     // provenance law), the put/get cores ride getstatic receivers, and the
     // faithful exits (generic Object reads, entry.getValue, toString)
     // materialize the boxes lazily with the get-twice-same-ref and JLS
-    // cache laws pinned — 117 on disk, guard one below that.
+    // cache laws pinned. The FORNAME-INIT wave (2026-11-14) added
+    // ForNameInit — forName(name) RUNS the clinit through the same
+    // JLS 12.4.2 machine as the bytecode sites (the EIIIE wrap, the
+    // errant NCDFE, the Error as-is), the 3-arg initialize=false skips
+    // it, the array descriptor resolves without initializing the
+    // component, and Class.getClassLoader joins the surface — 118 on
+    // disk, guard one below that.
     assert!(
-        fixtures.len() >= 116,
-        "differential suite shrank: {} fixtures (expected >= 116)",
+        fixtures.len() >= 117,
+        "differential suite shrank: {} fixtures (expected >= 117)",
         fixtures.len()
     );
 

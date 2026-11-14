@@ -3003,7 +3003,18 @@ fn for_name_known(internal: &str, ctx: Dispatch) -> bool {
 /// `NullPointerException: null`; `int` is NOT resolvable (primitives are
 /// not classes by name); `[I` and `[Ljava.lang.String;` resolve; the
 /// message carries the BINARY name verbatim.
-fn n_class_for_name(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+///
+/// FORNAME-INIT (2026-11-14, probed not assumed — ForNameProbe vs
+/// Temurin 21.0.13): `forName(name)` equals `forName(name, true,
+/// loader)` — a first-use through forName RUNS the `<clinit>` through
+/// the same JLS 12.4.2 machine the bytecode ensure sites use, and a
+/// throwing clinit surfaces the EIIIE law (Errors as-is, anything else
+/// wrapped message-null, later first-uses the errant NCDFE with the
+/// fresh-EIIE cause). Builtin classes and array descriptors have no
+/// compiled metadata — nothing to ensure; in particular
+/// `forName("[LC;")` resolves WITHOUT initializing C (JLS 12.4.1, probe
+/// F6).
+fn for_name_resolve(args: &[Value], ctx: Dispatch, ensure_init: bool) -> Result<Value, Throw> {
     let name = match args.first() {
         Some(Value::Ref(None)) => {
             return Err(crate::throw_new(
@@ -3020,6 +3031,11 @@ fn n_class_for_name(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
     };
     let internal = for_name_internal(&name);
     if for_name_known(&internal, ctx) {
+        if ensure_init {
+            if let Some(info) = ctx.class_info(&internal) {
+                crate::clinit::ensure(info.id, info.clinit)?;
+            }
+        }
         Ok(crate::reflect::class_value(&internal))
     } else {
         Err(crate::throw_new(
@@ -3029,13 +3045,31 @@ fn n_class_for_name(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
     }
 }
 
+fn n_class_for_name(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    for_name_resolve(args, ctx, true)
+}
+
 /// `Class.forName(String, boolean, ClassLoader)` — the 3-arg overload:
-/// resolution is identical (closed world; the `initialize` flag is
-/// accepted — the runtime's lazy-clinit law already matches Temurin's
-/// observable timing — and the loader is ignored: the system loader IS
-/// the closed world).
+/// resolution is identical (closed world); `initialize == false` must
+/// NOT run the clinit (probe F2) and still resolves unknown-name errors
+/// the same way; the loader is ignored (the system loader IS the closed
+/// world).
 fn n_class_for_name3(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
-    n_class_for_name(_recv, &args[..1], ctx)
+    // javac passes the flag as the descriptor's raw boolean (Z) — the
+    // boxed form only arrives through reflective invoke.
+    let init = match args.get(1) {
+        Some(Value::Int(i)) => *i != 0,
+        Some(Value::Ref(Some(b))) => {
+            let v = crate::heap::with_obj(*b, |o| o.slots[0].clone());
+            v.expect_int() != 0
+        }
+        _ => {
+            return Err(internal_error(
+                "Class.forName: expected boolean initialize flag",
+            ))
+        }
+    };
+    for_name_resolve(&args[..1], ctx, init)
 }
 
 /// `ClassLoader.getSystemClassLoader()` — R2 slice 1: returns an inert
@@ -3045,6 +3079,20 @@ fn n_class_for_name3(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
 /// 3-arg overload accepts and ignores it (Temurin-observable behavior on
 /// the closed world is identical).
 fn n_classloader_get_system(
+    _recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = crate::object::new_obj("java/lang/ClassLoader", 0)?;
+    Ok(Value::Ref(Some(r)))
+}
+
+/// `Class.getClassLoader()` — the same inert `java/lang/ClassLoader`
+/// node: the closed world has exactly one loader (the system loader IS
+/// the world), so every class answers the same node, exactly like
+/// `getSystemClassLoader` (FORNAME-INIT: the 3-arg `forName` needs the
+/// loader expression to compile; the runtime accepts and ignores it).
+fn n_class_get_class_loader(
     _recv: Option<&JRef>,
     _args: &[Value],
     _ctx: Dispatch,
@@ -7090,6 +7138,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "isAssignableFrom",
         "(Ljava/lang/Class;)Z",
         n_class_is_assignable_from,
+    ),
+    (
+        "java/lang/Class",
+        "getClassLoader",
+        "()Ljava/lang/ClassLoader;",
+        n_class_get_class_loader,
     ),
     (
         "java/lang/Class",

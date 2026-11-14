@@ -465,6 +465,8 @@ mod tests {
 
     fn meta_of(c: &str) -> Option<&'static crate::UserClassInfo> {
         static BASE_INFO: crate::UserClassInfo = crate::UserClassInfo {
+            id: 0,
+            clinit: None,
             is_interface: false,
             simple_name: Some("NativesBase"),
             fields: &[],
@@ -472,6 +474,8 @@ mod tests {
             ctors: &[],
         };
         static DERIVED_INFO: crate::UserClassInfo = crate::UserClassInfo {
+            id: 0,
+            clinit: None,
             is_interface: false,
             simple_name: Some("NativesDerived"),
             fields: &[],

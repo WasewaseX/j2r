@@ -1,0 +1,69 @@
+FORNAME-INIT — Class.forName runs the <clinit>
+(2026-11-14, session 19b cont. 11, right after G3.3 slice 3)
+
+THE PROBE (scripts/evidence/g3_3/ForNameProbe.java, Temurin 21.0.13+9):
+
+  F1  forName(name) on a never-touched class RUNS its clinit (the side
+      effect prints) and a second forName does NOT re-run it.
+  F2  forName(name, false, loader) resolves WITHOUT running it — and a
+      later real first-use runs it exactly once.
+  F3  a clinit that throws through forName surfaces the JLS 12.4.2 EIIIE
+      law: RuntimeException wraps as message-null
+      java.lang.ExceptionInInitializerError.
+  F4  every later first-use of the errant class throws
+      "java.lang.NoClassDefFoundError: Could not initialize class
+      ForNameProbe$Err" with the fresh-EIIE cause
+      "java.lang.ExceptionInInitializerError: Exception
+      java.lang.RuntimeException: boom [in thread \"main\"]" — exactly
+      the CLINIT-THROW machine's strings.
+  F5  an AssertionError clinit rethrows AS-IS.
+  F6  forName("[LForNameProbe$Init2;") resolves the array WITHOUT
+      initializing the component (JLS 12.4.1 — "Init2<clinit>" absent).
+  F7  an unknown name is ClassNotFoundException with the input name
+      verbatim (the R2 slice-1 law, unchanged).
+
+  javac note caught by the first differential run: the 3-arg forName's
+  initialize flag arrives as the descriptor's RAW boolean (Z), not a
+  Boolean box — the first parse assumed the boxed form and died on the
+  internal-error path; the diff caught it in the same session.
+
+THE MECHANISM:
+  - UserClassInfo gains `id: u32` (the clinit::ensure state-table key)
+    and `clinit: Option<MethodFn>`; the META tables of BOTH emitters
+    (emit.rs registry + partition.rs lib.rs) generate the two fields.
+    The dispatch's meta hook is name-keyed — exactly what a string
+    lookup needs.
+  - n_class_for_name: after the closed-world resolution, a USER class
+    (class_info present) runs `clinit::ensure(info.id, info.clinit)` —
+    the SAME machine the bytecode ensure sites use, so F3/F4/F5 flow
+    for free. Builtin classes and array descriptors have no compiled
+    metadata — nothing to ensure; F6 is automatic (arrays are not in
+    the registry).
+  - n_class_for_name3: parses the raw-boolean initialize flag (boxed
+    form accepted defensively) and only ensures when true (F2); the
+    loader stays ignored (the closed world has one loader).
+  - NEW SURFACE: `Class.getClassLoader()` — the 3-arg call site needs
+    the loader expression; it returns the same inert
+    java/lang/ClassLoader node as getSystemClassLoader (one loader IS
+    the closed world).
+
+FIXTURE ForNameInit (the 118th) pins F1-F7 differentially, including
+the second-forName idempotence and the Lazy/Err/ErrA/Lazy2 quartet.
+Byte-identical vs Temurin 21.0.13+9 on all three channels
+(J2R_DIFF_FIXTURES=ForNameInit -> 2 passed, 4.57 s).
+
+BATTERY (2026-11-14): units 507/0 (no new unit tests — the fixture +
+the existing clinit machine's tests carry it; the jni UserClassInfo
+literals gained id/clinit), diff_suite 118 fixtures three-channel zero
+divergences (559.20 s), cfg_equiv zero (390.93 s — it caught the
+partitioned emitter's second META generation site missing the new
+fields, E0063, fixed in partition.rs), fmt+clippy clean FRESH, gate-11
+fixtures=118 tests=507 in sync (README 117→118, diff_suite guard
+116→117).
+
+RESIDUAL REGISTERED: forName on an INTERFACE whose clinit throws —
+the metadata carries interfaces (META rows are generated for every
+class), so the law flows through the same ensure; no separate probe
+was pinned for the interface case (the classfile puts the clinit on
+the interface's own <clinit> and the runtime treats it identically).
+Registered honestly: unprobed, same-machine.

@@ -534,6 +534,8 @@ mod tests {
 
     fn meta_of(c: &str) -> Option<&'static UserClassInfo> {
         static BASE_INFO: UserClassInfo = UserClassInfo {
+            id: 0,
+            clinit: None,
             is_interface: false,
             simple_name: Some("JniBase"),
             fields: &BASE_FIELDS,
@@ -541,6 +543,8 @@ mod tests {
             ctors: &[],
         };
         static DERIVED_INFO: UserClassInfo = UserClassInfo {
+            id: 0,
+            clinit: None,
             is_interface: false,
             simple_name: Some("JniDerived"),
             fields: &DERIVED_FIELDS,

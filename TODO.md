@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-14 (session 19b cont. 11: G3.3 slice 3, the field/materialization layer, landed — getstatic receivers on the provenance law, the node-stamped class tag, lazy box materialization at the faithful exits with the get-twice-same-ref and JLS cache laws pinned; next FORNAME-INIT, then NEW-INSTANCE).
+fix the board. Last updated: 2026-11-14 (session 19b cont. 11: G3.3 slice 3 landed AND FORNAME-INIT closed — forName runs the clinit through the JLS 12.4.2 machine, the 3-arg initialize=false skips it, the array descriptor resolves without initializing the component; next NEW-INSTANCE).
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -2229,18 +2229,35 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       already implemented); ArraysSurface extended IN PLACE with two
       null-comparator pins (String + Integer arrays), byte-identical vs
       Temurin 21.0.13 on all three channels.
-- [ ] **FORNAME-INIT — Class.forName does not RUN the <clinit>
-      (registered 2026-11-13 during CLINIT-THROW)** — forName resolves
-      the closed world and returns the Class object without ensuring
-      initialization; on Temurin, forName(name) = forName(name, true,
-      loader) and a first-use through forName RUNS the clinit (and a
-      throwing one surfaces the EIIE law). n_class_for_name needs the
-      ensure walk for user classes (the id → clinit fn mapping lives in
-      the generated statics registry; the runtime needs a
-      class-id-for-name hook or the metadata registry gains the clinit
-      fn). ReflectForName's fixture never noticed: its classes were
-      already initialized by earlier first-uses. STATUS: registered,
-      not started.
+- [x] **FORNAME-INIT — Class.forName now RUNS the <clinit> (registered
+      2026-11-13 during CLINIT-THROW, FIXED 2026-11-14, session 19b
+      cont. 11)** — probed first (ForNameProbe vs Temurin 21.0.13+9):
+      forName(name) runs the clinit of a never-touched class (F1) and a
+      second forName does not re-run it; forName(name, false, loader)
+      resolves WITHOUT running it and a later real first-use runs it
+      once (F2); a throwing clinit surfaces the EIIIE law (F3: wrap
+      message-null), the errant NCDFE with the fresh-EIIE cause on
+      later first-uses (F4), an Error clinit as-is (F5); the array
+      descriptor resolves WITHOUT initializing the component (F6, JLS
+      12.4.1); unknown names stay the CNFE with the verbatim name (F7).
+      LANDED: UserClassInfo gains `id: u32` + `clinit: Option<MethodFn>`
+      (the META tables of BOTH emitters generate them — emit.rs AND
+      partition.rs; cfg_equiv caught the partition site missing the
+      fields, E0063); n_class_for_name ensures a USER class through
+      `clinit::ensure(info.id, info.clinit)` — the same JLS 12.4.2
+      machine the bytecode sites use, so F3-F5 flow for free; the 3-arg
+      overload parses the RAW boolean flag (javac passes Z, not a box —
+      the diff caught the boxed assumption) and ensures only when true;
+      arrays/builtins have no metadata, F6 automatic. NEW SURFACE:
+      Class.getClassLoader() — the same inert ClassLoader node as
+      getSystemClassLoader. Fixture **ForNameInit** (the 118th)
+      byte-identical vs Temurin 21.0.13+9 on all three channels;
+      battery: units 507/0, diff_suite 118 fixtures zero divergences
+      (559.20 s), cfg_equiv zero (390.93 s), fmt+clippy clean FRESH,
+      gate-11 118/507 in sync. Residual registered: the interface-clinit
+      case rides the same machine unprobed. Evidence:
+      scripts/evidence/g3_3/{forname_init_2026-11-14.txt,
+      ForNameProbe.java}.
 - [x] **R2 slice 3 — getDeclaredFields/getFields +
       getDeclaredConstructors (2026-11-13)** — the CTORS_{tag} metadata
       tables (desc + modifiers, CLASSFILE order) ride both emitters; the

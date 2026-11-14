@@ -265,10 +265,21 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
             Some(s) => format!("::core::option::Option::Some({s:?})"),
             None => "::core::option::Option::None".to_string(),
         };
+        // FORNAME-INIT: the metadata carries the class id and the clinit
+        // fn, so `Class.forName` can run the JLS 12.4.2 ensure walk from
+        // the runtime (the dispatch's meta hook is name-keyed — exactly
+        // what a string lookup needs).
+        let clinit_expr = match &c.clinit_fn {
+            Some(fname) => format!(
+                "::core::option::Option::Some(crate::classes::{}::{} as ::j2r_runtime::MethodFn)",
+                c.module, fname
+            ),
+            None => "::core::option::Option::None".to_string(),
+        };
         let _ = writeln!(
             registry,
-            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag} }};",
-            c.is_interface, simple
+            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ id: {}, is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag}, clinit: {} }};",
+            c.id, c.is_interface, simple, clinit_expr
         );
     }
     let _ = writeln!(

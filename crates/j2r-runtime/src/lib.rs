@@ -170,6 +170,10 @@ pub struct UserField {
 /// at runtime (M3_PLAN §8.1). Generated per class into the crate registry.
 #[derive(Debug)]
 pub struct UserClassInfo {
+    /// The class's compiled id — the `clinit::ensure` state-table key
+    /// (FORNAME-INIT: `Class.forName` must run the `<clinit>` through
+    /// the same JLS 12.4.2 machine the bytecode sites use).
+    pub id: u32,
     /// `ACC_INTERFACE` (drives `isInterface` / `getSuperclass == null`).
     pub is_interface: bool,
     /// `InnerClasses` `inner_name` (`None` = top-level / absent attribute,
@@ -184,6 +188,10 @@ pub struct UserClassInfo {
     /// `getDeclaredConstructors` — the runtime applies Temurin's
     /// reversal).
     pub ctors: &'static [UserCtor],
+    /// The class's `<clinit>` (FORNAME-INIT), `None` when the class has
+    /// none — `Class.forName(name)` equals `forName(name, true, loader)`
+    /// and runs it through `clinit::ensure` exactly once.
+    pub clinit: Option<MethodFn>,
 }
 
 /// One declared CONSTRUCTOR of a compiled class (R2 slice 3:

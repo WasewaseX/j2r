@@ -655,10 +655,21 @@ fn emit_part(
             Some(s) => format!("::core::option::Option::Some({s:?})"),
             None => "::core::option::Option::None".to_string(),
         };
+        // FORNAME-INIT: same metadata shape as the single-crate registry —
+        // the class id and the clinit fn (the clinit lives in THIS
+        // partition crate's classes module, so the direct path is legal
+        // here; cross-partition ensure routes through the link table).
+        let clinit_expr = match &c.clinit_fn {
+            Some(fname) => format!(
+                "::core::option::Option::Some(crate::classes::{}::{} as ::j2r_runtime::MethodFn)",
+                c.module, fname
+            ),
+            None => "::core::option::Option::None".to_string(),
+        };
         let _ = writeln!(
             lib,
-            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag} }};",
-            c.is_interface, simple
+            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ id: {}, is_interface: {}, simple_name: {}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag}, clinit: {} }};",
+            c.id, c.is_interface, simple, clinit_expr
         );
     }
     let _ = writeln!(

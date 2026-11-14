@@ -2999,3 +2999,44 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   generated statics registry, the metadata registry needs the clinit
   fn or a class-id-for-name hook), then NEW-INSTANCE (the user-layout
   dispatch hook; registered).
+
+## SESSION 19b cont. 11 (cont.) — 2026-11-14 (FORNAME-INIT LANDED, the same session as slice 3)
+
+- **FORNAME-INIT LANDED** — the registered residual from CLINIT-THROW.
+  Probed FIRST (ForNameProbe, Temurin 21.0.13+9): F1 forName(name) runs
+  the clinit of a never-touched class; F2 forName(name, false, loader)
+  resolves WITHOUT running it; F3 a throwing clinit wraps message-null
+  EIIE; F4 later first-uses throw the errant NCDFE with the fresh-EIIE
+  cause; F5 an Error clinit rethrows as-is; F6 forName("[LC;")
+  resolves the array WITHOUT initializing C (JLS 12.4.1); F7 unknown
+  names stay the CNFE with the verbatim name.
+- **The mechanism**: UserClassInfo gains `id: u32` + `clinit:
+  Option<MethodFn>`; the META tables of BOTH emitters generate the
+  fields (emit.rs registry + partition.rs lib.rs — **cfg_equiv caught
+  the partition site missing them with E0063 before any push**, the
+  cross-emitter gate doing exactly its job). n_class_for_name ensures
+  a USER class through `clinit::ensure(info.id, info.clinit)` — the
+  SAME machine the bytecode ensure sites use, so F3-F5 flow for free;
+  arrays/builtins have no metadata so F6 is automatic. The 3-arg
+  overload parses the initialize flag — **javac passes the descriptor's
+  RAW boolean (Z), not a Boolean box**; the first differential run
+  caught the boxed assumption dying on the internal-error path (the
+  fixture earned its keep in the same hour it was written). NEW
+  SURFACE: `Class.getClassLoader()` — the same inert ClassLoader node
+  as getSystemClassLoader (the 3-arg call site needs the loader
+  expression; the closed world has one loader).
+- **Fixture ForNameInit** (the 118th): the NeverTouched/Lazy/Err/ErrA/
+  Lazy2 quartet pins F1-F7 (the second-forName idempotence included).
+  Byte-identical vs Temurin on all three channels. diff_suite guard
+  116 → 117.
+- **Battery (all green)**: units 507/0 (no new unit tests — the
+  fixture plus the existing clinit machine's tests carry it), diff_suite
+  **118 fixtures three-channel zero divergences** (559.20 s), cfg_equiv
+  **zero** (390.93 s), fmt + clippy clean FRESH, gate-11 in sync:
+  fixtures=118, tests=507 (README 117→118). Residual registered: the
+  interface-clinit case rides the same machine unprobed.
+- **Evidence**: scripts/evidence/g3_3/{forname_init_2026-11-14.txt,
+  ForNameProbe.java}. TODO.md FORNAME-INIT flipped [x].
+- **Next**: NEW-INSTANCE (Constructor.newInstance / the user-layout
+  dispatch hook — the design note is registered in TODO.md; JNI
+  NewObject is a stub, slot 28).

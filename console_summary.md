@@ -1,5 +1,33 @@
 # j2r console summary — the state board
 
+Updated 2026-11-14 (session 19b cont. 11 cont. — **FORNAME-INIT
+LANDED**, the same session as slice 3). Probed first (ForNameProbe vs
+Temurin 21.0.13+9): forName(name) RUNS the clinit of a never-touched
+class (F1) and a second forName does not re-run it; the 3-arg
+initialize=false resolves WITHOUT running it (F2) and a later real
+first-use runs it once; a throwing clinit surfaces the EIIIE law
+(wrap message-null, F3), the errant NCDFE with the fresh-EIIE cause on
+later first-uses (F4), an Error clinit as-is (F5); the array descriptor
+resolves WITHOUT initializing the component (F6, JLS 12.4.1); unknown
+names stay the CNFE with the verbatim name (F7). Landed: UserClassInfo
+gains `id: u32` + `clinit: Option<MethodFn>` (the META tables of BOTH
+emitters generate them — cfg_equiv caught the partition site missing
+the fields with E0063 before any push); n_class_for_name ensures a
+USER class through `clinit::ensure(info.id, info.clinit)` — the same
+JLS 12.4.2 machine the bytecode sites use; the 3-arg flag is the
+descriptor's RAW boolean (javac passes Z, not a box — the diff caught
+the boxed assumption); arrays/builtins have no metadata, F6 automatic.
+NEW SURFACE: Class.getClassLoader() — the inert ClassLoader node.
+Fixture ForNameInit (the 118th) byte-identical vs Temurin on all three
+channels; battery: units 507/0, diff_suite 118 fixtures zero
+divergences (559.20 s), cfg_equiv zero (390.93 s), fmt+clippy clean
+FRESH, gate-11 118/507 in sync. Residual: the interface-clinit case
+rides the same machine unprobed. Evidence:
+scripts/evidence/g3_3/{forname_init_2026-11-14.txt, ForNameProbe.java}.
+Next: NEW-INSTANCE (the user-layout dispatch hook; registered).
+
+---
+
 Updated 2026-11-14 (session 19b cont. 11 — **G3.3 SLICE 3 LANDED: the
 field/materialization layer**, after reset #22). Reset paid the 11th
 full-download: the local tree stale at pre-M2 `b4badea` (ALL nine of the
