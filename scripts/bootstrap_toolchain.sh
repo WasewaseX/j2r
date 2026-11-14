@@ -10,6 +10,8 @@ set -euo pipefail
 ROOT=/home/z/toolchain
 DL=$ROOT/downloads
 mkdir -p "$DL"
+export RUSTUP_HOME=$ROOT/rustup
+export CARGO_HOME=$ROOT/cargo
 
 # --- rust ------------------------------------------------------------------
 RUSTUP_INIT=$DL/rustup-init
@@ -23,7 +25,8 @@ if [ -x "$ROOT/cargo/bin/rustc" ] && "$ROOT/cargo/bin/rustc" --version 2>/dev/nu
   echo "rust 1.99.1 already present (verified)"
 else
   echo "installing rust 1.99.1 ..."
-  RUSTUP_HOME=$ROOT/rustup CARGO_HOME=$ROOT/cargo sh "$RUSTUP_INIT" -y --no-modify-path --default-toolchain 1.99.1 >/dev/null
+  chmod +x "$RUSTUP_INIT"
+  RUSTUP_HOME=$ROOT/rustup CARGO_HOME=$ROOT/cargo "$RUSTUP_INIT" -y --no-modify-path --default-toolchain 1.99.1 >/dev/null
 fi
 "$ROOT/cargo/bin/rustc" --version
 "$ROOT/cargo/bin/cargo" --version
@@ -46,5 +49,7 @@ else
 fi
 "$ROOT/jdk/bin/javac" -version
 
-echo "export PATH=\"$ROOT/cargo/bin:$ROOT/jdk/bin:\$PATH\"" > "$ROOT/env.sh"
+echo "export RUSTUP_HOME=$ROOT/rustup" > "$ROOT/env.sh"
+echo "export CARGO_HOME=$ROOT/cargo" >> "$ROOT/env.sh"
+echo "export PATH=\"$ROOT/cargo/bin:$ROOT/jdk/bin:\$PATH\"" >> "$ROOT/env.sh"
 echo "BOOTSTRAP-OK"

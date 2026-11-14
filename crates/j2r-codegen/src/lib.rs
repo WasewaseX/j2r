@@ -1633,6 +1633,161 @@ pub fn resolve_call_pub(prog: &Program, start: &str, name: &str, desc: &str) -> 
     resolve_call(prog, start, name, desc)
 }
 
+// ------------------------------------------------------ R5 slice 1: virtual resolution
+
+/// Codegen-time resolution of a virtual/interface call site (R5 slice 1).
+///
+/// The generated crate is a closed world: a receiver statically typed as
+/// the user class `declared` can carry, at run time, exactly the classes
+/// `declared` plus its transitive user subclasses through `super_name`
+/// links (builtins, arrays and foreign classes cannot appear — they are
+/// not subtypes of a user class). For every such possible receiver the
+/// walk mirrors the runtime [`j2r_runtime::invoke_virtual`] law level for
+/// level: the compiled method at the level (the same `ClassPlan::method`
+/// source the registry match arms come from), then a natives row at the
+/// level, then the parent (the user `super_name` with the
+/// `java/lang/Object` default, then `builtin::builtin_parent_of`).
+///
+/// `Some(target)` — the SAME single target for every possible receiver —
+/// lets the emitter place the direct call. `None` keeps the dynamic path:
+/// any divergence between walks, any walk that would die the internal
+/// Error, any interface/array/builtin declared type. The dynamic path is
+/// always faithful; the fold is only ever a shortcut over it.
+pub fn resolve_virtual_target(
+    prog: &Program,
+    declared: &str,
+    name: &str,
+    desc: &str,
+) -> Option<CallTarget> {
+    // Closed-world gate: builtins, arrays and unknown names have an open
+    // receiver set (a user class may extend a builtin; an array carries
+    // the Object rows; the JVM may load classes we never compiled).
+    if !prog.is_user(declared) {
+        return None;
+    }
+    // Interface-declared receivers are the implementor closure, not the
+    // super-chain closure — a different receiver set with different walk
+    // reach (interface defaults are not on the runtime super-chain walk).
+    // Conservative slice 1: keep every interface-typed site dynamic.
+    if prog.class(declared).map(|c| c.is_interface).unwrap_or(true) {
+        return None;
+    }
+    // The possible runtime receiver classes: the declared class plus every
+    // transitive user subclass (through `super_name` links only — an
+    // `implements` edge does not make a runtime subclass for dispatch).
+    let mut receivers: Vec<String> = vec![declared.to_string()];
+    let mut i = 0;
+    while i < receivers.len() {
+        let cur = receivers[i].clone();
+        i += 1;
+        for c in &prog.classes {
+            if c.super_name.as_deref() == Some(cur.as_str())
+                && !receivers.iter().any(|r| r == &c.name)
+            {
+                receivers.push(c.name.clone());
+            }
+        }
+    }
+    // Unify every possible receiver's walk.
+    let mut unified: Option<CallTarget> = None;
+    for recv in &receivers {
+        let target = walk_virtual_chain(prog, recv, name, desc);
+        match (&unified, target) {
+            (None, t) => unified = t,
+            (Some(_), None) => return None, // one receiver would die the Error
+            (Some(prev), Some(t)) => {
+                let same = match (prev, &t) {
+                    (
+                        CallTarget::User { module, fn_name },
+                        CallTarget::User {
+                            module: m2,
+                            fn_name: f2,
+                        },
+                    ) => module == m2 && fn_name == f2,
+                    (CallTarget::Native { class }, CallTarget::Native { class: c2 }) => class == c2,
+                    _ => false,
+                };
+                if !same {
+                    return None; // the polymorphic residue — stays dynamic
+                }
+            }
+        }
+    }
+    unified
+}
+
+/// One receiver's walk, mirroring [`j2r_runtime::invoke_virtual`] exactly:
+/// compiled method per level, native row per level, then the parent chain
+/// (user supers with the Object default, builtins via the builtin table).
+/// `None` = the walk would fall off the root — the runtime's internal
+/// Error — which the fold never emulates.
+fn walk_virtual_chain(prog: &Program, start: &str, name: &str, desc: &str) -> Option<CallTarget> {
+    let mut cur = start.to_string();
+    for _ in 0..64 {
+        if prog.is_user(&cur) {
+            let c = prog.class(&cur).unwrap();
+            if let Some(m) = c.method(name, desc) {
+                return Some(CallTarget::User {
+                    module: c.module.clone(),
+                    fn_name: m.fn_name.clone(),
+                });
+            }
+        }
+        // The runtime checks the natives table at EVERY level, user
+        // levels included (rows are keyed by builtin names today, but the
+        // order — user method first, then native — is the law, and it
+        // holds even for a user class shadowing a builtin name).
+        if natives::lookup_exact(&cur, name, desc).is_some() {
+            return Some(CallTarget::Native { class: cur });
+        }
+        let parent = if prog.is_user(&cur) {
+            prog.class(&cur)
+                .unwrap()
+                .super_name
+                .clone()
+                .unwrap_or_else(|| "java/lang/Object".to_string())
+        } else {
+            builtin::builtin_parent_of(&cur)?.to_string()
+        };
+        cur = parent;
+    }
+    None
+}
+
+/// Emitter wrapper (same rationale as [`resolve_call_pub`]).
+pub fn resolve_virtual_target_pub(
+    prog: &Program,
+    declared: &str,
+    name: &str,
+    desc: &str,
+) -> Option<CallTarget> {
+    resolve_virtual_target(prog, declared, name, desc)
+}
+
+/// R5 slice 1 measurement: over every user method's instructions, how
+/// many `invokevirtual`/`invokeinterface` sites exist and how many fold
+/// to a single codegen-time target. Observability only — the emission
+/// itself decides per site.
+pub fn count_virtual_sites(prog: &Program) -> (usize, usize) {
+    let mut total = 0;
+    let mut resolved = 0;
+    for c in &prog.classes {
+        for m in &c.methods {
+            for (_pc, instr) in &m.instrs {
+                if let ir::Instr::InvokeVirtual { class, name, desc }
+                | ir::Instr::InvokeInterface { class, name, desc } = instr
+                {
+                    total += 1;
+                    if resolve_virtual_target(prog, class, name, desc).is_some() {
+                        resolved += 1;
+                    }
+                }
+            }
+        }
+    }
+    (total, resolved)
+}
+
 /// The boxed-class `TYPE` pseudo-fields: `getstatic java/lang/Integer.TYPE`
 /// is how javac compiles `int.class` at literal positions (oracle javap,
 /// M3_EVIDENCE.md wave-5). Returns the primitive descriptor the interned
@@ -1686,4 +1841,281 @@ pub fn main_entry(prog: &Program) -> Option<MainInfo> {
                 })
         })
     })
+}
+
+// ------------------------------------------------- R5 slice 1: the law tests
+
+#[cfg(test)]
+mod virtual_resolution_tests {
+    use super::*;
+
+    /// A minimal ClassPlan carrying only what the resolver reads:
+    /// name / super_name / is_interface / module / methods.
+    fn plan(name: &str, sup: Option<&str>, methods: &[(&str, &str)]) -> ClassPlan {
+        let methods: Vec<MethodPlan> = methods
+            .iter()
+            .map(|(n, d)| MethodPlan {
+                name: (*n).to_string(),
+                desc: (*d).to_string(),
+                is_static: false,
+                is_native: false,
+                is_sync: false,
+                modifiers: 0x0001,
+                signature: None,
+                lvtt: Vec::new(),
+                fn_name: method_fn_name(n, d),
+                instrs: Vec::new(),
+                exception_table: Vec::new(),
+                max_locals: 0,
+                max_stack: 0,
+            })
+            .collect();
+        ClassPlan {
+            name: name.to_string(),
+            super_name: sup.map(|s| s.to_string()),
+            interfaces: Vec::new(),
+            is_interface: false,
+            is_abstract: false,
+            simple_name: None,
+            module: sanitize_module(name),
+            id: 0,
+            base_slots: 0,
+            total_slots: 0,
+            default_spec: String::new(),
+            fields: Vec::new(),
+            methods,
+            clinit_fn: None,
+            concats: BTreeMap::new(),
+            lambdas: BTreeMap::new(),
+            static_monitor: None,
+            refs: BTreeSet::new(),
+            input_sha: String::new(),
+            cf: ClassFile {
+                minor_version: 0,
+                major_version: 52,
+                constant_pool: j2r_classfile::ConstantPool::default(),
+                access: 0x0021,
+                this_class: name.to_string(),
+                super_class: sup.map(|s| s.to_string()),
+                interfaces: Vec::new(),
+                fields: Vec::new(),
+                methods: Vec::new(),
+                bootstrap_methods: Vec::new(),
+                inner_name: None,
+                signature: None,
+            },
+        }
+    }
+
+    fn prog(classes: Vec<ClassPlan>) -> Program {
+        let mut user_index = BTreeMap::new();
+        for (i, c) in classes.iter().enumerate() {
+            user_index.insert(c.name.clone(), i);
+        }
+        Program {
+            classes,
+            user_index,
+            total_statics: 0,
+            main_class: None,
+        }
+    }
+
+    const MV: &str = "()V";
+    const TS: &str = "()Ljava/lang/String;";
+
+    fn user_target(t: Option<CallTarget>) -> Option<(String, String)> {
+        match t {
+            Some(CallTarget::User { module, fn_name }) => Some((module, fn_name)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn inherited_method_folds_to_owner() {
+        // A.m compiled; B extends A without an override — both walks land
+        // on A.m, so even the A-typed site folds.
+        let p = prog(vec![
+            plan("A", Some("java/lang/Object"), &[("m", MV)]),
+            plan("B", Some("A"), &[]),
+        ]);
+        let a_m = resolve_virtual_target(&p, "A", "m", MV).unwrap();
+        let b_m = resolve_virtual_target(&p, "B", "m", MV).unwrap();
+        match (user_target(Some(a_m)), user_target(Some(b_m))) {
+            (Some((ma, fa)), Some((mb, fb))) => {
+                assert_eq!(
+                    (ma.as_str(), fa.as_str()),
+                    ("A", method_fn_name("m", MV).as_str())
+                );
+                assert_eq!(
+                    (mb.as_str(), fb.as_str()),
+                    ("A", method_fn_name("m", MV).as_str())
+                );
+            }
+            _ => panic!("both sites must fold to A.m"),
+        }
+    }
+
+    #[test]
+    fn polymorphic_override_stays_dynamic() {
+        // B overrides m: an A-typed site diverges (A.m vs B.m) — dynamic.
+        // The B-typed site is monomorphic — folds to B.m.
+        let p = prog(vec![
+            plan("A", Some("java/lang/Object"), &[("m", MV)]),
+            plan("B", Some("A"), &[("m", MV)]),
+        ]);
+        assert!(resolve_virtual_target(&p, "A", "m", MV).is_none());
+        let folded = user_target(resolve_virtual_target(&p, "B", "m", MV)).unwrap();
+        assert_eq!(
+            (folded.0.as_str(), folded.1.as_str()),
+            ("B", method_fn_name("m", MV).as_str())
+        );
+    }
+
+    #[test]
+    fn user_override_beats_the_native_row_and_inherits() {
+        // A overrides toString; D extends A — both walk to A's compiled
+        // method, never the Object native row.
+        let p = prog(vec![
+            plan("A", Some("java/lang/Object"), &[("toString", TS)]),
+            plan("D", Some("A"), &[]),
+        ]);
+        let folded = user_target(resolve_virtual_target(&p, "A", "toString", TS)).unwrap();
+        assert_eq!(
+            (folded.0.as_str(), folded.1.as_str()),
+            ("A", method_fn_name("toString", TS).as_str())
+        );
+    }
+
+    #[test]
+    fn divergence_user_vs_native_stays_dynamic() {
+        // A has no toString (walk reaches the Object native row) but B
+        // extends A and overrides it — the A-typed site diverges.
+        let p = prog(vec![
+            plan("A", Some("java/lang/Object"), &[]),
+            plan("B", Some("A"), &[("toString", TS)]),
+        ]);
+        assert!(resolve_virtual_target(&p, "A", "toString", TS).is_none());
+        // The B-typed site still folds to B's own override.
+        let folded = user_target(resolve_virtual_target(&p, "B", "toString", TS)).unwrap();
+        assert_eq!(
+            (folded.0.as_str(), folded.1.as_str()),
+            ("B", method_fn_name("toString", TS).as_str())
+        );
+    }
+
+    #[test]
+    fn native_row_folds_when_no_user_touches_it() {
+        // Nothing in the program overrides hashCode: every walk from A
+        // reaches the Object native row.
+        let p = prog(vec![plan("A", Some("java/lang/Object"), &[])]);
+        match resolve_virtual_target(&p, "A", "hashCode", "()I") {
+            Some(CallTarget::Native { class }) => {
+                assert_eq!(class, "java/lang/Object");
+            }
+            other => panic!("expected the Object native row, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deep_chain_folds_through_the_middle() {
+        // A.m; B extends A; C extends B — the C-typed site folds to A.m
+        // through two inherited levels.
+        let p = prog(vec![
+            plan("A", Some("java/lang/Object"), &[("m", MV)]),
+            plan("B", Some("A"), &[]),
+            plan("C", Some("B"), &[]),
+        ]);
+        let folded = user_target(resolve_virtual_target(&p, "C", "m", MV)).unwrap();
+        assert_eq!(
+            (folded.0.as_str(), folded.1.as_str()),
+            ("A", method_fn_name("m", MV).as_str())
+        );
+    }
+
+    #[test]
+    fn sibling_overrides_keep_the_parent_site_dynamic() {
+        // A.m; B and C both extend A and both override m — three distinct
+        // walks from A: A.m, B.m, C.m — dynamic.
+        let p = prog(vec![
+            plan("A", Some("java/lang/Object"), &[("m", MV)]),
+            plan("B", Some("A"), &[("m", MV)]),
+            plan("C", Some("A"), &[("m", MV)]),
+        ]);
+        assert!(resolve_virtual_target(&p, "A", "m", MV).is_none());
+        assert!(user_target(resolve_virtual_target(&p, "B", "m", MV)).is_some());
+        assert!(user_target(resolve_virtual_target(&p, "C", "m", MV)).is_some());
+    }
+
+    #[test]
+    fn builtin_array_and_unknown_declared_types_stay_dynamic() {
+        let p = prog(vec![plan("A", Some("java/lang/Object"), &[])]);
+        // builtin declared type: open receiver set
+        assert!(resolve_virtual_target(
+            &p,
+            "java/util/HashMap",
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;"
+        )
+        .is_none());
+        // array declared type: the special forms stay on the dynamic path
+        assert!(resolve_virtual_target(&p, "[LA;", "clone", "()Ljava/lang/Object;").is_none());
+        // unknown name: not in the closed world at all
+        assert!(resolve_virtual_target(&p, "NotHere", "m", MV).is_none());
+    }
+
+    #[test]
+    fn interface_declared_sites_stay_dynamic_in_slice_1() {
+        // The implementor closure is a different receiver set; slice 1
+        // keeps every interface-typed site on the dynamic path.
+        let mut itf = plan("I", Some("java/lang/Object"), &[]);
+        itf.is_interface = true;
+        let mut implr = plan("Impl", Some("java/lang/Object"), &[("m", MV)]);
+        implr.interfaces = vec!["I".to_string()];
+        let p = prog(vec![itf, implr]);
+        assert!(resolve_virtual_target(&p, "I", "m", MV).is_none());
+    }
+
+    #[test]
+    fn walk_that_would_die_the_error_stays_dynamic() {
+        // A method the walk cannot find anywhere (no user impl, no native
+        // row) — the runtime would throw the internal Error; the fold
+        // never emulates that.
+        let p = prog(vec![plan("A", Some("java/lang/Object"), &[])]);
+        assert!(resolve_virtual_target(&p, "A", "no_such_method", MV).is_none());
+    }
+
+    #[test]
+    fn count_virtual_sites_tallies_both_kinds() {
+        // Two virtual sites. A/m is polymorphic (B extends A and overrides
+        // m — stays dynamic); the B-typed interface site is monomorphic
+        // (nothing extends B) — folds. Total 2, resolved 1.
+        let mut a = plan(
+            "A",
+            Some("java/lang/Object"),
+            &[("m", MV), ("main", "([Ljava/lang/String;)V")],
+        );
+        let mut b = plan("B", Some("A"), &[("m", MV)]);
+        b.module = sanitize_module("B");
+        // the helper's methods vec keeps the given order: [m, main]
+        a.methods[1].instrs = vec![
+            (
+                0,
+                ir::Instr::InvokeVirtual {
+                    class: "A".to_string(),
+                    name: "m".to_string(),
+                    desc: MV.to_string(),
+                },
+            ),
+            (
+                3,
+                ir::Instr::InvokeInterface {
+                    class: "B".to_string(),
+                    name: "m".to_string(),
+                    desc: MV.to_string(),
+                },
+            ),
+        ];
+        let p = prog(vec![a, b]);
+        assert_eq!(count_virtual_sites(&p), (2, 1));
+    }
 }

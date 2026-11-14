@@ -1773,9 +1773,29 @@ fn emit_instr(
             out.push(format!(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
-            out.push(format!(
-                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch()));"
-            ));
+            // R5 slice 1: when the closed-world resolution proves every
+            // possible runtime receiver walks to ONE target, place that
+            // target directly — the InvokeSpecial forms with the receiver.
+            // The refresh, the pop_ref null law and the try-wrap are
+            // byte-identical; only the dispatch walk is elided. Anything
+            // unresolved keeps the dynamic path below.
+            match crate::resolve_virtual_target_pub(prog, class, name, desc) {
+                Some(crate::CallTarget::User { module, fn_name }) => {
+                    out.push(format!(
+                        "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, crate::classes::{module}::{fn_name}(::core::option::Option::Some(&__r), &__a));"
+                    ));
+                }
+                Some(crate::CallTarget::Native { class: ncls }) => {
+                    out.push(format!(
+                        "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::Some(&__r), &__a, crate::j2r_dispatch()));"
+                    ));
+                }
+                None => {
+                    out.push(format!(
+                        "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch()));"
+                    ));
+                }
+            }
             if !returns_void(desc) {
                 out.push("stack.push(__v);".into());
             }

@@ -3110,3 +3110,27 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   the InvokeSpecial direct forms (`Option::Some(&__r)`), everything
   else stays dynamic. EmitStats gains the site counters; the vtable
   is slice 2, planned only after this lands clean.
+
+## SESSION 19b cont. 12 (cont.) — 2026-11-15 (R5 SLICE 1: the fold LANDED in code, fast gates green)
+
+- **Toolchain re-proven**: the persistent bootstrap script hit and fixed
+  two of its own bugs (rustup-init must run as a BINARY, not via `sh`;
+  the proxies need RUSTUP_HOME/CARGO_HOME exported) — rustc 1.99.1
+  (58cf8f9c3) + javac 21.0.13+9 verified working. The script (fixed)
+  is vendored into the repo at scripts/bootstrap_toolchain.sh and
+  env.sh is tracked now — future resets recover both from git.
+- **The fold is in**: `resolve_virtual_target` + `walk_virtual_chain`
+  in j2r-codegen/src/lib.rs (the walk mirrors invoke_virtual level for
+  level: compiled method per level → natives row per level → user
+  super with the Object default → builtin_parent_of), the emitter's
+  InvokeVirtual/InvokeInterface arm places the direct call in the
+  InvokeSpecial forms when the resolution unifies (refresh, pop_ref
+  NPE law and try-wrap untouched), and `count_virtual_sites` is the
+  measurement fn. Gates: interface-typed sites stay dynamic in slice 1
+  (the implementor closure is a different receiver set), everything
+  else conservative.
+- **Fast gates green**: 11 law tests in lib.rs (fold/diverge/native-
+  shadow/deep-chain/sibling/builtin-array-unknown/interface/error-walk/
+  counter) — units 461 lib / 0 failed (codegen 130 → 141); codegen
+  e2e + malformed + wide_ids green; fmt + clippy clean (one
+  question_mark lint fixed en route).
