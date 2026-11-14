@@ -1921,6 +1921,42 @@ fn emit_instr(
                 "stack.push({RT}::Value::Ref(::core::option::Option::Some({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_new_ref({elem:?}, __len)))));"
             ));
         }
+        // G3.3 slice 2 (peephole.rs): the specialized-map cores. The
+        // value lands in the node's slot as the RAW prim — the box never
+        // existed on this path; the put's return is discarded by the
+        // core's own Pop and the get's result replaces the map operand
+        // exactly like the invoke-result law.
+        Instr::MapPutPrim { .. } => {
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(format!(
+                "let __val = {RT}::stack::stack_pop(&mut stack);"
+            ));
+            // The key pops as a plain Value — a null key is legal for
+            // HashMap (the faithful put's args pop unchecked); only the
+            // RECEIVER carries the pop_ref null check, like every invoke.
+            out.push(format!(
+                "let __key = {RT}::stack::stack_pop(&mut stack);"
+            ));
+            out.push(format!(
+                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+            ));
+            out.push(format!(
+                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::hm_put_prim(&__r, __key, __val, crate::j2r_dispatch()));"
+            ));
+        }
+        Instr::MapGetPrim { .. } => {
+            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(format!(
+                "let __key = {RT}::stack::stack_pop(&mut stack);"
+            ));
+            out.push(format!(
+                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+            ));
+            out.push(format!(
+                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::hm_get_prim(&__r, __key, crate::j2r_dispatch()));"
+            ));
+            out.push("stack.push(__v);".into());
+        }
         Instr::MultiNewArray { desc, dims } => {
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             out.push(format!("{RT}::heap::gc_point();"));

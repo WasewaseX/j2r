@@ -157,10 +157,571 @@ pub fn collapse_array_fill_runs(instrs: &mut Vec<(u32, Instr)>) -> usize {
     replaced
 }
 
+// ---------------------------------------------------------------------------
+// G3.3 slice 2 — the specialized-map cores (the 2.78x container tax,
+// evidence g3_3/opening_census). The registered design's step 2: rewrite
+// javac's autobox map chains into the prim-slot natives where a dataflow
+// window proves the box never escapes.
+//
+// THE RECOGNIZED CORES (javac 8-21, `Map<String,Double> m`):
+//
+//   put:  InvokeStatic  Box.valueOf(p)          <- the fresh box
+//         Invoke{V,I}    Map|HashMap.put         (LL;LL;)LL;
+//         Pop                                    <- the return discarded
+//   =>    MapPutPrim { prim: p }                  (pops map,key,prim)
+//
+//   get:  Invoke{V,I}    Map|HashMap.get         (L;)L;
+//         CheckCast      java/lang/Box
+//         InvokeVirtual  Box.xValue()p           <- the only consumer
+//   =>    MapGetPrim { prim: p }                  (pops map,key; pushes prim)
+//
+// THE CLOSURE LAW (why the raw prim slot is unobservable there). The
+// rewrites fire only on a receiver LOCAL n that is:
+//   1. HASHMAP-FRESH: every `Store(n)` in the method stores a
+//      `New java/util/HashMap; Dup; (consts); Invokespecial <init>`
+//      creation, so the runtime object is the implemented container
+//      (the faithful dispatch would resolve there anyway);
+//   2. CONSUMPTION-CLOSED: EVERY `Load(n)` in the method is the receiver
+//      of a rewritten core. Any other load — an argument pass, a field
+//      store, a return, `keySet()`, a non-core `put`/`get` — means the
+//      map (or a value read) can be observed where a BOX is expected,
+//      so n is refused entirely and its cores keep the faithful path.
+//      (`m.put(m = other, v)` reassignment stores are non-creation
+//      stores and kill freshness by rule 1 — conservative; the synthetic
+//      reads the STACK operand, so the rule is not strictly needed, but
+//      the simpler law is kept until a case needs the wider one.)
+// Under both rules every slot in the map was written by a rewritten put
+// (a raw prim) and every read is a rewritten get (prim expect), so the
+// box never materializes. The heap-pollution CCE the faithful
+// `checkcast` would throw is unreachable by the same construction.
+//
+// THE DATAFLOW WINDOW. The receiver is resolved by walking BACKWARD from
+// the core through the verifier's per-pc entry shapes: the first
+// instruction whose entry stack depth equals the map operand's slot is
+// the push that produced it — and it must be `Load(n)`. (No width table:
+// the verifier's shapes already encode category-2 widths.) The walk
+// refuses on any branch/switch/return/athrow (the window must be
+// straight-line) and on any entry depth below the map slot. Guards
+// mirror the fill pass: no branch target may land in
+// `(receiver_pc, end_pc)` (a target AT the receiver pc re-executes
+// `Load(n)` — the same provenance; a target at or after the core start
+// could supply a foreign map), and no exception entry may PARTIALLY
+// overlap the span (the synthetic's faults all report the core's first
+// pc, so a handler must cover the whole span or none of it).
+//
+// Every refused shape keeps the old per-instruction emission —
+// correctness never depends on the rewrite (the fill pass's law).
+
+/// The boxed classes whose `valueOf`/`xValue()` pair javac emits, with
+/// the prim each direction carries.
+const BOXED_VALUE_OF: &[(&str, &str, PrimType)] = &[
+    (
+        "java/lang/Double",
+        "(D)Ljava/lang/Double;",
+        PrimType::Double,
+    ),
+    ("java/lang/Float", "(F)Ljava/lang/Float;", PrimType::Float),
+    ("java/lang/Integer", "(I)Ljava/lang/Integer;", PrimType::Int),
+    ("java/lang/Long", "(J)Ljava/lang/Long;", PrimType::Long),
+];
+
+const MAP_RECEIVERS: &[&str] = &["java/util/Map", "java/util/HashMap"];
+
+fn boxed_of(class: &str) -> Option<&'static (&'static str, &'static str, PrimType)> {
+    BOXED_VALUE_OF.iter().find(|(c, _, _)| *c == class)
+}
+
+fn unbox_prim(name: &str) -> Option<PrimType> {
+    match name {
+        "doubleValue" => Some(PrimType::Double),
+        "floatValue" => Some(PrimType::Float),
+        "intValue" => Some(PrimType::Int),
+        "longValue" => Some(PrimType::Long),
+        _ => None,
+    }
+}
+
+fn is_const_push(i: &Instr) -> bool {
+    matches!(
+        i,
+        Instr::IConst(_)
+            | Instr::Ldc(Ldc::Int(_))
+            | Instr::FConst(_)
+            | Instr::Ldc(Ldc::Float(_))
+            | Instr::Ldc2W(_)
+    )
+}
+
+/// Instructions the receiver walk must not cross (the window is
+/// straight-line reachable code).
+fn is_control(i: &Instr) -> bool {
+    matches!(
+        i,
+        Instr::Goto(_)
+            | Instr::IfZero(_, _)
+            | Instr::IfICmp(_, _)
+            | Instr::IfRefCmp { .. }
+            | Instr::IfNull(_)
+            | Instr::IfNonNull(_)
+            | Instr::TableSwitch { .. }
+            | Instr::LookupSwitch { .. }
+            | Instr::Return(_)
+            | Instr::AThrow
+    )
+}
+
+/// One recognized, receiver-resolved core: the instruction INDEX of the
+/// core start, the pc of the core start (the synthetic's pc), the pc one
+/// past the core's last instruction, the receiver's local index, and the
+/// prim.
+struct MapCore {
+    start_idx: usize,
+    start_pc: u32,
+    end_pc: u32,
+    recv_local: u16,
+    recv_pc: u32,
+    prim: PrimType,
+    put: bool,
+}
+
+/// Rewrites the specialized-map cores. Returns the number of cores
+/// replaced. `shapes` must be the method's verified per-pc shapes (the
+/// caller re-verifies after the rewrite; the synthetic instructions have
+/// verifier arms).
+pub fn map_prim_rewrites(
+    instrs: &mut Vec<(u32, Instr)>,
+    exception_table: &[(u32, u32, u32, Option<String>)],
+    shapes: &crate::verify::MethodShapes,
+) -> usize {
+    // Branch targets, for the span guards.
+    let mut targets = Vec::new();
+    targets_of(instrs, &mut targets);
+    targets.sort_unstable();
+    targets.dedup();
+
+    // Phase A — HashMap-fresh locals. A creation run is
+    // `New HashMap; Dup; (const pushes); Invokespecial HashMap.<init>;
+    //  Store(n)` with no branch target inside. Every OTHER Store(n)
+    // kills the local's freshness.
+    let mut fresh: std::collections::BTreeMap<u16, ()> = Default::default();
+    let mut creation_stores: Vec<u32> = Vec::new();
+    for i in 0..instrs.len() {
+        let Some(store_idx) = (|| {
+            if !matches!(&instrs[i].1, Instr::New { class: c } if c == "java/util/HashMap") {
+                return None;
+            }
+            if !matches!(instrs.get(i + 1).map(|p| &p.1), Some(Instr::Dup)) {
+                return None;
+            }
+            let mut j = i + 2;
+            while matches!(instrs.get(j).map(|p| &p.1), Some(x) if is_const_push(x)) {
+                j += 1;
+            }
+            match instrs.get(j).map(|p| &p.1) {
+                Some(Instr::InvokeSpecial { class, name, .. })
+                    if class == "java/util/HashMap" && name == "<init>" => {}
+                _ => return None,
+            }
+            match instrs.get(j + 1).map(|p| &p.1) {
+                Some(Instr::Store(n)) => Some((j + 1, *n)),
+                _ => None,
+            }
+        })() else {
+            continue;
+        };
+        let (store_idx, n) = store_idx;
+        let start_pc = instrs[i].0;
+        let end_pc = instrs.get(store_idx + 1).map(|p| p.0).unwrap_or(u32::MAX);
+        if targets.iter().any(|t| *t > start_pc && *t < end_pc) {
+            continue;
+        }
+        creation_stores.push(instrs[store_idx].0);
+        fresh.insert(n, ());
+    }
+    for (pc, i) in instrs.iter() {
+        if let Instr::Store(n) = i {
+            if !creation_stores.contains(pc) {
+                fresh.remove(n);
+            }
+        }
+    }
+    if fresh.is_empty() {
+        return 0;
+    }
+
+    // Phase B — recognize the cores (the adjacency window itself).
+    let mut recognized: Vec<(usize, bool, PrimType)> = Vec::new();
+    for i in 0..instrs.len() {
+        match &instrs[i].1 {
+            // put core: `valueOf(p); Map|HashMap.put; Pop`.
+            Instr::InvokeStatic { class, name, desc } if name == "valueOf" => {
+                let Some((_, d, p)) = boxed_of(class) else {
+                    continue;
+                };
+                if desc != *d {
+                    continue;
+                }
+                match (
+                    instrs.get(i + 1).map(|x| &x.1),
+                    instrs.get(i + 2).map(|x| &x.1),
+                ) {
+                    (
+                        Some(Instr::InvokeVirtual { class, name, desc })
+                        | Some(Instr::InvokeInterface { class, name, desc }),
+                        Some(Instr::Pop),
+                    ) if name == "put"
+                        && MAP_RECEIVERS.contains(&class.as_str())
+                        && desc == "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;" => {}
+                    _ => continue,
+                }
+                recognized.push((i, true, *p));
+            }
+            // get core: `Map|HashMap.get; CheckCast Box; Box.xValue()p`.
+            Instr::InvokeVirtual { class, name, desc }
+            | Instr::InvokeInterface { class, name, desc }
+                if name == "get"
+                    && MAP_RECEIVERS.contains(&class.as_str())
+                    && desc == "(Ljava/lang/Object;)Ljava/lang/Object;" =>
+            {
+                let Some(Instr::CheckCast { class: box_cls }) = instrs.get(i + 1).map(|x| &x.1)
+                else {
+                    continue;
+                };
+                let Some((bc, _, _)) = boxed_of(box_cls) else {
+                    continue;
+                };
+                let Some(Instr::InvokeVirtual {
+                    class: ucls,
+                    name: uname,
+                    desc: udesc,
+                }) = instrs.get(i + 2).map(|x| &x.1)
+                else {
+                    continue;
+                };
+                if ucls != *bc {
+                    continue;
+                }
+                let Some(p) = unbox_prim(uname) else { continue };
+                if udesc != unbox_desc(p) {
+                    continue;
+                }
+                recognized.push((i, false, p));
+            }
+            _ => {}
+        }
+    }
+
+    // Phase C — resolve each core's receiver by the backward shape walk.
+    let mut cores: Vec<MapCore> = recognized
+        .into_iter()
+        .filter_map(|(i, put, prim)| resolve_core(instrs, shapes, i, put, prim, &fresh))
+        .collect();
+
+    // Phase D — the span guards (branch targets + handler overlap). A
+    // refused core keeps the faithful path, which then OBSERVES the prim
+    // slots its sibling rewrites wrote — so a refusal must remove every
+    // core of the same receiver local. The closure check below does
+    // exactly that: after the guards, the refused core's receiver Load
+    // is no longer covered.
+    cores.retain(|c| {
+        let inside = |t: u32| t > c.recv_pc && t < c.end_pc;
+        if targets.iter().any(|t| inside(*t)) {
+            return false;
+        }
+        exception_table.iter().all(|(s, e, _, _)| {
+            let overlaps = *s < c.end_pc && *e > c.recv_pc;
+            let contains = *s <= c.recv_pc && *e >= c.end_pc;
+            !overlaps || contains
+        })
+    });
+    if cores.is_empty() {
+        return 0;
+    }
+
+    // Phase E — consumption closure: EVERY Load(n) of a fresh local must
+    // be some surviving core's receiver. Any other load (an argument
+    // pass, a field store, a return, `keySet()`, a non-core put/get)
+    // can observe the map or a value where a BOX is expected.
+    let recv_pcs: Vec<u32> = cores.iter().map(|c| c.recv_pc).collect();
+    let mut closed: std::collections::BTreeSet<u16> = fresh.keys().copied().collect();
+    for (pc, i) in instrs.iter() {
+        if let Instr::Load(n) = i {
+            if fresh.contains_key(n) && !recv_pcs.contains(pc) {
+                closed.remove(n);
+            }
+        }
+    }
+    cores.retain(|c| closed.contains(&c.recv_local));
+    if cores.is_empty() {
+        return 0;
+    }
+
+    // Phase F — splice, descending so the indices stay valid.
+    let mut replaced = 0;
+    for c in cores.iter().rev() {
+        let synthetic = if c.put {
+            Instr::MapPutPrim { prim: c.prim }
+        } else {
+            Instr::MapGetPrim { prim: c.prim }
+        };
+        instrs.splice(c.start_idx..c.start_idx + 3, vec![(c.start_pc, synthetic)]);
+        replaced += 1;
+    }
+    replaced
+}
+
+fn unbox_desc(p: PrimType) -> &'static str {
+    match p {
+        PrimType::Float => "()F",
+        PrimType::Long => "()J",
+        PrimType::Double => "()D",
+        _ => "()I",
+    }
+}
+
+/// Resolves one core's receiver by the backward shape walk (Phase C) and
+/// returns the core when the receiver is a fresh `Load(n)`.
+fn resolve_core(
+    instrs: &[(u32, Instr)],
+    shapes: &crate::verify::MethodShapes,
+    i: usize,
+    put: bool,
+    prim: PrimType,
+    fresh: &std::collections::BTreeMap<u16, ()>,
+) -> Option<MapCore> {
+    // The consuming instruction: the put (i+1) for a put core, the get
+    // (i) for a get core. The map operand's slot comes from its ENTRY
+    // shape.
+    let consume_idx = if put { i + 1 } else { i };
+    let consume_pc = instrs[consume_idx].0;
+    let shape = shapes.per_pc.get(&consume_pc)?;
+    let map_slot = shape.stack.len().checked_sub(if put { 3 } else { 2 })?;
+    let mut recv_local = None;
+    let mut recv_pc = None;
+    for j in (0..i).rev() {
+        if is_control(&instrs[j].1) {
+            return None;
+        }
+        let s = shapes.per_pc.get(&instrs[j].0)?;
+        let depth = s.stack.len();
+        if depth == map_slot {
+            match &instrs[j].1 {
+                Instr::Load(n) if fresh.contains_key(n) => {
+                    recv_local = Some(*n);
+                    recv_pc = Some(instrs[j].0);
+                }
+                _ => return None,
+            }
+            break;
+        }
+        if depth < map_slot {
+            return None;
+        }
+    }
+    Some(MapCore {
+        start_idx: i,
+        start_pc: instrs[i].0,
+        end_pc: instrs.get(i + 3).map(|p| p.0).unwrap_or(u32::MAX),
+        recv_local: recv_local?,
+        recv_pc: recv_pc?,
+        prim,
+        put,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ir::Instr as I;
+
+    /// The canonical `Map<String,Double> m = new HashMap<>(); m.put("a",
+    /// 0.5); double x = m.get("a");` main body (javac 21 shape, realistic
+    /// pcs): creation store to local 1, put core at 13, get core at 26.
+    fn canonical() -> Vec<(u32, I)> {
+        vec![
+            (
+                0,
+                I::New {
+                    class: "java/util/HashMap".into(),
+                },
+            ),
+            (3, I::Dup),
+            (
+                4,
+                I::InvokeSpecial {
+                    class: "java/util/HashMap".into(),
+                    name: "<init>".into(),
+                    desc: "()V".into(),
+                },
+            ),
+            (7, I::Store(1)),
+            (8, I::Load(1)),
+            (9, I::Ldc(Ldc::String("a".into()))),
+            (10, I::Ldc2W(crate::ir::Ldc2::Double(0.5))),
+            (
+                13,
+                I::InvokeStatic {
+                    class: "java/lang/Double".into(),
+                    name: "valueOf".into(),
+                    desc: "(D)Ljava/lang/Double;".into(),
+                },
+            ),
+            (
+                16,
+                I::InvokeInterface {
+                    class: "java/util/Map".into(),
+                    name: "put".into(),
+                    desc: "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                },
+            ),
+            (21, I::Pop),
+            (22, I::Load(1)),
+            (23, I::Ldc(Ldc::String("a".into()))),
+            (
+                26,
+                I::InvokeInterface {
+                    class: "java/util/Map".into(),
+                    name: "get".into(),
+                    desc: "(Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                },
+            ),
+            (
+                31,
+                I::CheckCast {
+                    class: "java/lang/Double".into(),
+                },
+            ),
+            (
+                34,
+                I::InvokeVirtual {
+                    class: "java/lang/Double".into(),
+                    name: "doubleValue".into(),
+                    desc: "()D".into(),
+                },
+            ),
+            (37, I::Store(2)),
+            (38, I::Return(j2r_runtime::TypeDesc::Void)),
+        ]
+    }
+
+    fn shapes_of(instrs: &[(u32, I)]) -> crate::verify::MethodShapes {
+        let m = crate::MethodPlan {
+            name: "main".into(),
+            desc: "([Ljava/lang/String;)V".into(),
+            is_static: true,
+            is_native: false,
+            is_sync: false,
+            modifiers: 0,
+            signature: None,
+            lvtt: Vec::new(),
+            fn_name: "m_main".into(),
+            instrs: instrs.to_vec(),
+            exception_table: Vec::new(),
+            max_locals: 4,
+            max_stack: 6,
+        };
+        let concats = std::collections::BTreeMap::new();
+        let lambdas = std::collections::BTreeMap::new();
+        crate::verify::verify_method_shapes(&m, &concats, &lambdas).expect("test body verifies")
+    }
+
+    #[test]
+    fn put_and_get_cores_rewrite() {
+        let mut instrs = canonical();
+        let shapes = shapes_of(&instrs);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes);
+        assert_eq!(n, 2, "both cores rewrite");
+        assert_eq!(
+            instrs[7].1,
+            I::MapPutPrim {
+                prim: PrimType::Double
+            },
+            "the put core collapses at its valueOf pc"
+        );
+        assert_eq!(instrs[7].0, 13);
+        assert_eq!(
+            instrs[10].1,
+            I::MapGetPrim {
+                prim: PrimType::Double
+            },
+            "the get core collapses at its get pc"
+        );
+        assert_eq!(instrs[10].0, 26);
+    }
+
+    #[test]
+    fn non_creation_store_refuses() {
+        let mut instrs = canonical();
+        // A second store to the map local that is not a fresh creation:
+        // the local's provenance is no longer provable. Inserted directly
+        // after the creation store (index 3); the rest re-spaces by +2 so
+        // every pc stays distinct.
+        instrs.insert(4, (8, I::AConstNull));
+        instrs.insert(5, (9, I::Store(1)));
+        for pc_entry in instrs.iter_mut().skip(6) {
+            pc_entry.0 += 2;
+        }
+        let shapes = shapes_of(&instrs);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes);
+        assert_eq!(n, 0, "a non-creation store kills freshness");
+    }
+
+    #[test]
+    fn escape_load_refuses_closure() {
+        let mut instrs = canonical();
+        // A load of the map local consumed by something that is not a
+        // rewritten core's receiver (here: pushed and discarded — the
+        // argument-pass / field-store shape class).
+        instrs.push((39, I::Load(1)));
+        instrs.push((40, I::Pop));
+        instrs.push((41, I::Return(j2r_runtime::TypeDesc::Void)));
+        let shapes = shapes_of(&instrs);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes);
+        assert_eq!(n, 0, "an uncovered load kills the whole local");
+    }
+
+    #[test]
+    fn non_core_get_refuses_closure() {
+        let mut instrs = canonical();
+        // `Object o = m.get("a")` discarded: the get's result is NOT
+        // consumed by checkcast+unbox, so no get core forms and the
+        // receiver load is uncovered. Keep the creation + the put core,
+        // then a bare get whose result is popped.
+        instrs.truncate(10);
+        instrs.push((22, I::Load(1)));
+        instrs.push((23, I::Ldc(Ldc::String("a".into()))));
+        instrs.push((
+            26,
+            I::InvokeInterface {
+                class: "java/util/Map".into(),
+                name: "get".into(),
+                desc: "(Ljava/lang/Object;)Ljava/lang/Object;".into(),
+            },
+        ));
+        instrs.push((31, I::Pop));
+        instrs.push((32, I::Return(j2r_runtime::TypeDesc::Void)));
+        let shapes = shapes_of(&instrs);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes);
+        assert_eq!(n, 0, "a non-core get refuses the closure");
+    }
+
+    #[test]
+    fn partial_handler_overlap_refuses() {
+        let instrs = canonical();
+        let shapes = shapes_of(&instrs);
+        let mut instrs2 = instrs.clone();
+        // A handler that ENDS between the valueOf and the put: the
+        // synthetic faults at the core's first pc, so a boundary inside
+        // the span can move a throw across it.
+        let table = vec![(8u32, 17u32, 38u32, None)];
+        let n = map_prim_rewrites(&mut instrs2, &table, &shapes);
+        assert_eq!(n, 0, "a handler boundary inside the span refuses");
+        // A handler covering the WHOLE span is fine.
+        let mut instrs3 = instrs;
+        let table2 = vec![(8u32, 22u32, 38u32, None)];
+        let n2 = map_prim_rewrites(&mut instrs3, &table2, &shapes);
+        assert_eq!(n2, 2, "a full-span handler keeps both cores");
+    }
 
     fn fill_run(len: i32, vals: &[i32], putstatic: bool) -> Vec<(u32, I)> {
         let mut v: Vec<(u32, I)> = Vec::new();

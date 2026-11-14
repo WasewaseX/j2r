@@ -132,6 +132,26 @@ pub enum Instr {
         prim: PrimType,
         vals: Vec<i32>,
     },
+    /// Collapsed javac autobox-put core (G3.3 slice 2, peephole.rs):
+    /// `valueOf(p) -> Map/HashMap.put -> Pop` on a receiver local the
+    /// closure law proved safe becomes ONE instruction that pops
+    /// `map, key, prim(p)` and stores the RAW prim in the node's value
+    /// slot (no box, no valueOf dispatch). The put's return is discarded
+    /// (the core requires the Pop). Emitted by both backends as a direct
+    /// `collections::hm_put_prim` call.
+    MapPutPrim {
+        prim: PrimType,
+    },
+    /// Collapsed javac unbox-get core (G3.3 slice 2, peephole.rs):
+    /// `Map/HashMap.get -> checkcast(Box) -> Box.unbox()` on a closure-
+    /// proven receiver local becomes ONE instruction that pops
+    /// `map, key` and pushes the node's raw prim payload. A missing key
+    /// throws the faithful bare NPE (the null box reaching `doubleValue`).
+    /// Emitted by both backends as a direct `collections::hm_get_prim`
+    /// call.
+    MapGetPrim {
+        prim: PrimType,
+    },
     ANewArray {
         elem: String,
     },

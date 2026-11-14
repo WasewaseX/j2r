@@ -643,6 +643,21 @@ pub fn compile(opts: &Options) -> Result<Program> {
     for c in &prog.classes {
         verify::verify_class(&prog, c)?;
     }
+    // G3.3 slice 2: the specialized-map cores. Runs AFTER verify (the
+    // receiver walk consumes the verifier's per-pc shapes) and BEFORE
+    // validate/emit (the synthetic instructions carry no symbolic refs
+    // and both emitters verify them again with their own arms).
+    let mut map_cores_rewritten = 0usize;
+    for c in &mut prog.classes {
+        for m in &mut c.methods {
+            let Ok(shapes) = verify::verify_method_shapes(m, &c.concats, &c.lambdas) else {
+                continue; // verified OK above; the rewrite never fires on a refuse
+            };
+            map_cores_rewritten +=
+                crate::peephole::map_prim_rewrites(&mut m.instrs, &m.exception_table, &shapes);
+        }
+    }
+    let _ = map_cores_rewritten;
     for c in &prog.classes {
         validate_class(&prog, c)?;
     }

@@ -1,0 +1,90 @@
+G3.3 slice 2 — the put/get rewrites: the specialized-map cores
+===============================================================
+Date: 2026-11-14 (session 19b cont. 10; reset #21 recovered first —
+byte-exact toolchain rust 1.99.1 / Temurin 21.0.13+9, warm target/,
+units re-proven BEFORE any edit).
+
+THE MECHANISM (crates/j2r-codegen/src/peephole.rs, map_prim_rewrites):
+a post-verify IR pass recognizing javac's autobox map cores on a
+receiver local the CLOSURE LAW proved safe, replacing each with ONE
+synthetic instruction (MapPutPrim / MapGetPrim in ir.rs, verifier arms
+in verify.rs, both emitters armed — emit.rs direct-native form, typed.rs
+unified-push form). The runtime natives (collections.rs): hm_put_prim
+stores the RAW prim Value in the node's value slot through hm_put's own
+machinery (the key hash/equals dispatch, resize law and modCount are
+byte-identical); hm_get_prim unwraps the slot to the prim payload, the
+absent key throwing the faithful bare NPE.
+
+THE CLOSURE LAW (why the raw slot is unobservable):
+  1. HASHMAP-FRESH: every Store(n) is a `New HashMap; Dup; (consts);
+     Invokespecial <init>; Store(n)` creation run.
+  2. CONSUMPTION-CLOSED: every Load(n) is a rewritten core's receiver
+     (the backward shape walk resolves each core's receiver; any other
+     load — argument pass, field store, return, keySet, a non-core
+     put/get — refuses the WHOLE local, the faithful path stands).
+  Span guards mirror the fill pass: no branch target inside
+  (receiver_pc, end_pc), no partially-overlapping exception entry (a
+  refusal removes every core of the same local — a refused core keeps
+  the boxing path, which must never observe a prim slot).
+  Under both rules every slot was written by a rewritten put and every
+  read is a rewritten get: the box never materializes, the heap-
+  pollution CCE the faithful checkcast would throw is unreachable, and
+  the Integer/Long [-128,127] JLS cache law has nothing to preserve.
+
+THE JAVAC SHAPE (probe, scripts/evidence/g3_3/
+map_shape_probe_2026-11-14.txt, javap -c vs pinned javac 21.0.13):
+  put: ldc2_w; invokestatic Double.valueOf; invokeinterface Map.put; pop
+  get: invokeinterface Map.get; checkcast Double; invokevirtual
+       Double.doubleValue
+  All four cores in the probe body match the recognizer exactly.
+
+THE RE-MEASURE (the registered opening's deliverable — same-session
+before/after pair on the SAME instrument, BoxingBoxedBench vs
+BoxingPrimBench, release, median of 2, every run's stdout bit-identical
+(wsum=1299.9431953077858 / chk=1312.9431953077305, the four-way law)):
+
+  BEFORE (f8d41e5, slice 1 — git stash/rebuild/run/restore):
+    boxed default 8.15 s   boxed typed 7.24 s
+    prim  default 2.67 s   prim  typed 2.22 s   (unaffected side)
+    container tax  default 3.05x   typed 3.26x
+  AFTER (this slice):
+    boxed default 4.44 s   boxed typed 4.05 s
+    prim  default 2.67 s   prim  typed 2.22 s
+    container tax  default 1.66x   typed 1.82x
+  -> the rewrite removes 45.5% (default) / 44.1% (typed) of the boxed
+     bench's wall time; the tax drops 1.39x (default) / 1.44x (typed).
+  JVM same-session ref: boxed 0.09 s / prim 0.05 s = 1.75x — the j2r
+  default channel's tax (1.66x) is now BELOW the JVM's own on this
+  instrument. (The opening's recorded 2.78x was measured 2026-11-08 on
+  a different box load — the paired same-session numbers above are the
+  claim, per the G3.5 honesty law. The JAMA lever ledger is a different
+  instrument and stands unchanged.)
+
+RAW LOGS: the four post-rewrite run outputs and the two pre-rewrite
+outputs live in the session work dir (g33s2_measure/*_r1.txt,
+*_r2.txt); the table above is the committed record.
+
+THE HELPFUL-NPE RESIDUAL (discovered, registered, NOT widened):
+scripts/evidence/g3_3/npe_residual_2026-11-14.txt — the absent-key
+`m.get(missing)` unboxing NPE carries Temurin's JDK-15+ helpful message
+("Cannot invoke \"java.lang.Double.doubleValue()\" because the return
+value of \"java.util.Map.get(Object)\" is null") while j2r's faithful
+path throws the bare NPE (message None) — a PRE-EXISTING divergence
+class (no runtime helpful-NPE machinery), never before pinned by
+evidence. The rewrite preserves j2r's behavior byte-for-byte on the
+path (the same bare NPE) and refuses any span a handler partially
+covers. MapPrim avoids the shape, as every existing fixture already
+did.
+
+BATTERY (all green, this session, this tree):
+  units 496/0 (workspace lib 437 = classfile 48 + codegen 125 (+5
+    peephole map tests) + runtime 249 + jni-ffi 15; + e2e/malformed/
+    wide_ids/jmm/manifest/signature_probe/jar/partition/lambda_neg/
+    surface/native/soe/jni_parity/cli bin);
+  diff_suite 116 fixtures three-channel zero divergences (527.25 s);
+  cfg_equiv base/cfg/typed zero divergences (377.29 s);
+  corpus 1/1 (BoxingBoxedBench REWRITES on both backends and stays
+    byte-identical vs Temurin), partition 1/1, jar 3, soe 1, surface 1,
+    native_e2e 2, jni_parity 1, lambda_neg 2;
+  fmt + clippy -D warnings clean (FRESH, the reset lesson);
+  gate-11 doc counts in sync: fixtures=116 tests=496 (README updated).

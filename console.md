@@ -2779,3 +2779,124 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   `map_get_prim` natives in collections.rs, the dataflow-window guard)
   on the signature-pinned + adjacency-pinned shapes; then FORNAME-INIT
   and NEW-INSTANCE (design notes registered in TODO.md).
+
+## SESSION 19b cont. 10 — 2026-11-14 (reset #21 again; G3.3 SLICE 2: the put/get rewrites LANDED)
+
+- **Reset #21 recovery, second boundary (10th full-download paid — the
+  under-the-tree install did NOT survive this one)**: local tree back at
+  pre-M2 `b4badea` while origin/main held `f8d41e5` (slice 1); fetch +
+  hard reset, tree clean, no work lost (un-pushed = un-protected held:
+  everything was already on origin). `tools/` + `env.sh` reverted away
+  again (the snapshot's persistent layer still predates the move); the
+  509 MB `target/` SURVIVED → warm rebuilds. Rebootstrap (the script now
+  persists at scripts/, outside the repo): rustup-init **21,347,088 B
+  byte-exact** → **cargo/rustc 1.99.1 + rustfmt 1.10.0 + clippy 0.1.99**
+  (the first install was killed mid-toolchain by the download timeout —
+  the resumed run skipped it because the cargo shim existed; `rustup
+  toolchain install 1.99.1` forced explicitly — LESSON: after an
+  interrupted bootstrap, verify `rustc --version` BEFORE trusting the
+  skip-if-exists check); Temurin **jdk-21.0.13+9 tarball 207,858,352 B
+  byte-exact** (GitHub releases-asset route). env.sh recreated as the
+  one-line bootstrap → `work/j2r-fresh/tools/{cargo,rustup2,jdk-21.0.13+9}`.
+- **G3.3 SLICE 2 LANDED — the put/get rewrites** (the specialized-map
+  track's step 2, the registered opening's mechanism): a post-verify IR
+  pass `map_prim_rewrites` (peephole.rs) recognizes javac's autobox map
+  cores — `valueOf(p) -> Map|HashMap.put -> Pop` and `Map|HashMap.get ->
+  checkcast Box -> Box.xValue()p` (shape probe vs pinned javac 21.0.13
+  saved: map_shape_probe_2026-11-14.txt) — and replaces each with ONE
+  synthetic instruction (ir.rs `MapPutPrim`/`MapGetPrim`), where the
+  CLOSURE LAW proves the box never escapes:
+  (1) HASHMAP-FRESH — every Store(n) is a `New HashMap; Dup; (consts);
+  Invokespecial <init>; Store(n)` creation run (no branch targets
+  inside); (2) CONSUMPTION-CLOSED — EVERY Load(n) is a rewritten core's
+  receiver, resolved by a backward walk through the verifier's per-pc
+  entry shapes (the first instruction whose entry depth equals the map
+  operand's slot must be Load(n) — no instruction-width table needed:
+  the shapes encode category-2); any other load (an argument pass, a
+  field store, a return, keySet(), a non-core put/get) refuses the
+  WHOLE local. Span guards mirror the fill pass: no branch target in
+  (receiver_pc, end_pc); no PARTIALLY-overlapping exception entry (the
+  synthetic faults at the core's first pc) — and a guard refusal
+  removes every core of the same receiver local, because a refused
+  core keeps the boxing path, which must never observe a prim slot.
+  Under both rules every slot was written by a rewritten put and every
+  read is a rewritten get: the box never materializes, the
+  heap-pollution CCE is unreachable, and the Integer/Long [-128,127]
+  JLS cache law has nothing to preserve. The pass runs in compile()
+  AFTER verify_class (shapes) and BEFORE validate (no symbolic refs to
+  validate); both emitters verify the synthetics again (verify.rs arms
+  carry the same net stack shapes as the replaced runs).
+- **The plumbing**: verify.rs `boxed_prim_vty` + the two arms; emit.rs
+  direct-native arms (pop prim/key as plain Values — a NULL KEY is
+  legal for HashMap, only the RECEIVER carries the pop_ref null check;
+  the get's result pushes like an invoke result); typed.rs arms (the
+  put reads the prim operand via read_prim and constructs the raw
+  Value ctor; the get refills the map operand's slot through the
+  unified push law — Src::Value with the prim kind hoists the
+  expect_* unwrap; plan() ACCEPTS the synthetics — no rejection arm,
+  unlike NewIntArrayFilled). collections.rs: `hm_put_prim` (stores the
+  raw prim Value through hm_put's own machinery — the key hash/equals
+  dispatch, the resize law, the modCount are byte-identical; the put's
+  return is discarded by the core's own Pop) and `hm_get_prim` (unwraps
+  the node's slot to the prim payload; the ABSENT key throws the
+  faithful bare NPE — the null box reaching doubleValue; a
+  materialized box in the slot unboxes defensively, unreachable under
+  the law). Five peephole unit tests (the canonical rewrite + the four
+  refusal laws: non-creation store, escape load, non-core get,
+  partial-handler-overlap refuse / full-span handler keep).
+- **MEASURED — the registered opening's deliverable** (same-session
+  before/after pair on the SAME instrument, release, median of 2, all
+  four outputs bit-identical — the four-way law held through the
+  rewrite): BoxingBoxedBench (boxed side) default **8.15 -> 4.44 s**
+  (−45.5%), typed **7.24 -> 4.05 s** (−44.1%); BoxingPrimBench
+  (unaffected) 2.67 / 2.22 s. The container tax (boxed/prim): default
+  **3.05x -> 1.66x**, typed **3.26x -> 1.82x**. JVM same-session ref
+  ratio **1.75x** — the default channel's tax is now BELOW the JVM's
+  own on this instrument. The "before" numbers were measured by
+  git-stashing the slice, rebuilding the CLI, translating + building +
+  running, then restoring (the honest paired protocol; the opening's
+  recorded 2.78x was a different-day box load — the paired numbers are
+  the claim per the G3.5 honesty law; the JAMA lever ledger is a
+  different instrument and stands).
+- **HELPFUL-NPE residual discovered, registered, NOT widened**: the
+  absent-key `m.get(missing)` unboxing NPE carries Temurin's JDK-15+
+  helpful message ("Cannot invoke \"java.lang.Double.doubleValue()\"
+  because the return value of \"java.util.Map.get(Object)\" is null")
+  while j2r's faithful path throws the bare NPE (the null-receiver
+  invoke law, message None) — a PRE-EXISTING divergence class, never
+  before pinned by evidence (no fixture or corpus program exercised
+  it). The rewrite preserves j2r's behavior byte-for-byte on the path
+  (the same bare NPE) and refuses any span a handler partially covers.
+  Pinned by probe: scripts/evidence/g3_3/npe_residual_2026-11-14.txt.
+  (Registered residual: a runtime helpful-NPE message machinery is the
+  fix — out of slice 2's scope.)
+- **Fixture MapPrim** (the 116th): four closure-proven HashMap locals
+  (Double/Integer/Long/Float) whose every access is a core shape —
+  seed put (const), get+add, put (arith), the BoxingBoxedBench
+  aggregation loop shape, checksum gets, values printed through typed
+  locals (a println(map.get(...)) would pass the box as Object and
+  REFUSE the closure — exactly the registered design). Byte-identical
+  vs Temurin 21.0.13+9 on all three channels. diff_suite guard 114 →
+  115 (116 on disk).
+- **Battery (all green)**: units **496/0** (workspace lib 437 = classfile
+  48 + codegen 125 (+5) + runtime 249 + jni-ffi 15; e2e/malformed/
+  wide_ids/jmm_boundary/manifest 11/signature_probe (env-gated, real
+  pass)/jar 3/partition/corpus/soe/surface/native_e2e/jni_parity/
+  lambda_neg/cli bin all green); diff_suite **116 fixtures, three
+  channels, zero divergences** (527.25 s); cfg_equiv base/cfg/typed
+  **zero divergences** (377.29 s); fmt + clippy `-D warnings` clean
+  FRESH (the reset lesson held); gate-11 doc counts in sync:
+  fixtures=116 tests=496 (README updated 115→116, 491→496, cfg-equiv
+  line, suite-size line).
+- **Recovery-protocol notes recorded**: (a) the interrupted-bootstrap
+  lesson above (verify rustc BEFORE trusting the skip-if-exists);
+  (b) background nohup batteries DIE silently across session boundaries
+  — run heavy gates in FOREGROUND chunks under the tool timeout
+  (diff_suite 527 s and cfg_equiv 377 s each fit);
+  (c) the re-measure protocol needs the tree at TWO states — git
+  stash/rebuild/measure/restore worked cleanly.
+- **Next**: G3.3 slice 3 — the field/materialization layer (getstatic
+  receivers, the node-stamped class tag, lazy box materialization at
+  generic exits, the get-twice-returns-the-same-ref law) per the
+  opening's registered design; then FORNAME-INIT and NEW-INSTANCE
+  (design notes registered in TODO.md).

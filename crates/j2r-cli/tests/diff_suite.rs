@@ -183,10 +183,15 @@ fn differential_suite_matches_jvm() {
     // Constructor's toString/getParameterTypes/getName/getModifiers/
     // getDeclaringClass, and Modifier.toString(int) (JDK canonical bit
     // order); the CTORS_{tag} metadata tables ride both emitters — 115 on
-    // disk, guard one below that.
+    // disk. The G3.3 slice-2 wave (2026-11-14) added MapPrim — the
+    // primitive-specialized map path: four closure-proven HashMap locals
+    // (Double/Integer/Long/Float) whose every access is javac's autobox
+    // core shape, so the node slots hold RAW prim payloads; byte-identical
+    // vs the boxing path on all three channels — 116 on disk, guard one
+    // below that.
     assert!(
-        fixtures.len() >= 114,
-        "differential suite shrank: {} fixtures (expected >= 114)",
+        fixtures.len() >= 115,
+        "differential suite shrank: {} fixtures (expected >= 115)",
         fixtures.len()
     );
 

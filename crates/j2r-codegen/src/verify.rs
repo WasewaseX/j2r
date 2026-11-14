@@ -294,6 +294,19 @@ fn prim_elem_kind(p: PrimType) -> ElemKind {
     }
 }
 
+/// The verified type of a G3.3 map-rewrite prim operand. Only the four
+/// boxable prims reach the synthetic instructions (the peephole matches
+/// the four `valueOf`/`xValue()` pairs); the int-group prims are named
+/// for exhaustiveness and never verified here.
+fn boxed_prim_vty(p: PrimType) -> VTy {
+    match p {
+        PrimType::Long => VTy::Long,
+        PrimType::Float => VTy::Float,
+        PrimType::Double => VTy::Double,
+        _ => VTy::Int,
+    }
+}
+
 /// Entry state: locals initialized from the descriptor (instance methods
 /// reserve slot 0 for `this`), stack empty.
 fn entry_state(m: &MethodPlan) -> std::result::Result<State, VerifyError> {
@@ -1097,6 +1110,23 @@ impl<'a> Sim<'a> {
             // G2.6 arm a: the collapsed fill pops nothing and pushes one
             // int-group array ref — the same verified shape as NewArray.
             NewIntArrayFilled { prim, .. } => self.push(VTy::Array(prim_elem_kind(*prim)))?,
+            // G3.3 slice 2: the collapsed map cores. MapPutPrim pops the
+            // prim value, the key and the map (the put's return is
+            // discarded by the core's Pop) and pushes nothing — the same
+            // net shape as the valueOf/put/pop run it replaces.
+            // MapGetPrim pops the key and the map and pushes the prim
+            // payload (category-2 for D/J) — the same net shape as the
+            // get/checkcast/unbox run it replaces.
+            MapPutPrim { prim } => {
+                self.pop_exact(boxed_prim_vty(*prim))?;
+                self.pop_ref()?;
+                self.pop_ref()?;
+            }
+            MapGetPrim { prim } => {
+                self.pop_ref()?;
+                self.pop_ref()?;
+                self.push(boxed_prim_vty(*prim))?;
+            }
             ANewArray { elem } => {
                 self.pop_exact(VTy::Int)?;
                 // The operand is the ELEMENT class, which may itself be an

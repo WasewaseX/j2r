@@ -1,0 +1,60 @@
+Compiled from "MapShapeProbe.java"
+public class MapShapeProbe {
+  public MapShapeProbe();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: return
+
+  public static void main(java.lang.String[]);
+    Code:
+       0: new           #7                  // class java/util/HashMap
+       3: dup
+       4: invokespecial #9                  // Method java/util/HashMap."<init>":()V
+       7: astore_1
+       8: aload_1
+       9: ldc           #10                 // String a
+      11: ldc2_w        #12                 // double 0.5d
+      14: invokestatic  #14                 // Method java/lang/Double.valueOf:(D)Ljava/lang/Double;
+      17: invokeinterface #20,  3           // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      22: pop
+      23: aload_1
+      24: ldc           #10                 // String a
+      26: invokeinterface #26,  2           // InterfaceMethod java/util/Map.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      31: checkcast     #15                 // class java/lang/Double
+      34: invokevirtual #30                 // Method java/lang/Double.doubleValue:()D
+      37: dconst_1
+      38: dadd
+      39: dstore_2
+      40: aload_1
+      41: ldc           #10                 // String a
+      43: dload_2
+      44: ldc2_w        #34                 // double 2.0d
+      47: dmul
+      48: invokestatic  #14                 // Method java/lang/Double.valueOf:(D)Ljava/lang/Double;
+      51: invokeinterface #20,  3           // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      56: pop
+      57: dconst_0
+      58: dstore        4
+      60: iconst_0
+      61: istore        6
+      63: iload         6
+      65: iconst_2
+      66: if_icmpge     94
+      69: dload         4
+      71: aload_1
+      72: ldc           #10                 // String a
+      74: invokeinterface #26,  2           // InterfaceMethod java/util/Map.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      79: checkcast     #15                 // class java/lang/Double
+      82: invokevirtual #30                 // Method java/lang/Double.doubleValue:()D
+      85: dadd
+      86: dstore        4
+      88: iinc          6, 1
+      91: goto          63
+      94: getstatic     #36                 // Field java/lang/System.out:Ljava/io/PrintStream;
+      97: dload_2
+      98: dload         4
+     100: invokedynamic #42,  0             // InvokeDynamic #0:makeConcatWithConstants:(DD)Ljava/lang/String;
+     105: invokevirtual #46                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+     108: return
+}

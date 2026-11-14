@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-13 (session 19b cont. 9: G3.3 slice 1, the signature-pin layer, landed; next slice 2, the put/get rewrites).
+fix the board. Last updated: 2026-11-14 (session 19b cont. 10: G3.3 slice 2, the put/get rewrites, landed with the re-measure — the container tax 3.05x -> 1.66x default / 3.26x -> 1.82x typed, the JVM's own same-session tax 1.75x; next slice 3, the field/materialization layer).
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -1941,10 +1941,67 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       test's unused loop var. fmt+clippy clean, gate-11 fixtures=115
       tests=491 in sync. Evidence:
       scripts/evidence/g3_3/{signature_pin_2026-11-13.txt,
-      run_signature_probe.sh, SigProbe.java}. NEXT: slice 2 — the
-      put/get rewrites (map_put_prim/map_get_prim natives, the
-      dataflow-window guard) on the signature-pinned + adjacency-pinned
-      shapes.
+      run_signature_probe.sh, SigProbe.java}.
+- [x] **G3.3 SLICE 2 — the put/get rewrites LANDED (2026-11-14, session
+      19b cont. 10, after reset #21)** — the specialized-map track's
+      step 2: javac's autobox map cores collapse to ONE synthetic
+      instruction where the closure law proves the box never escapes.
+      Landed: (a) peephole.rs `map_prim_rewrites` — a post-verify IR
+      pass (it consumes the verifier's per-pc shapes for the receiver
+      walk; runs in compile() after verify_class, before validate —
+      no width table needed: the shapes already encode category-2).
+      Recognized cores (probe-pinned vs javac 21.0.13):
+      `valueOf(p) -> Map|HashMap.put -> Pop` and `Map|HashMap.get ->
+      checkcast Box -> Box.xValue()p`. THE CLOSURE LAW: (1) HASHMAP-
+      FRESH — every Store(n) is a `New HashMap; Dup; (consts);
+      Invokespecial <init>; Store(n)` creation run; (2) CONSUMPTION-
+      CLOSED — every Load(n) is a rewritten core's receiver (backward
+      shape walk: the first instruction whose entry depth equals the
+      map operand's slot must be Load(n)); any other load (argument
+      pass, field store, return, keySet, a non-core put/get) refuses
+      the WHOLE local, the faithful path stands. Span guards mirror
+      the fill pass: no branch target inside (receiver_pc, end_pc), no
+      partially-overlapping exception entry — and a guard refusal
+      removes every core of the same local (a refused core keeps the
+      boxing path, which must never observe a prim slot). (b) ir.rs
+      MapPutPrim/MapGetPrim + verify.rs arms (the same net stack
+      shapes as the runs they replace) + BOTH emitters armed
+      (emit.rs: direct native pops, key pops as a plain Value — a
+      null key is legal; typed.rs: the unified-push law hoists the
+      expect_* unwrap; plan() accepts — no rejection arm). (c)
+      collections.rs `hm_put_prim` (stores the RAW prim Value through
+      hm_put's own machinery — the key dispatch/resize/modCount are
+      byte-identical; the put's return is discarded by the core's
+      Pop) and `hm_get_prim` (unwraps the slot to the prim payload;
+      the absent key throws the faithful bare NPE; a materialized box
+      in the slot unboxes defensively — unreachable under the law).
+      MEASURED (the registered opening's deliverable — same-session
+      before/after pair on the SAME instrument, release, median of 2,
+      four-way stdout bit-identical): BoxingBoxedBench boxed side
+      default 8.15 -> 4.44 s (−45.5%), typed 7.24 -> 4.05 s (−44.1%);
+      the container tax (boxed/prim) default 3.05x -> 1.66x, typed
+      3.26x -> 1.82x — the JVM's same-session ref ratio is 1.75x, so
+      the default channel's tax is now BELOW the JVM's own. The JAMA
+      lever ledger is a different instrument and stands. Battery:
+      units 496/0 (+5 peephole map tests), diff_suite 116 fixtures
+      three-channel zero divergences (527 s; MapPrim the 116th — four
+      closure-proven locals Double/Integer/Long/Float, byte-identical
+      incl. the cache-law shapes), cfg_equiv zero (377 s), corpus/
+      partition/jar/soe/surface/native/jni/lambda green (BoxingBoxedBench
+      REWRITES on both backends and stays byte-identical vs Temurin);
+      fmt+clippy clean FRESH; gate-11 fixtures=116 tests=496 in sync.
+      RESIDUAL REGISTERED (discovered this session, pre-existing, NOT
+      widened): HELPFUL-NPE — the absent-key unboxing NPE carries
+      Temurin's JDK-15+ helpful message while j2r's faithful null-
+      receiver invoke law throws the bare NPE; pinned by probe
+      (scripts/evidence/g3_3/npe_residual_2026-11-14.txt); the
+      rewrite preserves j2r's behavior byte-for-byte on the path.
+      Evidence: scripts/evidence/g3_3/{put_get_rewrites_2026-11-14.txt,
+      map_shape_probe_2026-11-14.txt}. NEXT: slice 3 — the field/
+      materialization layer (getstatic receivers, the node-stamped
+      class tag, lazy box materialization at generic exits) per the
+      opening's registered design; FORNAME-INIT and NEW-INSTANCE
+      (design notes registered) queue behind it.
 - [x] **EXTERNAL PORT REPORT PERSISTED — jbox2d 2.2.1.1 (2026-11-13,
       session 19b, owner directive: "add these in todo list and roadmap
       to survive sandbox reset")** — the owner's independent port test

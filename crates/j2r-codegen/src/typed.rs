@@ -1791,6 +1791,53 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 }
             }
         }
+        // G3.3 slice 2 (peephole.rs): the specialized-map cores. The
+        // prim value flows straight from the typed stack read into the
+        // node's slot — no Value::Ref box, no valueOf dispatch, no unbox
+        // dispatch. The put's return is discarded (the core's own Pop);
+        // the get's result refills the map operand's slot under the
+        // kind-change law, with the expect_* unwrap hoisted by the
+        // unified push law (Src::Value with the prim kind).
+        I::MapPutPrim { prim } => {
+            ctx.refresh(pc);
+            let (ctor, tp) = boxed_ctor(*prim);
+            let val = format!(
+                "{RT}::Value::{}({})",
+                ctor,
+                ctx.read_prim(pc, vs[k - 1], tp)
+            );
+            let key = ctx.wrap_s(pc, vs[k - 2]);
+            let r = ctx.try_ref_of(pc, vs[k - 3], &fault);
+            ctx.out.push(format!("let __k = {key};"));
+            ctx.out.push(format!("let __val = {val};"));
+            ctx.out.push(format!("let __r = {r};"));
+            let call = try_wrap(
+                &fault,
+                format!("{RT}::collections::hm_put_prim(&__r, __k, __val, crate::j2r_dispatch())"),
+            );
+            ctx.out.push(format!("let __v = {call};"));
+        }
+        I::MapGetPrim { prim } => {
+            ctx.refresh(pc);
+            let (_, tp) = boxed_ctor(*prim);
+            let key = ctx.wrap_s(pc, vs[k - 1]);
+            let r = ctx.try_ref_of(pc, vs[k - 2], &fault);
+            ctx.out.push(format!("let __k = {key};"));
+            ctx.out.push(format!("let __r = {r};"));
+            let call = try_wrap(
+                &fault,
+                format!("{RT}::collections::hm_get_prim(&__r, __k, crate::j2r_dispatch())"),
+            );
+            let kind = match tp {
+                Prim::D => Kind::Double,
+                Prim::F => Kind::Float,
+                Prim::L => Kind::Long,
+                Prim::I => Kind::Int,
+            };
+            let slot = vs[k - 2];
+            let target = ctx.refill_target(slot, pc, Some(kind));
+            ctx.push_result(slot, target, call, Src::Value, false, kind);
+        }
         I::MonitorEnter => {
             let r = ctx.try_ref_of(pc, vs[k - 1], &fault);
             ctx.out.push(format!("let __r = {r};"));
@@ -1965,6 +2012,19 @@ fn elem_kind(instr: &Instr) -> Kind {
         Instr::ALoad(crate::ir::ElemKind::Float) => Kind::Float,
         Instr::ALoad(crate::ir::ElemKind::Double) => Kind::Double,
         _ => Kind::Ref,
+    }
+}
+
+/// The G3.3 map-core prim mapping: the `Value` constructor name and the
+/// typed `Prim` of a boxed class's payload. Only the four boxable prims
+/// reach the synthetic instructions (the peephole matches the four
+/// `valueOf`/`xValue()` pairs).
+fn boxed_ctor(p: crate::ir::PrimType) -> (&'static str, Prim) {
+    match p {
+        crate::ir::PrimType::Double => ("Double", Prim::D),
+        crate::ir::PrimType::Float => ("Float", Prim::F),
+        crate::ir::PrimType::Long => ("Long", Prim::L),
+        _ => ("Int", Prim::I),
     }
 }
 

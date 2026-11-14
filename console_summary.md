@@ -1,5 +1,51 @@
 # j2r console summary — the state board
 
+Updated 2026-11-14 (session 19b cont. 10 — **G3.3 SLICE 2 LANDED: the
+put/get rewrites**, after reset #21's second boundary). Reset paid the
+10th full-download (tools/ + env.sh reverted away yet again; the 509 MB
+target/ survived) — rustup-init 21,347,088 B and the Temurin
+jdk-21.0.13+9 tarball 207,858,352 B both byte-exact, rustc/cargo
+1.99.1 + rustfmt 1.10.0 + clippy 0.1.99, env.sh the one-line bootstrap
+pointing under the repo tree. LESSON recorded: an interrupted
+bootstrap leaves the cargo shim behind — verify `rustc --version`
+before trusting the skip-if-exists check. Landed: the post-verify IR
+pass `map_prim_rewrites` (peephole.rs) recognizes javac's autobox map
+cores — `valueOf(p) -> Map|HashMap.put -> Pop` and `Map|HashMap.get ->
+checkcast Box -> Box.xValue()p` (probe-pinned vs javac 21.0.13) — and
+collapses each to ONE synthetic instruction (ir.rs MapPutPrim/
+MapGetPrim, verifier arms, BOTH emitters armed) where the CLOSURE LAW
+holds: the receiver local is HASHMAP-FRESH (every store a New
+HashMap;Dup;Invokespecial;Store creation run) and CONSUMPTION-CLOSED
+(every load is a rewritten core's receiver, resolved by a backward
+walk through the verifier's shapes — no width table needed); any
+other load refuses the whole local, the faithful boxing path stands.
+Span guards mirror the fill pass (branch targets + partially-
+overlapping handler entries refuse; a refusal removes every core of
+the same local). Runtime: hm_put_prim stores the RAW prim Value
+through hm_put's own machinery (the put's return discarded by the
+core's Pop); hm_get_prim unwraps the slot, the absent key throwing
+the faithful bare NPE. MEASURED (the registered deliverable,
+same-session before/after on the SAME instrument, release, median of
+2, four-way stdout bit-identical): BoxingBoxedBench default 8.15 →
+4.44 s (−45.5%), typed 7.24 → 4.05 s (−44.1%); the container tax
+default 3.05x → 1.66x, typed 3.26x → 1.82x — the JVM's same-session
+ref ratio is 1.75x, so the default channel's tax is now BELOW the
+JVM's own. RESIDUAL discovered and registered (pre-existing, NOT
+widened): HELPFUL-NPE — the absent-key unboxing NPE carries Temurin's
+JDK-15+ helpful message; j2r's faithful null-receiver invoke law
+throws the bare NPE; the rewrite preserves j2r's behavior byte-for-
+byte on the path. Fixture MapPrim (the 116th) byte-identical vs
+Temurin on all three channels. Battery: units 496/0 (+5 peephole map
+tests), diff_suite 116 fixtures three-channel zero divergences
+(527 s), cfg_equiv zero (377 s), corpus/partition/jar/soe/surface/
+native/jni/lambda green (BoxingBoxedBench REWRITES and stays
+byte-identical), fmt+clippy clean FRESH, gate-11 fixtures=116
+tests=496 in sync. Next: slice 3 — the field/materialization layer
+(getstatic receivers, the node-stamped class tag, lazy materialization
+at generic exits); FORNAME-INIT and NEW-INSTANCE queue behind it.
+
+---
+
 Updated 2026-11-13 (session 19b cont. 9 — **G3.3 SLICE 1 LANDED: the
 signature-pin layer**, after reset #21). Reset paid the 9th
 full-download (tools/ + env.sh reverted away again); the toolchain now

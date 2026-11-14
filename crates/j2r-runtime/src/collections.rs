@@ -1189,6 +1189,63 @@ pub fn n_hm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
     }
 }
 
+// --- G3.3 slice 2: the prim-slot map natives (the specialized-map path) ---
+//
+// The peephole (`map_prim_rewrites`) rewrites javac's `valueOf -> put ->
+// pop` and `get -> checkcast -> doubleValue` cores on receiver locals its
+// closure law proved safe (every load of the local is a rewritten core's
+// receiver, so the map never aliases and every slot was written by a
+// rewritten put). There the box is unobservable as an `Object`, and the
+// node's value slot holds the RAW prim `Value` — one fewer heap child per
+// node, no valueOf alloc, no unbox dispatch (the register's 2.78x
+// container tax, evidence g3_3/opening_census).
+
+/// The specialized-map put: stores `value` (a raw `Value::Double/Float/
+/// Int/Long`) in the node's value slot. The key's hash/equals dispatch,
+/// the resize law and the modCount are `hm_put`'s own machinery — only
+/// the box allocation and the `valueOf` dispatch disappear. The `Map.put`
+/// return (the OLD value, per the Map contract) is discarded: the
+/// rewritten core requires the `Pop`, so no caller can observe it.
+pub fn hm_put_prim(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Result<(), Throw> {
+    hm_put(map, key, value, ctx)?;
+    Ok(())
+}
+
+/// The specialized-map get: unwraps the node's value slot to the prim
+/// payload. The faithful absent-key law is preserved exactly: a missing
+/// key is the null box reaching `doubleValue()`, which throws a bare
+/// `NullPointerException` (no message) — the same throw the boxing path
+/// produces at that program point (uncaught traces render no frame
+/// lines, and the peephole refuses spans straddling a handler boundary,
+/// so the fault-pc shift is unobservable). A materialized box in the slot
+/// (defensive: unreachable under the closure law — slice-3 materialization
+/// scope) unboxes through its payload slot; a stored `null` value cannot
+/// exist on a closure-proven local (a null put is never a rewritten core)
+/// and reads as the same faithful NPE.
+pub fn hm_get_prim(map: &JRef, key: Value, ctx: Dispatch) -> Result<Value, Throw> {
+    match hm_find(map, &key, ctx)? {
+        Some(node) => {
+            let v = node_parts(&node).2;
+            match v {
+                Value::Ref(Some(boxed)) => {
+                    let payload = with_obj(boxed, |o| o.slots[0].clone());
+                    match payload {
+                        p @ (Value::Double(_)
+                        | Value::Float(_)
+                        | Value::Int(_)
+                        | Value::Long(_)) => Ok(p),
+                        _ => Err(internal_error(
+                            "j2r internal: map prim slot holds a non-prim box",
+                        )),
+                    }
+                }
+                other => Ok(other),
+            }
+        }
+        None => Err(throw_new("java/lang/NullPointerException", None)),
+    }
+}
+
 pub fn n_hm_get_or_default(
     recv: Option<&JRef>,
     args: &[Value],
