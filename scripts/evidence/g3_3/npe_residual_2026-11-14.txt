@@ -1,0 +1,39 @@
+G3.3 slice 2 — the absent-key NPE residual (PRE-EXISTING, not widened)
+======================================================================
+Date: 2026-11-14 (session 19b cont. 10, reset #21).
+
+PROBE (NpeShapeProbe.java): `double v = m.get("missing");` inside
+try/catch (NullPointerException), printing e.getMessage().
+
+  Temurin 21.0.13+9 (pinned):
+    caught: msg=[Cannot invoke "java.lang.Double.doubleValue()"
+    because the return value of "java.util.Map.get(Object)" is null]
+    -- the JDK 15+ helpful NullPointerException message.
+
+  j2r (the REWRITTEN path, MapGetPrim):
+    caught: msg=[null]                      <- bare NPE, message None
+
+  j2r (the FAITHFUL path — by construction, no probe needed): the
+  null box reaches `invokevirtual Double.doubleValue`, whose null
+  receiver check is `throw_new("java/lang/NullPointerException",
+  None)` (runtime natives, the instance-call law) — the SAME bare NPE.
+  The rewrite therefore preserves j2r's behavior byte-for-byte on the
+  absent-key path; the divergence vs Temurin is a PRE-EXISTING class
+  (the helpful-NPE message machinery does not exist in the runtime),
+  never exercised by any suite fixture or corpus program until this
+  probe. Registered as the HELPFUL-NPE residual: any faithful
+  null-receiver instance call diverges from Temurin's message on the
+  stderr channel and in getMessage(); uncaught traces normalize JVM
+  frames away so the header line is class-only on both sides (the
+  message text rides the same line — an uncaught absent-key get WOULD
+  diverge on stderr bytes). MapPrim (the slice-2 fixture) avoids the
+  shape, as every existing fixture already does.
+
+  Slice-2 law derived: hm_get_prim's absent key throws the bare NPE
+  (the faithful doubleValue-on-null throw), fault pc = the core's
+  first pc; the peephole's handler-overlap guard guarantees catch
+  matching is unchanged.
+
+Probe artifacts: /tmp/NpeShapeProbe.java shape of record; the run
+output recorded above verbatim (j2r `test` differential, exit FAIL by
+design — the probe pins the residual, it is not a suite fixture).
