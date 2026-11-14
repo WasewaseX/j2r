@@ -3,7 +3,13 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-14 (session 19b cont. 11: THREE waves landed — G3.3 slice 3 (the field/materialization layer), FORNAME-INIT (forName runs the clinit), NEW-INSTANCE (Constructor.newInstance: the ensure law unwrapped, the layout defaults, the shared unmarshal, the abstract law, ITE on the ctor's own throw). The G3.3 specialized-map track's opening items are ALL closed; next: the register's remaining perf items (R5 resolution/vtable, R7 dispatch table) or the G3.3 TreeMap/LinkedHashMap follow-ons, per the roadmap order.
+fix the board. Last updated: 2026-11-15 (session 19b cont. 12: reset
+#23 survived — local objects stale at b4badea, fetch+ff recovered to
+b03cff5, toolchain re-bootstrapped byte-exact from the persistent
+outside-repo script, baseline re-proven. Queue decision per the
+boards' order: **R5 resolution/vtable first** (R7's perfect-hash table
+is explicitly the follow-up shape after R5), TreeMap/LinkedHashMap
+follow-ons queue behind. R5 slice 1 registered below.)
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -2335,3 +2341,26 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       do-NOT list (no copying GC, no NaN-boxing of Value, no
       computed-goto, no manual vectorization, no platform-libm switch)
       agrees with our standing laws. STATUS: mapping recorded.
+- [~] **R5 SLICE 1 — codegen-time virtual resolution (the Opt.md R5
+      first pull; planned 2026-11-15, session 19b cont. 12)** — every
+      `invokevirtual`/`invokeinterface` site is resolved against the
+      CLOSED user-class table at codegen time. The possible runtime
+      receiver classes of a user-declared class C are exactly C plus
+      its transitive user subclasses (the generated crate is a closed
+      world; builtins/arrays cannot carry a user-typed receiver). For
+      each possible receiver the walk mirrors `invoke_virtual`'s law
+      EXACTLY: compiled method at the level (`ClassPlan::method` — the
+      same source the registry match arms come from) → native row at
+      the level (`natives::NATIVES`) → parent (`user super_name with
+      the java/lang/Object default, then `builtin_parent_of`).
+      When EVERY possible receiver's walk lands on the SAME target —
+      one compiled `classes::{module}::{fn_name}` or one natives row —
+      the site emits that direct call in the InvokeSpecial forms (with
+      `Option::Some(&__r)`), keeping the frame refresh, the `pop_ref`
+      NPE path and the `j2r_try!` wrap byte-identical. Any divergence,
+      any walk that would die the internal Error, and any builtin/
+      array/open-world declared type keep the dynamic path. Unit tests
+      pin the fold/diverge/native-shadow laws; full battery after;
+      EmitStats gains the site counters for the corpus measurement.
+      Slice 2 (the vtable for the polymorphic residue) plans only
+      after this lands clean.

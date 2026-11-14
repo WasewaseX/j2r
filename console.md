@@ -3081,3 +3081,32 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   opening items are ALL closed. Next per the roadmap: the register's
   remaining perf items (R5 resolution/vtable, R7 dispatch table) or
   the TreeMap/LinkedHashMap follow-ons.
+
+
+## SESSION 19b cont. 12 — 2026-11-15 (reset #23; R5 SLICE 1: codegen-time virtual resolution begins)
+
+- **Reset #23 survived** — local git objects stale at the pre-board
+  b4badea again (every board commit missing from local objects);
+  `git fetch` + ff-only to `b03cff5` recovered the full wave chain —
+  un-pushed = un-protected held because the previous session pushed
+  all three commits. The toolchain was fully wiped by the reset; the
+  persistent `scripts/bootstrap_toolchain.sh` (which now lives OUTSIDE
+  the repo) re-proved byte-exact: rustup-init 21,347,088 B, Temurin
+  21.0.13+9 tarball 207,858,352 B, rustc 1.99.1 — the
+  verify-before-trust rule applied (no skip-if-exists without a
+  working `rustc --version`). Baseline re-proven before any code.
+  Board hygiene this session: the bootstrap script and env.sh are
+  being VENDORED INTO THE REPO — they were local-only files and died
+  with every reset; the repo is the protection.
+- **Queue decision (per the boards' order)**: R5 first — R7's
+  perfect-hash table is explicitly "registered follow-up shape after
+  R5"; the TreeMap/LinkedHashMap follow-ons queue behind.
+- **R5 SLICE 1 plan registered (TODO.md)**: codegen-time resolution
+  of every `invokevirtual`/`invokeinterface` site against the closed
+  user-class table. The possible runtime receivers of a user-declared
+  C are C + its transitive user subclasses; each walk mirrors
+  `invoke_virtual` exactly (compiled method per level → native row
+  per level → user super / builtin parent). Monomorphic targets emit
+  the InvokeSpecial direct forms (`Option::Some(&__r)`), everything
+  else stays dynamic. EmitStats gains the site counters; the vtable
+  is slice 2, planned only after this lands clean.
