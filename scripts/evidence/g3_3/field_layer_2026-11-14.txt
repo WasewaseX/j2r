@@ -1,0 +1,99 @@
+G3.3 SLICE 3 — the field/materialization layer
+(2026-11-14, session 19b cont. 11, after reset #22 recovery)
+
+THE PROBE (scripts/evidence/g3_3/Probe3.java, Temurin javac/java
+21.0.13+9, shapes from javap -c -p):
+
+  P1 <clinit>:   new HashMap; dup; invokespecial <init>; putstatic M
+                 (the creation run lands in <clinit> for a static Map
+                 field — the PutStatic-side mirror of slice 2's matcher)
+  P2 put core:   getstatic M; ldc key; ldc2_w v; valueOf;
+                 invokeinterface put; pop
+  P3 get core:   getstatic M; aload key; invokeinterface get;
+                 checkcast Double; doubleValue
+  P4 generic
+     exit:       getstatic M; aload key; invokeinterface get; areturn
+                 (NO core — the faithful read the runtime must serve)
+
+  L1  o1 == o2 == genericExit("a")  -> true true (three generic exits of
+      one slot compare identical: get-twice-returns-the-same-ref)
+  L2  CACHE.get("n") == Integer.valueOf(5) -> true (the JLS identity
+      cache survives through the map: the map holds the valueOf-produced
+      cache box for [-128,127]; 1000 -> false, fresh boxes)
+  L3  entry.getValue() iteration works, toString prints {a=0.5, b=1.5}
+
+THE MECHANISM (compiler side, peephole.rs):
+  - proven_map_fields / proven_map_fields_of: the class-level scan proves
+    the PROVENANCE law per static field — the field's generic signature
+    pins an exact boxed-primitive map value (slice 1's map_value_boxed,
+    the pin gate), and every PutStatic(f) in any method is a
+    `New HashMap; Dup; (consts); <init>` creation run with no branch
+    target inside, at least one existing. Reader closure is NOT required.
+  - map_prim_rewrites gains the proven set; resolve_core's backward walk
+    accepts `GetStatic(f)` for a proven field (Recv::Field) alongside
+    slice 2's HashMap-fresh Load(n) (Recv::Local). Span guards unchanged.
+  - compile() (lib.rs) scans per class BEFORE the per-method rewrite.
+
+THE MECHANISM (runtime side, collections.rs):
+  - HashMap$Node gains slot 4, the class tag: Void = faithful node,
+    Int(desc-char) = the value slot holds a RAW prim written by
+    hm_put_prim. hm_put takes the tag; overwrites re-stamp; the
+    invariant "raw prim slot <=> tag present" holds by construction.
+  - node_value_materialized: the lazy box at the faithful exits — reads
+    the tag, allocates the box through the SAME valueOf natives user
+    code uses (reflect::box_by_desc: the JLS identity caches apply, L2),
+    CACHES it back into the slot (get-twice-returns-the-same-ref, L1).
+    Routed at every faithful value reader: n_hm_get, n_hm_get_or_default,
+    hm_remove (the returned old value), hm_put's overwrite return (the
+    Map.put contract), hm_all_entries (toString/containsValue/view
+    toString), n_vi_next, n_node_get_value (entry.getValue()).
+  - hm_get_prim becomes the FUSED `checkcast + xValue()` law with the
+    expected box class riding the synthetic (both emitters pass it):
+    missing key -> the bare NPE (unchanged slice-2 law); stored null
+    VALUE -> the same bare NPE; a FOREIGN box -> the faithful checkcast
+    through the shared helper (lib.rs cce_throw, extracted byte-exact);
+    a raw-prim slot whose tag disagrees with the expectation -> the same
+    CCE with the tag's class; a match -> the prim payload.
+
+THE PROOF THE REWRITE FIRES (MapField translated, dev CLI):
+  generated src/classes/MapField.rs: 7 hm_put_prim + 3 hm_get_prim
+  (seed 2 + bump 1 + CACHE 2 + ACC loop 1 puts; coreGet + bump + ACC
+  gets); the generic exits stay faithful and materialize.
+
+FIXTURE MapField (the 117th): three static Map fields (Double/Integer/
+Long), creation in <clinit>, cores across methods (seed/coreGet/bump +
+the ACC accumulation loop), generic exits pinning L1 (three-way
+identity) and L2 (5 -> true, 1000 -> false), entry.getValue() iteration,
+toString. Byte-identical vs Temurin 21.0.13+9 on all three channels.
+Single-fixture run: J2R_DIFF_FIXTURES=MapField -> 2 passed (4.60 s).
+
+BATTERY (2026-11-14, dev profile, the counting convention written out:
+lib 450 = classfile 48 + codegen 130 (+5 slice-3 scan/rewrite tests)
++ jni-ffi 15 + runtime 257 (+8: 5 materialization + 3 fused-law tests);
+codegen integrations 27; cli integrations 27; diff_suite 2; cfg_equiv 1
+(the target's second fn is env-gated and does not run in the battery)
+=> 507/0):
+  units 507/0; diff_suite 117 fixtures three-channel zero divergences
+  (527.94 s); cfg_equiv zero (385.65 s); fmt + clippy -D warnings clean
+  FRESH (the reset lesson held); gate-11 counts in sync: fixtures=117,
+  tests=507 (README 116->117 / 496->507, diff_suite guard 115->116).
+  The 496-vs-494 accounting drift in the previous boards resolved by
+  writing the convention out (above).
+
+RE-MEASURE PROTOCOL NOTE: slice 3 does not touch BoxingBoxedBench's
+shapes (its map is a LOCAL — slice 2's law — unchanged byte-for-byte),
+so the paired before/after re-measure does not apply; the slice-2
+numbers stand.
+
+LATENT GAPS CLOSED EN ROUTE (slice-2 holes, same law family):
+  - the mixed-prim local (a Double-core put and an Integer-core get on
+    ONE local) used to type-confuse the raw prim slot; the fused get
+    now throws the faithful CCE (the tag IS the checkcast's actual
+    type);
+  - a stored null VALUE (a non-core put) used to flow a null into a
+    prim-typed synthetic; the fused get throws the bare NPE, the same
+    throw the faithful unbox produces.
+
+NEXT: FORNAME-INIT (Class.forName must RUN the <clinit>; the design is
+registered in TODO.md), then NEW-INSTANCE (the user-layout dispatch
+hook; registered).

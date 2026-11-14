@@ -1,6 +1,53 @@
 # j2r console summary — the state board
 
-Updated 2026-11-14 (session 19b cont. 10 — **G3.3 SLICE 2 LANDED: the
+Updated 2026-11-14 (session 19b cont. 11 — **G3.3 SLICE 3 LANDED: the
+field/materialization layer**, after reset #22). Reset paid the 11th
+full-download: the local tree stale at pre-M2 `b4badea` (ALL nine of the
+boards' recent commits missing from the local git objects, board files
+absent) while origin/main held `b8b2281`; fetch + ff-merge, no work lost
+(un-pushed = un-protected held). The bootstrap script NOW PERSISTS
+OUTSIDE THE REPO (`/home/z/my-project/scripts/bootstrap_toolchain.sh`):
+rustup-init 21,347,088 B and the Temurin jdk-21.0.13+9 tarball
+207,858,352 B both byte-exact, rustc/cargo 1.99.1 + rustfmt 1.10.0 +
+clippy 0.1.99, env.sh recreated. Baseline re-proven BEFORE any code
+(lib 437/0, diff_suite 528.01 s, cfg_equiv 381.44 s). Landed: (a) the
+class-level provenance scan — a static field proves when its generic
+signature pins an exact boxed-primitive map value (slice 1's pin gate)
+and every PutStatic in any method is a `New HashMap; Dup; (consts);
+<init>` creation run; (b) resolve_core accepts `GetStatic(f)` receivers
+for proven fields (Recv::Field) — deliberately NO reader-closure
+requirement: the generic exits stay faithful at RUNTIME (the registered
+design's "keep the boxing path or materialize lazily"); (c) the runtime
+materialization: HashMap$Node slot 4 = the class tag, and
+node_value_materialized allocates the box through the SAME valueOf
+natives (the JLS identity caches apply — probe law L2:
+`CACHE.get("n") == Integer.valueOf(5)` TRUE, 1000 FALSE) and caches it
+back into the slot (get-twice-returns-the-same-ref — probe law L1:
+three generic exits of one slot compare identical), routed at EVERY
+faithful value reader (n_hm_get, get_or_default, remove's old value,
+put's overwrite return, hm_all_entries, n_vi_next, entry.getValue());
+(d) hm_get_prim is the FUSED `checkcast + xValue()` law with the
+expected box class riding the synthetic (both emitters pass it):
+missing key / stored null VALUE → the bare NPE, a foreign box or a
+mismatched prim tag → the faithful CCE through the shared cce_throw
+helper — which CLOSED TWO SLICE-2 LATENT HOLES (the mixed-prim local
+type-confusion; the null value flowing into a prim-typed synthetic).
+Fixture MapField (the 117th) byte-identical vs Temurin on all three
+channels; the rewrite PROVEN to fire (the translated module carries
+7 hm_put_prim + 3 hm_get_prim calls while the generic exits stay
+faithful). Battery: units **507/0** (the counting convention now
+written out: lib 450 = classfile 48 + codegen 130 + jni-ffi 15 +
+runtime 257; codegen-int 27; cli-int 27; diff 2; cfg 1), diff_suite 117
+fixtures three-channel zero divergences (527.94 s), cfg_equiv zero
+(385.65 s), fmt+clippy clean FRESH, gate-11 fixtures=117 tests=507 in
+sync. Re-measure note: BoxingBoxedBench untouched (its map is a LOCAL —
+the slice-2 paired numbers stand). Evidence:
+scripts/evidence/g3_3/{field_layer_2026-11-14.txt, Probe3.java}. Next:
+FORNAME-INIT (the registered design), then NEW-INSTANCE.
+
+---
+
+Updated 2026-11-14 (session 19b cont. 10 — **G3.3 SLICE 2 LANDED: theUpdated 2026-11-14 (session 19b cont. 10 — **G3.3 SLICE 2 LANDED: the
 put/get rewrites**, after reset #21's second boundary). Reset paid the
 10th full-download (tools/ + env.sh reverted away yet again; the 509 MB
 target/ survived) — rustup-init 21,347,088 B and the Temurin

@@ -272,26 +272,163 @@ fn is_control(i: &Instr) -> bool {
 
 /// One recognized, receiver-resolved core: the instruction INDEX of the
 /// core start, the pc of the core start (the synthetic's pc), the pc one
-/// past the core's last instruction, the receiver's local index, and the
-/// prim.
+/// past the core's last instruction, the receiver, and the prim.
 struct MapCore {
     start_idx: usize,
     start_pc: u32,
     end_pc: u32,
-    recv_local: u16,
+    recv: Recv,
     recv_pc: u32,
     prim: PrimType,
     put: bool,
 }
 
+/// The proven provenance of a core's map operand (G3.3 slice 2 + 3):
+/// either a HashMap-fresh LOCAL (slice 2's closure law, proven per
+/// method) or a static FIELD whose class-level law holds (slice 3:
+/// every `PutStatic` is a HashMap creation run — the field's runtime
+/// object is always the implemented container — with the field's own
+/// generic signature pinning the map family). A field core's prim need
+/// not agree with the pin or with its sibling cores: the fused get's
+/// unbox throws the faithful CCE on any mismatch, exactly like the
+/// faithful `checkcast` it replaces.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Recv {
+    Local(u16),
+    Field { class: String, field: String },
+}
+
+/// The class-level proven static-field set for the getstatic receiver
+/// layer: `(class, field) -> pinned prim` for every static field of
+/// `cls` whose generic signature pins an exact boxed-primitive map value
+/// AND whose class-wide PutStatic pattern proves the provenance law:
+/// every store is a HashMap creation run. Reader closure is NOT
+/// required — non-core reads (the generic exits) stay faithful through
+/// the runtime's lazy materialization and the fused get's unbox law.
+pub fn proven_map_fields(
+    cls: &crate::ClassPlan,
+) -> std::collections::BTreeMap<(String, String), PrimType> {
+    proven_map_fields_of(&cls.name, &cls.fields, &cls.methods)
+}
+
+/// The free-function form of [`proven_map_fields`] — the same scan over
+/// explicitly passed parts, so the unit tests can build the inputs
+/// without a full `ClassPlan` (whose classfile field is private).
+pub(crate) fn proven_map_fields_of(
+    class_name: &str,
+    fields: &[crate::FieldPlan],
+    methods: &[crate::MethodPlan],
+) -> std::collections::BTreeMap<(String, String), PrimType> {
+    let mut out = std::collections::BTreeMap::new();
+    for f in fields {
+        if !f.is_static {
+            continue;
+        }
+        let Some(sig) = &f.signature else { continue };
+        let Some(bp) = crate::signature::map_value_boxed(sig) else {
+            continue;
+        };
+        let prim = prim_of_boxed(bp);
+        if field_proven(class_name, f, methods) {
+            out.insert((class_name.to_string(), f.name.clone()), prim);
+        }
+    }
+    out
+}
+
+fn prim_of_boxed(bp: crate::signature::BoxedPrim) -> PrimType {
+    match bp {
+        crate::signature::BoxedPrim::Double => PrimType::Double,
+        crate::signature::BoxedPrim::Float => PrimType::Float,
+        crate::signature::BoxedPrim::Integer => PrimType::Int,
+        crate::signature::BoxedPrim::Long => PrimType::Long,
+    }
+}
+
+/// The class-level closure proof for one static field (the scan side of
+/// slice 3): PROVENANCE + PIN. The field proves when
+///   1. its generic signature pins an exact boxed-primitive map value
+///      (the pin gate — raw types refuse), and
+///   2. every `PutStatic(f)` in any method of the class stores a
+///      `New HashMap; Dup; (consts); Invokespecial <init>` creation run
+///      with no branch target inside, and at least one exists — the
+///      field's runtime object is always the implemented container.
+///
+/// There is NO consumption-closure requirement on the field's readers:
+/// every non-core read is made faithful at RUNTIME — the generic exits
+/// materialize lazily through the node's class tag (get-twice-returns-
+/// the-same-ref, the JLS identity caches) and the fused get's unbox
+/// throws the faithful CCE on a foreign box or a mismatched prim tag.
+/// Any non-creation store refuses the WHOLE field, the faithful path
+/// stands everywhere it is used.
+fn field_proven(class_name: &str, f: &crate::FieldPlan, methods: &[crate::MethodPlan]) -> bool {
+    let mut creation_sites = 0usize;
+    for m in methods {
+        for i in 0..m.instrs.len() {
+            if let Instr::PutStatic { class, field, .. } = &m.instrs[i].1 {
+                if class == class_name && *field == f.name {
+                    // The branch-target guard needs the method's targets.
+                    let mut targets = Vec::new();
+                    targets_of(&m.instrs, &mut targets);
+                    if !is_creation_putstatic(&m.instrs, i, &targets) {
+                        return false;
+                    }
+                    creation_sites += 1;
+                }
+            }
+        }
+    }
+    creation_sites > 0
+}
+
+/// `New HashMap; Dup; (const pushes); Invokespecial <init>; PutStatic f`
+/// with no branch target inside — the PutStatic-side mirror of Phase A's
+/// creation run.
+fn is_creation_putstatic(instrs: &[(u32, Instr)], i: usize, targets: &[u32]) -> bool {
+    if i == 0 {
+        return false;
+    }
+    if !matches!(
+        instrs[i - 1].1,
+        Instr::InvokeSpecial { ref class, ref name, .. }
+            if class == "java/util/HashMap" && name == "<init>"
+    ) {
+        return false;
+    }
+    let mut j = i - 1;
+    while j > 0 && matches!(instrs[j - 1].1, ref x if is_const_push(x)) {
+        j -= 1;
+    }
+    if j == 0 {
+        return false;
+    }
+    if !matches!(instrs[j - 1].1, Instr::Dup) {
+        return false;
+    }
+    if j < 2 {
+        return false;
+    }
+    if !matches!(
+        instrs[j - 2].1,
+        Instr::New { ref class } if class == "java/util/HashMap"
+    ) {
+        return false;
+    }
+    let start_pc = instrs[j - 2].0;
+    let end_pc = instrs.get(i + 1).map(|p| p.0).unwrap_or(u32::MAX);
+    !targets.iter().any(|t| *t > start_pc && *t < end_pc)
+}
+
 /// Rewrites the specialized-map cores. Returns the number of cores
 /// replaced. `shapes` must be the method's verified per-pc shapes (the
 /// caller re-verifies after the rewrite; the synthetic instructions have
-/// verifier arms).
+/// verifier arms). `proven` is the class-level proven static-field set
+/// (slice 3) — the getstatic receivers this method's cores may use.
 pub fn map_prim_rewrites(
     instrs: &mut Vec<(u32, Instr)>,
     exception_table: &[(u32, u32, u32, Option<String>)],
     shapes: &crate::verify::MethodShapes,
+    proven: &std::collections::BTreeMap<(String, String), PrimType>,
 ) -> usize {
     // Branch targets, for the span guards.
     let mut targets = Vec::new();
@@ -345,11 +482,93 @@ pub fn map_prim_rewrites(
             }
         }
     }
-    if fresh.is_empty() {
+    // (No early-out on empty `fresh`: slice 3's field-fed cores rewrite
+    // in methods that never touch a map local.)
+
+    // Phase B — recognize the cores (the adjacency window itself).
+    let recognized = recognize_cores(instrs);
+
+    // Phase C — resolve each core's receiver by the backward shape walk:
+    // a HashMap-fresh local (slice 2) or a proven static field (slice 3).
+    let mut cores: Vec<MapCore> = recognized
+        .into_iter()
+        .filter_map(|(i, put, prim)| resolve_core(instrs, shapes, i, put, prim, &fresh, proven))
+        .collect();
+
+    // Phase D — the span guards (branch targets + handler overlap). A
+    // refused core keeps the faithful path, which then OBSERVES the prim
+    // slots its sibling rewrites wrote — so a refusal must remove every
+    // core of the same receiver local. The closure check below does
+    // exactly that: after the guards, the refused core's receiver Load
+    // is no longer covered.
+    cores.retain(|c| {
+        let inside = |t: u32| t > c.recv_pc && t < c.end_pc;
+        if targets.iter().any(|t| inside(*t)) {
+            return false;
+        }
+        exception_table.iter().all(|(s, e, _, _)| {
+            let overlaps = *s < c.end_pc && *e > c.recv_pc;
+            let contains = *s <= c.recv_pc && *e >= c.end_pc;
+            !overlaps || contains
+        })
+    });
+    if cores.is_empty() {
         return 0;
     }
 
-    // Phase B — recognize the cores (the adjacency window itself).
+    // Phase E — consumption closure for the LOCAL receivers: every
+    // Load(n) of a fresh local must be some surviving core's receiver.
+    // Any other load (an argument pass, a field store, a return,
+    // `keySet()`, a non-core put/get) can observe the map or a value
+    // where a BOX is expected. Field receivers are exempt here: their
+    // closure was proven class-wide by the proven-field scan.
+    let recv_pcs: Vec<u32> = cores.iter().map(|c| c.recv_pc).collect();
+    let mut closed: std::collections::BTreeSet<u16> = fresh.keys().copied().collect();
+    for (pc, i) in instrs.iter() {
+        if let Instr::Load(n) = i {
+            if fresh.contains_key(n) && !recv_pcs.contains(pc) {
+                closed.remove(n);
+            }
+        }
+    }
+    cores.retain(|c| match &c.recv {
+        Recv::Local(n) => closed.contains(n),
+        Recv::Field { .. } => true,
+    });
+    if cores.is_empty() {
+        return 0;
+    }
+
+    // Phase F — splice, descending so the indices stay valid.
+    let mut replaced = 0;
+    for c in cores.iter().rev() {
+        let synthetic = if c.put {
+            Instr::MapPutPrim { prim: c.prim }
+        } else {
+            Instr::MapGetPrim { prim: c.prim }
+        };
+        instrs.splice(c.start_idx..c.start_idx + 3, vec![(c.start_pc, synthetic)]);
+        replaced += 1;
+    }
+    replaced
+}
+
+fn unbox_desc(p: PrimType) -> &'static str {
+    match p {
+        PrimType::Float => "()F",
+        PrimType::Long => "()J",
+        PrimType::Double => "()D",
+        _ => "()I",
+    }
+}
+
+/// Phase B — the adjacency recognition (shared by the rewrite pass and
+/// the class-level field scan): returns `(index, put, prim)` for every
+/// recognized core shape in the method.
+///
+/// put core: `valueOf(p); Map|HashMap.put; Pop` at (i, i+1, i+2).
+/// get core: `Map|HashMap.get; CheckCast Box; Box.xValue()p` at (i..i+2).
+fn recognize_cores(instrs: &[(u32, Instr)]) -> Vec<(usize, bool, PrimType)> {
     let mut recognized: Vec<(usize, bool, PrimType)> = Vec::new();
     for i in 0..instrs.len() {
         match &instrs[i].1 {
@@ -410,77 +629,13 @@ pub fn map_prim_rewrites(
             _ => {}
         }
     }
-
-    // Phase C — resolve each core's receiver by the backward shape walk.
-    let mut cores: Vec<MapCore> = recognized
-        .into_iter()
-        .filter_map(|(i, put, prim)| resolve_core(instrs, shapes, i, put, prim, &fresh))
-        .collect();
-
-    // Phase D — the span guards (branch targets + handler overlap). A
-    // refused core keeps the faithful path, which then OBSERVES the prim
-    // slots its sibling rewrites wrote — so a refusal must remove every
-    // core of the same receiver local. The closure check below does
-    // exactly that: after the guards, the refused core's receiver Load
-    // is no longer covered.
-    cores.retain(|c| {
-        let inside = |t: u32| t > c.recv_pc && t < c.end_pc;
-        if targets.iter().any(|t| inside(*t)) {
-            return false;
-        }
-        exception_table.iter().all(|(s, e, _, _)| {
-            let overlaps = *s < c.end_pc && *e > c.recv_pc;
-            let contains = *s <= c.recv_pc && *e >= c.end_pc;
-            !overlaps || contains
-        })
-    });
-    if cores.is_empty() {
-        return 0;
-    }
-
-    // Phase E — consumption closure: EVERY Load(n) of a fresh local must
-    // be some surviving core's receiver. Any other load (an argument
-    // pass, a field store, a return, `keySet()`, a non-core put/get)
-    // can observe the map or a value where a BOX is expected.
-    let recv_pcs: Vec<u32> = cores.iter().map(|c| c.recv_pc).collect();
-    let mut closed: std::collections::BTreeSet<u16> = fresh.keys().copied().collect();
-    for (pc, i) in instrs.iter() {
-        if let Instr::Load(n) = i {
-            if fresh.contains_key(n) && !recv_pcs.contains(pc) {
-                closed.remove(n);
-            }
-        }
-    }
-    cores.retain(|c| closed.contains(&c.recv_local));
-    if cores.is_empty() {
-        return 0;
-    }
-
-    // Phase F — splice, descending so the indices stay valid.
-    let mut replaced = 0;
-    for c in cores.iter().rev() {
-        let synthetic = if c.put {
-            Instr::MapPutPrim { prim: c.prim }
-        } else {
-            Instr::MapGetPrim { prim: c.prim }
-        };
-        instrs.splice(c.start_idx..c.start_idx + 3, vec![(c.start_pc, synthetic)]);
-        replaced += 1;
-    }
-    replaced
-}
-
-fn unbox_desc(p: PrimType) -> &'static str {
-    match p {
-        PrimType::Float => "()F",
-        PrimType::Long => "()J",
-        PrimType::Double => "()D",
-        _ => "()I",
-    }
+    recognized
 }
 
 /// Resolves one core's receiver by the backward shape walk (Phase C) and
-/// returns the core when the receiver is a fresh `Load(n)`.
+/// returns the core when the receiver is a HashMap-fresh `Load(n)`
+/// (slice 2) or a proven static field's `GetStatic` (slice 3, prim
+/// matching the proven set's pin).
 fn resolve_core(
     instrs: &[(u32, Instr)],
     shapes: &crate::verify::MethodShapes,
@@ -488,6 +643,7 @@ fn resolve_core(
     put: bool,
     prim: PrimType,
     fresh: &std::collections::BTreeMap<u16, ()>,
+    proven: &std::collections::BTreeMap<(String, String), PrimType>,
 ) -> Option<MapCore> {
     // The consuming instruction: the put (i+1) for a put core, the get
     // (i) for a get core. The map operand's slot comes from its ENTRY
@@ -496,7 +652,7 @@ fn resolve_core(
     let consume_pc = instrs[consume_idx].0;
     let shape = shapes.per_pc.get(&consume_pc)?;
     let map_slot = shape.stack.len().checked_sub(if put { 3 } else { 2 })?;
-    let mut recv_local = None;
+    let mut recv = None;
     let mut recv_pc = None;
     for j in (0..i).rev() {
         if is_control(&instrs[j].1) {
@@ -507,7 +663,16 @@ fn resolve_core(
         if depth == map_slot {
             match &instrs[j].1 {
                 Instr::Load(n) if fresh.contains_key(n) => {
-                    recv_local = Some(*n);
+                    recv = Some(Recv::Local(*n));
+                    recv_pc = Some(instrs[j].0);
+                }
+                Instr::GetStatic { class, field, .. }
+                    if proven.contains_key(&(class.clone(), field.clone())) =>
+                {
+                    recv = Some(Recv::Field {
+                        class: class.clone(),
+                        field: field.clone(),
+                    });
                     recv_pc = Some(instrs[j].0);
                 }
                 _ => return None,
@@ -522,7 +687,7 @@ fn resolve_core(
         start_idx: i,
         start_pc: instrs[i].0,
         end_pc: instrs.get(i + 3).map(|p| p.0).unwrap_or(u32::MAX),
-        recv_local: recv_local?,
+        recv: recv?,
         recv_pc: recv_pc?,
         prim,
         put,
@@ -629,7 +794,7 @@ mod tests {
     fn put_and_get_cores_rewrite() {
         let mut instrs = canonical();
         let shapes = shapes_of(&instrs);
-        let n = map_prim_rewrites(&mut instrs, &[], &shapes);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default());
         assert_eq!(n, 2, "both cores rewrite");
         assert_eq!(
             instrs[7].1,
@@ -662,7 +827,7 @@ mod tests {
             pc_entry.0 += 2;
         }
         let shapes = shapes_of(&instrs);
-        let n = map_prim_rewrites(&mut instrs, &[], &shapes);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default());
         assert_eq!(n, 0, "a non-creation store kills freshness");
     }
 
@@ -676,7 +841,7 @@ mod tests {
         instrs.push((40, I::Pop));
         instrs.push((41, I::Return(j2r_runtime::TypeDesc::Void)));
         let shapes = shapes_of(&instrs);
-        let n = map_prim_rewrites(&mut instrs, &[], &shapes);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default());
         assert_eq!(n, 0, "an uncovered load kills the whole local");
     }
 
@@ -701,7 +866,7 @@ mod tests {
         instrs.push((31, I::Pop));
         instrs.push((32, I::Return(j2r_runtime::TypeDesc::Void)));
         let shapes = shapes_of(&instrs);
-        let n = map_prim_rewrites(&mut instrs, &[], &shapes);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default());
         assert_eq!(n, 0, "a non-core get refuses the closure");
     }
 
@@ -714,12 +879,12 @@ mod tests {
         // synthetic faults at the core's first pc, so a boundary inside
         // the span can move a throw across it.
         let table = vec![(8u32, 17u32, 38u32, None)];
-        let n = map_prim_rewrites(&mut instrs2, &table, &shapes);
+        let n = map_prim_rewrites(&mut instrs2, &table, &shapes, &Default::default());
         assert_eq!(n, 0, "a handler boundary inside the span refuses");
         // A handler covering the WHOLE span is fine.
         let mut instrs3 = instrs;
         let table2 = vec![(8u32, 22u32, 38u32, None)];
-        let n2 = map_prim_rewrites(&mut instrs3, &table2, &shapes);
+        let n2 = map_prim_rewrites(&mut instrs3, &table2, &shapes, &Default::default());
         assert_eq!(n2, 2, "a full-span handler keeps both cores");
     }
 
@@ -868,5 +1033,338 @@ mod tests {
         // branch target AFTER everything: must not block either run
         instrs.push((putstatic_pc + 10, I::Return(j2r_runtime::TypeDesc::Void)));
         assert_eq!(collapse_array_fill_runs(&mut instrs), 2);
+    }
+
+    // ---- G3.3 slice 3: the getstatic receivers (field/materialization) ----
+
+    fn mp(name: &str, instrs: Vec<(u32, I)>) -> crate::MethodPlan {
+        crate::MethodPlan {
+            name: name.into(),
+            desc: "()V".into(),
+            is_static: true,
+            is_native: false,
+            is_sync: false,
+            modifiers: 0,
+            signature: None,
+            lvtt: Vec::new(),
+            fn_name: format!("m_{name}"),
+            instrs,
+            exception_table: Vec::new(),
+            max_locals: 4,
+            max_stack: 6,
+        }
+    }
+
+    fn map_field(sig: &str) -> crate::FieldPlan {
+        crate::FieldPlan {
+            name: "m".into(),
+            desc: "Ljava/util/Map;".into(),
+            is_static: true,
+            static_slot: Some(0),
+            instance_slot: None,
+            constant_value: None,
+            is_volatile: false,
+            is_final: false,
+            modifiers: 0,
+            signature: Some(sig.into()),
+        }
+    }
+
+    const SIG_DOUBLE: &str = "Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;";
+
+    /// The scan fixture (the Probe3 javap shapes): creation in <clinit>,
+    /// the put + get cores in main, all through the static field `m`.
+    fn field_cls_methods() -> Vec<crate::MethodPlan> {
+        vec![
+            mp(
+                "<clinit>",
+                vec![
+                    (
+                        0,
+                        I::New {
+                            class: "java/util/HashMap".into(),
+                        },
+                    ),
+                    (3, I::Dup),
+                    (
+                        4,
+                        I::InvokeSpecial {
+                            class: "java/util/HashMap".into(),
+                            name: "<init>".into(),
+                            desc: "()V".into(),
+                        },
+                    ),
+                    (
+                        7,
+                        I::PutStatic {
+                            class: "T".into(),
+                            field: "m".into(),
+                            desc: "Ljava/util/Map;".into(),
+                        },
+                    ),
+                    (10, I::Return(j2r_runtime::TypeDesc::Void)),
+                ],
+            ),
+            mp(
+                "main",
+                vec![
+                    (
+                        0,
+                        I::GetStatic {
+                            class: "T".into(),
+                            field: "m".into(),
+                            desc: "Ljava/util/Map;".into(),
+                        },
+                    ),
+                    (3, I::Ldc(Ldc::String("a".into()))),
+                    (6, I::Ldc2W(crate::ir::Ldc2::Double(0.5))),
+                    (
+                        9,
+                        I::InvokeStatic {
+                            class: "java/lang/Double".into(),
+                            name: "valueOf".into(),
+                            desc: "(D)Ljava/lang/Double;".into(),
+                        },
+                    ),
+                    (
+                        12,
+                        I::InvokeInterface {
+                            class: "java/util/Map".into(),
+                            name: "put".into(),
+                            desc: "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                        },
+                    ),
+                    (17, I::Pop),
+                    (
+                        18,
+                        I::GetStatic {
+                            class: "T".into(),
+                            field: "m".into(),
+                            desc: "Ljava/util/Map;".into(),
+                        },
+                    ),
+                    (21, I::Ldc(Ldc::String("a".into()))),
+                    (
+                        24,
+                        I::InvokeInterface {
+                            class: "java/util/Map".into(),
+                            name: "get".into(),
+                            desc: "(Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                        },
+                    ),
+                    (
+                        29,
+                        I::CheckCast {
+                            class: "java/lang/Double".into(),
+                        },
+                    ),
+                    (
+                        32,
+                        I::InvokeVirtual {
+                            class: "java/lang/Double".into(),
+                            name: "doubleValue".into(),
+                            desc: "()D".into(),
+                        },
+                    ),
+                    (35, I::Store(2)),
+                    (36, I::Return(j2r_runtime::TypeDesc::Void)),
+                ],
+            ),
+        ]
+    }
+
+    #[test]
+    fn scan_proves_field_and_rewrite_fires() {
+        let methods = field_cls_methods();
+        let fields = vec![map_field(SIG_DOUBLE)];
+        let proven = proven_map_fields_of("T", &fields, &methods);
+        assert_eq!(proven.len(), 1, "the field proves");
+        assert_eq!(
+            proven[&("T".to_string(), "m".to_string())],
+            PrimType::Double
+        );
+        // The rewrite side: both field-fed cores collapse (the synthetic
+        // lands at the valueOf pc / the get pc).
+        let mut instrs = methods[1].instrs.clone();
+        let shapes = shapes_of(&instrs);
+        let n = map_prim_rewrites(&mut instrs, &[], &shapes, &proven);
+        assert_eq!(n, 2, "both field-fed cores rewrite");
+        assert_eq!(
+            instrs[3].1,
+            I::MapPutPrim {
+                prim: PrimType::Double
+            }
+        );
+        assert_eq!(instrs[3].0, 9);
+        assert_eq!(
+            instrs[6].1,
+            I::MapGetPrim {
+                prim: PrimType::Double
+            }
+        );
+        assert_eq!(instrs[6].0, 24);
+    }
+
+    #[test]
+    fn scan_allows_generic_exit_and_mixed_prims() {
+        // The probe's P4 shape plus a prim-mismatched core: with the
+        // runtime's lazy materialization and the fused get's unbox, the
+        // generic exit stays faithful and the mismatched core throws the
+        // faithful CCE — so the scan REQUIRES nothing of the readers.
+        let mut methods = field_cls_methods();
+        methods.push(mp(
+            "exit",
+            vec![
+                (
+                    0,
+                    I::GetStatic {
+                        class: "T".into(),
+                        field: "m".into(),
+                        desc: "Ljava/util/Map;".into(),
+                    },
+                ),
+                (3, I::Ldc(Ldc::String("a".into()))),
+                (
+                    6,
+                    I::InvokeInterface {
+                        class: "java/util/Map".into(),
+                        name: "get".into(),
+                        desc: "(Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                    },
+                ),
+                (
+                    11,
+                    I::Return(j2r_runtime::TypeDesc::Object("java/lang/Object".into())),
+                ),
+            ],
+        ));
+        // A prim-mismatched get core (checkcast Integer) on the same
+        // field: the fused unbox carries the faithful CCE.
+        let mut mixed = methods[1].instrs.clone();
+        mixed[9] = (
+            29,
+            I::CheckCast {
+                class: "java/lang/Integer".into(),
+            },
+        );
+        mixed[10] = (
+            32,
+            I::InvokeVirtual {
+                class: "java/lang/Integer".into(),
+                name: "intValue".into(),
+                desc: "()I".into(),
+            },
+        );
+        mixed[11] = (35, I::Store(2));
+        methods[1].instrs = mixed;
+        let fields = vec![map_field(SIG_DOUBLE)];
+        let proven = proven_map_fields_of("T", &fields, &methods);
+        assert_eq!(
+            proven.len(),
+            1,
+            "the generic exit and the mismatched core do not refuse the field"
+        );
+        // Both cores of the mixed method rewrite (the mismatch's CCE is
+        // a runtime law, carried by the fused unbox).
+        let mut instrs = methods[1].instrs.clone();
+        let shapes = shapes_of(&instrs);
+        assert_eq!(map_prim_rewrites(&mut instrs, &[], &shapes, &proven), 2);
+        assert!(matches!(
+            instrs[6].1,
+            I::MapGetPrim {
+                prim: PrimType::Int
+            }
+        ));
+    }
+
+    #[test]
+    fn scan_refuses_non_creation_putstatic() {
+        let mut methods = field_cls_methods();
+        // `m = null;` — a non-creation store kills the provenance.
+        methods.push(mp(
+            "reassign",
+            vec![
+                (0, I::AConstNull),
+                (
+                    1,
+                    I::PutStatic {
+                        class: "T".into(),
+                        field: "m".into(),
+                        desc: "Ljava/util/Map;".into(),
+                    },
+                ),
+                (4, I::Return(j2r_runtime::TypeDesc::Void)),
+            ],
+        ));
+        let fields = vec![map_field(SIG_DOUBLE)];
+        assert!(proven_map_fields_of("T", &fields, &methods).is_empty());
+    }
+
+    #[test]
+    fn scan_refuses_without_creation() {
+        // The use-site method alone: cores but NO PutStatic anywhere, the
+        // provenance is unprovable.
+        let methods = vec![field_cls_methods().remove(1)];
+        let fields = vec![map_field(SIG_DOUBLE)];
+        assert!(proven_map_fields_of("T", &fields, &methods).is_empty());
+    }
+
+    #[test]
+    fn getstatic_receiver_rewrites_only_when_proven() {
+        let instrs_for = || {
+            vec![
+                (
+                    0,
+                    I::GetStatic {
+                        class: "T".into(),
+                        field: "m".into(),
+                        desc: "Ljava/util/Map;".into(),
+                    },
+                ),
+                (3, I::Ldc(Ldc::String("a".into()))),
+                (6, I::Ldc2W(crate::ir::Ldc2::Double(0.5))),
+                (
+                    9,
+                    I::InvokeStatic {
+                        class: "java/lang/Double".into(),
+                        name: "valueOf".into(),
+                        desc: "(D)Ljava/lang/Double;".into(),
+                    },
+                ),
+                (
+                    12,
+                    I::InvokeInterface {
+                        class: "java/util/Map".into(),
+                        name: "put".into(),
+                        desc: "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                    },
+                ),
+                (17, I::Pop),
+                (18, I::Return(j2r_runtime::TypeDesc::Void)),
+            ]
+        };
+        let mut proven = std::collections::BTreeMap::new();
+        proven.insert(("T".to_string(), "m".to_string()), PrimType::Double);
+        let mut instrs = instrs_for();
+        let shapes = shapes_of(&instrs);
+        assert_eq!(
+            map_prim_rewrites(&mut instrs, &[], &shapes, &proven),
+            1,
+            "the proven field receiver rewrites"
+        );
+        assert_eq!(
+            instrs[3].1,
+            I::MapPutPrim {
+                prim: PrimType::Double
+            }
+        );
+        // Unproven: the faithful path stands.
+        let mut instrs2 = instrs_for();
+        let shapes2 = shapes_of(&instrs2);
+        assert_eq!(
+            map_prim_rewrites(&mut instrs2, &[], &shapes2, &Default::default()),
+            0,
+            "an unproven field receiver refuses"
+        );
     }
 }

@@ -358,6 +358,21 @@ pub fn ref_eq(a: &Value, b: &Value) -> bool {
     }
 }
 
+/// The ClassCastException the faithful `checkcast` throws: the exact
+/// message builder, shared with the specialized-map get's fused unbox
+/// (G3.3 slice 3) so a foreign box or a mismatched prim tag in a node
+/// slot throws the same bytes the faithful `checkcast` would.
+pub(crate) fn cce_throw(actual: &str, expect: &str) -> Throw {
+    throw_new(
+        "java/lang/ClassCastException",
+        Some(&format!(
+            "class {} cannot be cast to class {}",
+            actual.replace('/', "."),
+            expect.replace('/', ".")
+        )),
+    )
+}
+
 /// `checkcast`: passes `null` through, otherwise verifies the runtime type.
 pub fn checkcast(v: Value, class: &str, ctx: Dispatch) -> Result<Value, Throw> {
     match &v {
@@ -367,14 +382,7 @@ pub fn checkcast(v: Value, class: &str, ctx: Dispatch) -> Result<Value, Throw> {
             if ctx.is_subtype(&cls, class) {
                 Ok(v)
             } else {
-                Err(throw_new(
-                    "java/lang/ClassCastException",
-                    Some(&format!(
-                        "class {} cannot be cast to class {}",
-                        cls.replace('/', "."),
-                        class.replace('/', ".")
-                    )),
-                ))
+                Err(cce_throw(&cls, class))
             }
         }
         _ => Err(internal_error("checkcast on a primitive value")),

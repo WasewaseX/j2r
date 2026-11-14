@@ -1944,7 +1944,7 @@ fn emit_instr(
                 "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::hm_put_prim(&__r, __key, __val, crate::j2r_dispatch()));"
             ));
         }
-        Instr::MapGetPrim { .. } => {
+        Instr::MapGetPrim { prim } => {
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             out.push(format!(
                 "let __key = {RT}::stack::stack_pop(&mut stack);"
@@ -1952,8 +1952,17 @@ fn emit_instr(
             out.push(format!(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
+            // The fused unbox law: the expected box class rides the
+            // synthetic — a foreign box or a mismatched prim tag throws
+            // the faithful checkcast's exact CCE (G3.3 slice 3).
+            let expect = match prim {
+                crate::ir::PrimType::Double => "java/lang/Double",
+                crate::ir::PrimType::Float => "java/lang/Float",
+                crate::ir::PrimType::Long => "java/lang/Long",
+                _ => "java/lang/Integer",
+            };
             out.push(format!(
-                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::hm_get_prim(&__r, __key, crate::j2r_dispatch()));"
+                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::hm_get_prim(&__r, __key, {expect:?}, crate::j2r_dispatch()));"
             ));
             out.push("stack.push(__v);".into());
         }

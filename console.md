@@ -2900,3 +2900,102 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   generic exits, the get-twice-returns-the-same-ref law) per the
   opening's registered design; then FORNAME-INIT and NEW-INSTANCE
   (design notes registered in TODO.md).
+
+## SESSION 19b cont. 11 — 2026-11-14 (reset #22; G3.3 SLICE 3: the field/materialization layer LANDED)
+
+- **Reset #22 recovery (11th full-download)**: local tree stale at
+  pre-M2 `b4badea` while origin/main held `b8b2281` (slice 2 + evidence)
+  — ALL nine of the boards' recent commit hashes MISSING from the local
+  git objects, the board files absent from the stale snapshot. The
+  recovery-protocol order held: fetch first, ff-merge to origin/main,
+  THEN read the boards from the real tree. No work lost (un-pushed =
+  un-protected: everything was already on origin). `tools/` + `env.sh`
+  reverted away again; `target/` survived → warm builds. Rebootstrap via
+  a script that NOW PERSISTS OUTSIDE THE REPO
+  (`/home/z/my-project/scripts/bootstrap_toolchain.sh` — the previous
+  sessions' "script persists at scripts/" claim was itself reverted by
+  the reset; this one sits in the persistent layer's own dir):
+  rustup-init **21,347,088 B byte-exact** → rustc/cargo 1.99.1 +
+  rustfmt 1.10.0 + clippy 0.1.99; Temurin **jdk-21.0.13+9 tarball
+  207,858,352 B byte-exact**; env.sh recreated (JAVA_HOME/J2R_JAVAC/
+  PATH/CARGO_PROFILE_DEV_DEBUG=0/RUSTUP_HOME/CARGO_HOME under the repo
+  tree). Baseline re-proven BEFORE any code (T05's law): lib 437/0,
+  integrations green, diff_suite 528.01 s, cfg_equiv 381.44 s.
+- **G3.3 SLICE 3 LANDED — the field/materialization layer** (the
+  specialized-map track's step 3, the opening's registered item (3)):
+  the maps are STATIC FIELDS and the faithful exits see real boxes.
+  Probed FIRST (Probe3, javap-pinned vs Temurin 21.0.13+9): P1 the
+  creation run lands in <clinit> (`new; dup; <init>; putstatic M`); P2/
+  P3 the put/get cores ride `getstatic M` receivers (slice 2's
+  adjacency, different provenance); P4 the generic exit (`getstatic M;
+  get; areturn`) has NO core; L1 three generic exits of one slot
+  compare identical (get-twice-returns-the-same-ref); L2 the JLS cache
+  survives through the map (`CACHE.get("n") == Integer.valueOf(5)` is
+  TRUE, 1000 FALSE); L3 entry.getValue()/toString work.
+- **The compiler side**: `proven_map_fields` — the class-level scan
+  proves the PROVENANCE law per static field: the generic signature
+  pins an exact boxed-primitive map value (slice 1's pin gate) and
+  every `PutStatic(f)` in any method is a HashMap creation run with no
+  branch target inside, at least one existing. `resolve_core`'s
+  backward walk accepts `GetStatic(f)` for a proven field (Recv::Field)
+  beside slice 2's fresh Load(n) (Recv::Local). Deliberately NO
+  reader-closure requirement: the generic exits stay faithful at
+  RUNTIME — the registered design's "generic exits keep the boxing
+  path or materialize lazily" — a mixed-prims core set is also allowed
+  (the faithful CCE carries it, below).
+- **The runtime side**: HashMap$Node gains slot 4, the class tag
+  (`Void` = faithful node; `Int(desc-char)` = the slot holds a RAW prim
+  from hm_put_prim — the invariant "raw prim slot <=> tag present"
+  holds by construction, overwrites re-stamp). `node_value_materialized`
+  allocates the box through the SAME valueOf natives user code uses
+  (reflect::box_by_desc — the JLS identity caches apply, L2) and CACHES
+  it back into the slot (get-twice-returns-the-same-ref, L1), routed at
+  EVERY faithful value reader: n_hm_get, n_hm_get_or_default,
+  hm_remove's returned old value, hm_put's overwrite return (the
+  Map.put contract), hm_all_entries (toString/containsValue/view
+  toString), n_vi_next, n_node_get_value (entry.getValue()).
+- **hm_get_prim = the FUSED `checkcast + xValue()` law**: the expected
+  box class rides the synthetic (both emitters pass it — emit.rs and
+  typed.rs arms). A missing key or a stored null VALUE throws the bare
+  NPE; a FOREIGN box or a mismatched prim tag throws the faithful CCE
+  through the shared helper (lib.rs `cce_throw`, extracted byte-exact
+  from checkcast — the faithful checkcast's message builder, one
+  source of bytes). This CLOSED TWO SLICE-2 LATENT HOLES en route: the
+  mixed-prim local (a Double-core put + an Integer-core get on ONE
+  local) used to type-confuse the raw prim slot — now the faithful CCE
+  (the tag IS the checkcast's actual type); a stored null VALUE used
+  to flow a null into a prim-typed synthetic — now the bare NPE, the
+  same throw the faithful unbox produces.
+- **Fixture MapField** (the 117th): three static Map fields (Double/
+  Integer/Long), creation in <clinit>, cores across methods (seed/
+  coreGet/bump + the ACC accumulation loop with two getstatics in one
+  statement), generic exits pinning L1 (three-way identity) and L2 (5
+  → true, 1000 → false), entry.getValue() iteration, toString.
+  Byte-identical vs Temurin 21.0.13+9 on all three channels
+  (J2R_DIFF_FIXTURES=MapField → 2 passed, 4.60 s). The rewrite PROVEN
+  to fire: the translated module carries **7 hm_put_prim + 3
+  hm_get_prim** calls while the generic exits stay faithful (the
+  faithful path alone would also pass the differential — the generated-
+  code grep is the firing proof). diff_suite guard 115 → 116.
+- **Battery (all green)**: units **507/0** — the counting convention
+  now WRITTEN OUT (the previous boards' 496-vs-494 arithmetic drift
+  resolved): lib 450 = classfile 48 + codegen 130 (+5 slice-3
+  scan/rewrite tests) + jni-ffi 15 + runtime 257 (+8: 5
+  materialization + 3 fused-law tests); codegen integrations 27; cli
+  integrations 27; diff_suite 2; cfg_equiv 1 (the target's second fn
+  is env-gated and does not run in the battery). diff_suite **117
+  fixtures three-channel zero divergences** (527.94 s); cfg_equiv
+  **zero** (385.65 s); fmt + clippy `-D warnings` clean FRESH; gate-11
+  in sync: fixtures=117, tests=507 (README 116→117 / 496→507, the
+  cfg-equiv line, the suite-size line). Re-measure protocol note:
+  slice 3 does not touch BoxingBoxedBench (its map is a LOCAL — slice
+  2's law — byte-identical), the slice-2 paired numbers stand.
+- **Evidence**: scripts/evidence/g3_3/{field_layer_2026-11-14.txt,
+  Probe3.java}. Board updates: TODO.md §3 G3.3 SLICE 3 [x] + header;
+  console_summary.md prepended; README counts synced.
+- **Next**: FORNAME-INIT (Class.forName must RUN the <clinit>; the
+  design is registered in TODO.md — n_class_for_name needs the ensure
+  walk for user classes, the id → clinit fn mapping lives in the
+  generated statics registry, the metadata registry needs the clinit
+  fn or a class-id-for-name hook), then NEW-INSTANCE (the user-layout
+  dispatch hook; registered).

@@ -1820,13 +1820,24 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
         I::MapGetPrim { prim } => {
             ctx.refresh(pc);
             let (_, tp) = boxed_ctor(*prim);
+            // The fused unbox law: the expected box class rides the
+            // synthetic — a foreign box or a mismatched prim tag throws
+            // the faithful checkcast's exact CCE (G3.3 slice 3).
+            let expect = match prim {
+                crate::ir::PrimType::Double => "java/lang/Double",
+                crate::ir::PrimType::Float => "java/lang/Float",
+                crate::ir::PrimType::Long => "java/lang/Long",
+                _ => "java/lang/Integer",
+            };
             let key = ctx.wrap_s(pc, vs[k - 1]);
             let r = ctx.try_ref_of(pc, vs[k - 2], &fault);
             ctx.out.push(format!("let __k = {key};"));
             ctx.out.push(format!("let __r = {r};"));
             let call = try_wrap(
                 &fault,
-                format!("{RT}::collections::hm_get_prim(&__r, __k, crate::j2r_dispatch())"),
+                format!(
+                    "{RT}::collections::hm_get_prim(&__r, __k, {expect:?}, crate::j2r_dispatch())"
+                ),
             );
             let kind = match tp {
                 Prim::D => Kind::Double,

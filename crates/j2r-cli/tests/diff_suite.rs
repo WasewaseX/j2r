@@ -187,11 +187,16 @@ fn differential_suite_matches_jvm() {
     // primitive-specialized map path: four closure-proven HashMap locals
     // (Double/Integer/Long/Float) whose every access is javac's autobox
     // core shape, so the node slots hold RAW prim payloads; byte-identical
-    // vs the boxing path on all three channels — 116 on disk, guard one
-    // below that.
+    // vs the boxing path on all three channels. The G3.3 slice-3 wave
+    // (2026-11-14) added MapField — the field/materialization layer: the
+    // maps are static fields (creation runs in <clinit> prove the
+    // provenance law), the put/get cores ride getstatic receivers, and the
+    // faithful exits (generic Object reads, entry.getValue, toString)
+    // materialize the boxes lazily with the get-twice-same-ref and JLS
+    // cache laws pinned — 117 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 115,
-        "differential suite shrank: {} fixtures (expected >= 115)",
+        fixtures.len() >= 116,
+        "differential suite shrank: {} fixtures (expected >= 116)",
         fixtures.len()
     );
 

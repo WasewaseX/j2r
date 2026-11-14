@@ -3,7 +3,7 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-14 (session 19b cont. 10: G3.3 slice 2, the put/get rewrites, landed with the re-measure — the container tax 3.05x -> 1.66x default / 3.26x -> 1.82x typed, the JVM's own same-session tax 1.75x; next slice 3, the field/materialization layer).
+fix the board. Last updated: 2026-11-14 (session 19b cont. 11: G3.3 slice 3, the field/materialization layer, landed — getstatic receivers on the provenance law, the node-stamped class tag, lazy box materialization at the faithful exits with the get-twice-same-ref and JLS cache laws pinned; next FORNAME-INIT, then NEW-INSTANCE).
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -2002,6 +2002,54 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       class tag, lazy box materialization at generic exits) per the
       opening's registered design; FORNAME-INIT and NEW-INSTANCE
       (design notes registered) queue behind it.
+- [x] **G3.3 SLICE 3 — the field/materialization layer LANDED (2026-11-14,
+      session 19b cont. 11, after reset #22)** — the specialized-map
+      track's step 3, the opening's registered items (3): the maps are
+      STATIC FIELDS and the faithful exits see real boxes again. Landed:
+      (a) the class-level provenance scan (peephole.rs proven_map_fields)
+      — a static field proves when its generic signature pins an exact
+      boxed-primitive map value (slice 1's pin gate) and every PutStatic
+      in any method is a `New HashMap; Dup; (consts); <init>` creation
+      run (the PutStatic-side mirror of Phase A's matcher); (b)
+      resolve_core's backward walk accepts `GetStatic(f)` for a proven
+      field (Recv::Field) beside slice 2's fresh Load(n) — there is NO
+      reader-closure requirement: the generic exits stay faithful at
+      RUNTIME, which is exactly the registered design's "generic exits
+      keep the boxing path or materialize lazily"; (c) the runtime
+      materialization layer: HashMap$Node gains slot 4, the class tag
+      (Void = faithful node; Int(desc-char) = the slot holds a RAW prim
+      from hm_put_prim), and node_value_materialized allocates the box
+      through the SAME valueOf natives (the JLS identity caches apply —
+      probe law L2) and CACHES it back into the slot (get-twice-returns-
+      the-same-ref — probe law L1), routed at EVERY faithful value
+      reader (n_hm_get, get_or_default, hm_remove's returned old value,
+      hm_put's overwrite return — the Map.put contract —,
+      hm_all_entries for toString/containsValue/views, n_vi_next,
+      n_node_get_value for entry.getValue()); (d) hm_get_prim becomes
+      the FUSED `checkcast + xValue()` law with the expected box class
+      riding the synthetic (both emitters pass it): a missing key or a
+      stored null VALUE throws the bare NPE, a foreign box or a
+      mismatched prim tag throws the faithful CCE through the shared
+      helper (lib.rs cce_throw, extracted byte-exact from checkcast) —
+      which CLOSES TWO SLICE-2 LATENT HOLES (the mixed-prim local that
+      type-confused the raw slot; the null value that flowed a null
+      into a prim-typed synthetic). Probe-pinned first (Probe3: the four
+      javac shapes P1-P4 + the three Temurin laws L1-L3). Fixture
+      **MapField** (the 117th) byte-identical vs Temurin 21.0.13+9 on
+      all three channels; the rewrite PROVEN to fire (the translated
+      module carries 7 hm_put_prim + 3 hm_get_prim calls while the
+      generic exits stay faithful). Battery: units **507/0** (+5
+      peephole scan/rewrite, +8 runtime materialization/fused-law; the
+      counting convention now written out in the evidence — lib 450 +
+      codegen-int 27 + cli-int 27 + diff 2 + cfg 1), diff_suite 117
+      fixtures three-channel zero divergences (527.94 s), cfg_equiv zero
+      (385.65 s), fmt+clippy clean FRESH, gate-11 fixtures=117 tests=507
+      in sync (README 116→117 / 496→507, diff_suite guard 115→116).
+      Re-measure protocol note: slice 3 does not touch BoxingBoxedBench
+      (its map is a LOCAL — slice 2's law — byte-identical), the slice-2
+      paired numbers stand. Evidence:
+      scripts/evidence/g3_3/{field_layer_2026-11-14.txt, Probe3.java}.
+      NEXT: FORNAME-INIT (the registered design), then NEW-INSTANCE.
 - [x] **EXTERNAL PORT REPORT PERSISTED — jbox2d 2.2.1.1 (2026-11-13,
       session 19b, owner directive: "add these in todo list and roadmap
       to survive sandbox reset")** — the owner's independent port test

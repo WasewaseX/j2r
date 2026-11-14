@@ -19,7 +19,10 @@
 //!   slot 2 `threshold` (Int), slot 3 table reference or null (a
 //!   `[Ljava/util/HashMap$Node;` array whose slot 0 is the table length).
 //! * `java/util/HashMap$Node` — slot 0 `hash` (Int), slot 1 key, slot 2
-//!   value, slot 3 next-node reference or null.
+//!   value, slot 3 next-node reference or null, slot 4 the prim tag
+//!   (G3.3 slice 3: `Void` = a faithful node; `Int(desc-char)` = the
+//!   value slot holds a RAW prim payload written by `hm_put_prim`, to be
+//!   materialized into its box at the first faithful read).
 //! * `java/util/HashMap$KeyIterator` — slot 0 map reference, slot 1 next
 //!   table index to scan (Int), slot 2 pending node or null, slot 3
 //!   `expectedModCount` (Int).
@@ -847,6 +850,18 @@ const HM_MODCOUNT: usize = 1;
 const HM_THRESHOLD: usize = 2;
 const HM_TABLE: usize = 3;
 
+/// `HashMap$Node` slot 4 — the prim tag (G3.3 slice 3). `Value::Void` on
+/// a faithful node; `Value::Int(desc-char)` when the value slot holds a
+/// RAW prim payload written by `hm_put_prim`.
+const HM_NODE_TAG: usize = 4;
+
+fn tag_slot(tag: Option<char>) -> Value {
+    match tag {
+        Some(c) => Value::Int(c as i32),
+        None => Value::Void,
+    }
+}
+
 fn hm_state(map: &JRef) -> (i32, i32, i32, Option<JRef>) {
     with_obj(*map, |o| {
         (
@@ -1030,7 +1045,13 @@ fn hm_resize(map: &JRef) -> Result<(), Throw> {
 
 /// OpenJDK `putVal` with tail insertion. Returns the previous value
 /// (`Ref(None)` when absent).
-fn hm_put(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Result<Value, Throw> {
+fn hm_put(
+    map: &JRef,
+    key: Value,
+    value: Value,
+    ctx: Dispatch,
+    tag: Option<char>,
+) -> Result<Value, Throw> {
     let hash = map_hash(&key, ctx)?;
     let (_, _, _, table) = hm_state(map);
     if table.is_none() || hm_table_len(table.as_ref().unwrap()) == 0 {
@@ -1046,21 +1067,30 @@ fn hm_put(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Result<Value, 
     let mut cur = hm_bin(&table, idx);
     let mut prev: Option<JRef> = None;
     while let Some(node) = cur {
-        let (h, k, old_value, next) = node_parts(&node);
+        let (h, k, _old_value, next) = node_parts(&node);
         if key_matches(h, &k, hash, &key, ctx)? {
-            with_obj_mut(node, |o| o.slots[2] = value);
-            return Ok(old_value);
+            // The Map.put contract returns the OLD value — materialize a
+            // raw-prim slot first (slice 3), so the faithful caller sees
+            // the same box Java would have held. The allocation happens
+            // before any with_obj scope (the heap-lock law).
+            let old = node_value_materialized(&node)?;
+            with_obj_mut(node, |o| {
+                o.slots[2] = value;
+                o.slots[HM_NODE_TAG] = tag_slot(tag);
+            });
+            return Ok(old);
         }
         prev = Some(node);
         cur = next;
     }
     // tail-insert a fresh node
-    let node = new_obj("java/util/HashMap$Node", 4)?;
+    let node = new_obj("java/util/HashMap$Node", 5)?;
     with_obj_mut(node, |o| {
         o.slots[0] = Value::Int(hash);
         o.slots[1] = key;
         o.slots[2] = value;
         o.slots[3] = Value::Ref(None);
+        o.slots[HM_NODE_TAG] = tag_slot(tag);
     });
     match prev {
         None => hm_set_bin(&table, idx, Some(node)),
@@ -1105,8 +1135,12 @@ fn hm_remove(map: &JRef, key: &Value, ctx: Dispatch) -> Result<Value, Throw> {
     let mut prev: Option<JRef> = None;
     let mut cur = hm_bin(&table, idx);
     while let Some(node) = cur {
-        let (h, k, value, next) = node_parts(&node);
+        let (h, k, _value, next) = node_parts(&node);
         if key_matches(h, &k, hash, key, ctx)? {
+            // The removed value escapes to faithful code — materialize
+            // before unlinking (slice 3; the alloc precedes any with_obj
+            // scope).
+            let out = node_value_materialized(&node)?;
             match prev {
                 None => hm_set_bin(&table, idx, next),
                 Some(p) => with_obj_mut(p, |o| {
@@ -1121,7 +1155,7 @@ fn hm_remove(map: &JRef, key: &Value, ctx: Dispatch) -> Result<Value, Throw> {
                 o.slots[HM_SIZE] = Value::Int(size - 1);
                 o.slots[HM_MODCOUNT] = Value::Int(mc + 1);
             });
-            return Ok(value);
+            return Ok(out);
         }
         prev = Some(node);
         cur = next;
@@ -1129,23 +1163,27 @@ fn hm_remove(map: &JRef, key: &Value, ctx: Dispatch) -> Result<Value, Throw> {
     Ok(Value::Ref(None))
 }
 
-/// Table-order iteration (bins in order, within-bin list order).
-fn hm_all_entries(map: &JRef) -> Vec<(Value, Value)> {
+/// Table-order iteration (bins in order, within-bin list order). Values
+/// materialize lazily (slice 3): every consumer of this Vec is faithful
+/// code (toString/containsValue/view toString), which must observe real
+/// boxes.
+fn hm_all_entries(map: &JRef) -> Result<Vec<(Value, Value)>, Throw> {
     let (_, _, _, table) = hm_state(map);
     let Some(table) = table else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let len = hm_table_len(&table);
     let mut out = Vec::new();
     for i in 0..len {
         let mut cur = hm_bin(&table, i);
         while let Some(node) = cur {
-            let (_, k, v, next) = node_parts(&node);
+            let (_, k, _, next) = node_parts(&node);
+            let v = node_value_materialized(&node)?;
             out.push((k, v));
             cur = next;
         }
     }
-    out
+    Ok(out)
 }
 
 // <init>()V / <init>(I)V
@@ -1177,14 +1215,14 @@ pub fn n_hm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
     let r = recv.expect("j2r internal: HashMap.put without receiver");
     let key = args.first().cloned().unwrap_or(Value::Ref(None));
     let value = args.get(1).cloned().unwrap_or(Value::Ref(None));
-    hm_put(r, key, value, ctx)
+    hm_put(r, key, value, ctx, None)
 }
 
 pub fn n_hm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.get without receiver");
     let key = args.first().cloned().unwrap_or(Value::Ref(None));
     match hm_find(r, &key, ctx)? {
-        Some(node) => Ok(node_parts(&node).2),
+        Some(node) => node_value_materialized(&node),
         None => Ok(Value::Ref(None)),
     }
 }
@@ -1195,10 +1233,54 @@ pub fn n_hm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
 // pop` and `get -> checkcast -> doubleValue` cores on receiver locals its
 // closure law proved safe (every load of the local is a rewritten core's
 // receiver, so the map never aliases and every slot was written by a
-// rewritten put). There the box is unobservable as an `Object`, and the
-// node's value slot holds the RAW prim `Value` — one fewer heap child per
-// node, no valueOf alloc, no unbox dispatch (the register's 2.78x
-// container tax, evidence g3_3/opening_census).
+// rewritten put) and — slice 3 — on static fields whose class-level law
+// holds (every PutStatic a HashMap creation run, every GetStatic a
+// guarded core's receiver pinned by the field signature). There the box
+// is unobservable as an `Object`, and the node's value slot holds the RAW
+// prim `Value` — one fewer heap child per node, no valueOf alloc, no
+// unbox dispatch (the register's 2.78x container tax, evidence
+// g3_3/opening_census).
+
+/// G3.3 slice 3: the lazy box materialization at the faithful exits.
+///
+/// A node whose value slot holds a RAW prim (stamped by `hm_put_prim`
+/// with the payload's desc char in slot 4) is materialized into its
+/// boxed object on the first faithful read and the box is CACHED back
+/// into the slot — get-twice-returns-the-same-ref (probe law L1: three
+/// generic exits of one key compare identical) — and the boxing routes
+/// through the same `valueOf` natives user code uses, so the JLS
+/// identity caches apply (probe law L2: `CACHE.get("n") ==
+/// Integer.valueOf(5)` is TRUE for cached values). A tag-less node is a
+/// faithful node: its slot is already a box or null, pass it through.
+/// The allocation happens OUTSIDE any `with_obj` scope (the heap-lock
+/// law: alloc never nests under an object borrow).
+fn node_value_materialized(node: &JRef) -> Result<Value, Throw> {
+    let (v, tag) = with_obj(*node, |o| {
+        (o.slots[2].clone(), o.slots[HM_NODE_TAG].clone())
+    });
+    let Value::Int(c) = tag else { return Ok(v) };
+    let is_prim = matches!(
+        v,
+        Value::Double(_) | Value::Float(_) | Value::Int(_) | Value::Long(_)
+    );
+    if !is_prim {
+        // A tagged slot whose value is already a box: the box was
+        // materialized earlier and the tag kept as provenance — pass it
+        // through (the tag is an annotation, not a mode switch).
+        return Ok(v);
+    }
+    let desc = match char::from_u32(c as u32) {
+        Some(d @ ('D' | 'F' | 'I' | 'J')) => d,
+        _ => {
+            return Err(internal_error(
+                "j2r internal: map node carries a prim slot with an invalid tag",
+            ))
+        }
+    };
+    let boxed = crate::reflect::box_by_desc(v, &desc.to_string())?;
+    with_obj_mut(*node, |o| o.slots[2] = boxed.clone());
+    Ok(boxed)
+}
 
 /// The specialized-map put: stores `value` (a raw `Value::Double/Float/
 /// Int/Long`) in the node's value slot. The key's hash/equals dispatch,
@@ -1207,27 +1289,50 @@ pub fn n_hm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
 /// return (the OLD value, per the Map contract) is discarded: the
 /// rewritten core requires the `Pop`, so no caller can observe it.
 pub fn hm_put_prim(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Result<(), Throw> {
-    hm_put(map, key, value, ctx)?;
+    // The tag rides the stored value's own prim kind — the node becomes
+    // self-describing, so a faithful reader (slice 3's materialization)
+    // constructs the exact box class the compiler's closure law hid.
+    let tag = match &value {
+        Value::Double(_) => Some('D'),
+        Value::Float(_) => Some('F'),
+        Value::Int(_) => Some('I'),
+        Value::Long(_) => Some('J'),
+        _ => None,
+    };
+    hm_put(map, key, value, ctx, tag)?;
     Ok(())
 }
 
-/// The specialized-map get: unwraps the node's value slot to the prim
-/// payload. The faithful absent-key law is preserved exactly: a missing
-/// key is the null box reaching `doubleValue()`, which throws a bare
-/// `NullPointerException` (no message) — the same throw the boxing path
-/// produces at that program point (uncaught traces render no frame
-/// lines, and the peephole refuses spans straddling a handler boundary,
-/// so the fault-pc shift is unobservable). A materialized box in the slot
-/// (defensive: unreachable under the closure law — slice-3 materialization
-/// scope) unboxes through its payload slot; a stored `null` value cannot
-/// exist on a closure-proven local (a null put is never a rewritten core)
-/// and reads as the same faithful NPE.
-pub fn hm_get_prim(map: &JRef, key: Value, ctx: Dispatch) -> Result<Value, Throw> {
+/// The specialized-map get: the FUSED `checkcast + xValue()` law. The
+/// synthetic replaces `get; checkcast Box; Box.xValue()p`, so its
+/// failure modes are the fused law's failure modes, byte-for-byte:
+/// - a MISSING key is the null box reaching `xValue()`: the bare
+///   `NullPointerException` (no message) — the same throw the boxing
+///   path produces at that program point (uncaught traces render no
+///   frame lines, and the peephole refuses spans straddling a handler
+///   boundary, so the fault-pc shift is unobservable);
+/// - a stored `null` VALUE (a non-core put wrote it) is the same null
+///   box reaching `xValue()`: the same bare NPE;
+/// - a FOREIGN box (a non-core put wrote a wrong-type box — raw types,
+///   unchecked generics) fails the faithful `checkcast` through the
+///   shared helper: the exact CCE bytes;
+/// - a raw-prim slot whose tag disagrees with `expect` is the same CCE
+///   with the tag's class as the actual type (the faithful slot held
+///   that box);
+/// - a matching box or tag unwraps to the prim payload.
+pub fn hm_get_prim(
+    map: &JRef,
+    key: Value,
+    expect: &'static str,
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     match hm_find(map, &key, ctx)? {
         Some(node) => {
             let v = node_parts(&node).2;
             match v {
+                Value::Ref(None) => Err(throw_new("java/lang/NullPointerException", None)),
                 Value::Ref(Some(boxed)) => {
+                    crate::checkcast(Value::Ref(Some(boxed)), expect, ctx)?;
                     let payload = with_obj(boxed, |o| o.slots[0].clone());
                     match payload {
                         p @ (Value::Double(_)
@@ -1239,7 +1344,36 @@ pub fn hm_get_prim(map: &JRef, key: Value, ctx: Dispatch) -> Result<Value, Throw
                         )),
                     }
                 }
-                other => Ok(other),
+                other @ (Value::Double(_) | Value::Float(_) | Value::Int(_) | Value::Long(_)) => {
+                    // The RAW prim slot: the tag is the node's own class
+                    // stamp — the provenance check the faithful checkcast
+                    // would have run on the box.
+                    let tag = with_obj(node, |o| o.slots[HM_NODE_TAG].clone());
+                    let Value::Int(c) = tag else {
+                        return Err(internal_error(
+                            "j2r internal: map prim slot without a class tag",
+                        ));
+                    };
+                    let actual = match char::from_u32(c as u32) {
+                        Some('D') => "java/lang/Double",
+                        Some('F') => "java/lang/Float",
+                        Some('I') => "java/lang/Integer",
+                        Some('J') => "java/lang/Long",
+                        _ => {
+                            return Err(internal_error(
+                                "j2r internal: map node carries an invalid class tag",
+                            ))
+                        }
+                    };
+                    if actual == expect {
+                        Ok(other)
+                    } else {
+                        Err(crate::cce_throw(actual, expect))
+                    }
+                }
+                other => Err(internal_error(&format!(
+                    "j2r internal: map prim slot holds {other:?}"
+                ))),
             }
         }
         None => Err(throw_new("java/lang/NullPointerException", None)),
@@ -1255,7 +1389,7 @@ pub fn n_hm_get_or_default(
     let key = args.first().cloned().unwrap_or(Value::Ref(None));
     let default = args.get(1).cloned().unwrap_or(Value::Ref(None));
     match hm_find(r, &key, ctx)? {
-        Some(node) => Ok(node_parts(&node).2),
+        Some(node) => node_value_materialized(&node),
         None => Ok(default),
     }
 }
@@ -1277,7 +1411,7 @@ pub fn n_hm_contains_value(
 ) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.containsValue without receiver");
     let target = args.first().cloned().unwrap_or(Value::Ref(None));
-    for (_, v) in hm_all_entries(r) {
+    for (_, v) in hm_all_entries(r)? {
         let eq = match (&v, &target) {
             (Value::Ref(Some(a)), Value::Ref(Some(_))) => dispatch_equals(a, &target, ctx)?,
             (Value::Ref(None), Value::Ref(None)) => true,
@@ -1321,7 +1455,7 @@ pub fn n_hm_clear(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
 
 pub fn n_hm_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.toString without receiver");
-    let entries = hm_all_entries(r);
+    let entries = hm_all_entries(r)?;
     let mut out = String::from("{");
     for (i, (k, v)) in entries.iter().enumerate() {
         if i > 0 {
@@ -1381,7 +1515,7 @@ pub fn n_ks_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
 
 pub fn n_ks_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = view_map(recv, "KeySet.toString");
-    let items: Vec<Value> = hm_all_entries(&map).into_iter().map(|(k, _)| k).collect();
+    let items: Vec<Value> = hm_all_entries(&map)?.into_iter().map(|(k, _)| k).collect();
     collection_to_string(items, ctx)
 }
 
@@ -1410,7 +1544,7 @@ pub fn n_vs_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
 
 pub fn n_vs_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = view_map(recv, "Values.toString");
-    let items: Vec<Value> = hm_all_entries(&map).into_iter().map(|(_, v)| v).collect();
+    let items: Vec<Value> = hm_all_entries(&map)?.into_iter().map(|(_, v)| v).collect();
     collection_to_string(items, ctx)
 }
 
@@ -1539,7 +1673,7 @@ pub fn n_vi_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Re
 
 pub fn n_vi_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let (_, node) = hm_hash_next_node(recv, "ValueIterator.next")?;
-    Ok(node_parts(&node).2)
+    node_value_materialized(&node)
 }
 
 // ---------------------------------------------------------------- HashSet
@@ -1569,7 +1703,7 @@ pub fn n_hs_add(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
     // only requirement is being a live heap object (roots scan it through
     // the map's node slots).
     let present = new_obj("java/lang/Object", 0)?;
-    let old = hm_put(&map, e, Value::Ref(Some(present)), ctx)?;
+    let old = hm_put(&map, e, Value::Ref(Some(present)), ctx, None)?;
     Ok(Value::Int(old.is_null() as i32))
 }
 
@@ -1661,7 +1795,7 @@ pub fn n_hs_iterator(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Re
 
 pub fn n_hs_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = hs_map(recv, "toString");
-    let items: Vec<Value> = hm_all_entries(&map).into_iter().map(|(k, _)| k).collect();
+    let items: Vec<Value> = hm_all_entries(&map)?.into_iter().map(|(k, _)| k).collect();
     collection_to_string(items, ctx)
 }
 
@@ -1746,7 +1880,7 @@ pub fn n_node_get_value(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let n = recv.expect("j2r internal: Node.getValue without receiver");
-    Ok(node_parts(n).2)
+    node_value_materialized(n)
 }
 
 // ------------------------------------------------- Collections$UnmodifiableMap
@@ -2672,5 +2806,183 @@ mod tests {
             crate::heap::live_count()
         );
         crate::heap::set_forced_gc_every(None);
+    }
+
+    // ---- G3.3 slice 3: the node-stamped class tag + lazy materialization ----
+
+    fn key(s: &str) -> Value {
+        Value::Ref(Some(new_string(s)))
+    }
+
+    #[test]
+    fn prim_slot_materializes_with_identity_and_jls_cache() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        // The specialized put stores the RAW prim; the node is stamped 'I'.
+        hm_put_prim(&m, key("n"), Value::Int(5), ctx()).unwrap();
+        // Faithful get #1 materializes; get #2 returns the SAME ref.
+        let v1 = n_hm_get(Some(&m), &[key("n")], ctx()).unwrap();
+        let v2 = n_hm_get(Some(&m), &[key("n")], ctx()).unwrap();
+        let (Value::Ref(Some(b1)), Value::Ref(Some(b2))) = (&v1, &v2) else {
+            panic!("materialized gets must be refs: {v1:?} / {v2:?}")
+        };
+        assert_eq!(b1, b2, "get-twice-returns-the-same-ref (probe law L1)");
+        assert_eq!(with_obj(*b1, |o| o.jclass.to_string()), "java/lang/Integer");
+        assert_eq!(with_obj(*b1, |o| o.slots[0].clone()), Value::Int(5));
+        // The JLS identity cache: the materialized box IS
+        // Integer.valueOf(5)'s shared cache box (probe law L2).
+        let cached = crate::reflect::box_by_desc(Value::Int(5), "I").unwrap();
+        let Value::Ref(Some(cb)) = &cached else {
+            panic!("cache box")
+        };
+        assert_eq!(b1, cb, "materialization routes through the valueOf natives");
+        // The slot now holds the box (the cache); the specialized get's
+        // fused-unbox path still returns the prim payload.
+        let prim = hm_get_prim(&m, key("n"), "java/lang/Integer", ctx()).unwrap();
+        assert_eq!(prim, Value::Int(5));
+    }
+
+    #[test]
+    fn double_slot_materializes_with_slot_identity() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        hm_put_prim(&m, key("a"), Value::Double(0.5), ctx()).unwrap();
+        let v = n_hm_get(Some(&m), &[key("a")], ctx()).unwrap();
+        let Value::Ref(Some(b)) = &v else {
+            panic!("ref")
+        };
+        assert_eq!(with_obj(*b, |o| o.jclass.to_string()), "java/lang/Double");
+        assert_eq!(with_obj(*b, |o| o.slots[0].clone()), Value::Double(0.5));
+        // get-twice-same-ref holds for the never-cached pair too — the
+        // SLOT cache, not a JLS cache.
+        let v2 = n_hm_get(Some(&m), &[key("a")], ctx()).unwrap();
+        let Value::Ref(Some(b2)) = &v2 else {
+            panic!("ref")
+        };
+        assert_eq!(b, b2);
+    }
+
+    #[test]
+    fn faithful_put_over_prim_node_returns_materialized_old_value() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        hm_put_prim(&m, key("n"), Value::Int(7), ctx()).unwrap();
+        // A faithful put over the prim node: Map.put returns the OLD
+        // value materialized (the box), and the node re-stamps faithful.
+        let fresh = boxed_i32(9);
+        let old = n_hm_put(Some(&m), &[key("n"), fresh], ctx()).unwrap();
+        assert_eq!(unbox_i32(&old), 7, "the old value escapes as the box");
+        let Value::Ref(Some(ob)) = &old else {
+            panic!("old value must be a box: {old:?}")
+        };
+        assert_eq!(with_obj(*ob, |o| o.jclass.to_string()), "java/lang/Integer");
+        // And a subsequent faithful get sees the new box directly.
+        let v = n_hm_get(Some(&m), &[key("n")], ctx()).unwrap();
+        assert_eq!(unbox_i32(&v), 9);
+    }
+
+    #[test]
+    fn remove_and_to_string_materialize() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        hm_put_prim(&m, key("a"), Value::Double(0.5), ctx()).unwrap();
+        hm_put_prim(&m, key("b"), Value::Double(1.5), ctx()).unwrap();
+        // toString materializes every slot and matches Java's
+        // "{a=0.5, b=1.5}" (the probe's run output).
+        let ts = n_hm_to_string(Some(&m), &[], ctx()).unwrap();
+        assert_eq!(s(&ts), "{a=0.5, b=1.5}");
+        // remove returns the materialized box.
+        let rem = n_hm_remove(Some(&m), &[key("a")], ctx()).unwrap();
+        let Value::Ref(Some(rb)) = &rem else {
+            panic!("removed value")
+        };
+        assert_eq!(with_obj(*rb, |o| o.jclass.to_string()), "java/lang/Double");
+    }
+
+    #[test]
+    fn entry_get_value_materializes() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        hm_put_prim(&m, key("a"), Value::Int(5), ctx()).unwrap();
+        // entrySet().iterator().next().getValue() — the registered
+        // design's named generic exit.
+        let es = n_hm_entry_set(Some(&m), &[], ctx()).unwrap();
+        let Value::Ref(Some(esr)) = &es else {
+            panic!("entrySet")
+        };
+        let it = n_hes_iterator(Some(esr), &[], ctx()).unwrap();
+        let Value::Ref(Some(itr)) = &it else {
+            panic!("iterator")
+        };
+        let entry = n_ei_next(Some(itr), &[], ctx()).unwrap();
+        let Value::Ref(Some(er)) = &entry else {
+            panic!("entry")
+        };
+        let gv = n_node_get_value(Some(er), &[], ctx()).unwrap();
+        assert_eq!(unbox_i32(&gv), 5);
+        let Value::Ref(Some(b)) = &gv else {
+            panic!("materialized entry value: {gv:?}")
+        };
+        assert_eq!(with_obj(*b, |o| o.jclass.to_string()), "java/lang/Integer");
+    }
+
+    // ---- the fused get's unbox law (the faithful failure modes) ----
+
+    fn msg(err: &Throw) -> String {
+        let m = with_obj(err.obj, |o| o.slots[0].clone());
+        s(&m)
+    }
+
+    #[test]
+    fn fused_get_throws_faithful_cce_on_tag_mismatch() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        hm_put_prim(&m, key("a"), Value::Double(0.5), ctx()).unwrap();
+        // A get core compiled against Integer on a Double-prim slot: the
+        // tag is the faithful checkcast's actual type.
+        let err = hm_get_prim(&m, key("a"), "java/lang/Integer", ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/ClassCastException");
+        assert_eq!(
+            msg(&err),
+            "class java.lang.Double cannot be cast to class java.lang.Integer"
+        );
+        // The matching expect unwraps.
+        let ok = hm_get_prim(&m, key("a"), "java/lang/Double", ctx()).unwrap();
+        assert_eq!(ok, Value::Double(0.5));
+    }
+
+    #[test]
+    fn fused_get_throws_faithful_cce_on_foreign_box() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        hm_put_prim(&m, key("a"), Value::Double(0.5), ctx()).unwrap();
+        // A non-core put (unchecked generics) wrote an Integer BOX over
+        // the prim slot: the faithful checkcast runs on the box.
+        n_hm_put(Some(&m), &[key("a"), boxed_i32(9)], ctx()).unwrap();
+        let err = hm_get_prim(&m, key("a"), "java/lang/Double", ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/ClassCastException");
+        assert_eq!(
+            msg(&err),
+            "class java.lang.Integer cannot be cast to class java.lang.Double"
+        );
+        // The right box (same class as expect) unwraps through its slot.
+        n_hm_put(Some(&m), &[key("a"), boxed_i32(9)], ctx()).unwrap();
+        let ok = hm_get_prim(&m, key("a"), "java/lang/Integer", ctx()).unwrap();
+        assert_eq!(ok, Value::Int(9));
+    }
+
+    #[test]
+    fn fused_get_throws_bare_npe_on_null_value() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        // A non-core put stored a null VALUE (javac: aconst_null; put).
+        n_hm_put(Some(&m), &[key("a"), Value::Ref(None)], ctx()).unwrap();
+        let err = hm_get_prim(&m, key("a"), "java/lang/Double", ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/NullPointerException");
+        // The BARE law: no message.
+        assert!(matches!(
+            with_obj(err.obj, |o| o.slots[0].clone()),
+            Value::Ref(None)
+        ));
     }
 }
