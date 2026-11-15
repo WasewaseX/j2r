@@ -147,6 +147,17 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/HashMap$ValueIterator" => "java/lang/Object",
         "java/util/HashMap$KeySet" => "java/lang/Object",
         "java/util/HashMap$Values" => "java/lang/Object",
+        // run 4 (2026-11-15): LinkedHashMap — the OpenJDK subclass shape:
+        // it IS a HashMap with order links (parent walk = the HashMap
+        // rows; the entry extends HashMap$Node with before/after).
+        "java/util/LinkedHashMap" => "java/util/HashMap",
+        "java/util/LinkedHashMap$Entry" => "java/util/HashMap$Node",
+        "java/util/LinkedHashMap$KeyIterator" => "java/lang/Object",
+        "java/util/LinkedHashMap$ValueIterator" => "java/lang/Object",
+        "java/util/LinkedHashMap$KeySet" => "java/lang/Object",
+        "java/util/LinkedHashMap$Values" => "java/lang/Object",
+        "java/util/LinkedHashMap$EntrySet" => "java/lang/Object",
+        "java/util/LinkedHashMap$EntryIterator" => "java/lang/Object",
         // stringsim corpus wave (2026-11-07): entrySet views + the
         // unmodifiableMap wrapper + Sift4's index-oriented LinkedList.
         "java/util/HashMap$EntrySet" => "java/lang/Object",
@@ -309,6 +320,21 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         "java/util/HashSet" => &["java/util/Set"],
         "java/util/Set" => &["java/util/Collection"],
         "java/util/HashMap" => &["java/util/Map"],
+        // run 4: LinkedHashMap rides the parent chain (HashMap→Map) for the
+        // interface law; the direct row names the ORDERED map for the
+        // declared-type validation walks.
+        "java/util/LinkedHashMap" => &["java/util/Map"],
+        // JDK: LinkedHashMap.Entry extends HashMap.Node — the entrySet
+        // iteration's checkcast Map$Entry on a LinkedHashMap depends on
+        // this (the Node row carries Map$Entry; the parent walk adds it,
+        // the direct row keeps the subtype check one hop short).
+        "java/util/LinkedHashMap$Entry" => &["java/util/Map$Entry"],
+        "java/util/LinkedHashMap$EntrySet" => &["java/util/Set"],
+        "java/util/LinkedHashMap$KeySet" => &["java/util/Set"],
+        "java/util/LinkedHashMap$Values" => &["java/util/Collection"],
+        "java/util/LinkedHashMap$EntryIterator"
+        | "java/util/LinkedHashMap$KeyIterator"
+        | "java/util/LinkedHashMap$ValueIterator" => &["java/util/Iterator"],
         // JDK: HashMap.Node implements Map.Entry — the enhanced-for's
         // JDK: HashMap.Node implements Map.Entry — the enhanced-for's
         // checkcast Map$Entry on entrySet iteration depends on this.
@@ -436,6 +462,21 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         "java/util/Collections$UnmodifiableList" => 1,
         // HashMap: size, modCount, threshold, table ref
         "java/util/HashMap" => 4,
+        // run 4: LinkedHashMap — head, tail (the order links, AFTER the
+        // inherited HashMap base: flattened slots 4/5)
+        "java/util/LinkedHashMap" => 2,
+        // LinkedHashMap$Entry: before, after (AFTER the inherited Node
+        // prefix; the runtime allocates 7 including the undeclared node-tag
+        // slot — the HashMap$Node convention)
+        "java/util/LinkedHashMap$Entry" => 2,
+        // run 4: the link-chain iterators: map, pending, lastRet,
+        // expectedModCount; the views: map ref (the HashMap view shape)
+        "java/util/LinkedHashMap$KeyIterator"
+        | "java/util/LinkedHashMap$ValueIterator"
+        | "java/util/LinkedHashMap$EntryIterator" => 4,
+        "java/util/LinkedHashMap$KeySet"
+        | "java/util/LinkedHashMap$Values"
+        | "java/util/LinkedHashMap$EntrySet" => 1,
         // HashMap$Node: hash, key, value, next
         "java/util/HashMap$Node" => 4,
         // hash iterators: map ref, table idx, pending node, expectedModCount

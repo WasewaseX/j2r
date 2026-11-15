@@ -1,0 +1,24 @@
+{a=1, b=2, c=3}
+{a=10, b=2, c=3}
+{b=2, c=3, a=11}
+{b=2, c=3, a=11}
+{b=2, c=3, a=11}
+{x=1, y=2, z=3}
+true
+true
+3
+b;c;a;
+2;3;11;
+b=2;c=3;a=11;
+{c=3, a=11}
+2
+{b=2, c=3, a=11, null=0}
+{b=2, c=3, a=11, null=0, n=null}
+{b=2, c=3, a=11, n=null}
+true
+{q=7}
+2
+-1
+true
+false
+null

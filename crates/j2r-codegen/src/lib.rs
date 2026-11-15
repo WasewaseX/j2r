@@ -460,6 +460,15 @@ fn builtin_is_instantiable(class: &str) -> bool {
             | "java/util/ArrayList"
             | "java/util/HashMap"
             | "java/util/HashSet"
+            // run 4 (2026-11-15): LinkedHashMap — the ordered map (the
+            // HashMap subclass shape; slots owned by collections.rs)
+            | "java/util/LinkedHashMap"
+            | "java/util/LinkedHashMap$KeySet"
+            | "java/util/LinkedHashMap$Values"
+            | "java/util/LinkedHashMap$EntrySet"
+            | "java/util/LinkedHashMap$KeyIterator"
+            | "java/util/LinkedHashMap$ValueIterator"
+            | "java/util/LinkedHashMap$EntryIterator"
             // stringsim corpus wave (2026-11-07): entrySet views, the
             // unmodifiableMap wrapper, and Sift4's LinkedList — slots
             // owned by j2r-runtime/src/collections.rs

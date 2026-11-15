@@ -1043,15 +1043,27 @@ fn hm_resize(map: &JRef) -> Result<(), Throw> {
     Ok(())
 }
 
+/// The node layout hm_put allocates: the plain HashMap$Node (5 slots —
+/// hash/key/value/next + the undeclared tag) or the LinkedHashMap$Entry
+/// (7 slots — before/after after the tag, the order-link pair).
+#[derive(Clone, Copy)]
+enum NodeKind {
+    HashNode,
+    LinkedEntry,
+}
+
 /// OpenJDK `putVal` with tail insertion. Returns the previous value
-/// (`Ref(None)` when absent).
+/// (`Ref(None)` when absent) plus the freshly-inserted NODE (None on an
+/// overwrite — LinkedHashMap's order law needs the new node to link it
+/// at the tail; an overwrite keeps position, so no link work).
 fn hm_put(
     map: &JRef,
     key: Value,
     value: Value,
     ctx: Dispatch,
     tag: Option<char>,
-) -> Result<Value, Throw> {
+    kind: NodeKind,
+) -> Result<(Value, Option<JRef>), Throw> {
     let hash = map_hash(&key, ctx)?;
     let (_, _, _, table) = hm_state(map);
     if table.is_none() || hm_table_len(table.as_ref().unwrap()) == 0 {
@@ -1078,13 +1090,17 @@ fn hm_put(
                 o.slots[2] = value;
                 o.slots[HM_NODE_TAG] = tag_slot(tag);
             });
-            return Ok(old);
+            return Ok((old, None));
         }
         prev = Some(node);
         cur = next;
     }
-    // tail-insert a fresh node
-    let node = new_obj("java/util/HashMap$Node", 5)?;
+    // tail-insert a fresh node (the kind decides the layout — LinkedHashMap
+    // entries carry the before/after pair the order law walks)
+    let node = match kind {
+        NodeKind::HashNode => new_obj("java/util/HashMap$Node", 5)?,
+        NodeKind::LinkedEntry => new_obj("java/util/LinkedHashMap$Entry", 7)?,
+    };
     with_obj_mut(node, |o| {
         o.slots[0] = Value::Int(hash);
         o.slots[1] = key;
@@ -1104,7 +1120,7 @@ fn hm_put(
     if size + 1 > with_obj(*map, |o| o.slots[HM_THRESHOLD].expect_int()) {
         hm_resize(map)?;
     }
-    Ok(Value::Ref(None))
+    Ok((Value::Ref(None), Some(node)))
 }
 
 fn hm_find(map: &JRef, key: &Value, ctx: Dispatch) -> Result<Option<JRef>, Throw> {
@@ -1215,7 +1231,8 @@ pub fn n_hm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
     let r = recv.expect("j2r internal: HashMap.put without receiver");
     let key = args.first().cloned().unwrap_or(Value::Ref(None));
     let value = args.get(1).cloned().unwrap_or(Value::Ref(None));
-    hm_put(r, key, value, ctx, None)
+    let (old, _) = hm_put(r, key, value, ctx, None, NodeKind::HashNode)?;
+    Ok(old)
 }
 
 pub fn n_hm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
@@ -1299,7 +1316,7 @@ pub fn hm_put_prim(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Resul
         Value::Long(_) => Some('J'),
         _ => None,
     };
-    hm_put(map, key, value, ctx, tag)?;
+    let _ = hm_put(map, key, value, ctx, tag, NodeKind::HashNode)?;
     Ok(())
 }
 
@@ -1676,6 +1693,499 @@ pub fn n_vi_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result
     node_value_materialized(&node)
 }
 
+// ------------------------------------------------------------- LinkedHashMap
+//
+// Run 4 (2026-11-15): the OpenJDK subclass shape — the map IS a HashMap
+// (the same size/modCount/threshold/table slots at 0..3, the same Node
+// prefix hash/key/value/next on its entries) plus the ORDER LINKS:
+//   map slot 4 = head (the OLDEST entry), slot 5 = tail (the NEWEST
+//   entry) — the own slots AFTER the inherited HashMap base (the
+//   builtin_own_slots layout law: inherited first, own after);
+//   entry slots 5/6 = before/after (the doubly-linked pair AFTER the
+//   Node prefix; the runtime allocates 7 slots — the undeclared node-tag
+//   slot 4 rides at the same index as the HashMap$Node convention).
+//
+// Laws (probed vs Temurin 21.0.13+9, LhmProbe, evidence
+// scripts/evidence/lhm/lhmprobe_temurin_2026-11-15.txt):
+//   L1  iteration order = insertion order (first insertion wins position);
+//   L2  re-put of an existing key replaces the value and KEEPS position
+//       (hm_put returns no node on an overwrite — no link work);
+//   L3  remove + re-put moves the entry to the TAIL;
+//   L4  get/containsKey never reorder (they inherit the HashMap rows
+//       through the builtin parent walk — order-neutral);
+//   L5  <init>(Map) copies in the SOURCE's iteration order (a
+//       LinkedHashMap source in link order, anything else table order);
+//   L6  is-a HashMap (builtin_parent_of) and is-a Map (interfaces table);
+//   L7  keySet/values/entrySet iterate in link order (own view classes);
+//   L8  iterator.remove() removes the last-returned entry (order intact,
+//       expectedModCount re-synced — the JDK HashIterator.remove law);
+//   L9  one null key, null values (the HashMap law: hash(null) = 0);
+//   L10 clear resets everything (head/tail included), re-adds re-link;
+//   L11 toString iterates in link order.
+
+const LHM_HEAD: usize = 4;
+const LHM_TAIL: usize = 5;
+// LinkedHashMap$Entry link slots (after the Node prefix + tag).
+const LHE_BEFORE: usize = 5;
+const LHE_AFTER: usize = 6;
+
+/// Reads the order links under one heap-lock scope.
+fn lhm_links(map: &JRef) -> (Option<JRef>, Option<JRef>) {
+    with_obj(*map, |o| {
+        let head = match &o.slots[LHM_HEAD] {
+            Value::Ref(Some(h)) => Some(*h),
+            _ => None,
+        };
+        let tail = match &o.slots[LHM_TAIL] {
+            Value::Ref(Some(t)) => Some(*t),
+            _ => None,
+        };
+        (head, tail)
+    })
+}
+
+/// Links `node` at the tail (the L3 law: every NEW insertion goes last).
+/// Pure slot writes — no allocation inside any scope (the heap-lock law).
+fn lhm_link_at_tail(map: &JRef, node: &JRef) {
+    let (head, tail) = lhm_links(map);
+    with_obj_mut(*node, |o| {
+        o.slots[LHE_BEFORE] = match tail {
+            Some(t) => Value::Ref(Some(t)),
+            None => Value::Ref(None),
+        };
+        o.slots[LHE_AFTER] = Value::Ref(None);
+    });
+    if let Some(t) = tail {
+        with_obj_mut(t, |o| o.slots[LHE_AFTER] = Value::Ref(Some(*node)));
+    }
+    with_obj_mut(*map, |o| {
+        if head.is_none() {
+            o.slots[LHM_HEAD] = Value::Ref(Some(*node));
+        }
+        o.slots[LHM_TAIL] = Value::Ref(Some(*node));
+    });
+}
+
+/// Unlinks `node` from the chain (the remove law). Pure slot writes.
+fn lhm_unlink(map: &JRef, node: &JRef) {
+    let (before, after) = with_obj(*node, |o| {
+        let b = match &o.slots[LHE_BEFORE] {
+            Value::Ref(Some(x)) => Some(*x),
+            _ => None,
+        };
+        let a = match &o.slots[LHE_AFTER] {
+            Value::Ref(Some(x)) => Some(*x),
+            _ => None,
+        };
+        (b, a)
+    });
+    match before {
+        Some(b) => with_obj_mut(b, |o| {
+            o.slots[LHE_AFTER] = match after {
+                Some(a) => Value::Ref(Some(a)),
+                None => Value::Ref(None),
+            }
+        }),
+        None => with_obj_mut(*map, |o| {
+            o.slots[LHM_HEAD] = match after {
+                Some(a) => Value::Ref(Some(a)),
+                None => Value::Ref(None),
+            }
+        }),
+    }
+    match after {
+        Some(a) => with_obj_mut(a, |o| {
+            o.slots[LHE_BEFORE] = match before {
+                Some(b) => Value::Ref(Some(b)),
+                None => Value::Ref(None),
+            }
+        }),
+        None => with_obj_mut(*map, |o| {
+            o.slots[LHM_TAIL] = match before {
+                Some(b) => Value::Ref(Some(b)),
+                None => Value::Ref(None),
+            }
+        }),
+    }
+    with_obj_mut(*node, |o| {
+        o.slots[LHE_BEFORE] = Value::Ref(None);
+        o.slots[LHE_AFTER] = Value::Ref(None);
+    });
+}
+
+/// Link-order entry walk (the L1/L7 law). Values materialize lazily
+/// (slice 3) — every consumer is faithful code.
+fn lhm_all_entries(map: &JRef) -> Result<Vec<(Value, Value)>, Throw> {
+    let (mut cur, _) = lhm_links(map);
+    let mut out = Vec::new();
+    while let Some(node) = cur {
+        let (_, k, _, next) = node_parts(&node);
+        let v = node_value_materialized(&node)?;
+        out.push((k, v));
+        cur = with_obj(node, |o| match &o.slots[LHE_AFTER] {
+            Value::Ref(Some(x)) => Some(*x),
+            _ => None,
+        });
+        let _ = next;
+    }
+    Ok(out)
+}
+
+// <init>()V / <init>(I)V / <init>(Ljava/util/Map;)V — the (I,F) ctor is
+// NOT registered (the HashMap (I,F) ctor is unsupported too; the
+// access-order (I,F,Z) ctor is its own loud gap).
+pub fn n_lhm_init(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedHashMap.<init> without receiver");
+    match args.first() {
+        None | Some(Value::Int(_)) => {
+            // The HashMap init law for the empty shapes (the negative-cap
+            // IAE included), then the order links start empty.
+            n_hm_init(Some(r), args, ctx)?;
+            with_obj_mut(*r, |o| {
+                o.slots[LHM_HEAD] = Value::Ref(None);
+                o.slots[LHM_TAIL] = Value::Ref(None);
+            });
+            Ok(Value::Void)
+        }
+        Some(Value::Ref(Some(src))) => {
+            let src = *src;
+            let src_class = with_obj(src, |o| o.jclass.to_string());
+            let entries = match src_class.as_str() {
+                "java/util/LinkedHashMap" => lhm_all_entries(&src)?,
+                // A plain HashMap-shaped source: its own table order (the
+                // L5 law — Temurin iterates the source in ITS order).
+                _ => hm_all_entries(&src)?,
+            };
+            n_hm_init(Some(r), &[], ctx)?;
+            with_obj_mut(*r, |o| {
+                o.slots[LHM_HEAD] = Value::Ref(None);
+                o.slots[LHM_TAIL] = Value::Ref(None);
+            });
+            for (k, v) in entries {
+                lhm_put_entry(r, k, v, ctx)?;
+            }
+            Ok(Value::Void)
+        }
+        Some(Value::Ref(None)) => Err(throw_new("java/lang/NullPointerException", None)),
+        Some(other) => Err(internal_error(&format!(
+            "j2r internal: LinkedHashMap.<init> unexpected arg {other:?}"
+        ))),
+    }
+}
+
+/// The put machinery shared by n_lhm_put and the copy ctor: hm_put for
+/// the table (the HashMap law untouched), the new node linked at the
+/// tail (L1/L3). Overwrites return the old value and touch no links (L2).
+fn lhm_put_entry(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Result<Value, Throw> {
+    let (old, node) = hm_put(map, key, value, ctx, None, NodeKind::LinkedEntry)?;
+    if let Some(node) = node {
+        lhm_link_at_tail(map, &node);
+    }
+    Ok(old)
+}
+
+pub fn n_lhm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedHashMap.put without receiver");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let value = args.get(1).cloned().unwrap_or(Value::Ref(None));
+    lhm_put_entry(r, key, value, ctx)
+}
+
+pub fn n_lhm_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedHashMap.remove without receiver");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let node = hm_find(r, &key, ctx)?;
+    match node {
+        Some(n) => {
+            // The table walk first (materializes the old value), then the
+            // chain unlink (pure slot writes, no allocation between).
+            let old = hm_remove(r, &key, ctx)?;
+            lhm_unlink(r, &n);
+            Ok(old)
+        }
+        None => Ok(Value::Ref(None)),
+    }
+}
+
+pub fn n_lhm_clear(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedHashMap.clear without receiver");
+    let mc = with_obj(*r, |o| o.slots[HM_MODCOUNT].expect_int());
+    with_obj_mut(*r, |o| {
+        o.slots[HM_SIZE] = Value::Int(0);
+        o.slots[HM_MODCOUNT] = Value::Int(mc + 1);
+        o.slots[HM_TABLE] = Value::Ref(None);
+        o.slots[LHM_HEAD] = Value::Ref(None);
+        o.slots[LHM_TAIL] = Value::Ref(None);
+    });
+    Ok(Value::Void)
+}
+
+pub fn n_lhm_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedHashMap.toString without receiver");
+    let entries = lhm_all_entries(r)?;
+    let mut out = String::from("{");
+    for (i, (k, v)) in entries.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&dispatch_to_string(k, ctx)?);
+        out.push('=');
+        out.push_str(&dispatch_to_string(v, ctx)?);
+    }
+    out.push('}');
+    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+}
+
+fn lhm_new_view(map: &JRef, class: &str) -> Result<Value, Throw> {
+    let v = new_obj(class, 1)?;
+    with_obj_mut(v, |o| o.slots[0] = Value::Ref(Some(*map)));
+    Ok(Value::Ref(Some(v)))
+}
+
+pub fn n_lhm_key_set(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedHashMap.keySet without receiver");
+    lhm_new_view(r, "java/util/LinkedHashMap$KeySet")
+}
+
+pub fn n_lhm_values(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedHashMap.values without receiver");
+    lhm_new_view(r, "java/util/LinkedHashMap$Values")
+}
+
+pub fn n_lhm_entry_set(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = recv.expect("j2r internal: LinkedHashMap.entrySet without receiver");
+    lhm_new_view(r, "java/util/LinkedHashMap$EntrySet")
+}
+
+// --- the LinkedHashMap views (slot 0 = the backing map, the HashMap
+// view shape; every order-visible operation walks the LINK CHAIN).
+
+pub fn n_lks_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(with_obj(view_map(recv, "LinkedKeySet.size"), |o| {
+        o.slots[HM_SIZE].expect_int()
+    })))
+}
+
+pub fn n_lks_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(
+        (with_obj(view_map(recv, "LinkedKeySet.isEmpty"), |o| {
+            o.slots[HM_SIZE].expect_int()
+        }) == 0) as i32,
+    ))
+}
+
+pub fn n_lks_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let map = view_map(recv, "LinkedKeySet.contains");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    Ok(Value::Int(hm_find(&map, &key, ctx)?.is_some() as i32))
+}
+
+pub fn n_lks_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let map = view_map(recv, "LinkedKeySet.toString");
+    let items: Vec<Value> = lhm_all_entries(&map)?.into_iter().map(|(k, _)| k).collect();
+    collection_to_string(items, ctx)
+}
+
+pub fn n_lks_iterator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let map = view_map(recv, "LinkedKeySet.iterator");
+    lhm_new_link_iterator(&map, "java/util/LinkedHashMap$KeyIterator")
+}
+
+pub fn n_lvs_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(with_obj(view_map(recv, "LinkedValues.size"), |o| {
+        o.slots[HM_SIZE].expect_int()
+    })))
+}
+
+pub fn n_lvs_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(
+        (with_obj(view_map(recv, "LinkedValues.isEmpty"), |o| {
+            o.slots[HM_SIZE].expect_int()
+        }) == 0) as i32,
+    ))
+}
+
+pub fn n_lvs_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    n_hm_contains_value(Some(&view_map(recv, "LinkedValues.contains")), args, ctx)
+}
+
+pub fn n_lvs_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let map = view_map(recv, "LinkedValues.toString");
+    let items: Vec<Value> = lhm_all_entries(&map)?.into_iter().map(|(_, v)| v).collect();
+    collection_to_string(items, ctx)
+}
+
+pub fn n_lvs_iterator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let map = view_map(recv, "LinkedValues.iterator");
+    lhm_new_link_iterator(&map, "java/util/LinkedHashMap$ValueIterator")
+}
+
+pub fn n_les_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(with_obj(view_map(recv, "LinkedEntrySet.size"), |o| {
+        o.slots[HM_SIZE].expect_int()
+    })))
+}
+
+pub fn n_les_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    Ok(Value::Int(
+        (with_obj(view_map(recv, "LinkedEntrySet.isEmpty"), |o| {
+            o.slots[HM_SIZE].expect_int()
+        }) == 0) as i32,
+    ))
+}
+
+pub fn n_les_iterator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let map = view_map(recv, "LinkedEntrySet.iterator");
+    lhm_new_link_iterator(&map, "java/util/LinkedHashMap$EntryIterator")
+}
+
+/// The link-chain iterator (the JDK LinkedHashMap LinkedHashIterator
+/// shape): 0 = map, 1 = pending node (the constructor advances to head),
+/// 2 = lastRet, 3 = expectedModCount.
+fn lhm_new_link_iterator(map: &JRef, class: &str) -> Result<Value, Throw> {
+    let mc = with_obj(*map, |o| o.slots[HM_MODCOUNT].expect_int());
+    let (head, _) = lhm_links(map);
+    let it = new_obj(class, 4)?;
+    with_obj_mut(it, |o| {
+        o.slots[0] = Value::Ref(Some(*map));
+        o.slots[1] = match head {
+            Some(h) => Value::Ref(Some(h)),
+            None => Value::Ref(None),
+        };
+        o.slots[2] = Value::Ref(None);
+        o.slots[3] = Value::Int(mc);
+    });
+    Ok(Value::Ref(Some(it)))
+}
+
+/// Shared `nextNode()` for the link iterators: the CME check FIRST
+/// (exact OpenJDK order), then NoSuchElementException when exhausted;
+/// advance = `pending.after`.
+fn lhm_link_next_node(recv: Option<&JRef>, who: &str) -> Result<(JRef, JRef), Throw> {
+    let it = recv.unwrap_or_else(|| panic!("j2r internal: {who} without receiver"));
+    let (map, expected, pending) = with_obj(*it, |o| {
+        (
+            match &o.slots[0] {
+                Value::Ref(Some(m)) => *m,
+                _ => panic!("j2r internal: {who} without map"),
+            },
+            o.slots[3].expect_int(),
+            match &o.slots[1] {
+                Value::Ref(Some(n)) => Some(*n),
+                _ => None,
+            },
+        )
+    });
+    let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
+    if expected != mc {
+        return Err(throw_new("java/util/ConcurrentModificationException", None));
+    }
+    let Some(node) = pending else {
+        return Err(throw_new("java/util/NoSuchElementException", None));
+    };
+    let after = with_obj(node, |o| match &o.slots[LHE_AFTER] {
+        Value::Ref(Some(x)) => Value::Ref(Some(*x)),
+        _ => Value::Ref(None),
+    });
+    with_obj_mut(*it, |o| {
+        o.slots[1] = after;
+        o.slots[2] = Value::Ref(Some(node));
+    });
+    Ok((map, node))
+}
+
+fn lhm_link_has_next(recv: Option<&JRef>, who: &str) -> Result<Value, Throw> {
+    let it = recv.expect("j2r internal: link iterator hasNext without receiver");
+    let _ = who;
+    let has = with_obj(*it, |o| matches!(&o.slots[1], Value::Ref(Some(_))));
+    Ok(Value::Int(has as i32))
+}
+
+pub fn n_lki_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    lhm_link_has_next(recv, "LinkedKeyIterator")
+}
+
+pub fn n_lki_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, node) = lhm_link_next_node(recv, "LinkedKeyIterator.next")?;
+    Ok(node_parts(&node).1)
+}
+
+pub fn n_lvi_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    lhm_link_has_next(recv, "LinkedValueIterator")
+}
+
+pub fn n_lvi_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, node) = lhm_link_next_node(recv, "LinkedValueIterator.next")?;
+    node_value_materialized(&node)
+}
+
+pub fn n_lei_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    lhm_link_has_next(recv, "LinkedEntryIterator")
+}
+
+/// The entry iterator's next() IS the internal Entry node (the JDK law:
+/// LinkedHashMap.Entry implements Map.Entry), exposed as Map.Entry.
+pub fn n_lei_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, node) = lhm_link_next_node(recv, "LinkedEntryIterator.next")?;
+    Ok(Value::Ref(Some(node)))
+}
+
+/// Iterator.remove over the link chain (the L8 law): the CME check
+/// FIRST, then IllegalStateException without lastRet; the removal goes
+/// through the map's own remove law (table + chain), lastRet clears,
+/// expectedModCount re-syncs (no CME on a continued iteration).
+pub fn n_lhm_itr_remove(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let it = recv.expect("j2r internal: LinkedHashMap iterator remove without receiver");
+    let (map, expected, last_ret) = with_obj(*it, |o| {
+        (
+            match &o.slots[0] {
+                Value::Ref(Some(m)) => *m,
+                _ => panic!("j2r internal: link iterator without map"),
+            },
+            o.slots[3].expect_int(),
+            match &o.slots[2] {
+                Value::Ref(Some(n)) => Some(*n),
+                _ => None,
+            },
+        )
+    });
+    let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
+    if expected != mc {
+        return Err(throw_new("java/util/ConcurrentModificationException", None));
+    }
+    let Some(node) = last_ret else {
+        return Err(throw_new("java/lang/IllegalStateException", None));
+    };
+    let key = node_parts(&node).1;
+    n_lhm_remove(Some(&map), std::slice::from_ref(&key), ctx)?;
+    let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
+    with_obj_mut(*it, |o| {
+        o.slots[2] = Value::Ref(None);
+        o.slots[3] = Value::Int(mc);
+    });
+    Ok(Value::Void)
+}
+
 // ---------------------------------------------------------------- HashSet
 
 const HS_MAP: usize = 0;
@@ -1703,7 +2213,7 @@ pub fn n_hs_add(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
     // only requirement is being a live heap object (roots scan it through
     // the map's node slots).
     let present = new_obj("java/lang/Object", 0)?;
-    let old = hm_put(&map, e, Value::Ref(Some(present)), ctx, None)?;
+    let (old, _) = hm_put(&map, e, Value::Ref(Some(present)), ctx, None, NodeKind::HashNode)?;
     Ok(Value::Int(old.is_null() as i32))
 }
 

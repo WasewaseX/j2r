@@ -5837,6 +5837,186 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()V",
         c::n_itr_remove,
     ),
+    // run 4 (2026-11-15): LinkedHashMap — the ordered map. get/getOrDefault/
+    // containsKey/containsValue/size/isEmpty INHERIT the HashMap rows through
+    // the builtin parent walk (order-neutral); put/remove/clear own rows
+    // (they maintain the order links), the views and iterators own rows
+    // (they walk the link chain), toString owns its row (link order).
+    (
+        "java/util/LinkedHashMap",
+        "<init>",
+        "()V",
+        c::n_lhm_init,
+    ),
+    (
+        "java/util/LinkedHashMap",
+        "<init>",
+        "(I)V",
+        c::n_lhm_init,
+    ),
+    (
+        "java/util/LinkedHashMap",
+        "<init>",
+        "(Ljava/util/Map;)V",
+        c::n_lhm_init,
+    ),
+    (
+        "java/util/LinkedHashMap",
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_lhm_put,
+    ),
+    (
+        "java/util/LinkedHashMap",
+        "remove",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_lhm_remove,
+    ),
+    ("java/util/LinkedHashMap", "clear", "()V", c::n_lhm_clear),
+    (
+        "java/util/LinkedHashMap",
+        "keySet",
+        "()Ljava/util/Set;",
+        c::n_lhm_key_set,
+    ),
+    (
+        "java/util/LinkedHashMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        c::n_lhm_entry_set,
+    ),
+    (
+        "java/util/LinkedHashMap",
+        "values",
+        "()Ljava/util/Collection;",
+        c::n_lhm_values,
+    ),
+    (
+        "java/util/LinkedHashMap",
+        "toString",
+        "()Ljava/lang/String;",
+        c::n_lhm_to_string,
+    ),
+    // the ordered views (slot 0 = the backing map, the HashMap view shape)
+    (
+        "java/util/LinkedHashMap$KeySet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        c::n_lks_iterator,
+    ),
+    ("java/util/LinkedHashMap$KeySet", "size", "()I", c::n_lks_size),
+    (
+        "java/util/LinkedHashMap$KeySet",
+        "isEmpty",
+        "()Z",
+        c::n_lks_is_empty,
+    ),
+    (
+        "java/util/LinkedHashMap$KeySet",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        c::n_lks_contains,
+    ),
+    (
+        "java/util/LinkedHashMap$KeySet",
+        "toString",
+        "()Ljava/lang/String;",
+        c::n_lks_to_string,
+    ),
+    (
+        "java/util/LinkedHashMap$Values",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        c::n_lvs_iterator,
+    ),
+    ("java/util/LinkedHashMap$Values", "size", "()I", c::n_lvs_size),
+    (
+        "java/util/LinkedHashMap$Values",
+        "isEmpty",
+        "()Z",
+        c::n_lvs_is_empty,
+    ),
+    (
+        "java/util/LinkedHashMap$Values",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        c::n_lvs_contains,
+    ),
+    (
+        "java/util/LinkedHashMap$Values",
+        "toString",
+        "()Ljava/lang/String;",
+        c::n_lvs_to_string,
+    ),
+    (
+        "java/util/LinkedHashMap$EntrySet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        c::n_les_iterator,
+    ),
+    ("java/util/LinkedHashMap$EntrySet", "size", "()I", c::n_les_size),
+    (
+        "java/util/LinkedHashMap$EntrySet",
+        "isEmpty",
+        "()Z",
+        c::n_les_is_empty,
+    ),
+    // the link-chain iterators (pending = the node itself, advance =
+    // pending.after; remove through the map's own remove law)
+    (
+        "java/util/LinkedHashMap$KeyIterator",
+        "hasNext",
+        "()Z",
+        c::n_lki_has_next,
+    ),
+    (
+        "java/util/LinkedHashMap$KeyIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        c::n_lki_next,
+    ),
+    (
+        "java/util/LinkedHashMap$KeyIterator",
+        "remove",
+        "()V",
+        c::n_lhm_itr_remove,
+    ),
+    (
+        "java/util/LinkedHashMap$ValueIterator",
+        "hasNext",
+        "()Z",
+        c::n_lvi_has_next,
+    ),
+    (
+        "java/util/LinkedHashMap$ValueIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        c::n_lvi_next,
+    ),
+    (
+        "java/util/LinkedHashMap$ValueIterator",
+        "remove",
+        "()V",
+        c::n_lhm_itr_remove,
+    ),
+    (
+        "java/util/LinkedHashMap$EntryIterator",
+        "hasNext",
+        "()Z",
+        c::n_lei_has_next,
+    ),
+    (
+        "java/util/LinkedHashMap$EntryIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        c::n_lei_next,
+    ),
+    (
+        "java/util/LinkedHashMap$EntryIterator",
+        "remove",
+        "()V",
+        c::n_lhm_itr_remove,
+    ),
     // java/util/HashSet (backed by a private HashMap, Java-faithful)
     ("java/util/HashSet", "<init>", "()V", c::n_hs_init),
     ("java/util/HashSet", "<init>", "(I)V", c::n_hs_init),
