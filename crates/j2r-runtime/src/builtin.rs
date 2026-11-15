@@ -169,6 +169,16 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/Collections$UnmodifiableMap" => "java/lang/Object",
         "java/util/LinkedList" => "java/lang/Object",
         "java/util/HashSet" => "java/lang/Object",
+        // run 5 (2026-11-15): TreeMap — the sorted map (its JDK parent
+        // AbstractMap is not modeled; the map answers from its own rows).
+        "java/util/TreeMap" => "java/lang/Object",
+        "java/util/TreeMap$Entry" => "java/lang/Object",
+        "java/util/TreeMap$KeySet" => "java/lang/Object",
+        "java/util/TreeMap$Values" => "java/lang/Object",
+        "java/util/TreeMap$EntrySet" => "java/lang/Object",
+        "java/util/TreeMap$KeyIterator" => "java/lang/Object",
+        "java/util/TreeMap$ValueIterator" => "java/lang/Object",
+        "java/util/TreeMap$EntryIterator" => "java/lang/Object",
         "java/util/Objects" => "java/lang/Object",
         "java/util/NoSuchElementException" => "java/lang/RuntimeException",
         "java/util/ConcurrentModificationException" => "java/lang/RuntimeException",
@@ -335,6 +345,18 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         "java/util/LinkedHashMap$EntryIterator"
         | "java/util/LinkedHashMap$KeyIterator"
         | "java/util/LinkedHashMap$ValueIterator" => &["java/util/Iterator"],
+        // run 5: TreeMap — the sorted map (SortedMap/NavigableMap ride the
+        // interface chain: TreeMap→NavigableMap→SortedMap→Map→Collection).
+        "java/util/TreeMap" => &["java/util/NavigableMap", "java/util/Map"],
+        "java/util/SortedMap" => &["java/util/Map"],
+        "java/util/NavigableMap" => &["java/util/SortedMap"],
+        "java/util/TreeMap$Entry" => &["java/util/Map$Entry"],
+        "java/util/TreeMap$KeySet" => &["java/util/Set"],
+        "java/util/TreeMap$Values" => &["java/util/Collection"],
+        "java/util/TreeMap$EntrySet" => &["java/util/Set"],
+        "java/util/TreeMap$KeyIterator"
+        | "java/util/TreeMap$ValueIterator"
+        | "java/util/TreeMap$EntryIterator" => &["java/util/Iterator"],
         // JDK: HashMap.Node implements Map.Entry — the enhanced-for's
         // JDK: HashMap.Node implements Map.Entry — the enhanced-for's
         // checkcast Map$Entry on entrySet iteration depends on this.
@@ -395,6 +417,8 @@ pub fn builtin_is_interface(class: &str) -> bool {
             | "java/util/List"
             | "java/util/Set"
             | "java/util/Map"
+            | "java/util/SortedMap"
+            | "java/util/NavigableMap"
             | "java/util/Iterator"
             | "java/util/function/Function"
             | "java/util/function/BiFunction"
@@ -477,6 +501,17 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         "java/util/LinkedHashMap$KeySet"
         | "java/util/LinkedHashMap$Values"
         | "java/util/LinkedHashMap$EntrySet" => 1,
+        // run 5: TreeMap — the map: comparator, size, modCount, root; the
+        // entry: key, value, left, right, parent, color (RED/BLACK); the
+        // iterators: map, next, current, expectedModCount; the views: map ref.
+        "java/util/TreeMap" => 4,
+        "java/util/TreeMap$Entry" => 6,
+        "java/util/TreeMap$KeyIterator"
+        | "java/util/TreeMap$ValueIterator"
+        | "java/util/TreeMap$EntryIterator" => 4,
+        "java/util/TreeMap$KeySet"
+        | "java/util/TreeMap$Values"
+        | "java/util/TreeMap$EntrySet" => 1,
         // HashMap$Node: hash, key, value, next
         "java/util/HashMap$Node" => 4,
         // hash iterators: map ref, table idx, pending node, expectedModCount,

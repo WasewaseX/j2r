@@ -227,10 +227,16 @@ fn differential_suite_matches_jvm() {
     // remove through keySet/values/entrySet, continued iteration without
     // CME, double-remove ISE, foreign-mod CME, and the probed combined
     // law (fresh iterator + foreign mod + remove without next → ISE,
-    // NOT CME) — 122 on disk, guard one below that.
+    // NOT CME) — 122 on disk, guard one below that. The run-5 wave
+    // (2026-11-15) added TreeMapProbe — the SORTED map: the red-black
+    // storage under key-order iteration, first/lastKey, the
+    // ceiling/floor/higher/lower navigable surface, the Comparator ctor
+    // reordering everything, the null-key NPE + non-Comparable CCE laws,
+    // the sorted copy ctor, and the successor-walk iterator remove (the
+    // ISE-first law) — 123 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 121,
-        "differential suite shrank: {} fixtures (expected >= 121)",
+        fixtures.len() >= 122,
+        "differential suite shrank: {} fixtures (expected >= 122)",
         fixtures.len()
     );
 

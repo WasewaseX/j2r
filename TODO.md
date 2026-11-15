@@ -3,7 +3,21 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-15 (run 4 continuation: after the LinkedHashMap
+fix the board. Last updated: 2026-11-15 (run 5 of 5 — **TREEMAP LANDED, the cycle
+ENDS**: the sorted map with the CLRS red-black storage — the probed
+laws (TreeMapProbe, the 123rd fixture, three-channel zero; evidence
+scripts/evidence/treemap/), the CLRS fixups with TWO bugs found by the
+validate-per-step integrity test (the insert zig-zag pivot, the delete
+loop's missing x.color == BLACK condition + the unconditional exit
+recolor), one never-repeat deadlock rule (no heap-lock read inside a
+with_obj_mut closure). Battery 492/0 lib + diff_suite 123 zero +
+cfg_equiv zero; gate-11 123/551. The G3.3 prim rewrites are UNBLOCKED
+(both new storages exist). HANDOFF QUEUE (no run 6 scheduled): the
+TreeMap bounded views (oracle ready, evidence case 12), the G3.3 prim
+rewrites, the residuals (user-interface DEFAULT dispatch, HELPFUL-NPE,
+different-package private-ctor, the HashMap copy-ctor gap), the
+G3.1/G3.2 CFG layers, the owner-review asks in
+docs/STATUS_G2_G3_G4.md.) after the LinkedHashMap
 landing, the owner's external review re-ranked the queue — residuals
 first, documentation sync second. **HASHMAP HASH-ITERATOR REMOVE()
 CLOSED**: ItrOrderProbe (the 122nd fixture) probed Temurin 21.0.13+9
@@ -2543,3 +2557,48 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       TreeMap (the red-black storage + the Comparable/Comparator
       dispatch law; probed FIRST), then the G3.3 prim rewrites ride
       both new maps.
+- [x] **G3.3 FOLLOW-ON — TREEMAP the class LANDED (planned + LANDED
+      2026-11-15, run 5 of 5 of the continuation cycle; the cycle ENDS
+      here)** — the sorted map with the CLRS red-black storage, the
+      last of the three map classes. Probed FIRST (TreeMapProbe vs
+      Temurin 21.0.13+9, 12 case groups + CceProbe, evidence
+      scripts/evidence/treemap/): T1 key-order iteration/toString (vs
+      the HashMap hash-order contrast), T2 first/lastKey, T3
+      replace-keeps-position, T4 remove-old/order-preserved, T5
+      ceiling/floor exact + higher/lower strict + out-of-range null,
+      T6 the Comparator ctor reorders everything, T7 put(null) → NPE
+      (the compare(key, key) pre-step runs even on an empty map), T8
+      non-Comparable key → CCE, T9 the sorted copy ctor, T10 the
+      iterator remove (the run-4 ISE-first law) + CME, T11 the Map
+      surface. LANDED: the red-black slots (map = comparator/size/
+      modCount/root; entry = key/value/left/right/parent/color), the
+      rotations + insert fixup + transplant + delete fixup (the
+      nil-sentinel trick), natural ordering = the Comparable dispatch
+      walk (the CCE subtype check BEFORE dispatch), Comparator = the
+      Comparator walk (lambda + the reverseOrder singleton), the
+      navigable descent, firstKey/lastKey (NSEE on empty), the sorted
+      views + the successor-walk iterators (ISE-first remove),
+      TreeMap$Entry getKey/getValue, the three ctor rows (separate: a
+      null Comparator and a null Map are indistinguishable values),
+      getOrDefault/containsValue; subMap/headMap/tailMap NOT
+      registered (the bounded views are their own slice; loud). TWO
+      fixup bugs found by the validate-per-step integrity test and
+      fixed: the insert zig-zag recolored the wrong pivot (the CLRS
+      z = z.p rename), the delete fixup missed the `x.color == BLACK`
+      loop condition AND the unconditional `x.color = BLACK` exit
+      recolor. ONE never-repeat deadlock rule: no heap-lock read
+      inside a with_obj_mut closure (tm_new_iterator's modcount read
+      deadlocked the smoke). TreeMapProbe = the 123rd fixture
+      (three-channel zero); 6 law tests (runtime 268 → 274); diff
+      guard 121 → 122. Battery: lib units **492/0** (48+155+15+274),
+      diff_suite **123 fixtures three-channel ZERO divergences**
+      (351.18 s + 346.60 s sharded), cfg_equiv zero (442.97 s),
+      corpus/partition/jar/native green, fmt + clippy clean, gate-11
+      in sync: fixtures=123, tests=551 (README 122→123 / 545→551).
+      Evidence: scripts/evidence/treemap/. **HANDOFF QUEUE (no run 6
+      scheduled)**: the TreeMap bounded views (oracle ready, evidence
+      case 12), the G3.3 prim rewrites riding both new maps, the
+      residuals (user-interface DEFAULT dispatch, HELPFUL-NPE,
+      different-package private-ctor, the HashMap copy-ctor gap
+      probed this window), the G3.1/G3.2 CFG layers, the owner-review
+      asks in docs/STATUS_G2_G3_G4.md.

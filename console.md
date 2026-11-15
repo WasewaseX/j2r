@@ -3504,3 +3504,76 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   this window (docs/STATUS_G2_G3_G4.md). Remaining residuals: the
   user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE, the
   different-package private-ctor IllegalAccessException.
+
+### [2026-11-15, run 5 of 5 — TREEMAP LANDED: the sorted map, the red-black storage, the last of the three map classes; the continuation cycle ENDS]
+- **Recovery (reset #28)**: local tree stale at pre-M2 `b4badea` again;
+  fetch + ff-only to `1234698` (run 4's final state: the itr-remove
+  residual closed + docs/STATUS_G2_G3_G4.md). Toolchain + the
+  outside-repo bootstrap script wiped — rebuilt byte-exact (rustc
+  1.99.1 `58cf8f9c3` + rustfmt 1.10.0 + Temurin javac 21.0.13) and
+  re-persisted `scripts/bootstrap_toolchain.sh`. Baseline re-proven
+  BEFORE any code: lib units 486/0.
+- **PROBE FIRST (the discipline that found two divergences in run 4)**:
+  TreeMapProbe vs Temurin 21.0.13+9 (12 case groups, evidence
+  scripts/evidence/treemap/) + CceProbe (the non-Comparable-key CCE).
+  The probed laws: T1 key-order iteration/toString (vs the HashMap
+  hash-order contrast), T2 first/lastKey, T3 replace-keeps-position,
+  T4 remove-old/order-preserved, T5 ceiling/floor exact + higher/lower
+  strict + out-of-range null, T6 the Comparator ctor reorders
+  EVERYTHING, T7 put(null) → NPE (the type check runs even on an empty
+  map — OpenJDK's compare(key, key) pre-step), T8 non-Comparable key →
+  CCE, T9 the copy ctor sorts, T10 the iterator remove (the run-4
+  ISE-first law) + CME, T11 the Map surface.
+- **LANDED — TreeMap the class**: the CLRS red-black storage (slots:
+  map = comparator/size/modCount/root; entry = key/value/left/right/
+  parent/color; the rotations, the insert fixup, the transplant, the
+  delete fixup with the nil-sentinel trick), natural ordering through
+  the ordinary Comparable dispatch walk (the CCE law checks the subtype
+  BEFORE dispatching), Comparator ordering through the Comparator walk
+  (lambda + the builtin reverseOrder singleton), the navigable descent
+  (ceiling/floor/higher/lower in one bounded walk), firstKey/lastKey
+  (NSEE on empty), the sorted views + the successor-walk iterators
+  (the ISE-first remove law), getKey/getValue on TreeMap$Entry, the
+  three ctor rows ((), (Comparator), (Map) — separate rows because a
+  null Comparator and a null Map are indistinguishable values),
+  getOrDefault/containsValue (the dispatch-equals law). subMap/
+  headMap/tailMap are NOT registered (the bounded views are their own
+  slice; loud unsupported by the same-surface law). Instantiable list +
+  builtin tables (parent chains TreeMap→NavigableMap→SortedMap→Map,
+  Map$Entry on the entry, Iterator on the iterators) + 41 native rows.
+- **TWO bugs found by the law tests and fixed (probe-first + validate-
+  per-step paid off again)**: (1) the insert fixup's zig-zag branch
+  recolored the WRONG pivot after the first rotation (the CLRS rename
+  z = z.p lands the old parent BELOW z — the BLACK pivot is the node
+  that TOOK the parent's place); (2) the delete fixup was missing TWO
+  CLRS laws — the `x.color == BLACK` loop condition (a red x means the
+  deficit is absorbed; continuing over-rotated) and the UNCONDITIONAL
+  exit recolor `x.color = BLACK` (the root-only recolor left case-1+
+  case-2 climbs red). The integrity law test (64 ascending inserts +
+  per-step validation, 32 deletes + per-step validation, the descending
+  rung) is now PERMANENT.
+- **One runtime discipline bug found by the smoke**: `tm_new_iterator`
+  called `tm_modcount` (a heap-lock read) INSIDE the `with_obj_mut`
+  closure — the heap mutex is NOT re-entrant → DEADLOCK. Pre-read
+  hoisted; the pattern is now a named never-repeat rule.
+- **Landed**: fixture TreeMapProbe (the **123rd**, three-channel zero),
+  6 law tests (runtime 268 → 274). Battery all green: lib units
+  **492/0** (48+155+15+274), diff_suite **123 fixtures three-channel
+  ZERO divergences** (351.18 s + 346.60 s sharded), cfg_equiv **zero**
+  (442.97 s), corpus/partition/jar/native_e2e green, fmt + clippy
+  clean, gate-11 in sync: fixtures=123, tests=551 (README 122→123 /
+  545→551, diff guard 121→122).
+- **The G3.3 follow-on is now UNBLOCKED**: the prim-specialized
+  rewrites ride BOTH new storages (the LHM link chain + the TreeMap
+  red-black) per the TODO queue.
+- **THE CYCLE ENDS**: this is run 5 of 5 of the scheduled continuation
+  cycle — no run 6 is scheduled. The handoff queue for the next
+  session (whoever picks the boards up): (1) the TreeMap bounded views
+  (subMap/headMap/tailMap + their iterators, probed FIRST — the oracle
+  is already in scripts/evidence/treemap/ case 12); (2) the G3.3 prim
+  rewrites riding both new maps; (3) the remaining residuals: the
+  user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE,
+  different-package private-ctor IllegalAccessException, the
+  HashMap copy-ctor gap (probed live this window — `new HashMap<>(map)`
+  is the loud unsupported-class error); (4) the G3.1/G3.2 CFG layers
+  and the owner review asks in docs/STATUS_G2_G3_G4.md.

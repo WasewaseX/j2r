@@ -1,0 +1,21 @@
+case1-keys: -7 0 13 42 100 
+case1-vals: b c e a d 
+case1-entries: -7=b;0=c;13=e;42=a;100=d;
+case1-toString: {-7=b, 0=c, 13=e, 42=a, 100=d}
+case1b-hashmap: {0=c, 42=a, 100=d, 13=e, -7=b}
+case2: first=-7 last=100
+case3: old=e get13=E13 size=5
+case3-order: -7 0 13 42 100 
+case4: removed=c absent=null size=4
+case4-order: [-7, 13, 42, 100]
+case5: ceil13=13 floor13=13 ceil14=42 floor14=13 hi13=42 lo13=-7 ceil999=null floor-99=null
+case6-desc: {100=d, 42=a, 0=c, -7=b}
+case6-first=100 last=-7
+case7: NPE
+case8: {-3=v-3, 5=v5, 27=v27}
+case9: walked=1 3 4  size=3 has2=false
+case10: CME
+case11: empty=true
+case11: size=2 gd=D cv=true cf=true
+case11: cleared=true size=0
+case12: sub={3=c, 5=e} head={1=a, 3=c} tail={5=e, 7=g, 9=i}

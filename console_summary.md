@@ -1,5 +1,50 @@
 # j2r console summary — the state board
 
+Updated 2026-11-15 (run 5 of 5 — **TREEMAP LANDED: the sorted map with
+the CLRS red-black storage; the continuation cycle ENDS here**, after
+reset #28). Recovery: fetch + ff-only from stale `b4badea` to `1234698`
+(run 4's final state); toolchain rebuilt byte-exact (rustc 1.99.1
+`58cf8f9c3` + Temurin javac 21.0.13); baseline re-proven 486/0 lib
+BEFORE any code. PROBE FIRST (TreeMapProbe, 12 case groups, evidence
+scripts/evidence/treemap/): the 11 probed law groups — key-order
+iteration/toString, first/lastKey, replace-keeps-position,
+remove-old/order-preserved, ceiling/floor exact + higher/lower strict
++ out-of-range null, the Comparator ctor reordering everything,
+put(null) → NPE (the compare(key, key) pre-step runs even on an empty
+map), non-Comparable → CCE, the sorted copy ctor, the iterator remove
+(ISE-first) + CME, the Map surface. LANDED: the CLRS red-black
+storage (rotations, insert fixup, transplant, delete fixup with the
+nil-sentinel trick), natural ordering = the Comparable walk (the CCE
+subtype check BEFORE dispatch), Comparator = the Comparator walk
+(lambda + the reverseOrder singleton), the navigable descent,
+firstKey/lastKey, the sorted views + the successor-walk iterators
+(ISE-first remove), the three ctor rows (separate: a null Comparator
+and a null Map are indistinguishable values), the Map surface;
+subMap/headMap/tailMap NOT registered (the bounded views are their
+own slice). TWO fixup bugs found by the validate-per-step integrity
+test and fixed: the insert zig-zag recolored the wrong pivot (the
+CLRS z = z.p rename), the delete fixup missed the `x.color == BLACK`
+loop condition AND the unconditional `x.color = BLACK` exit recolor.
+One deadlock found by the smoke: a heap-lock read INSIDE a
+with_obj_mut closure — the heap mutex is NOT re-entrant (now a named
+never-repeat rule). Landed: TreeMapProbe = the 123rd fixture
+(three-channel zero), 6 law tests (runtime 268 → 274). Battery: lib
+units 492/0 (48+155+15+274), diff_suite 123 three-channel ZERO
+(351.18 s + 346.60 s sharded), cfg_equiv zero (442.97 s),
+corpus/partition/jar/native green, fmt+clippy clean, gate-11 in sync:
+fixtures=123, tests=551 (README 122→123 / 545→551, diff guard
+121→122). **THE CYCLE ENDS** — no run 6 scheduled. Handoff queue: (1)
+the TreeMap bounded views (the oracle is in the evidence, case 12);
+(2) the G3.3 prim rewrites riding both new maps; (3) the residuals
+(user-interface DEFAULT dispatch, HELPFUL-NPE, different-package
+private-ctor, the HashMap copy-ctor gap probed this window); (4) the
+G3.1/G3.2 CFG layers + the owner-review asks in
+docs/STATUS_G2_G3_G4.md.
+
+---
+
+# j2r console summary — the state board
+
 Updated 2026-11-15 (run 4 continuation — **THE HASHMAP HASH-ITERATOR
 REMOVE() RESIDUAL CLOSED, AND THE PROBE FOUND A SECOND LATENT
 DIVERGENCE**, after reset #27). Recovery: fetch + ff-only from stale

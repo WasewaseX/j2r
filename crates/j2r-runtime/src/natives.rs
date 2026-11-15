@@ -6028,6 +6028,247 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()V",
         c::n_lhm_itr_remove,
     ),
+    // run 5 (2026-11-15): TreeMap — the SORTED map (the red-black storage;
+    // natural ordering = the Comparable walk, Comparator = the Comparator
+    // walk). The probed laws (TreeMapProbe, scripts/evidence/treemap/):
+    // T1 key-order iteration/toString, T2 first/last, T3 replace-keeps-
+    // position, T4 remove-old, T5 ceiling/floor exact + higher/lower
+    // strict, T6 the Comparator surface, T7 null-key NPE, T8 non-
+    // Comparable CCE, T9 the copy ctor sorts, T10 the iterator remove
+    // (ISE-first, the run-4 law) + CME. subMap/headMap/tailMap are NOT
+    // registered (the bounded views are their own slice).
+    ("java/util/TreeMap", "<init>", "()V", c::n_tm_init),
+    (
+        "java/util/TreeMap",
+        "<init>",
+        "(Ljava/util/Comparator;)V",
+        c::n_tm_init_cmp,
+    ),
+    (
+        "java/util/TreeMap",
+        "<init>",
+        "(Ljava/util/Map;)V",
+        c::n_tm_init_map,
+    ),
+    (
+        "java/util/TreeMap",
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_tm_put,
+    ),
+    (
+        "java/util/TreeMap",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_tm_get,
+    ),
+    (
+        "java/util/TreeMap",
+        "getOrDefault",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_tm_get_or_default,
+    ),
+    (
+        "java/util/TreeMap",
+        "containsKey",
+        "(Ljava/lang/Object;)Z",
+        c::n_tm_contains_key,
+    ),
+    (
+        "java/util/TreeMap",
+        "containsValue",
+        "(Ljava/lang/Object;)Z",
+        c::n_tm_contains_value,
+    ),
+    (
+        "java/util/TreeMap",
+        "remove",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_tm_remove,
+    ),
+    ("java/util/TreeMap", "size", "()I", c::n_tm_size),
+    ("java/util/TreeMap", "isEmpty", "()Z", c::n_tm_is_empty),
+    ("java/util/TreeMap", "clear", "()V", c::n_tm_clear),
+    (
+        "java/util/TreeMap",
+        "toString",
+        "()Ljava/lang/String;",
+        c::n_tm_to_string,
+    ),
+    (
+        "java/util/TreeMap",
+        "firstKey",
+        "()Ljava/lang/Object;",
+        c::n_tm_first_key,
+    ),
+    (
+        "java/util/TreeMap",
+        "lastKey",
+        "()Ljava/lang/Object;",
+        c::n_tm_last_key,
+    ),
+    (
+        "java/util/TreeMap",
+        "ceilingKey",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_tm_ceiling_key,
+    ),
+    (
+        "java/util/TreeMap",
+        "floorKey",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_tm_floor_key,
+    ),
+    (
+        "java/util/TreeMap",
+        "higherKey",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_tm_higher_key,
+    ),
+    (
+        "java/util/TreeMap",
+        "lowerKey",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        c::n_tm_lower_key,
+    ),
+    (
+        "java/util/TreeMap",
+        "keySet",
+        "()Ljava/util/Set;",
+        c::n_tm_key_set,
+    ),
+    (
+        "java/util/TreeMap",
+        "values",
+        "()Ljava/util/Collection;",
+        c::n_tm_values,
+    ),
+    (
+        "java/util/TreeMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        c::n_tm_entry_set,
+    ),
+    // the sorted views (slot 0 = the backing map)
+    (
+        "java/util/TreeMap$KeySet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        c::n_tks_iterator,
+    ),
+    ("java/util/TreeMap$KeySet", "size", "()I", c::n_tks_size),
+    (
+        "java/util/TreeMap$KeySet",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        c::n_tks_contains,
+    ),
+    (
+        "java/util/TreeMap$KeySet",
+        "toString",
+        "()Ljava/lang/String;",
+        c::n_tks_to_string,
+    ),
+    (
+        "java/util/TreeMap$Values",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        c::n_tvs_iterator,
+    ),
+    ("java/util/TreeMap$Values", "size", "()I", c::n_tvs_size),
+    (
+        "java/util/TreeMap$Values",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        c::n_tvs_contains,
+    ),
+    (
+        "java/util/TreeMap$Values",
+        "toString",
+        "()Ljava/lang/String;",
+        c::n_tvs_to_string,
+    ),
+    (
+        "java/util/TreeMap$EntrySet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        c::n_tes_iterator,
+    ),
+    ("java/util/TreeMap$EntrySet", "size", "()I", c::n_tes_size),
+    (
+        "java/util/TreeMap$EntrySet",
+        "toString",
+        "()Ljava/lang/String;",
+        c::n_tes_to_string,
+    ),
+    // the successor-walk iterators
+    (
+        "java/util/TreeMap$KeyIterator",
+        "hasNext",
+        "()Z",
+        c::n_tm_i_has_next,
+    ),
+    (
+        "java/util/TreeMap$KeyIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        c::n_tki_next,
+    ),
+    (
+        "java/util/TreeMap$KeyIterator",
+        "remove",
+        "()V",
+        c::n_tm_i_remove,
+    ),
+    (
+        "java/util/TreeMap$ValueIterator",
+        "hasNext",
+        "()Z",
+        c::n_tm_i_has_next,
+    ),
+    (
+        "java/util/TreeMap$ValueIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        c::n_tvi_next,
+    ),
+    (
+        "java/util/TreeMap$ValueIterator",
+        "remove",
+        "()V",
+        c::n_tm_i_remove,
+    ),
+    (
+        "java/util/TreeMap$EntryIterator",
+        "hasNext",
+        "()Z",
+        c::n_tm_i_has_next,
+    ),
+    (
+        "java/util/TreeMap$EntryIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        c::n_tei_next,
+    ),
+    (
+        "java/util/TreeMap$EntryIterator",
+        "remove",
+        "()V",
+        c::n_tm_i_remove,
+    ),
+    // TreeMap$Entry: the entrySet accessors (the checkcast Map$Entry law)
+    (
+        "java/util/TreeMap$Entry",
+        "getKey",
+        "()Ljava/lang/Object;",
+        c::n_tme_get_key,
+    ),
+    (
+        "java/util/TreeMap$Entry",
+        "getValue",
+        "()Ljava/lang/Object;",
+        c::n_tme_get_value,
+    ),
     // java/util/HashSet (backed by a private HashMap, Java-faithful)
     ("java/util/HashSet", "<init>", "()V", c::n_hs_init),
     ("java/util/HashSet", "<init>", "(I)V", c::n_hs_init),

@@ -469,6 +469,15 @@ fn builtin_is_instantiable(class: &str) -> bool {
             | "java/util/LinkedHashMap$KeyIterator"
             | "java/util/LinkedHashMap$ValueIterator"
             | "java/util/LinkedHashMap$EntryIterator"
+            // run 5 (2026-11-15): TreeMap — the sorted map (the red-black
+            // storage; slots owned by collections.rs)
+            | "java/util/TreeMap"
+            | "java/util/TreeMap$KeySet"
+            | "java/util/TreeMap$Values"
+            | "java/util/TreeMap$EntrySet"
+            | "java/util/TreeMap$KeyIterator"
+            | "java/util/TreeMap$ValueIterator"
+            | "java/util/TreeMap$EntryIterator"
             // stringsim corpus wave (2026-11-07): entrySet views, the
             // unmodifiableMap wrapper, and Sift4's LinkedList — slots
             // owned by j2r-runtime/src/collections.rs
