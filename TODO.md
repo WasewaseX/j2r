@@ -31,8 +31,13 @@ bugs the battery caught: tm_delete's root-with-one-child
 .expect()-panic (CLRS: the replacement IS the root), n_sms_clear's
 missing hi fence (the c15/c35 over-delete), sms_last_node's missing lo
 gate (c07c). Battery 498/0 lib + diff_suite 124 zero + cfg_equiv
-zero; gate-11 124/557. Next queue: the G3.3 prim rewrites riding both
-new maps, then the residuals (user-interface DEFAULT dispatch,
+zero; gate-11 124/557. Next queue (UPDATED by the 2026-11-16 run-1 audit): 1) the TYPED-backend
+crash on StringsSimBench (fresh finding, deterministic, twice: rc=101,
+array.rs:496 "int-group accessor on a reference array" from
+NGram.distance — probe-first, fixture, fix, battery; BLOCKS the G3.4
+BOTH-bench pair), 2) the G3.4 pairs (StringsSimBench never measured
+post-lever), 3) board truth pass (G3.1 box closed 11-11 but unchecked;
+STATUS ~66x stale), 4) the residuals (user-interface DEFAULT dispatch,
 HELPFUL-NPE, different-package private-ctor, the HashMap copy-ctor
 gap), the G3.1/G3.2 CFG layers, the M4 review, mappings/Mixins.)
 (Historical: run 5 of 5 — **TREEMAP LANDED, the cycle
