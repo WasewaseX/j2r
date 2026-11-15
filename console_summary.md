@@ -1,3 +1,24 @@
+Updated 2026-11-16 (run 6 cont. — the G3.3 ride-both-maps slice OPENED,
+probe landed): reset #31 rolled the local tree back to pre-M2 `b4badea`
+again — ZERO loss this time, the positive proof of push-first (all of
+runs 4/5/6 were already pushed; fetch + ff-only recovered `10f1361`, the
+run-6 REDO commit that consumed the entire previous remaining queue).
+Toolchain re-bootstrapped byte-exact (rustc 1.99.1 `58cf8f9c3`, javac
+21.0.13); baseline re-proven before any code: lib **498/0**, diff_suite
+**124 three-channel zero** (352.27 s + 360.92 s sharded), cfg_equiv
+**zero** (426.15 s). PROBE FIRST: TreeMapLhmPrimProbe (35 cases, source +
+Temurin capture at scripts/evidence/g3_3/) pins the put/get core shapes
+over TreeMap/LHM locals + proven static fields, L1/L2, the faithful
+overwrite/remove materializations, the null laws, the SubMap view
+readers, LHM insertion order, and the c12-corrected CCE self-compare law
+(StringBuilder is Comparable since JDK 11 — re-pinned on Object keys;
+the self-compare throws on the FIRST put). Pre-landing `j2r test` PASS.
+Next: the implementation wave — TME_TAG slot + tm_put_prim/tm_get_prim +
+layout-aware materialization + LHM-aware hm_put_prim, MapKind through
+the codegen, law tests, fixture 125, battery, boards, push.
+
+---
+
 # j2r console summary — the state board
 
 Updated 2026-11-15 (run 6, owner-triggered continuation — **TREEMAP

@@ -2122,6 +2122,48 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       paired numbers stand. Evidence:
       scripts/evidence/g3_3/{field_layer_2026-11-14.txt, Probe3.java}.
       NEXT: FORNAME-INIT (the registered design), then NEW-INSTANCE.
+- [~] **G3.3 SLICE 4 — the rewrites RIDE BOTH NEW MAPS (the TreeMap
+      red-black + the LinkedHashMap link chain; the bounded views ride
+      them too) — STARTED 2026-11-16 (run 6 cont.)** — the handoff
+      queue's item 1 (the updated console queue; FORNAME-INIT and
+      NEW-INSTANCE queue behind it). Reset #31 survived with ZERO loss —
+      the local tree rolled back to pre-M2 `b4badea` again, but every
+      run-4/5/6 commit was already pushed, so fetch + ff-only recovered
+      `10f1361`; toolchain re-bootstrapped byte-exact; baseline
+      re-proven BEFORE any code (lib 498/0, diff_suite 124 three-channel
+      zero 352.27 s + 360.92 s sharded, cfg_equiv zero 426.15 s — every
+      number matches the run-6 board). PROBE FIRST:
+      **TreeMapLhmPrimProbe** (35 cases; source + Temurin capture at
+      scripts/evidence/g3_3/{TreeMapLhmPrimProbe.java,
+      treemap_lhm_prim_temurin_2026-11-16.txt}) pins the put/get core
+      shapes over TreeMap/LHM locals (incl. Map-typed locals) and proven
+      static fields, L1 get-twice-same-ref, the L2 cache laws (Integer
+      in-cache TRUE / beyond-cache FALSE, Double never cached), the
+      faithful overwrite/remove returns materializing raw slots, the
+      null laws (fresh null → core get NPE; null over a prim-tagged
+      slot passes through — the tag is an annotation), the SubMap view
+      readers on a prim-tagged backing map (the views ride), LHM
+      insertion order, Integer-key TreeMaps (the key's valueOf stays
+      outside the cores), and the c12-corrected CCE self-compare law —
+      the first c12 draft used StringBuilder, WRONG (Comparable since
+      JDK 11, Temurin accepted it live); re-pinned on Object keys: the
+      compare(key,key) self-check throws on the FIRST put into an empty
+      natural-order map (j2r's faithful n_tm_put already implements
+      exactly this). Pre-landing `j2r test` **PASS**. The registered
+      implementation shape: runtime — TreeMap$Entry gains slot 6 (the
+      class tag; the LHM entry layout already carries the tag on the
+      post-slice-3 node layout), tm_put_prim/tm_get_prim (the CLRS walk
+      and the compare/CCE law byte-identical, only the box allocation
+      disappears), layout-aware node_value_materialized, materialization
+      routed at every faithful value reader (get/getOrDefault/
+      containsValue/remove-return/put-overwrite-return/toString/
+      iterators/entry getValue/the sms view readers), hm_put_prim made
+      node-kind-aware (LinkedHashMap rides with the tail-link law);
+      codegen — MAP_RECEIVERS + the Phase A creation runs + the
+      proven-field set + the synthetics carry MapKind {HashMap,
+      LinkedHashMap, TreeMap}, the emitters route hm/tm. REMAINING:
+      implement, law tests, fixture 125 three-channel zero, battery,
+      gate-11 125/N, boards, push.
 - [x] **EXTERNAL PORT REPORT PERSISTED — jbox2d 2.2.1.1 (2026-11-13,
       session 19b, owner directive: "add these in todo list and roadmap
       to survive sandbox reset")** — the owner's independent port test

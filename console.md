@@ -3672,3 +3672,55 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   mappings/Mixins. NOT probed/implemented this slice (loud unsupported,
   the same-surface law): view equals/hashCode, firstEntry/lastEntry/
   pollFirstEntry/pollLastEntry, descendingMap, putAll on views.
+
+---
+
+## 2026-11-16 — run 6 cont. (window 2): reset #31 survived; the G3.3 ride-both-maps slice OPENS (probe landed)
+
+- Reset #31: the local tree rolled back to pre-M2 `b4badea` again (the
+  snapshot predates the run-4/5/6 commits; the local reflog had no trace
+  of them and no `3484c79` object). NOTHING was lost this time — the
+  positive proof of the owner's law: every run-4/5/6 commit was already
+  PUSHED, so `git fetch` + `merge --ff-only origin/main` recovered to
+  `10f1361` (the run-6 REDO commit — the bounded views and the whole
+  remaining queue of the previous status are IN it: shard 1/2, cfg_equiv,
+  gate-11 124/557, boards, push) with a clean tree. PUSH-FIRST WORKS.
+- Toolchain re-bootstrapped byte-exact (scripts/bootstrap_toolchain.sh,
+  the reset-#21/#22 pins): rustc 1.99.1 `58cf8f9c3`, Temurin javac
+  21.0.13. Baseline re-proven BEFORE any code: lib **498/0**
+  (48+155+15+280), diff_suite **124 three-channel ZERO** (352.27 s +
+  360.92 s sharded), cfg_equiv **zero** (426.15 s) — every number matches
+  the run-6 board exactly.
+- Next item from the handoff queue (the updated queue in this file,
+  item 1): **the G3.3 prim rewrites riding both new maps** — extend the
+  put/get prim rewrites (slices 2+3, currently HashMap-only) to the
+  TreeMap red-black and the LinkedHashMap link chain, the bounded views
+  riding along. (The pre-reset registered NEXTs — FORNAME-INIT,
+  NEW-INSTANCE — queue behind this slice.)
+- PROBE FIRST: **TreeMapLhmPrimProbe** (35 cases) — written to
+  crates/j2r-cli/tests/suite/, source copy + Temurin capture at
+  scripts/evidence/g3_3/{TreeMapLhmPrimProbe.java,
+  treemap_lhm_prim_temurin_2026-11-16.txt}. The probe pins: the put/get
+  core shapes over TreeMap/LHM locals (incl. Map-typed locals) and
+  proven static fields; L1 get-twice-returns-the-same-ref; the L2 JLS
+  cache laws (Integer in-cache TRUE / beyond-cache FALSE, Double never
+  cached); faithful overwrite/remove returns materializing raw slots;
+  the null laws (fresh null value then core get → NPE; null over a
+  prim-tagged slot — the tag is an annotation, not a mode switch); the
+  SubMap view readers on a prim-tagged backing map (the views ride);
+  LHM insertion order with raw slots; Integer-key TreeMaps (the key's
+  valueOf stays OUTSIDE the cores).
+- THE C12 CORRECTION (live, by the probe): the non-Comparable-key CCE
+  case was first written with StringBuilder keys — WRONG, StringBuilder
+  is Comparable<StringBuilder> since JDK 11, Temurin accepted it
+  everywhere (NO-THROW). Re-pinned on Object keys: the self-compare
+  (compare(key,key), the addEntryToEmptyMap law) throws CCE on the
+  FIRST put into an empty natural-order map — which is exactly what
+  j2r's faithful n_tm_put already implements.
+- PRE-LANDING PROOF: `j2r test` on the probe — **PASS** (the faithful
+  path is already byte-identical vs Temurin 21.0.13+9; the rewrite must
+  keep it so).
+- NEXT: the implementation wave — runtime (TME_TAG slot, tm_put_prim/
+  tm_get_prim, layout-aware materialization, reader routing, LHM-aware
+  hm_put_prim) then codegen (MapKind through the matcher/IR/verify/
+  emitters), law tests, fixture 125, battery, boards, push.

@@ -1,0 +1,37 @@
+c01: s=4.0
+c02: {a=2.5, b=1.5, c=3.5}
+c03: NPE
+c04: true
+c05: false
+c06: a=2.5;b=1.5;c=3.5;
+c07: old=2.5 map={a=9.5, b=1.5, c=3.5}
+c08: 9.5
+c09: removed=4.25 has=false
+c10: true false
+c11: 3.5 -1.0
+c12: CCE
+c13: 7.75 {k=7.75}
+c14: 30 {x=10, y=20}
+c15: {1=1.5, 2=2.5, 3=0.5} g=1.5
+c16: {a=1.0, b=2.0} get=2.0
+c17: 1.0;2.0;
+c18: true -7.0
+c19: {b=5, a=3, c=200}
+c20: 8
+c21: NPE
+c22: true
+c23: true
+c24: b=5;a=3;c=200; eq200=false
+c25: old=5 now=50 map={b=50, a=3, c=200}
+c26: removed=200 size=2 map={b=50, a=3}
+c27: 9 {n=9}
+c28: 300 {u=100, v=200}
+c29: 15 eq=true
+c30: {p=7, q=8}
+c31: old=100 now=111
+c32: true 7
+c33: 3.0 {r=3.0}
+c34: NPE
+c34b: {y=null, z=1.0}
+c35: NPE
+c35b: {y=null, z=null}
