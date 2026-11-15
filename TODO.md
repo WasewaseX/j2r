@@ -3,17 +3,19 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-15 (run 3 of the continuation cycle:
-reset #25 survived — local objects stale at pre-M2 b4badea again, fetch+ff
-recovered to 7c90055 (run 2's R5 slice 2), the outside-repo bootstrap
-script was itself wiped and re-persisted (the repo's tracked copy is the
-canonical one; the env.sh hardening — RUSTUP_HOME/CARGO_HOME/JAVA_HOME
-exports — landed as 00d3238), baseline re-proven 471/0. Queue decision:
-**R7, the registered follow-up shape after R5** — landed as a MEASURED
-NO-GO with the machinery behind --emit-hash-dispatch (rustc 1.99 already
-lowers the string-tuple match to a balanced tree; evidence
-scripts/evidence/r7/). Next queue: the TreeMap/LinkedHashMap G3.3
-follow-ons.)
+fix the board. Last updated: 2026-11-15 (run 4 of the continuation cycle:
+reset #26 survived — this reset did NOT stale the git objects, only the
+toolchain; fetch+ff recovered to ea2d0af (run 3's R7 NO-GO), the repo's
+tracked bootstrap re-proved byte-exact, baseline re-proven 476/0. Queue
+decision: **the TreeMap/LinkedHashMap G3.3 follow-ons** — SCOPING FINDING:
+the classes DO NOT EXIST in j2r (no builtin rows, no natives; `new
+TreeMap` is the loud unsupported-class error, probed live), so the
+follow-on OPENS with the classes themselves; **LINKEDHASHMAP LANDED**
+(the class, the 11 probed order laws, the 121st fixture LhmProbe, 7 law
+tests, battery 483/0 lib + diff_suite 121 zero + cfg_equiv zero; gate-11
+121/542; evidence scripts/evidence/lhm/). Next queue: TreeMap (the
+red-black storage + the Comparable/Comparator dispatch law), then the G3.3
+prim rewrites ride both new maps.)
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -2471,3 +2473,59 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       G3.3 follow-ons); the registered correctness residuals stand:
       the user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE,
       the DIFFERENT-package private-ctor IllegalAccessException.
+- [x] **G3.3 FOLLOW-ON OPENED — LINKEDHASHMAP the class LANDED
+      (planned + LANDED 2026-11-15, run 4 of the continuation cycle)**
+      — the registered TreeMap/LinkedHashMap expansion's first slice.
+      SCOPING FINDING: the two classes DO NOT EXIST in j2r (no builtin
+      rows, no natives, no instantiable entries; `new TreeMap` probed
+      live = the loud unsupported-class error), so the follow-on OPENS
+      with the classes themselves; the G3.3 prim-specialized rewrites
+      ride them after the storage exists. Probed FIRST (LhmProbe vs
+      Temurin 21.0.13+9, evidence scripts/evidence/lhm/): L1 iteration
+      order = insertion order (first insertion wins position), L2
+      re-put of an existing key replaces the value and KEEPS position,
+      L3 remove + re-put moves to the TAIL, L4 get/containsKey never
+      reorder, L5 <init>(Map) copies in the source's iteration order
+      (both a LinkedHashMap source and a HashMap source), L6 is-a
+      HashMap and is-a Map, L7 keySet/values/entrySet in link order,
+      L8 the entry-iterator remove removes the last-returned entry
+      (order intact), L9 one null key + null values, L10 clear resets
+      everything, L11 getOrDefault/containsValue/containsKey
+      order-neutral. LANDED: hm_put gains NodeKind (HashNode 5 slots /
+      LinkedEntry 7 slots — before/after after the undeclared tag) and
+      returns (old, Option<node>) — link work ONLY on a fresh insert;
+      builtin parent LinkedHashMap → HashMap ($Entry → HashMap$Node,
+      interfaces Map/Map$Entry/Iterator/Set/Collection), own slots
+      head/tail AFTER the inherited HashMap base (flattened 4/5, total
+      6); lhm_link_at_tail / lhm_unlink (pure slot writes); the
+      order-neutral methods INHERIT the HashMap rows through the
+      builtin parent walk (the OpenJDK override surface exactly);
+      put/remove/clear/keySet/entrySet/values/toString own rows; three
+      view classes + three link-chain iterators (pending.after
+      advance; the JDK HashIterator.remove law: ISE without lastRet,
+      CME on a foreign modification, expectedModCount re-synced);
+      <init>(Map) dispatches on the source's class (LHM link order,
+      else table order); the (I,F) and access-order (I,F,Z) ctors
+      stay UNREGISTERED (same-surface law); codegen instantiable list
+      gains the map + its six view/iterator classes. LhmProbe PASSED
+      three-channel on the FIRST differential run and became the
+      fixture (the 121st); diff_suite guard 119 → 120. 7 law tests
+      (runtime 258 → 265). Battery: lib units **483/0** (classfile 48,
+      codegen 155, jni-ffi 15, runtime 265), codegen integrations
+      green (e2e 1, malformed 12, wide_ids 1, manifest 11,
+      jmm_boundary 1), cli suites green (partition 1, corpus 1, jar 3,
+      native_e2e 2, jni_parity 1, lambda_neg 2, soe_e2e 1,
+      surface_report 1), diff_suite **121 fixtures three-channel ZERO
+      divergences** (336.81 s + 325.97 s sharded), cfg_equiv zero
+      (405.34 s), fmt + clippy `-D warnings` clean, gate-11 in sync:
+      fixtures=121, tests=542 (README 120→121 / 535→542).
+      Residual REGISTERED en route (pre-existing, NOT widened): the
+      HashMap hash-iterator remove() rows (KeyIterator/ValueIterator/
+      EntryIterator) dispatch the ArrayList-shaped n_itr_remove — a
+      keySet().iterator().remove() would mis-read the slots (latent
+      since the stringsim wave); LHM ships its own link-chain iterator
+      remove; the HashMap repair is its own follow-up. Evidence:
+      scripts/evidence/lhm/lhmprobe_temurin_2026-11-15.txt. Next:
+      TreeMap (the red-black storage + the Comparable/Comparator
+      dispatch law; probed FIRST), then the G3.3 prim rewrites ride
+      both new maps.

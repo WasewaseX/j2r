@@ -1,5 +1,54 @@
 # j2r console summary — the state board
 
+Updated 2026-11-15 (run 4 of the continuation cycle — **LINKEDHASHMAP
+LANDED: the class itself, the order laws, the 121st fixture**, after
+reset #26). Recovery: fetch + ff-only to `ea2d0af` (run 3's R7 NO-GO)
+— this reset did NOT stale the git objects, only the toolchain; the
+repo's tracked bootstrap re-proved byte-exact (rustup-init
+21,347,088 B, Temurin 207,858,352 B, rustc 1.99.1 + javac 21.0.13
+verified RUNNING). Baseline re-proven BEFORE any code: 476 lib units
+/ 0. SCOPING FINDING (the queue item): the TreeMap/LinkedHashMap G3.3
+follow-ons — the two classes DO NOT EXIST in j2r (no builtin rows, no
+natives; `new TreeMap` is the loud unsupported-class error, probed
+live), so the follow-on OPENS with the classes themselves; the
+prim-specialized rewrites ride them after the storage exists. Slice
+order: LinkedHashMap first (it IS a HashMap + order links), TreeMap
+next. Probed FIRST (LhmProbe vs Temurin 21.0.13+9, evidence
+scripts/evidence/lhm/lhmprobe_temurin_2026-11-15.txt): the 11 order
+laws — insertion order, re-put keeps position, remove+re-put to tail,
+get never reorders, ctor-from-map copies in the source's order (both
+source kinds), is-a HashMap/Map, the three views in link order, the
+entry-iterator remove (order intact), null key/value, clear,
+getOrDefault/containsValue. Landed: `hm_put` gains NodeKind
+(HashNode 5 slots / LinkedEntry 7 slots — before/after after the tag)
+and returns (old, Option<node>) — link work ONLY on a fresh insert;
+the map object = builtin parent LinkedHashMap→HashMap + own head/tail
+slots after the inherited base (flattened 4/5, total 6); order law =
+lhm_link_at_tail / lhm_unlink (pure slot writes); get/getOrDefault/
+containsKey/containsValue/size/isEmpty INHERIT the HashMap rows
+through the builtin parent walk (the OpenJDK override surface);
+put/remove/clear/views/iterators/toString own rows; the link-chain
+iterators carry the JDK HashIterator.remove law (ISE without lastRet,
+CME on a foreign modification, expectedModCount re-synced);
+<init>(Map) dispatches on the source's class (LHM link order, else
+table order); the (I,F) and access-order (I,F,Z) ctors stay
+unregistered (same-surface law); $Entry extends HashMap$Node +
+Map$Entry interface row (the entrySet checkcast law). LhmProbe
+PASSED three-channel on the FIRST differential run and became the
+fixture (the 121st); 7 law tests (runtime 258 → 265). Battery: lib
+units 483/0 (classfile 48, codegen 155, jni-ffi 15, runtime 265),
+codegen integrations green, cli suites green, diff_suite 121 fixtures
+three-channel ZERO divergences (336.81 s + 325.97 s sharded),
+cfg_equiv zero (405.34 s), fmt+clippy clean, gate-11 in sync:
+fixtures=121, tests=542 (README 120→121 / 535→542). Residual
+REGISTERED (pre-existing, latent since the stringsim wave): the
+HashMap hash-iterator remove() rows dispatch the ArrayList-shaped
+n_itr_remove (slot-2 type confusion). Next: TreeMap (red-black
+storage + Comparable/Comparator dispatch, probed FIRST), then the G3.3
+prim rewrites ride both new maps; the correctness residuals stand.
+
+---
+
 Updated 2026-11-15 (run 3 of the continuation cycle — **R7 MEASURED
 NO-GO: the dispatch-table selector match does not beat rustc 1.99's own
 string-match tree**, after reset #25). Recovery: local objects stale at

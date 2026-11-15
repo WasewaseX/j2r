@@ -3385,3 +3385,69 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   would mis-read the slots. Latent since the stringsim wave; no fixture
   exercises it. LHM ships its OWN iterator remove (the link chain makes
   lastRet trivial); the HashMap repair is its own follow-up.
+
+
+## SESSION run 4 of 5 (cont.) — 2026-11-15 (LINKEDHASHMAP LANDED: the class, the order laws, the 121st fixture)
+
+- **Probed FIRST** (LhmProbe vs Temurin 21.0.13+9, evidence
+  scripts/evidence/lhm/lhmprobe_temurin_2026-11-15.txt): L1 iteration
+  order = insertion order (first insertion wins position); L2 re-put of
+  an existing key replaces the value and KEEPS position; L3 remove +
+  re-put moves to the TAIL; L4 get/containsKey never reorder; L5
+  <init>(Map) copies in the source's iteration order (both a
+  LinkedHashMap source and a HashMap source probed — the HashMap
+  {x,y,z} table order pinned); L6 is-a HashMap and is-a Map; L7
+  keySet/values/entrySet iterate in link order; L8 the entry-iterator
+  remove removes the last-returned entry, order intact; L9 one null
+  key, null values; L10 clear resets everything; L11
+  getOrDefault/containsValue/containsKey order-neutral.
+- **The mechanism**: `hm_put` gains the `NodeKind` parameter
+  (HashNode 5 slots / LinkedEntry 7 slots — hash/key/value/next, the
+  undeclared tag slot 4, before/after at 5/6) and returns
+  `(old_value, Option<node>)` — the new node only on a fresh insert
+  (an overwrite keeps position, no link work, the L2 law for free).
+  The map object: builtin parent LinkedHashMap → HashMap, own slots
+  head/tail AFTER the inherited HashMap base (flattened 4/5, total 6 —
+  the builtin_own_slots layout law: inherited first, own after). The
+  order law: `lhm_link_at_tail` / `lhm_unlink` (pure slot writes, no
+  allocation inside any heap-lock scope). get/getOrDefault/containsKey/
+  containsValue/size/isEmpty INHERIT the HashMap rows through the
+  builtin parent walk (order-neutral — the OpenJDK override surface);
+  put/remove/clear/keySet/entrySet/values/toString own rows; the three
+  view classes and three link-chain iterators (pending = the node,
+  advance = pending.after; remove through the map's own remove law,
+  expectedModCount re-synced — the JDK HashIterator.remove law; ISE
+  without lastRet, CME on a foreign modification, the exact OpenJDK
+  check order). <init>(Map) dispatches on the source's class:
+  LinkedHashMap → link order, otherwise the HashMap table order; the
+  (I,F) and access-order (I,F,Z) ctors stay UNREGISTERED (the HashMap
+  (I,F) ctor is unsupported too — same-surface law, loud by default).
+  `$Entry extends HashMap$Node` in the parent table + Map$Entry in the
+  interfaces table (the entrySet checkcast law); getKey/getValue ride
+  the Node rows through the parent walk. Codegen: the instantiable
+  list gains the map + its six view/iterator classes.
+- **LhmProbe PASSED three-channel on the FIRST differential run** —
+  the same-session probe became the fixture (the 121st). diff_suite
+  guard 119 → 120.
+- **7 law tests** (order/refixture/remove-tail; link-order views +
+  entry getKey/getValue; iterator remove + the second-remove-is-legal
+  law + ISE + CME; ctor-from-map both source kinds — the copy
+  compared against the source's own table order; null key/value +
+  clear; the subtype tables; the inherited order-neutral rows) —
+  runtime 258 → 265.
+- **Battery (all green)**: lib units **483/0** (classfile 48, codegen
+  155, jni-ffi 15, runtime 265), codegen integrations green (e2e 1,
+  malformed 12, wide_ids 1, manifest 11, jmm_boundary 1, signature
+  probe 1), cli suites green (partition 1, corpus 1, jar 3, native_e2e
+  2, jni_parity 1, lambda_neg 2, soe_e2e 1, surface_report 1),
+  diff_suite **121 fixtures three-channel ZERO divergences** (336.81 s
+  + 325.97 s sharded — the 0-based shard law: i/N with i < n),
+  cfg_equiv **zero** (405.34 s), fmt + clippy `-D warnings` clean,
+  gate-11 in sync: fixtures=121, tests=542 (README 120→121 / 535→542).
+- **Next**: TreeMap — the same treatment's bigger sibling (the
+  red-black storage + the Comparable/Comparator dispatch law; probed
+  FIRST again). Then the G3.3 prim-specialized rewrites ride BOTH new
+  maps. The registered correctness residuals stand: the HashMap
+  hash-iterator remove mis-read (NEW, registered this run), the
+  user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE, the
+  DIFFERENT-package private-ctor IllegalAccessException.
