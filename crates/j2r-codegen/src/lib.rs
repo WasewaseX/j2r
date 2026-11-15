@@ -19,6 +19,7 @@
 
 pub mod cfg;
 pub mod classpath;
+pub mod dispatch_table;
 pub mod emit;
 pub mod ir;
 pub mod lambda;
@@ -209,6 +210,19 @@ pub struct Options {
     /// across crates. Default **None** — the single-crate emission is
     /// byte-identical to the pre-M5 shape.
     pub partition: Option<usize>,
+    /// R7 (Opt.md §3 R7) — the measured **NO-GO** lever, kept runnable
+    /// behind this default-**off** flag (the M2-CFG precedent): emit the
+    /// registry lookup as a FNV-1a 64-bit selector match with the full
+    /// key verified inside every arm, instead of the string-tuple match.
+    /// The same-session A/B at N=2,169 arms falsified the premise: rustc
+    /// 1.99 lowers the string-tuple match to a balanced decision tree
+    /// (~27 ns/call) while the selector shapes pay the serial hash walk
+    /// first (~216 ns/call, both the tuple-led and the selector-led
+    /// emission); evidence scripts/evidence/r7/. Default off keeps the
+    /// shipped emission byte-identical to the pre-R7 shape; a future
+    /// rustc whose string-match lowering regresses to a linear chain can
+    /// flip the flag and re-measure with the same instruments.
+    pub emit_hash_dispatch: bool,
 }
 
 impl Options {
@@ -222,6 +236,7 @@ impl Options {
             emit_cfg: false,
             emit_typed: false,
             partition: None,
+            emit_hash_dispatch: false,
         }
     }
 }

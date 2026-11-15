@@ -141,6 +141,7 @@ fn compile(inputs: Vec<PathBuf>, out: &Path) -> j2r_codegen::manifest::EmitStats
         out_dir: out.to_path_buf(),
         emit_cfg: false,
         emit_typed: false,
+        emit_hash_dispatch: false,
         partition: None,
     };
     compile_to_crate_stats(&opts).expect("codegen succeeds").1
@@ -232,6 +233,7 @@ fn compile_partitioned(
         out_dir: out.to_path_buf(),
         emit_cfg: false,
         emit_typed: false,
+        emit_hash_dispatch: false,
         partition: Some(k),
     };
     compile_to_crate_stats(&opts).expect("codegen succeeds").1
@@ -571,6 +573,7 @@ fn emit_cfg_change_invalidates_gate() {
         out_dir: out.clone(),
         emit_cfg: true,
         emit_typed: false,
+        emit_hash_dispatch: false,
         partition: None,
     };
     let (_dir, s2) = compile_to_crate_stats(&opts).unwrap();

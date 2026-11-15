@@ -73,6 +73,11 @@ enum Cmd {
         /// classes on a 4 GB machine. Requires --main-class.
         #[arg(long)]
         partition_classes: Option<usize>,
+        /// R7 (Opt.md §3 R7, default OFF — measured NO-GO, see
+        /// scripts/evidence/r7/): emit the registry lookup as a FNV-1a
+        /// selector match instead of the string-tuple match.
+        #[arg(long)]
+        emit_hash_dispatch: bool,
     },
     /// Translate .class files and build a native binary with cargo.
     Build {
@@ -113,6 +118,11 @@ enum Cmd {
         /// --main-class.
         #[arg(long)]
         partition_classes: Option<usize>,
+        /// R7 (Opt.md §3 R7, default OFF — measured NO-GO, see
+        /// scripts/evidence/r7/): emit the registry lookup as a FNV-1a
+        /// selector match instead of the string-tuple match.
+        #[arg(long)]
+        emit_hash_dispatch: bool,
     },
     /// Differential test: javac + java vs j2r + cargo, comparing stdout,
     /// stderr and exit code.
@@ -176,6 +186,7 @@ fn main() {
             emit_cfg,
             emit_typed,
             partition_classes,
+            emit_hash_dispatch,
         } => {
             if emit_cfg && emit_typed {
                 eprintln!("j2r: error: --emit-cfg and --emit-typed are mutually exclusive (the typed wave composes with the dispatch body only)");
@@ -190,6 +201,7 @@ fn main() {
                     emit_cfg,
                     emit_typed,
                     partition_classes,
+                    emit_hash_dispatch,
                 )
             }
         }
@@ -203,6 +215,7 @@ fn main() {
             emit_cfg,
             emit_typed,
             partition_classes,
+            emit_hash_dispatch,
         } => {
             if emit_cfg && emit_typed {
                 eprintln!("j2r: error: --emit-cfg and --emit-typed are mutually exclusive (the typed wave composes with the dispatch body only)");
@@ -218,6 +231,7 @@ fn main() {
                     emit_cfg,
                     emit_typed,
                     partition_classes,
+                    emit_hash_dispatch,
                 )
             }
         }
@@ -258,6 +272,7 @@ fn cmd_cfg_report(inputs: &[PathBuf]) -> i32 {
         out_dir: std::env::temp_dir().join("j2r-cfg-report"),
         emit_cfg: false,
         emit_typed: false,
+        emit_hash_dispatch: false,
         partition: None,
     };
     match j2r_codegen::compile(&opts) {
@@ -293,6 +308,7 @@ fn cmd_shape_report(inputs: &[PathBuf]) -> i32 {
         out_dir: std::env::temp_dir().join("j2r-shape-report"),
         emit_cfg: false,
         emit_typed: false,
+        emit_hash_dispatch: false,
         partition: None,
     };
     match j2r_codegen::compile(&opts) {
@@ -337,6 +353,7 @@ fn cmd_readiness_report(inputs: &[PathBuf]) -> i32 {
         out_dir: std::env::temp_dir().join("j2r-readiness-report"),
         emit_cfg: false,
         emit_typed: false,
+        emit_hash_dispatch: false,
         partition: None,
     };
     match j2r_codegen::compile(&opts) {
@@ -385,6 +402,7 @@ fn compile_crate(
     emit_cfg: bool,
     emit_typed: bool,
     partition: Option<usize>,
+    emit_hash_dispatch: bool,
 ) -> Result<(PathBuf, j2r_codegen::manifest::EmitStats), String> {
     let opts = Options {
         inputs: inputs.to_vec(),
@@ -395,6 +413,7 @@ fn compile_crate(
         emit_cfg,
         emit_typed,
         partition,
+        emit_hash_dispatch,
     };
     j2r_codegen::compile_to_crate_stats(&opts).map_err(|e| e.to_string())
 }
@@ -409,6 +428,7 @@ fn cmd_compile(
     emit_cfg: bool,
     emit_typed: bool,
     partition_classes: Option<usize>,
+    emit_hash_dispatch: bool,
 ) -> i32 {
     match compile_crate(
         inputs,
@@ -419,6 +439,7 @@ fn cmd_compile(
         emit_cfg,
         emit_typed,
         partition_classes,
+        emit_hash_dispatch,
     ) {
         Ok((dir, stats)) => {
             println!("generated Rust crate: {}", dir.display());
@@ -457,6 +478,7 @@ fn cmd_build(
     emit_cfg: bool,
     emit_typed: bool,
     partition_classes: Option<usize>,
+    emit_hash_dispatch: bool,
 ) -> i32 {
     let (dir, stats) = match compile_crate(
         inputs,
@@ -467,6 +489,7 @@ fn cmd_build(
         emit_cfg,
         emit_typed,
         partition_classes,
+        emit_hash_dispatch,
     ) {
         Ok(d) => d,
         Err(e) => {
@@ -560,6 +583,7 @@ fn cmd_test(file: &Path, release: bool, partition: Option<usize>, args: &[String
             false,
             false,
             partition,
+            false,
         )?;
         // 3. cargo build
         let mut cmd = Command::new(cargo_binary());
@@ -795,6 +819,7 @@ fn cmd_surface_report(inputs: &[PathBuf], diagnostics: bool) -> i32 {
         out_dir: std::env::temp_dir().join("j2r-surface"),
         emit_cfg: false,
         emit_typed: false,
+        emit_hash_dispatch: false,
         partition: None,
     };
     match j2r_codegen::compile_unchecked(&opts) {

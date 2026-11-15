@@ -3264,3 +3264,82 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   residuals from this session: the user-interface DEFAULT dispatch
   law (Probe5), HELPFUL-NPE (standing), the DIFFERENT-package
   private-ctor IllegalAccessException (standing).
+
+
+## SESSION run 3 of 5 — 2026-11-15 (R7: the hash-dispatch table MEASURED NO-GO, machinery behind --emit-hash-dispatch)
+
+- **Reset #25 survived (run 3's recovery)** — local git objects stale at
+  pre-M2 `b4badea` AGAIN (the same stale-snapshot shape as resets
+  #22/#23/#24); fetch + ff-only to `7c90055` recovered the full chain
+  (run 2's R5 slice 2 — fixture 120, counts 120/530). Toolchain fully
+  wiped; NEW this reset: the outside-repo bootstrap script mirror
+  (`/home/z/my-project/scripts/bootstrap_toolchain.sh`) was ALSO wiped —
+  the repo's tracked `scripts/bootstrap_toolchain.sh` is the canonical
+  copy and re-populated the mirror. The tracked script is CORRECT (the
+  rustup-init default profile includes rustfmt/clippy); the run's first
+  bootstrap used a reconstructed minimal-profile variant which lacked
+  them — components added after the fact, the mirror now matches the
+  tracked copy. The env.sh hardening (the proxies need
+  RUSTUP_HOME/CARGO_HOME or rustc cannot resolve post-wipe; JAVA_HOME
+  for javac) landed as `00d3238` BEFORE any R7 work. Baseline re-proven
+  BEFORE any code: 471 lib units / 0, fmt+clippy clean FRESH.
+- **Queue decision (per the boards)**: R7 — the registered follow-up
+  shape after R5 (run 2's handoff): the dispatch table as a selector
+  match instead of the 2,169 string-tuple arms. TreeMap/LinkedHashMap
+  queue behind.
+- **MEASURED FIRST — the premise falsified.** Built the A/B instruments
+  (scratch generator with a path dep on j2r-codegen, committed as
+  scripts/evidence/r7/gen_main.rs; N=2,169 synthetic entries in the
+  jbox2d-port shape): OLD = the pre-R7 emission reproduced verbatim;
+  NEW-A = a `(u64, class, name, desc)` 4-tuple match (the first draft);
+  NEW-B = `match j2r_disp_hash(...)` with the full key verified inside
+  every arm (the Opt.md "match on a computed 64-bit hash" shape). At
+  release, 3.47 M lookups per shape: OLD 94.2/96.5 ms (~27 ns/call) —
+  **rustc 1.99 lowers the string-tuple match to a balanced DECISION
+  TREE, not the linear chain Opt.md §2.4 assumed**; NEW-A 750.3 ms and
+  NEW-B 754.4 ms (~216 ns/call) — the serial FNV-1a multiply chain over
+  every key byte costs more than the whole tree walk, and the in-arm
+  full-key verify is load-bearing (a hash hit alone must never select a
+  method — the exact-match law). Compile at -O: old 3 s vs new 14-21 s.
+  VERDICT: NO-GO — the hash buys a worse index than rustc builds for
+  free. Evidence: scripts/evidence/r7/dispatch_table_2026-11-15.txt.
+- **LANDED as an OFF-BY-DEFAULT lever (the M2-CFG precedent)**:
+  crates/j2r-codegen/src/dispatch_table.rs — `dispatch_hash` (FNV-1a 64,
+  the 0x1f separator so component boundaries cannot alias) +
+  `emit_lookup_fn` shared by BOTH emitters (single-crate registry.rs +
+  per-partition pN::lookup — one source of truth) + 5 law tests
+  (golden selector values, the separator law, ascending-selector
+  byte-stable emission, the in-arm full-key verify, order-independence);
+  `Options.emit_hash_dispatch` + the `--emit-hash-dispatch` CLI flag
+  (Compile + Build), default OFF = the pre-R7 emission VERBATIM. The
+  first draft's 4-tuple emission was REPLACED by the selector-only shape
+  after the A/B — the measurement decided the emission, before any
+  push.
+- **DEFAULT-PATH BYTE-IDENTITY PROOF**: a pre-R7 binary (git worktree
+  at the pre-R7 HEAD) and this binary (flag off) translated the same 22
+  classes: every emitted file byte-identical (`diff -r` clean) and the
+  manifest's SHA-256 input→emitted columns identical line-for-line
+  (only mtime stamps differ). FLAG-ON PROOF: the same fixture with
+  --emit-hash-dispatch builds and runs three-channel byte-identical vs
+  Temurin 21.0.13+9 (exit 0 == 0). Firing proof pre-measurement: the
+  flag-on registry carried 33 selector arms (single-crate) and 33 arms
+  across the 11 partition crates — arm counts match the method census,
+  ascending selector order, `<clinit>` skip preserved.
+- **En-route fixes**: the Options struct gained `emit_hash_dispatch` —
+  every literal site updated (tests + cli); one sed over-reach put the
+  field into a Manifest literal in manifest.rs (caught by E0560, fixed);
+  cfg_equiv's literal uses expressions (`mode == Mode::Typed`) so the
+  mechanical patch missed it (caught by E0063, fixed by hand).
+- **Battery (all green)**: lib units **476/0** (classfile 48, codegen
+  150 → 155 — the 5 R7 law tests, jni-ffi 15, runtime 258), codegen
+  integrations green (e2e 1, malformed 12, wide_ids 1, manifest 11,
+  jmm_boundary 1), cli bins 15/15, diff_suite **120 fixtures
+  three-channel ZERO divergences** (316.22 s + 313.82 s sharded — note
+  the shard spec is 0-based, i/N with i < n: 0/2 + 1/2), cfg_equiv
+  **zero** (412.75 s), fmt + clippy `-D warnings` clean FRESH, gate-11
+  in sync: fixtures=120, tests=535 (README 530→535).
+- **Next**: the TreeMap/LinkedHashMap G3.3 follow-ons (the registered
+  G3.3 expansion). Registered correctness residuals stand: the
+  user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE (standing),
+  the DIFFERENT-package private-ctor IllegalAccessException (standing).
+- Run 4 of 5 is already scheduled (2 h cadence); nothing new scheduled.

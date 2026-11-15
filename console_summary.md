@@ -1,5 +1,47 @@
 # j2r console summary — the state board
 
+Updated 2026-11-15 (run 3 of the continuation cycle — **R7 MEASURED
+NO-GO: the dispatch-table selector match does not beat rustc 1.99's own
+string-match tree**, after reset #25). Recovery: local objects stale at
+pre-M2 `b4badea` again; fetch + ff-only to `7c90055` (run 2's R5 slice
+2); the toolchain AND the outside-repo bootstrap script were both wiped
+by the reset — the script was re-persisted from the repo's tracked copy
+(the canonical one; lesson: the repo copy survives, the mirror dies),
+the env.sh hardening (export RUSTUP_HOME/CARGO_HOME/JAVA_HOME — the
+rustc proxy resolves without it after a wipe) landed as `00d3238`;
+rustup-init 21,347,088 B + Temurin 207,858,352 B byte-exact, rustc
+1.99.1 + javac 21.0.13, rustfmt/clippy components added (the
+minimal-profile bootstrap lesson — the tracked script's default profile
+is correct). Baseline re-proven BEFORE any code: 471 lib units / 0.
+Probed/measured FIRST (the registered bar): the Opt.md §3 R7 premise —
+the 2,169 string-tuple registry arms as a linear string search — does
+not reproduce on rustc 1.99: the old match runs ~27 ns/call at N=2,169
+(rustc lowers it to a balanced decision tree), while BOTH selector
+shapes (the 4-tuple match AND the selector-only match with the in-arm
+full-key verify) run ~216 ns/call — the serial FNV-1a byte walk costs
+more than the tree, and the verify is load-bearing for exactness;
+compile side old 3 s vs new 14-21 s. Landed as an OFF-BY-DEFAULT lever
+(the M2-CFG precedent): `dispatch_table.rs` (the FNV-1a 64 selector +
+the shared `emit_lookup_fn` for BOTH emitters + 5 law tests: golden
+selector values, the 0x1f separator law, ascending-selector byte-stable
+emission, the in-arm full-key verify, order-independence) +
+`Options.emit_hash_dispatch` / `--emit-hash-dispatch`. DEFAULT-PATH
+PROOF: pre-R7 worktree binary vs this binary — every emitted file
+byte-identical and the manifest's SHA-256 columns identical
+line-for-line; FLAG-ON PROOF: builds and runs three-channel
+byte-identical vs Temurin 21.0.13+9. Battery: lib units 476/0 (codegen
+150 → 155), codegen integrations green (e2e 1, malformed 12, wide_ids
+1, manifest 11, jmm_boundary 1), cli bins 15/15, diff_suite 120
+fixtures three-channel ZERO divergences (316.22 s + 313.82 s sharded),
+cfg_equiv zero (412.75 s), fmt+clippy clean FRESH, gate-11 in sync:
+fixtures=120, tests=535 (README 530→535). Evidence:
+scripts/evidence/r7/{dispatch_table_2026-11-15.txt, gen_main.rs}. Next:
+the TreeMap/LinkedHashMap G3.3 follow-ons; the registered correctness
+residuals stand (the user-interface DEFAULT dispatch law (Probe5),
+HELPFUL-NPE, the DIFFERENT-package private-ctor IllegalAccessException).
+
+---
+
 Updated 2026-11-15 (session 19b cont. 13 — **R5 SLICE 2 LANDED: the
 interface closure + the codegen-time vtable**, run 2 of the
 continuation cycle, after reset #24). Probed first (Probe4/Probe5 vs

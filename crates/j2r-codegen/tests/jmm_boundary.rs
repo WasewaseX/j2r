@@ -197,6 +197,7 @@ fn jmm_boundary_markers_enforced_in_emitted_crate() {
         out_dir: dir.join("out"),
         emit_cfg: false,
         emit_typed: false,
+        emit_hash_dispatch: false,
         partition: None,
     };
     j2r_codegen::compile_to_crate(&opts).expect("codegen succeeds");

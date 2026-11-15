@@ -3,13 +3,17 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-15 (session 19b cont. 12: reset
-#23 survived — local objects stale at b4badea, fetch+ff recovered to
-b03cff5, toolchain re-bootstrapped byte-exact from the persistent
-outside-repo script, baseline re-proven. Queue decision per the
-boards' order: **R5 resolution/vtable first** (R7's perfect-hash table
-is explicitly the follow-up shape after R5), TreeMap/LinkedHashMap
-follow-ons queue behind. R5 slice 1 registered below.)
+fix the board. Last updated: 2026-11-15 (run 3 of the continuation cycle:
+reset #25 survived — local objects stale at pre-M2 b4badea again, fetch+ff
+recovered to 7c90055 (run 2's R5 slice 2), the outside-repo bootstrap
+script was itself wiped and re-persisted (the repo's tracked copy is the
+canonical one; the env.sh hardening — RUSTUP_HOME/CARGO_HOME/JAVA_HOME
+exports — landed as 00d3238), baseline re-proven 471/0. Queue decision:
+**R7, the registered follow-up shape after R5** — landed as a MEASURED
+NO-GO with the machinery behind --emit-hash-dispatch (rustc 1.99 already
+lowers the string-tuple match to a balanced tree; evidence
+scripts/evidence/r7/). Next queue: the TreeMap/LinkedHashMap G3.3
+follow-ons.)
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,
@@ -2332,7 +2336,10 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       58.7 M lock/unlock pairs ≈ 9%) = NEW runtime-track candidate,
       honest under the current architecture (no unsafe, no
       memory-model change); R7 (perfect-hash dispatch table over the
-      2,169 string-tuple arms) = registered follow-up shape after R5;
+      2,169 string-tuple arms) = registered follow-up shape after R5
+      (MEASURED NO-GO on rustc 1.99, 2026-11-15 — rustc already lowers
+      the string match to a balanced tree; machinery behind
+      --emit-hash-dispatch, scripts/evidence/r7/);
       R8 (target-cpu/codegen-units defaults; FMA stays OFF for JVM
       parity) = cheap single-digit default flip; R9 (build cost:
       111.8 s per 156 classes scales to ~14 h at 70k classes) = the
@@ -2428,3 +2435,39 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       shape after R5); the TreeMap/LinkedHashMap follow-ons queue
       behind; the registered correctness residual: the user-interface
       DEFAULT dispatch law (Probe5).
+- [x] **R7 — the hash-dispatch table: MEASURED NO-GO, machinery kept
+      runnable behind --emit-hash-dispatch (planned + LANDED 2026-11-15,
+      run 3 of the continuation cycle)** — the Opt.md §3 R7 premise
+      (the registry's 2,169 string-tuple arms lower to a linear string
+      search; a selector match would make it an integer search) was
+      MEASURED FIRST and does not reproduce on rustc 1.99. Same-session
+      A/B on N=2,169 synthetic arms (the jbox2d-port shape, real-emitter
+      vs verbatim-reproduced old emission, release, 3.47 M lookups per
+      shape): old string-tuple match ~27 ns/call (94.2/96.5 ms) — rustc
+      already lowers it to a BALANCED DECISION TREE; the selector shapes
+      ~216 ns/call (750.3 ms tuple-led, 754.4 ms selector-led) — the
+      serial FNV-1a walk over every key byte costs more than the whole
+      tree, and the in-arm full-key verify is load-bearing (a hash hit
+      alone must never select a method). Compile: old 3 s vs new 14-21 s
+      at -O. VERDICT: the hash buys a worse index than rustc builds for
+      free. LANDED anyway as an OFF-BY-DEFAULT lever (the M2-CFG
+      precedent): dispatch_table.rs (the FNV-1a 64 selector, the shared
+      emit_lookup_fn for BOTH emitters, 5 law tests — golden selector
+      values, the 0x1f separator law, ascending-selector byte-stable
+      emission, the in-arm full-key verify, order-independence),
+      Options.emit_hash_dispatch + the --emit-hash-dispatch CLI flag,
+      default emission byte-identical PROVEN (pre-R7 worktree binary vs
+      this binary: every emitted file byte-identical, manifest SHA-256
+      columns identical line-for-line); the flag-ON path builds and runs
+      three-channel byte-identical vs Temurin. Battery: lib units
+      476/0 (codegen 150 → 155), codegen integrations green (e2e 1,
+      malformed 12, wide_ids 1, manifest 11, jmm_boundary 1), cli bins
+      15/15, diff_suite 120 fixtures three-channel ZERO divergences
+      (316.22 s + 313.82 s sharded), cfg_equiv zero (412.75 s), fmt +
+      clippy clean FRESH, gate-11 in sync: fixtures=120, tests=535
+      (README 530→535). Evidence:
+      scripts/evidence/r7/{dispatch_table_2026-11-15.txt, gen_main.rs}.
+      Next: the TreeMap/LinkedHashMap follow-ons (the registered
+      G3.3 follow-ons); the registered correctness residuals stand:
+      the user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE,
+      the DIFFERENT-package private-ctor IllegalAccessException.
