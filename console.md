@@ -3343,3 +3343,45 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE (standing),
   the DIFFERENT-package private-ctor IllegalAccessException (standing).
 - Run 4 of 5 is already scheduled (2 h cadence); nothing new scheduled.
+
+
+## SESSION run 4 of 5 — 2026-11-15 (reset #26; LINKEDHASHMAP: the class itself is the first slice)
+
+- **Reset #26 survived (run 4's recovery)** — local tree fast-forwarded
+  clean to `ea2d0af` (run 3's R7 NO-GO; this reset did NOT stale the git
+  objects, only the toolchain). Toolchain re-bootstrapped byte-exact from
+  the repo's tracked `scripts/bootstrap_toolchain.sh` (rustup-init
+  21,347,088 B, Temurin 21.0.13+9 tarball 207,858,352 B, rustc 1.99.1 +
+  javac 21.0.13 verified RUNNING — the verify-before-trust rule). The
+  outside-repo script mirror was wiped again; the repo's tracked copy is
+  canonical (the run-3 lesson held). Baseline re-proven BEFORE any code:
+  **476 lib units / 0** (classfile 48, codegen 155, jni-ffi 15, runtime
+  258).
+- **Queue decision (per the boards)**: the TreeMap/LinkedHashMap G3.3
+  follow-ons. SCOPING FINDING: the two classes DO NOT EXIST in j2r —
+  no builtin rows, no natives, no instantiable entries; `new TreeMap`
+  today is the loud unsupported-class error (probed live with TmProbe).
+  The registered follow-on therefore OPENS with the classes themselves;
+  the G3.3 prim-specialized rewrites ride them after the storage exists.
+  SLICE ORDER: LinkedHashMap first (it IS a HashMap + order links — the
+  OpenJDK subclass shape), TreeMap next (needs Comparable/Comparator
+  dispatch — its own slice).
+- **PLAN (this run)**: probe the Temurin order laws FIRST (LhmProbe:
+  insertion order, re-put keeps position, remove+re-put moves to tail,
+  get does not reorder, ctor-from-map copies in source order, is-a
+  HashMap/Map, the three views in link order, iterator remove, null
+  key, toString); then builtin.rs rows (parent LinkedHashMap→HashMap,
+  $Entry→HashMap$Node, interfaces Map/Map$Entry/Iterator/Set/Collection,
+  own slots: map +2 head/tail, entry +2 before/after), collections.rs
+  (hm_put returns the node; lhm machinery: init/put/remove/clear/
+  all-entries-in-link-order/views/iterators/toString), natives.rs rows,
+  codegen instantiable entries; law tests; fixture (the 121st);
+  battery.
+- **Residual REGISTERED en route (pre-existing, NOT widened)**: the
+  HashMap hash-iterator `remove()` rows (KeyIterator/ValueIterator/
+  EntryIterator) dispatch to `n_itr_remove` — the ArrayList-shaped
+  state machine (slot 2 read as Int expectedModCount; slot 2 of a hash
+  iterator is the pending-node Ref) — a `keySet().iterator().remove()`
+  would mis-read the slots. Latent since the stringsim wave; no fixture
+  exercises it. LHM ships its OWN iterator remove (the link chain makes
+  lastRet trivial); the HashMap repair is its own follow-up.
