@@ -3577,3 +3577,98 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   HashMap copy-ctor gap (probed live this window — `new HashMap<>(map)`
   is the loud unsupported-class error); (4) the G3.1/G3.2 CFG layers
   and the owner review asks in docs/STATUS_G2_G3_G4.md.
+
+### [2026-11-15, run 6 (owner-triggered continuation) — TREEMAP BOUNDED VIEWS LANDED: subMap/headMap/tailMap, the 26-cell narrowing matrix, the probed asymmetry, the view-of-views, the bounded iterators]
+- **Recovery (reset #29→#30, the harshest yet)**: the local tree rolled
+  back PAST run 4/5 — HEAD was pre-M2 `b4badea` with NO run-5 objects in
+  the store (`git cat-file -t 3484c79` failed before the fetch), and the
+  outside-repo bootstrap script copy was wiped too. fetch + ff-only to
+  `3484c79` (run 5's final state) restored everything committed;
+  `scripts/bootstrap_toolchain.sh` (committed in-repo since run 5)
+  re-proved byte-exact (rustc 1.99.1 `58cf8f9c3`, Temurin javac
+  21.0.13); baseline re-proven 492/0 BEFORE any code. **The run-6
+  window's un-pushed work died in the reset — this entry records its
+  full redo from the handoff notes.** Lesson hardened: a window that
+  ends with un-pushed work risks losing ALL of it; the boards' rule
+  "un-pushed = un-protected" is not rhetorical.
+- **PROBE FIRST (TreeMapViewsProbe, 35 Temurin cases, evidence
+  scripts/evidence/treemap_views/)**: the capture pinned the whole law
+  set live. The V-laws: V1 computed size/contents over the range (not
+  mirrored); V2 from-inclusive/to-EXCLUSIVE 2-arg forms + the 4-arg
+  flags, a single-key inclusive view is puttable (c29); V3
+  first/lastKey + NSEE on empty views (c07); V4 the range-gated Map
+  surface — get/containsKey/getOrDefault/remove SILENTLY miss
+  out-of-range keys (c08/c09/c11/c34), put throws IAE **"key out of
+  range"** (c12), null keys NPE and non-Comparable keys CCE through the
+  range compare (c18/c19); V5 live both ways (c03/c13); V6 slice-only
+  clear (c15/c35); **V7 THE NARROWING MATRIX (26 cells)**: chained
+  builders validate strictly — full inRange on the fromKey side
+  (fromKey == an exclusive hi → IAE "fromKey out of range", c16f/s/t),
+  while the toKey side is INCLUSIVITY-BLIND on the hi (strictly-above-hi
+  only: headMap ACCEPTS toKey == an exclusive hi, c16e, and on a
+  hi-INCLUSIVE parent too, c16y) with full tooLow on the lo (c16u "toKey
+  out of range"); check order fromKey → toKey → crossed "fromKey >
+  toKey" (c16w/x/q); the ABSOLUTE map's builders never range-check (the
+  ctor crossed check c16l + the self-compare type check); disjoint
+  chained narrowing THROWS, never an empty view (c16o/p); from == to is
+  a legal empty view (c16m); V8 the bounded iterators share the
+  unbounded 4-slot slot layout with slot 0 = the VIEW; expectedModCount
+  is the BACKING map's — a foreign put OUT-of-range still CMEs (c27);
+  remove is LITERALLY the same native (ISE-first carries, c25/c28); V9
+  the view-of-view keySet/values/entrySet objects (c21-c23).
+- **LANDED — TreeMap$SubMap (the 5-slot view: backing map, lo, hi,
+  loInclusive, hiInclusive; a null bound is the unbounded side)**: the
+  full range-gated Map surface (put/get/getOrDefault/containsKey/
+  containsValue/remove/size/isEmpty/clear/toString), firstKey/lastKey +
+  NSEE, comparator() (deref'd from the backing map), the six narrowing-
+  checked chained builders, the six ABSOLUTE builders on TreeMap
+  (2-arg + 4-arg subMap/headMap/tailMap), the view-of-view
+  TreeMap$SubMap$KeySet/Values/EntrySet objects, the three bounded
+  iterators (the unbounded layout, range-gated hasNext/next, CME vs the
+  backing modCount), and n_tm_i_remove made view-aware (the ONE remove
+  native for all six iterator classes). 6 TreeMap full-map rows + 62
+  SubMap/view/iterator rows + **the INTERFACE ANCHORS**.
+- **THE INVOKEINTERFACE STATIC-RECEIVER LESSON (the battery caught it
+  live)**: javac emits the STATIC receiver type on invokeinterface
+  sites — a method inherited from a superinterface (size through
+  SortedMap, keySet through SortedMap, iterator through Collection)
+  validates against the INTERFACE's parent chain, which never reaches
+  the implementing class. validate_virtual walks SortedMap→…→ up, finds
+  no row → the whole fixture dies the semantic error. Fixed with
+  validation-only anchor rows on java/util/SortedMap (18), NavigableMap
+  (25) and Collection (4) — the same law as the pre-existing
+  java/util/Map and java/util/Set rows; the runtime dispatch walk
+  starts at the receiver's RUNTIME class, so the anchors never dispatch.
+- **THREE more bugs found by the battery/probe loop and fixed**:
+  (1) `tm_delete`'s root-with-one-child path `.expect()`-panicked — the
+  run-5 battery never deleted a BLACK root with one child; the
+  slice-clear walks straight into it. CLRS law: the replacement IS the
+  root, the `while x != root` loop exits immediately, the exit recolor
+  is the whole law. (2) `n_sms_clear` gated only on the lo side — the
+  c15/c35 over-delete drained the whole tree above lo (parent {1,9} →
+  {1}); the hi fence now gates the loop. (3) `sms_last_node` navigated
+  Floor(hi) without the lo gate — lastKey on [10,20) over {1,3,5,7,9}
+  landed on 9 (below lo) and returned it instead of NSEE (c07c); both
+  node finders are now fully fence-gated. Plus the comparator row
+  deref bug (slot 0 of the view is the backing MAP, not the comparator
+  — c20).
+- **Landed**: fixture TreeMapViewsProbe (the **124th**, three-channel
+  zero — all 35 cases vs Temurin 21.0.13+9), 6 law tests (runtime 274 →
+  280: submap_range_surface_law, submap_range_gated_map_law,
+  submap_narrowing_matrix_law, submap_live_and_slice_clear_law,
+  submap_views_and_iterators_law, submap_iterator_exception_laws).
+  Battery all green: lib units **498/0** (48+155+15+280), diff_suite
+  **124 fixtures three-channel ZERO divergences** (360.78 s + 363.94 s
+  sharded), cfg_equiv **zero** (451.94 s), fmt + clippy clean, gate-11
+  in sync: fixtures=124, tests=557 (README 123→124 / 551→557, diff
+  guard 122→123).
+- **HANDOFF QUEUE (updated)**: (1) the G3.3 prim rewrites riding both
+  new maps (the LHM link chain + the TreeMap red-black) — the bounded
+  views ride them too; (2) the residuals: the user-interface DEFAULT
+  dispatch law (Probe5), HELPFUL-NPE, different-package private-ctor
+  IllegalAccessException, the HashMap copy-ctor gap; (3) the G3.1/G3.2
+  CFG layers and the owner review asks in docs/STATUS_G2_G3_G4.md;
+  (4) owner order after that: the M4 concurrency review, then
+  mappings/Mixins. NOT probed/implemented this slice (loud unsupported,
+  the same-surface law): view equals/hashCode, firstEntry/lastEntry/
+  pollFirstEntry/pollLastEntry, descendingMap, putAll on views.

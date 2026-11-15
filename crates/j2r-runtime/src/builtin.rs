@@ -179,6 +179,16 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/TreeMap$KeyIterator" => "java/lang/Object",
         "java/util/TreeMap$ValueIterator" => "java/lang/Object",
         "java/util/TreeMap$EntryIterator" => "java/lang/Object",
+        // run 6 (2026-11-15): the bounded views answer from their own rows
+        // (a SubMap must NOT inherit the absolute map's unguarded surface;
+        // the backing map rides the view's slot 0 for the shared remove).
+        "java/util/TreeMap$SubMap" => "java/lang/Object",
+        "java/util/TreeMap$SubMap$KeySet" => "java/lang/Object",
+        "java/util/TreeMap$SubMap$Values" => "java/lang/Object",
+        "java/util/TreeMap$SubMap$EntrySet" => "java/lang/Object",
+        "java/util/TreeMap$SubMap$KeyIterator"
+        | "java/util/TreeMap$SubMap$ValueIterator"
+        | "java/util/TreeMap$SubMap$EntryIterator" => "java/lang/Object",
         "java/util/Objects" => "java/lang/Object",
         "java/util/NoSuchElementException" => "java/lang/RuntimeException",
         "java/util/ConcurrentModificationException" => "java/lang/RuntimeException",
@@ -357,6 +367,18 @@ pub fn builtin_interfaces_of(class: &str) -> &'static [&'static str] {
         "java/util/TreeMap$KeyIterator"
         | "java/util/TreeMap$ValueIterator"
         | "java/util/TreeMap$EntryIterator" => &["java/util/Iterator"],
+        // run 6: the bounded views ride the same interface chain as the
+        // absolute map (SubMap -> NavigableMap -> SortedMap -> Map), the
+        // view-of-views ride the collection chains — the checkcast to
+        // SortedMap on a narrowing assignment and the enhanced-for's
+        // Set/Collection walks depend on these.
+        "java/util/TreeMap$SubMap" => &["java/util/NavigableMap", "java/util/Map"],
+        "java/util/TreeMap$SubMap$KeySet" => &["java/util/Set"],
+        "java/util/TreeMap$SubMap$Values" => &["java/util/Collection"],
+        "java/util/TreeMap$SubMap$EntrySet" => &["java/util/Set"],
+        "java/util/TreeMap$SubMap$KeyIterator"
+        | "java/util/TreeMap$SubMap$ValueIterator"
+        | "java/util/TreeMap$SubMap$EntryIterator" => &["java/util/Iterator"],
         // JDK: HashMap.Node implements Map.Entry — the enhanced-for's
         // JDK: HashMap.Node implements Map.Entry — the enhanced-for's
         // checkcast Map$Entry on entrySet iteration depends on this.
@@ -512,6 +534,16 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         "java/util/TreeMap$KeySet"
         | "java/util/TreeMap$Values"
         | "java/util/TreeMap$EntrySet" => 1,
+        // run 6: the bounded view (backing map, lo, hi, loInclusive,
+        // hiInclusive), its 1-slot view-of-views, the 4-slot bounded
+        // iterators (the unbounded layout, slot 0 = the view).
+        "java/util/TreeMap$SubMap" => 5,
+        "java/util/TreeMap$SubMap$KeySet"
+        | "java/util/TreeMap$SubMap$Values"
+        | "java/util/TreeMap$SubMap$EntrySet" => 1,
+        "java/util/TreeMap$SubMap$KeyIterator"
+        | "java/util/TreeMap$SubMap$ValueIterator"
+        | "java/util/TreeMap$SubMap$EntryIterator" => 4,
         // HashMap$Node: hash, key, value, next
         "java/util/HashMap$Node" => 4,
         // hash iterators: map ref, table idx, pending node, expectedModCount,

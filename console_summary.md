@@ -1,5 +1,63 @@
 # j2r console summary — the state board
 
+Updated 2026-11-15 (run 6, owner-triggered continuation — **TREEMAP
+BOUNDED VIEWS LANDED: subMap/headMap/tailMap with the 26-cell probed
+narrowing matrix**, after the harshest reset yet: the local tree rolled
+back PAST run 4/5 to pre-M2 `b4badea` with no run-5 objects in the
+store, and the run-6 window's UN-PUSHED work died in the reset — this
+run is its full redo from the handoff notes; "un-pushed = un-protected"
+is now proven in blood). Recovery: fetch + ff-only to `3484c79`
+(restored every committed run-4/5 state); toolchain re-proved
+byte-exact via the in-repo scripts/bootstrap_toolchain.sh (rustc 1.99.1
+`58cf8f9c3`, Temurin javac 21.0.13); baseline re-proven 492/0 lib
+BEFORE any code. PROBE FIRST (TreeMapViewsProbe, 35 Temurin cases,
+evidence scripts/evidence/treemap_views/): the V-laws — computed range
+size/contents; from-inclusive/to-EXCLUSIVE + the 4-arg flags; NSEE on
+empty views; the range-gated Map surface (get/containsKey/getOrDefault/
+remove SILENTLY miss out-of-range keys, put throws IAE "key out of
+range", null → NPE and non-Comparable → CCE through the range compare);
+live views both ways; slice-only clear; **the narrowing matrix: full
+inRange on the fromKey side (fromKey == an exclusive hi throws) vs the
+INCLUSIVITY-BLIND strictly-above-hi toKey gate (headMap ACCEPTS toKey
+== an exclusive hi — the probed c16e/c16y asymmetry), check order
+fromKey → toKey → crossed "fromKey > toKey"; the absolute builders
+never range-check; disjoint chained narrowing THROWS, never an empty
+view**; the bounded iterators share the unbounded layout (slot 0 = the
+view) with expectedModCount = the BACKING map's — a foreign
+OUT-of-range put still CMEs (c27); remove is LITERALLY the same native
+(ISE-first carries). LANDED: TreeMap$SubMap (5 slots: backing, lo, hi,
+loInclusive, hiInclusive), the full range-gated surface, first/lastKey
++ NSEE, comparator() deref'd from the backing map, six chained + six
+absolute builders, the view-of-view KeySet/Values/EntrySet, three
+bounded iterators, n_tm_i_remove view-aware (one remove native for all
+six iterator classes). THE INVOKEINTERFACE STATIC-RECEIVER LESSON (the
+battery caught it live): javac emits the static receiver type on
+invokeinterface sites — inherited interface methods (size through
+SortedMap, keySet through SortedMap, iterator through Collection)
+validate against the interface's parent chain, which never reaches the
+implementing class → validation-only anchor rows on java/util/SortedMap
+(18), NavigableMap (25), Collection (4). THREE more bugs the
+battery/probe loop caught and fixed: tm_delete's root-with-one-child
+path .expect()-panicked (the slice-clear walks into it; CLRS: the
+replacement IS the root, the exit recolor is the whole law);
+n_sms_clear gated only on lo (the c15/c35 over-delete — the hi fence
+now gates); sms_last_node lacked the lo gate (c07c lastKey → NSEE).
+Landed: TreeMapViewsProbe = the 124th fixture (three-channel zero), 6
+law tests (runtime 274 → 280). Battery: lib units 498/0
+(48+155+15+280), diff_suite 124 three-channel ZERO (360.78 s + 363.94 s
+sharded), cfg_equiv zero (451.94 s), fmt+clippy clean, gate-11 in sync:
+fixtures=124, tests=557 (README 123→124 / 551→557, diff guard
+122→123). Handoff queue: (1) the G3.3 prim rewrites riding both new
+maps; (2) the residuals (user-interface DEFAULT dispatch, HELPFUL-NPE,
+different-package private-ctor, the HashMap copy-ctor gap); (3) the
+G3.1/G3.2 CFG layers + the owner-review asks in
+docs/STATUS_G2_G3_G4.md; (4) then the owner order: the M4 concurrency
+review, mappings/Mixins.
+
+---
+
+# j2r console summary — the state board
+
 Updated 2026-11-15 (run 5 of 5 — **TREEMAP LANDED: the sorted map with
 the CLRS red-black storage; the continuation cycle ENDS here**, after
 reset #28). Recovery: fetch + ff-only from stale `b4badea` to `1234698`

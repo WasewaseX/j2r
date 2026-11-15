@@ -233,10 +233,19 @@ fn differential_suite_matches_jvm() {
     // ceiling/floor/higher/lower navigable surface, the Comparator ctor
     // reordering everything, the null-key NPE + non-Comparable CCE laws,
     // the sorted copy ctor, and the successor-walk iterator remove (the
-    // ISE-first law) — 123 on disk, guard one below that.
+    // ISE-first law) — 123 on disk, guard one below that. The run-6 wave
+    // (2026-11-15) added TreeMapViewsProbe — the BOUNDED views: the
+    // 26-cell narrowing matrix (full inRange on the fromKey side, the
+    // inclusivity-blind strictly-above-hi toKey gate, the crossed check
+    // last), the range-gated Map surface (silent misses, IAE "key out of
+    // range" on put, NPE/CCE through the range compare), the computed
+    // size, the live views, the slice-only clear, the view-of-view
+    // keySet/values/entrySet, and the bounded iterators sharing the
+    // unbounded remove (ISE-first carries) — 124 on disk, guard one below
+    // that.
     assert!(
-        fixtures.len() >= 122,
-        "differential suite shrank: {} fixtures (expected >= 122)",
+        fixtures.len() >= 123,
+        "differential suite shrank: {} fixtures (expected >= 123)",
         fixtures.len()
     );
 

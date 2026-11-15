@@ -2756,11 +2756,14 @@ fn tm_delete(map: &JRef, z: JRef) {
         Some(r) => {
             tm_transplant(map, target, Some(r));
             if tm_color(Some(&target)) == TM_BLACK {
-                tm_delete_fixup(
-                    map,
-                    r,
-                    tp.expect("j2r internal: replacement without parent"),
-                );
+                match tp {
+                    Some(p) => tm_delete_fixup(map, r, p),
+                    // the deleted node was the ROOT (the slice-clear path
+                    // exposed this run-5 hole): the replacement IS the new
+                    // root, so CLRS's `while x != root` exits immediately
+                    // and the exit recolor is the whole law
+                    None => tm_set_color(&r, TM_BLACK),
+                }
             }
         }
         None => match tp {
@@ -3327,18 +3330,18 @@ pub fn n_tei_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
     Ok(Value::Ref(Some(node)))
 }
 
-/// Iterator.remove over the tree (T10): the PROBED ISE-first law (the
-/// run-4 ItrOrderProbe law — ISE on null current BEFORE the CME check),
-/// then the map's own delete, then the re-sync (no CME on a continued
-/// iteration).
+/// Iterator.remove over the tree (T10 + V8): the PROBED ISE-first law
+/// (the run-4 ItrOrderProbe law — ISE on null current BEFORE the CME
+/// check), then the map's own delete, then the re-sync (no CME on a
+/// continued iteration). View-aware (run 6): the bounded iterators share
+/// this SAME native — their slot 0 carries the TreeMap$SubMap view, whose
+/// slot 0 carries the backing map; the ISE-first law carries by
+/// construction.
 pub fn n_tm_i_remove(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let it = recv.expect("j2r internal: TreeMap iterator remove without receiver");
-    let (map, expected, current) = with_obj(*it, |o| {
+    let (map_slot, expected, current) = with_obj(*it, |o| {
         (
-            match &o.slots[TMI_MAP] {
-                Value::Ref(Some(m)) => *m,
-                _ => panic!("j2r internal: TreeMap iterator without map"),
-            },
+            o.slots[TMI_MAP].clone(),
             o.slots[TMI_EXPECTED].expect_int(),
             match &o.slots[TMI_CURRENT] {
                 Value::Ref(Some(n)) => Some(*n),
@@ -3346,6 +3349,17 @@ pub fn n_tm_i_remove(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Re
             },
         )
     });
+    let map = match &map_slot {
+        Value::Ref(Some(m)) => {
+            let cls = with_obj(*m, |o| o.jclass.to_string());
+            if cls == "java/util/TreeMap$SubMap" {
+                sms_backing(m)
+            } else {
+                *m
+            }
+        }
+        _ => panic!("j2r internal: TreeMap iterator without map"),
+    };
     let Some(node) = current else {
         return Err(throw_new("java/lang/IllegalStateException", None));
     };
@@ -3374,6 +3388,785 @@ pub fn n_tme_get_value(
 ) -> Result<Value, Throw> {
     let e = recv.expect("j2r internal: TreeMap$Entry.getValue without receiver");
     Ok(tm_entry_value(e))
+}
+
+// --------------------------------------------------------- TreeMap$SubMap
+//
+// Run 6 (2026-11-15): the BOUNDED views — subMap/headMap/tailMap as a
+// 5-slot view over the backing TreeMap (0 = backing map, 1 = lo key,
+// 2 = hi key, 3 = loInclusive Int, 4 = hiInclusive Int; a null bound is
+// the unbounded side, exactly the absolute map's fromStart/toEnd flags).
+//
+// Laws (probed vs Temurin 21.0.13+9, TreeMapViewsProbe, evidence
+// scripts/evidence/treemap_views/treemapviewsprobe_temurin_2026-11-15.txt):
+//   V1  contents/toString/size/isEmpty are computed over the RANGE, not
+//       mirrored (V5 35-key clear: the parent keeps the out-of-range keys)
+//   V2  from-inclusive, to-EXCLUSIVE on the 2-arg forms; the 4-arg forms
+//       carry the flags; a single-key inclusive view is puttable (c29)
+//   V3  first/lastKey over the range; empty view -> NoSuchElementException
+//   V4  the range-gated Map surface: get/containsKey/getOrDefault/remove
+//       SILENTLY miss out-of-range keys (c08/c09/c11/c34 — even on an
+//       empty view), put throws IAE "key out of range" (c12); null keys
+//       NPE through the range compare (c18) and non-Comparable keys CCE
+//       (c19) — the type check rides the range check
+//   V5  live both ways (c03/c13): put/remove through the view hits the
+//       backing tree; parent puts in-range appear in the view
+//   V6  slice-only clear (c15/c35): the slice empties, out-of-range keys
+//       survive
+//   V7  THE NARROWING MATRIX (c16, 26 cells) — chained builders validate
+//       STRICTLY, never intersecting/clamping, with the probed ASYMMETRY:
+//       the fromKey side uses the FULL inRange (tooLow with inclusivity
+//       AND tooHigh with inclusivity — fromKey == an exclusive hi throws
+//       "fromKey out of range", c16f/s/t), while the toKey side is
+//       INCLUSIVITY-BLIND on the hi (strictly-above-hi only: headMap
+//       ACCEPTS toKey == an exclusive hi, c16e, and on a hi-INCLUSIVE
+//       parent too, c16y) but full tooLow on the lo (c16u "toKey out of
+//       range"). Check order: fromKey range, then toKey range, then the
+//       crossed check "fromKey > toKey" (c16w/x/q). The ABSOLUTE map's
+//       builders never range-check — only the ctor's crossed check (c16l)
+//       plus the self-compare type check (null -> NPE, non-Comparable ->
+//       CCE). Chained narrowing of a DISJOINT window throws (c16o/p),
+//       never an empty view; from == to is a legal empty view (c16m).
+//   V8  the bounded iterators share the unbounded 4-slot layout with
+//       slot 0 = the VIEW (the backing map rides the view's slot 0);
+//       expectedModCount is the BACKING map's, so a foreign put
+//       OUT-of-range still CMEs (c27); remove is LITERALLY the same
+//       native as the unbounded iterators' (n_tm_i_remove derefs the
+//       view) — the ISE-first law carries by construction (c25/c28)
+//   V9  keySet/values/entrySet are live view-of-view objects; the bounded
+//       iterators walk the range in key order and stop at the hi fence
+
+const SMS_MAP: usize = 0;
+const SMS_LO: usize = 1;
+const SMS_HI: usize = 2;
+const SMS_LO_INC: usize = 3;
+const SMS_HI_INC: usize = 4;
+
+fn sms_backing(view: &JRef) -> JRef {
+    with_obj(*view, |o| match &o.slots[SMS_MAP] {
+        Value::Ref(Some(m)) => *m,
+        _ => panic!("j2r internal: TreeMap$SubMap without backing map"),
+    })
+}
+
+fn sms_bound(view: &JRef, slot: usize) -> Option<Value> {
+    let v = with_obj(*view, |o| o.slots[slot].clone());
+    match v {
+        Value::Ref(Some(_)) => Some(v),
+        _ => None, // the unbounded side carries Value::Ref(None)
+    }
+}
+
+fn sms_incl(view: &JRef, slot: usize) -> bool {
+    with_obj(*view, |o| o.slots[slot].expect_int() != 0)
+}
+
+/// tooLow with inclusivity — the fromKey-side gate (V7).
+fn sms_too_low(view: &JRef, key: &Value, ctx: Dispatch) -> Result<bool, Throw> {
+    match sms_bound(view, SMS_LO) {
+        None => Ok(false),
+        Some(lo) => {
+            let backing = sms_backing(view);
+            let cmp = tm_compare(&backing, key, &lo, ctx)?;
+            Ok(cmp < 0 || (cmp == 0 && !sms_incl(view, SMS_LO_INC)))
+        }
+    }
+}
+
+/// tooHigh with inclusivity — half of the fromKey-side gate.
+fn sms_too_high_full(view: &JRef, key: &Value, ctx: Dispatch) -> Result<bool, Throw> {
+    match sms_bound(view, SMS_HI) {
+        None => Ok(false),
+        Some(hi) => {
+            let backing = sms_backing(view);
+            let cmp = tm_compare(&backing, key, &hi, ctx)?;
+            Ok(cmp > 0 || (cmp == 0 && !sms_incl(view, SMS_HI_INC)))
+        }
+    }
+}
+
+/// strictly-above-hi — the toKey-side hi gate: INCLUSIVITY-BLIND (V7, the
+/// probed c16e/c16y asymmetry — headMap accepts toKey == an exclusive hi).
+fn sms_above_hi_strict(view: &JRef, key: &Value, ctx: Dispatch) -> Result<bool, Throw> {
+    match sms_bound(view, SMS_HI) {
+        None => Ok(false),
+        Some(hi) => {
+            let backing = sms_backing(view);
+            Ok(tm_compare(&backing, key, &hi, ctx)? > 0)
+        }
+    }
+}
+
+/// The fromKey-side full range gate (put/get/remove/tailMap/subMap).
+fn sms_in_range(view: &JRef, key: &Value, ctx: Dispatch) -> Result<bool, Throw> {
+    Ok(!sms_too_low(view, key, ctx)? && !sms_too_high_full(view, key, ctx)?)
+}
+
+/// The toKey-side range gate (headMap/subMap's toKey): full tooLow,
+/// strictly-above-hi on the other end (V7).
+fn sms_in_range_for_to(view: &JRef, key: &Value, ctx: Dispatch) -> Result<bool, Throw> {
+    Ok(!sms_too_low(view, key, ctx)? && !sms_above_hi_strict(view, key, ctx)?)
+}
+
+/// The leftmost in-range node: the lo bound's ceiling/higher, else the
+/// tree's leftmost — hi-fence-gated (an empty view's first is None).
+fn sms_first_node(view: &JRef, ctx: Dispatch) -> Result<Option<JRef>, Throw> {
+    let backing = sms_backing(view);
+    let start = match sms_bound(view, SMS_LO) {
+        None => tm_root(&backing).map(tm_leftmost),
+        Some(lo) => tm_navigate(
+            &backing,
+            &lo,
+            if sms_incl(view, SMS_LO_INC) {
+                TmNav::Ceiling
+            } else {
+                TmNav::Higher
+            },
+            ctx,
+        )?,
+    };
+    match start {
+        Some(n) if sms_too_high_full(view, &tm_entry_key(&n), ctx)? => Ok(None),
+        other => Ok(other),
+    }
+}
+
+/// The rightmost in-range node: the hi bound's floor/lower, else the
+/// tree's rightmost — lo-fence-gated (the c07c law: Floor(20) on [10,20)
+/// over {1,3,5,7,9} lands on 9, which is BELOW the view's lo).
+fn sms_last_node(view: &JRef, ctx: Dispatch) -> Result<Option<JRef>, Throw> {
+    let backing = sms_backing(view);
+    let end = match sms_bound(view, SMS_HI) {
+        None => tm_root(&backing).map(tm_rightmost),
+        Some(hi) => tm_navigate(
+            &backing,
+            &hi,
+            if sms_incl(view, SMS_HI_INC) {
+                TmNav::Floor
+            } else {
+                TmNav::Lower
+            },
+            ctx,
+        )?,
+    };
+    match end {
+        Some(n) if sms_too_low(view, &tm_entry_key(&n), ctx)? => Ok(None),
+        other => Ok(other),
+    }
+}
+
+/// Every (key, value) pair inside the view, in KEY order (V1).
+fn sms_all_entries(view: &JRef, ctx: Dispatch) -> Result<Vec<(Value, Value)>, Throw> {
+    let mut out = Vec::new();
+    let mut cur = sms_first_node(view, ctx)?;
+    while let Some(n) = cur {
+        let k = tm_entry_key(&n);
+        if sms_too_high_full(view, &k, ctx)? {
+            break;
+        }
+        out.push((k, tm_entry_value(&n)));
+        cur = tm_successor_of(n);
+    }
+    Ok(out)
+}
+
+fn sms_new(map: &JRef, lo: Value, lo_inc: bool, hi: Value, hi_inc: bool) -> Result<Value, Throw> {
+    let v = new_obj("java/util/TreeMap$SubMap", 5)?;
+    with_obj_mut(v, |o| {
+        o.slots[SMS_MAP] = Value::Ref(Some(*map));
+        o.slots[SMS_LO] = lo;
+        o.slots[SMS_HI] = hi;
+        o.slots[SMS_LO_INC] = Value::Int(lo_inc as i32);
+        o.slots[SMS_HI_INC] = Value::Int(hi_inc as i32);
+    });
+    Ok(Value::Ref(Some(v)))
+}
+
+fn sms_view(recv: Option<&JRef>, who: &str) -> JRef {
+    *recv.unwrap_or_else(|| panic!("j2r internal: TreeMap$SubMap {who} without receiver"))
+}
+
+fn arg_bool(args: &[Value], i: usize) -> bool {
+    args.get(i).map(|v| v.expect_int() != 0).unwrap_or(false)
+}
+
+fn sms_iae(msg: &str) -> Throw {
+    throw_new("java/lang/IllegalArgumentException", Some(msg))
+}
+
+// --- the ABSOLUTE map's builders (no range to violate; the ctor's
+//     crossed check + the self-compare type check are the whole law) ---
+
+pub fn n_tm_sub_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = sms_view(recv, "subMap");
+    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let t = args.get(1).cloned().unwrap_or(Value::Ref(None));
+    if tm_compare(&r, &f, &t, ctx)? > 0 {
+        return Err(sms_iae("fromKey > toKey"));
+    }
+    sms_new(&r, f, true, t, false)
+}
+
+pub fn n_tm_sub_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = sms_view(recv, "subMap4");
+    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let t = args.get(2).cloned().unwrap_or(Value::Ref(None));
+    if tm_compare(&r, &f, &t, ctx)? > 0 {
+        return Err(sms_iae("fromKey > toKey"));
+    }
+    sms_new(&r, f, arg_bool(args, 1), t, arg_bool(args, 3))
+}
+
+pub fn n_tm_head_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = sms_view(recv, "headMap");
+    let t = args.first().cloned().unwrap_or(Value::Ref(None));
+    let _ = tm_compare(&r, &t, &t, ctx)?;
+    sms_new(&r, Value::Ref(None), false, t, false)
+}
+
+pub fn n_tm_head_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = sms_view(recv, "headMap4");
+    let t = args.first().cloned().unwrap_or(Value::Ref(None));
+    let _ = tm_compare(&r, &t, &t, ctx)?;
+    sms_new(&r, Value::Ref(None), false, t, arg_bool(args, 1))
+}
+
+pub fn n_tm_tail_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = sms_view(recv, "tailMap");
+    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let _ = tm_compare(&r, &f, &f, ctx)?;
+    sms_new(&r, f, true, Value::Ref(None), false)
+}
+
+pub fn n_tm_tail_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let r = sms_view(recv, "tailMap4");
+    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let _ = tm_compare(&r, &f, &f, ctx)?;
+    sms_new(&r, f, arg_bool(args, 1), Value::Ref(None), false)
+}
+
+pub fn n_tm_comparator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let r = sms_view(recv, "comparator");
+    Ok(with_obj(r, |o| o.slots[TM_COMPARATOR].clone()))
+}
+
+/// The BOUNDED view's comparator: the view's slot 0 is the backing map,
+/// not the comparator — deref first (the c20 law the battery caught).
+pub fn n_sms_comparator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view(recv, "comparator");
+    let backing = sms_backing(&view);
+    Ok(with_obj(backing, |o| o.slots[TM_COMPARATOR].clone()))
+}
+
+// --- the BOUNDED view's range-gated surface ---
+
+pub fn n_sms_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "put");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &key, ctx)? {
+        return Err(sms_iae("key out of range"));
+    }
+    let backing = sms_backing(&view);
+    n_tm_put(Some(&backing), args, ctx)
+}
+
+pub fn n_sms_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "get");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &key, ctx)? {
+        return Ok(Value::Ref(None));
+    }
+    let backing = sms_backing(&view);
+    n_tm_get(Some(&backing), args, ctx)
+}
+
+pub fn n_sms_contains_key(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view(recv, "containsKey");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &key, ctx)? {
+        return Ok(Value::Int(0));
+    }
+    let backing = sms_backing(&view);
+    n_tm_contains_key(Some(&backing), args, ctx)
+}
+
+pub fn n_sms_get_or_default(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view(recv, "getOrDefault");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &key, ctx)? {
+        return Ok(args.get(1).cloned().unwrap_or(Value::Ref(None)));
+    }
+    let backing = sms_backing(&view);
+    n_tm_get_or_default(Some(&backing), args, ctx)
+}
+
+pub fn n_sms_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "remove");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &key, ctx)? {
+        return Ok(Value::Ref(None));
+    }
+    let backing = sms_backing(&view);
+    n_tm_remove(Some(&backing), args, ctx)
+}
+
+pub fn n_sms_contains_value(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view(recv, "containsValue");
+    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    for (_, v) in sms_all_entries(&view, ctx)? {
+        let eq = match (&v, &target) {
+            (Value::Ref(Some(a)), Value::Ref(Some(_))) => dispatch_equals(a, &target, ctx)?,
+            (Value::Ref(None), Value::Ref(None)) => true,
+            _ => false,
+        };
+        if eq {
+            return Ok(Value::Int(1));
+        }
+    }
+    Ok(Value::Int(0))
+}
+
+pub fn n_sms_size(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "size");
+    let n = sms_all_entries(&view, ctx)?.len();
+    Ok(Value::Int(n as i32))
+}
+
+pub fn n_sms_is_empty(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "isEmpty");
+    Ok(Value::Int((sms_all_entries(&view, ctx)?.is_empty()) as i32))
+}
+
+/// Slice-only clear (V6): delete every in-range node; the backing map's
+/// out-of-range keys survive; each delete bumps the backing modCount.
+/// The hi fence gates the loop (the lo side alone would drain the whole
+/// tree above lo — the c15/c35 over-delete the battery caught).
+pub fn n_sms_clear(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "clear");
+    let backing = sms_backing(&view);
+    while let Some(node) = sms_first_node(&view, ctx)? {
+        if sms_too_high_full(&view, &tm_entry_key(&node), ctx)? {
+            break;
+        }
+        tm_delete(&backing, node);
+    }
+    Ok(Value::Void)
+}
+
+pub fn n_sms_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view(recv, "toString");
+    let entries = sms_all_entries(&view, ctx)?;
+    let mut out = String::from("{");
+    for (i, (k, v)) in entries.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&dispatch_to_string(k, ctx)?);
+        out.push('=');
+        out.push_str(&dispatch_to_string(v, ctx)?);
+    }
+    out.push('}');
+    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+}
+
+pub fn n_sms_first_key(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view(recv, "firstKey");
+    match sms_first_node(&view, ctx)? {
+        Some(n) => Ok(tm_entry_key(&n)),
+        None => Err(throw_new("java/util/NoSuchElementException", None)),
+    }
+}
+
+pub fn n_sms_last_key(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "lastKey");
+    match sms_last_node(&view, ctx)? {
+        Some(n) => Ok(tm_entry_key(&n)),
+        None => Err(throw_new("java/util/NoSuchElementException", None)),
+    }
+}
+
+// --- the narrowing-checked chained builders (V7) ---
+
+pub fn n_sms_sub_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "subMap");
+    let backing = sms_backing(&view);
+    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let t = args.get(1).cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &f, ctx)? {
+        return Err(sms_iae("fromKey out of range"));
+    }
+    if !sms_in_range_for_to(&view, &t, ctx)? {
+        return Err(sms_iae("toKey out of range"));
+    }
+    if tm_compare(&backing, &f, &t, ctx)? > 0 {
+        return Err(sms_iae("fromKey > toKey"));
+    }
+    sms_new(&backing, f, true, t, false)
+}
+
+pub fn n_sms_sub_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "subMap4");
+    let backing = sms_backing(&view);
+    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let t = args.get(2).cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &f, ctx)? {
+        return Err(sms_iae("fromKey out of range"));
+    }
+    if !sms_in_range_for_to(&view, &t, ctx)? {
+        return Err(sms_iae("toKey out of range"));
+    }
+    if tm_compare(&backing, &f, &t, ctx)? > 0 {
+        return Err(sms_iae("fromKey > toKey"));
+    }
+    sms_new(&backing, f, arg_bool(args, 1), t, arg_bool(args, 3))
+}
+
+pub fn n_sms_head_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "headMap");
+    let backing = sms_backing(&view);
+    let t = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range_for_to(&view, &t, ctx)? {
+        return Err(sms_iae("toKey out of range"));
+    }
+    let (lo, lo_inc) = (
+        sms_bound(&view, SMS_LO).unwrap_or(Value::Ref(None)),
+        sms_incl(&view, SMS_LO_INC),
+    );
+    sms_new(&backing, lo, lo_inc, t, false)
+}
+
+pub fn n_sms_head_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "headMap4");
+    let backing = sms_backing(&view);
+    let t = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range_for_to(&view, &t, ctx)? {
+        return Err(sms_iae("toKey out of range"));
+    }
+    let (lo, lo_inc) = (
+        sms_bound(&view, SMS_LO).unwrap_or(Value::Ref(None)),
+        sms_incl(&view, SMS_LO_INC),
+    );
+    sms_new(&backing, lo, lo_inc, t, arg_bool(args, 1))
+}
+
+pub fn n_sms_tail_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "tailMap");
+    let backing = sms_backing(&view);
+    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &f, ctx)? {
+        return Err(sms_iae("fromKey out of range"));
+    }
+    let (hi, hi_inc) = (
+        sms_bound(&view, SMS_HI).unwrap_or(Value::Ref(None)),
+        sms_incl(&view, SMS_HI_INC),
+    );
+    sms_new(&backing, f, true, hi, hi_inc)
+}
+
+pub fn n_sms_tail_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view(recv, "tailMap4");
+    let backing = sms_backing(&view);
+    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &f, ctx)? {
+        return Err(sms_iae("fromKey out of range"));
+    }
+    let (hi, hi_inc) = (
+        sms_bound(&view, SMS_HI).unwrap_or(Value::Ref(None)),
+        sms_incl(&view, SMS_HI_INC),
+    );
+    sms_new(&backing, f, arg_bool(args, 1), hi, hi_inc)
+}
+
+// --- the view-of-view objects (V9) ---
+
+fn sms_sub_view(recv: Option<&JRef>, who: &str, class: &str) -> Result<Value, Throw> {
+    let view = sms_view(recv, who);
+    let v = new_obj(class, 1)?;
+    with_obj_mut(v, |o| o.slots[0] = Value::Ref(Some(view)));
+    Ok(Value::Ref(Some(v)))
+}
+
+fn sms_view_view(recv: Option<&JRef>, who: &str) -> JRef {
+    let r = recv.unwrap_or_else(|| panic!("j2r internal: SubMap {who} without receiver"));
+    with_obj(*r, |o| match &o.slots[0] {
+        Value::Ref(Some(v)) => *v,
+        _ => panic!("j2r internal: SubMap {who} without view"),
+    })
+}
+
+pub fn n_sms_key_set(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    sms_sub_view(recv, "keySet", "java/util/TreeMap$SubMap$KeySet")
+}
+
+pub fn n_sms_values(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+    sms_sub_view(recv, "values", "java/util/TreeMap$SubMap$Values")
+}
+
+pub fn n_sms_entry_set(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
+    sms_sub_view(recv, "entrySet", "java/util/TreeMap$SubMap$EntrySet")
+}
+
+pub fn n_smsks_size(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "KeySet.size");
+    Ok(Value::Int(sms_all_entries(&view, ctx)?.len() as i32))
+}
+
+pub fn n_smsvs_size(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "Values.size");
+    Ok(Value::Int(sms_all_entries(&view, ctx)?.len() as i32))
+}
+
+pub fn n_smses_size(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "EntrySet.size");
+    Ok(Value::Int(sms_all_entries(&view, ctx)?.len() as i32))
+}
+
+pub fn n_smsks_iterator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "KeySet.iterator");
+    sms_new_iterator(&view, "java/util/TreeMap$SubMap$KeyIterator", ctx)
+}
+
+pub fn n_smsvs_iterator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "Values.iterator");
+    sms_new_iterator(&view, "java/util/TreeMap$SubMap$ValueIterator", ctx)
+}
+
+pub fn n_smses_iterator(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "EntrySet.iterator");
+    sms_new_iterator(&view, "java/util/TreeMap$SubMap$EntryIterator", ctx)
+}
+
+pub fn n_smsks_contains(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "KeySet.contains");
+    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    if !sms_in_range(&view, &key, ctx)? {
+        return Ok(Value::Int(0));
+    }
+    let backing = sms_backing(&view);
+    let found = tm_find(&backing, &key, ctx)?.is_some();
+    Ok(Value::Int(found as i32))
+}
+
+pub fn n_smsvs_contains(
+    recv: Option<&JRef>,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "Values.contains");
+    n_sms_contains_value(Some(&view), args, ctx)
+}
+
+pub fn n_smsks_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "KeySet.toString");
+    let entries = sms_all_entries(&view, ctx)?;
+    let mut out = String::from("[");
+    for (i, (k, _)) in entries.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&dispatch_to_string(k, ctx)?);
+    }
+    out.push(']');
+    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+}
+
+pub fn n_smsvs_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "Values.toString");
+    let entries = sms_all_entries(&view, ctx)?;
+    let mut out = String::from("[");
+    for (i, (_, v)) in entries.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&dispatch_to_string(v, ctx)?);
+    }
+    out.push(']');
+    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+}
+
+pub fn n_smses_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let view = sms_view_view(recv, "EntrySet.toString");
+    let entries = sms_all_entries(&view, ctx)?;
+    let mut out = String::from("[");
+    for (i, (k, v)) in entries.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&dispatch_to_string(k, ctx)?);
+        out.push('=');
+        out.push_str(&dispatch_to_string(v, ctx)?);
+    }
+    out.push(']');
+    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+}
+
+// --- the bounded iterators (V8): the unbounded 4-slot layout, slot 0 =
+//     the VIEW (the backing map rides the view's slot 0) ---
+
+fn sms_new_iterator(view: &JRef, class: &str, ctx: Dispatch) -> Result<Value, Throw> {
+    let next = sms_first_node(view, ctx)?;
+    let backing = sms_backing(view);
+    let mc = tm_modcount(&backing);
+    let it = new_obj(class, 4)?;
+    with_obj_mut(it, |o| {
+        o.slots[TMI_MAP] = Value::Ref(Some(*view));
+        o.slots[TMI_NEXT] = match next {
+            Some(n) => Value::Ref(Some(n)),
+            None => Value::Ref(None),
+        };
+        o.slots[TMI_CURRENT] = Value::Ref(None);
+        o.slots[TMI_EXPECTED] = Value::Int(mc);
+    });
+    Ok(Value::Ref(Some(it)))
+}
+
+/// Shared bounded hasNext: the next node must still be inside the hi
+/// fence (the lo side cannot be crossed walking forward).
+pub fn n_sms_i_has_next(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    let it = recv.expect("j2r internal: SubMap iterator hasNext without receiver");
+    let (view, next) = with_obj(*it, |o| {
+        (
+            match &o.slots[TMI_MAP] {
+                Value::Ref(Some(v)) => *v,
+                _ => panic!("j2r internal: SubMap iterator without view"),
+            },
+            match &o.slots[TMI_NEXT] {
+                Value::Ref(Some(n)) => Some(*n),
+                _ => None,
+            },
+        )
+    });
+    let has = match next {
+        None => false,
+        Some(n) => !sms_too_high_full(&view, &tm_entry_key(&n), ctx)?,
+    };
+    Ok(Value::Int(has as i32))
+}
+
+/// Shared bounded nextNode: CME against the BACKING map's modCount (the
+/// probed c27 law: a foreign put OUT-of-range still comodifies), the hi
+/// fence -> NoSuchElementException, then current = next, next =
+/// successor(next) (range-gated at hasNext/next time, never stored).
+fn sms_iter_next_node(
+    recv: Option<&JRef>,
+    who: &str,
+    ctx: Dispatch,
+) -> Result<(JRef, JRef), Throw> {
+    let it = recv.unwrap_or_else(|| panic!("j2r internal: {who} without receiver"));
+    let (view, expected, next) = with_obj(*it, |o| {
+        (
+            match &o.slots[TMI_MAP] {
+                Value::Ref(Some(v)) => *v,
+                _ => panic!("j2r internal: {who} without view"),
+            },
+            o.slots[TMI_EXPECTED].expect_int(),
+            match &o.slots[TMI_NEXT] {
+                Value::Ref(Some(n)) => Some(*n),
+                _ => None,
+            },
+        )
+    });
+    let backing = sms_backing(&view);
+    if expected != tm_modcount(&backing) {
+        return Err(throw_new("java/util/ConcurrentModificationException", None));
+    }
+    let node = match next {
+        None => return Err(throw_new("java/util/NoSuchElementException", None)),
+        Some(n) => {
+            if sms_too_high_full(&view, &tm_entry_key(&n), ctx)? {
+                return Err(throw_new("java/util/NoSuchElementException", None));
+            }
+            n
+        }
+    };
+    let succ = tm_successor_of(node);
+    with_obj_mut(*it, |o| {
+        o.slots[TMI_NEXT] = match succ {
+            Some(s) => Value::Ref(Some(s)),
+            None => Value::Ref(None),
+        };
+        o.slots[TMI_CURRENT] = Value::Ref(Some(node));
+    });
+    Ok((*it, node))
+}
+
+pub fn n_smki_next(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, node) = sms_iter_next_node(recv, "TreeMap$SubMap$KeyIterator.next", ctx)?;
+    Ok(tm_entry_key(&node))
+}
+
+pub fn n_smvi_next(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, node) = sms_iter_next_node(recv, "TreeMap$SubMap$ValueIterator.next", ctx)?;
+    Ok(tm_entry_value(&node))
+}
+
+pub fn n_smei_next(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let (_, node) = sms_iter_next_node(recv, "TreeMap$SubMap$EntryIterator.next", ctx)?;
+    Ok(Value::Ref(Some(node)))
 }
 
 // ---------------------------------------------------------------- HashSet
@@ -3986,6 +4779,16 @@ mod tests {
             Value::Ref(Some(r)) => string_value(r).to_string(),
             Value::Ref(None) => "null".to_string(),
             other => panic!("not a ref: {other:?}"),
+        }
+    }
+
+    /// The detailMessage slot of a thrown object (the exact IAE messages
+    /// the narrowing matrix pins).
+    fn throw_message(t: &Throw) -> String {
+        let v = crate::heap::with_obj(t.obj, |o| o.slots[0].clone());
+        match v {
+            Value::Ref(Some(r)) => string_value(&r).to_string(),
+            _ => String::new(),
         }
     }
 
@@ -5069,6 +5872,632 @@ mod tests {
         }
         let root = tm_root(&d).expect("root after the descending rung");
         tm_check_rb(&root, None, None);
+    }
+
+    // --- run 6: the bounded views (the V-laws; probe scripts/evidence/
+    // treemap_views/, 35 Temurin cases) ---
+
+    /// A {1=a,3=c,5=e,7=g,9=i} map plus the [3,7) view the probe rides.
+    fn tm_views_fixture() -> (JRef, JRef) {
+        let m = tm_new();
+        for (k, v) in [(1, "a"), (3, "c"), (5, "e"), (7, "g"), (9, "i")] {
+            n_tm_put(
+                Some(&m),
+                &[boxed_i32(k), Value::Ref(Some(new_string(v)))],
+                ctx(),
+            )
+            .unwrap();
+        }
+        let sub = match n_tm_sub_map(Some(&m), &[boxed_i32(3), boxed_i32(7)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("subMap view"),
+        };
+        (m, sub)
+    }
+
+    #[test]
+    fn submap_range_surface_law() {
+        let _rt = crate::test_support::runtime();
+        // V1/V2: contents (from-inclusive, to-EXCLUSIVE), computed size,
+        // toString; the 4-arg inclusive variants; empty views
+        let (m, sub) = tm_views_fixture();
+        assert_eq!(
+            s(&n_sms_to_string(Some(&sub), &[], ctx()).unwrap()),
+            "{3=c, 5=e}"
+        );
+        assert_eq!(n_sms_size(Some(&sub), &[], ctx()).unwrap().expect_int(), 2);
+        assert_eq!(
+            n_sms_is_empty(Some(&sub), &[], ctx()).unwrap().expect_int(),
+            0
+        );
+        // the absolute builders: headMap/tailMap + the four-arg flags
+        let head = match n_tm_head_map(Some(&m), &[boxed_i32(5)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("headMap"),
+        };
+        assert_eq!(
+            s(&n_sms_to_string(Some(&head), &[], ctx()).unwrap()),
+            "{1=a, 3=c}"
+        );
+        let tail = match n_tm_tail_map(Some(&m), &[boxed_i32(5)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("tailMap"),
+        };
+        assert_eq!(
+            s(&n_sms_to_string(Some(&tail), &[], ctx()).unwrap()),
+            "{5=e, 7=g, 9=i}"
+        );
+        let ii = match n_tm_sub_map4(
+            Some(&m),
+            &[boxed_i32(3), Value::Int(1), boxed_i32(7), Value::Int(1)],
+            ctx(),
+        )
+        .unwrap()
+        {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("subMap4"),
+        };
+        assert_eq!(
+            s(&n_sms_to_string(Some(&ii), &[], ctx()).unwrap()),
+            "{3=c, 5=e, 7=g}"
+        );
+        // V3: first/lastKey over the range; NSEE on an empty view
+        assert_eq!(
+            unbox_i32(&n_sms_first_key(Some(&sub), &[], ctx()).unwrap()),
+            3
+        );
+        assert_eq!(
+            unbox_i32(&n_sms_last_key(Some(&sub), &[], ctx()).unwrap()),
+            5
+        );
+        let none = match n_tm_sub_map(Some(&m), &[boxed_i32(10), boxed_i32(20)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("empty view"),
+        };
+        assert_eq!(n_sms_size(Some(&none), &[], ctx()).unwrap().expect_int(), 0);
+        assert_eq!(
+            n_sms_is_empty(Some(&none), &[], ctx())
+                .unwrap()
+                .expect_int(),
+            1
+        );
+        assert_eq!(s(&n_sms_to_string(Some(&none), &[], ctx()).unwrap()), "{}");
+        assert_eq!(
+            n_sms_first_key(Some(&none), &[], ctx())
+                .unwrap_err()
+                .java_class(),
+            "java/util/NoSuchElementException"
+        );
+        // the c07c law: lastKey on an empty view whose lo is above every
+        // key — Floor(hi) lands below lo and must fence to NSEE
+        assert_eq!(
+            n_sms_last_key(Some(&none), &[], ctx())
+                .unwrap_err()
+                .java_class(),
+            "java/util/NoSuchElementException"
+        );
+    }
+
+    #[test]
+    fn submap_range_gated_map_law() {
+        let _rt = crate::test_support::runtime();
+        // V4: reads silently miss out-of-range keys; put throws the exact
+        // IAE; null keys NPE and non-Comparable keys CCE through the range
+        // check
+        let (_m, sub) = tm_views_fixture();
+        let get = |k: i32| n_sms_get(Some(&sub), &[boxed_i32(k)], ctx()).unwrap();
+        assert_eq!(s(&get(3)), "c");
+        assert!(get(6).is_null());
+        assert!(get(1).is_null(), "below the lo: silent null");
+        assert!(get(7).is_null(), "at the exclusive hi: silent null");
+        assert!(get(99).is_null(), "above the hi: silent null");
+        let ck = |k: i32| n_sms_contains_key(Some(&sub), &[boxed_i32(k)], ctx()).unwrap();
+        assert_eq!(ck(3).expect_int(), 1);
+        assert_eq!(ck(1).expect_int(), 0);
+        assert_eq!(ck(7).expect_int(), 0);
+        let gd = n_sms_get_or_default(
+            Some(&sub),
+            &[boxed_i32(1), Value::Ref(Some(new_string("D")))],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(s(&gd), "D");
+        // remove: silent null out-of-range (the c34a shape even on an
+        // empty view)
+        let none = match n_tm_sub_map(Some(&_m), &[boxed_i32(10), boxed_i32(20)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("empty view"),
+        };
+        assert!(n_sms_remove(Some(&none), &[boxed_i32(1)], ctx())
+            .unwrap()
+            .is_null());
+        // put: IAE "key out of range" below-lo, at-hi-exc, above-hi
+        for k in [1, 7, 99] {
+            let err = n_sms_put(
+                Some(&sub),
+                &[boxed_i32(k), Value::Ref(Some(new_string("x")))],
+                ctx(),
+            )
+            .unwrap_err();
+            assert_eq!(err.java_class(), "java/lang/IllegalArgumentException");
+            assert_eq!(throw_message(&err), "key out of range");
+        }
+        // null key: NPE through the range compare (the c18 shape)
+        let err = n_sms_put(
+            Some(&sub),
+            &[Value::Ref(None), Value::Ref(Some(new_string("x")))],
+            ctx(),
+        )
+        .unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/NullPointerException");
+        // non-Comparable key: CCE through the range compare (c19)
+        let obj = new_obj("java/lang/Object", 0).unwrap();
+        let err = n_sms_put(
+            Some(&sub),
+            &[Value::Ref(Some(obj)), Value::Ref(Some(new_string("x")))],
+            ctx(),
+        )
+        .unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/ClassCastException");
+    }
+
+    #[test]
+    fn submap_narrowing_matrix_law() {
+        let _rt = crate::test_support::runtime();
+        // V7: the probed narrowing matrix — full inRange on the fromKey
+        // side, inclusivity-blind strictly-above-hi on the toKey side, the
+        // crossed check last; the absolute builders never range-check
+        let (m, s37) = tm_views_fixture(); // s37: lo=3 inc, hi=7 EXC
+        let tail5 = match n_tm_tail_map(Some(&m), &[boxed_i32(5)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("tail5"),
+        };
+        let head7 = match n_tm_head_map(Some(&m), &[boxed_i32(7)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("head7"),
+        };
+        let iae = |r: Result<Value, Throw>| -> String {
+            let e = r.unwrap_err();
+            assert_eq!(e.java_class(), "java/lang/IllegalArgumentException");
+            throw_message(&e)
+        };
+        // a. re-requesting the same bounds is LEGAL (toKey == exclusive hi
+        //    passes the toKey-side gate)
+        n_sms_sub_map(Some(&s37), &[boxed_i32(3), boxed_i32(7)], ctx()).unwrap();
+        // c. below the lo: "fromKey out of range"
+        assert_eq!(
+            iae(n_sms_sub_map(
+                Some(&s37),
+                &[boxed_i32(2), boxed_i32(5)],
+                ctx()
+            )),
+            "fromKey out of range"
+        );
+        // e. headMap ACCEPTS toKey == the exclusive hi (c16e) — the result
+        //    is the same-range view [3inc, 7exc]
+        let e = match n_sms_head_map(Some(&s37), &[boxed_i32(7)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16e"),
+        };
+        assert_eq!(
+            s(&n_sms_to_string(Some(&e), &[], ctx()).unwrap()),
+            "{3=c, 5=e}"
+        );
+        // f. tailMap REJECTS fromKey == the exclusive hi (the asymmetry)
+        assert_eq!(
+            iae(n_sms_tail_map(Some(&s37), &[boxed_i32(7)], ctx())),
+            "fromKey out of range"
+        );
+        // g. headMap down to the inclusive lo: legal EMPTY view
+        let g = match n_sms_head_map(Some(&s37), &[boxed_i32(3)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16g"),
+        };
+        assert_eq!(s(&n_sms_to_string(Some(&g), &[], ctx()).unwrap()), "{}");
+        // i. on an unbounded-hi view: headMap creates a new exclusive hi
+        let i = match n_sms_head_map(Some(&tail5), &[boxed_i32(7)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16i"),
+        };
+        assert_eq!(s(&n_sms_to_string(Some(&i), &[], ctx()).unwrap()), "{5=e}");
+        // j. on an exclusive-hi view: tailMap from that hi throws
+        assert_eq!(
+            iae(n_sms_tail_map(Some(&head7), &[boxed_i32(7)], ctx())),
+            "fromKey out of range"
+        );
+        // k. above the exclusive hi on an unbounded-hi parent: accepted
+        let k = match n_sms_tail_map(Some(&tail5), &[boxed_i32(9)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16k"),
+        };
+        assert_eq!(s(&n_sms_to_string(Some(&k), &[], ctx()).unwrap()), "{9=i}");
+        // l. crossed bounds on the ABSOLUTE map: "fromKey > toKey"
+        assert_eq!(
+            iae(n_tm_sub_map(Some(&m), &[boxed_i32(9), boxed_i32(3)], ctx())),
+            "fromKey > toKey"
+        );
+        // m. from == to on the absolute map: legal empty view
+        let mm = match n_tm_sub_map(Some(&m), &[boxed_i32(5), boxed_i32(5)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16m"),
+        };
+        assert_eq!(s(&n_sms_to_string(Some(&mm), &[], ctx()).unwrap()), "{}");
+        // n. chained twice
+        let chain = match n_tm_sub_map(Some(&m), &[boxed_i32(3), boxed_i32(9)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("chain"),
+        };
+        let nn = match n_sms_sub_map(Some(&chain), &[boxed_i32(5), boxed_i32(7)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16n"),
+        };
+        assert_eq!(s(&n_sms_to_string(Some(&nn), &[], ctx()).unwrap()), "{5=e}");
+        // o. no-intersection above: chained narrowing THROWS
+        let o1 = match n_sms_head_map(Some(&tail5), &[boxed_i32(7)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16o parent"),
+        };
+        assert_eq!(
+            iae(n_sms_tail_map(Some(&o1), &[boxed_i32(7)], ctx())),
+            "fromKey out of range"
+        );
+        // q. crossed INSIDE a legal window: "fromKey > toKey" (c16q)
+        assert_eq!(
+            iae(n_sms_sub_map(
+                Some(&chain),
+                &[boxed_i32(8), boxed_i32(5)],
+                ctx()
+            )),
+            "fromKey > toKey"
+        );
+        // s. subMap's fromKey == the exclusive hi: REJECTED (full inRange)
+        assert_eq!(
+            iae(n_sms_sub_map(
+                Some(&s37),
+                &[boxed_i32(7), boxed_i32(7)],
+                ctx()
+            )),
+            "fromKey out of range"
+        );
+        // t. tailMap's fromKey above the hi: REJECTED
+        let big = match n_tm_sub_map(Some(&m), &[boxed_i32(1), boxed_i32(9)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("big"),
+        };
+        assert_eq!(
+            iae(n_sms_tail_map(Some(&big), &[boxed_i32(99)], ctx())),
+            "fromKey out of range"
+        );
+        // u. headMap below the lo: "toKey out of range" (the full-tooLow
+        //    half of the toKey-side gate)
+        assert_eq!(
+            iae(n_sms_head_map(Some(&s37), &[boxed_i32(2)], ctx())),
+            "toKey out of range"
+        );
+        // w. chained subMap with toKey BELOW the lo: "toKey out of range"
+        //    fires BEFORE the crossed check (c16w)
+        assert_eq!(
+            iae(n_sms_sub_map(
+                Some(&big),
+                &[boxed_i32(5), boxed_i32(0)],
+                ctx()
+            )),
+            "toKey out of range"
+        );
+        // x. fromKey range precedes the crossed check (c16x)
+        assert_eq!(
+            iae(n_sms_sub_map(
+                Some(&s37),
+                &[boxed_i32(2), boxed_i32(1)],
+                ctx()
+            )),
+            "fromKey out of range"
+        );
+        // y. headMap == hi on a HI-INCLUSIVE parent: accepted (strictly-
+        //    above-hi is inclusivity-blind)
+        let inc_hi = match n_tm_sub_map4(
+            Some(&m),
+            &[boxed_i32(3), Value::Int(1), boxed_i32(7), Value::Int(1)],
+            ctx(),
+        )
+        .unwrap()
+        {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16y parent"),
+        };
+        let y = match n_sms_head_map(Some(&inc_hi), &[boxed_i32(7)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("c16y"),
+        };
+        assert_eq!(
+            s(&n_sms_to_string(Some(&y), &[], ctx()).unwrap()),
+            "{3=c, 5=e}"
+        );
+        // v. the view's comparator: null for natural ordering (deref'd from
+        //    the backing map — the c20 law)
+        assert!(n_sms_comparator(Some(&s37), &[], ctx()).unwrap().is_null());
+    }
+
+    #[test]
+    fn submap_live_and_slice_clear_law() {
+        let _rt = crate::test_support::runtime();
+        // V5: live both ways; V6: slice-only clear
+        let (m, sub) = tm_views_fixture();
+        // put through the view at an interior key: visible in both
+        n_sms_put(
+            Some(&sub),
+            &[boxed_i32(4), Value::Ref(Some(new_string("d4")))],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(
+            s(&n_sms_to_string(Some(&sub), &[], ctx()).unwrap()),
+            "{3=c, 4=d4, 5=e}"
+        );
+        assert_eq!(
+            s(&n_tm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{1=a, 3=c, 4=d4, 5=e, 7=g, 9=i}"
+        );
+        n_sms_remove(Some(&sub), &[boxed_i32(4)], ctx()).unwrap();
+        // parent put in-range appears in the view; out-of-range does not
+        n_tm_put(
+            Some(&m),
+            &[boxed_i32(6), Value::Ref(Some(new_string("six")))],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(
+            s(&n_sms_to_string(Some(&sub), &[], ctx()).unwrap()),
+            "{3=c, 5=e, 6=six}"
+        );
+        assert_eq!(
+            n_sms_contains_value(Some(&sub), &[Value::Ref(Some(new_string("six")))], ctx())
+                .unwrap()
+                .expect_int(),
+            1
+        );
+        assert_eq!(
+            n_sms_contains_value(Some(&sub), &[Value::Ref(Some(new_string("a")))], ctx())
+                .unwrap()
+                .expect_int(),
+            0
+        );
+        n_tm_remove(Some(&m), &[boxed_i32(6)], ctx()).unwrap();
+        // V6: slice-only clear — [3,7) drains 3,5; 7 is the exclusive hi
+        // and survives with 1 and 9
+        n_sms_clear(Some(&sub), &[], ctx()).unwrap();
+        assert_eq!(s(&n_sms_to_string(Some(&sub), &[], ctx()).unwrap()), "{}");
+        assert_eq!(
+            s(&n_tm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{1=a, 7=g, 9=i}"
+        );
+        assert_eq!(n_tm_size(Some(&m), &[], ctx()).unwrap().expect_int(), 3);
+        // the c35 shape: a 50-key map, clear [10,20), 40 survive
+        let big = tm_new();
+        for k in 0..50 {
+            n_tm_put(Some(&big), &[boxed_i32(k), boxed_i32(k * k)], ctx()).unwrap();
+        }
+        let mid = match n_tm_sub_map(Some(&big), &[boxed_i32(10), boxed_i32(20)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("mid"),
+        };
+        assert_eq!(n_sms_size(Some(&mid), &[], ctx()).unwrap().expect_int(), 10);
+        n_sms_clear(Some(&mid), &[], ctx()).unwrap();
+        assert_eq!(n_sms_size(Some(&mid), &[], ctx()).unwrap().expect_int(), 0);
+        assert_eq!(n_tm_size(Some(&big), &[], ctx()).unwrap().expect_int(), 40);
+        let ck = |k: i32| {
+            n_tm_contains_key(Some(&big), &[boxed_i32(k)], ctx())
+                .unwrap()
+                .expect_int()
+        };
+        assert_eq!(ck(10), 0);
+        assert_eq!(ck(20), 1, "the exclusive hi survives");
+        assert_eq!(ck(9), 1);
+        assert_eq!(ck(21), 1);
+    }
+
+    #[test]
+    fn submap_views_and_iterators_law() {
+        let _rt = crate::test_support::runtime();
+        // V9: the view-of-view objects + the bounded iterators (order,
+        // mid-walk remove, the hi fence)
+        let (m, sub) = tm_views_fixture();
+        let ks = match n_sms_key_set(Some(&sub), &[], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("keySet"),
+        };
+        let vs = match n_sms_values(Some(&sub), &[], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("values"),
+        };
+        let es = match n_sms_entry_set(Some(&sub), &[], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("entrySet"),
+        };
+        assert_eq!(
+            s(&n_smsks_to_string(Some(&ks), &[], ctx()).unwrap()),
+            "[3, 5]"
+        );
+        assert_eq!(
+            s(&n_smsvs_to_string(Some(&vs), &[], ctx()).unwrap()),
+            "[c, e]"
+        );
+        assert_eq!(
+            s(&n_smses_to_string(Some(&es), &[], ctx()).unwrap()),
+            "[3=c, 5=e]"
+        );
+        assert_eq!(n_smsks_size(Some(&ks), &[], ctx()).unwrap().expect_int(), 2);
+        // contains rides the range gate
+        assert_eq!(
+            n_smsks_contains(Some(&ks), &[boxed_i32(3)], ctx())
+                .unwrap()
+                .expect_int(),
+            1
+        );
+        assert_eq!(
+            n_smsks_contains(Some(&ks), &[boxed_i32(1)], ctx())
+                .unwrap()
+                .expect_int(),
+            0
+        );
+        // the bounded key iterator: mid-walk remove, order intact, no CME
+        let it = match n_smsks_iterator(Some(&ks), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("iterator"),
+        };
+        let mut walked = Vec::new();
+        let mut removed = None;
+        while n_sms_i_has_next(Some(&it), &[], ctx())
+            .unwrap()
+            .expect_int()
+            == 1
+        {
+            let k = n_smki_next(Some(&it), &[], ctx()).unwrap();
+            if unbox_i32(&k) == 5 {
+                n_tm_i_remove(Some(&it), &[], ctx()).unwrap();
+                removed = Some(k.clone());
+            } else {
+                walked.push(unbox_i32(&k));
+            }
+        }
+        assert_eq!(walked, vec![3]);
+        assert_eq!(unbox_i32(&removed.expect("removed")), 5);
+        assert_eq!(
+            s(&n_sms_to_string(Some(&sub), &[], ctx()).unwrap()),
+            "{3=c}"
+        );
+        assert_eq!(
+            s(&n_tm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{1=a, 3=c, 7=g, 9=i}"
+        );
+        // the hi fence stops the walk: [5,9) over the restored map
+        n_tm_put(
+            Some(&m),
+            &[boxed_i32(5), Value::Ref(Some(new_string("e")))],
+            ctx(),
+        )
+        .unwrap();
+        let tail = match n_tm_tail_map(Some(&m), &[boxed_i32(5)], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("tail"),
+        };
+        let tks = match n_sms_key_set(Some(&tail), &[], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("tail keySet"),
+        };
+        let it2 = match n_smsks_iterator(Some(&tks), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("tail iterator"),
+        };
+        let mut keys = Vec::new();
+        while n_sms_i_has_next(Some(&it2), &[], ctx())
+            .unwrap()
+            .expect_int()
+            == 1
+        {
+            keys.push(unbox_i32(&n_smki_next(Some(&it2), &[], ctx()).unwrap()));
+        }
+        assert_eq!(keys, vec![5, 7, 9]);
+        // the bounded entry iterator's next IS the backing entry node (the
+        // Map$Entry checkcast law carries)
+        let es2 = match n_sms_entry_set(Some(&sub), &[], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("entrySet2"),
+        };
+        let it3 = match n_smses_iterator(Some(&es2), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("entry iterator"),
+        };
+        let node = match n_smei_next(Some(&it3), &[], ctx()).unwrap() {
+            Value::Ref(Some(e)) => e,
+            _ => panic!("entry node"),
+        };
+        assert_eq!(
+            with_obj(node, |o| o.jclass.to_string()),
+            "java/util/TreeMap$Entry"
+        );
+    }
+
+    #[test]
+    fn submap_iterator_exception_laws() {
+        let _rt = crate::test_support::runtime();
+        // V8: ISE-first remove, double-remove ISE, exhausted NSEE, and the
+        // probed c27 law — a foreign OUT-of-range put still comodifies
+        let (m, sub) = tm_views_fixture();
+        let ks = match n_sms_key_set(Some(&sub), &[], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("keySet"),
+        };
+        // remove without next -> ISE (BEFORE any CME check)
+        let it = match n_smsks_iterator(Some(&ks), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("it"),
+        };
+        assert_eq!(
+            n_tm_i_remove(Some(&it), &[], ctx())
+                .unwrap_err()
+                .java_class(),
+            "java/lang/IllegalStateException"
+        );
+        // next, then a foreign put through the PARENT inside the range -> CME
+        n_smki_next(Some(&it), &[], ctx()).unwrap();
+        n_tm_put(
+            Some(&m),
+            &[boxed_i32(6), Value::Ref(Some(new_string("x")))],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(
+            n_smki_next(Some(&it), &[], ctx()).unwrap_err().java_class(),
+            "java/util/ConcurrentModificationException"
+        );
+        n_tm_remove(Some(&m), &[boxed_i32(6)], ctx()).unwrap();
+        // c27: a foreign put OUTSIDE the range STILL comodifies (the
+        // expectedModCount is the backing map's)
+        let it2 = match n_smsks_iterator(Some(&ks), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("it2"),
+        };
+        n_smki_next(Some(&it2), &[], ctx()).unwrap();
+        n_tm_put(
+            Some(&m),
+            &[boxed_i32(99), Value::Ref(Some(new_string("zz")))],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(
+            n_smki_next(Some(&it2), &[], ctx())
+                .unwrap_err()
+                .java_class(),
+            "java/util/ConcurrentModificationException"
+        );
+        n_tm_remove(Some(&m), &[boxed_i32(99)], ctx()).unwrap();
+        // double remove -> ISE; the exhausted walk -> NSEE
+        let it3 = match n_smsks_iterator(Some(&ks), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("it3"),
+        };
+        n_smki_next(Some(&it3), &[], ctx()).unwrap();
+        n_tm_i_remove(Some(&it3), &[], ctx()).unwrap();
+        assert_eq!(
+            n_tm_i_remove(Some(&it3), &[], ctx())
+                .unwrap_err()
+                .java_class(),
+            "java/lang/IllegalStateException"
+        );
+        while n_sms_i_has_next(Some(&it3), &[], ctx())
+            .unwrap()
+            .expect_int()
+            == 1
+        {
+            n_smki_next(Some(&it3), &[], ctx()).unwrap();
+        }
+        assert_eq!(
+            n_smki_next(Some(&it3), &[], ctx())
+                .unwrap_err()
+                .java_class(),
+            "java/util/NoSuchElementException"
+        );
     }
 
     #[test]

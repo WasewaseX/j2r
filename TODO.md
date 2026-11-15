@@ -3,7 +3,39 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-15 (run 5 of 5 — **TREEMAP LANDED, the cycle
+fix the board. Last updated: 2026-11-15 (run 6, owner-triggered
+continuation — **TREEMAP BOUNDED VIEWS LANDED** (handoff item 1): the
+harshest reset yet rolled the tree PAST run 4/5 to pre-M2 `b4badea` and
+the previous window's UN-PUSHED work died with it — this run is the
+full redo from the handoff notes. TreeMapViewsProbe (the 124th fixture,
+35 Temurin cases, three-channel zero; evidence
+scripts/evidence/treemap_views/) pinned the bounded-view laws live:
+computed range size/contents, from-inclusive/to-EXCLUSIVE + 4-arg
+flags, NSEE on empty views, the range-gated surface (silent misses;
+put → IAE "key out of range"; null → NPE, non-Comparable → CCE through
+the range compare), live views, slice-only clear, and the 26-cell
+narrowing matrix — full inRange on the fromKey side vs the
+INCLUSIVITY-BLIND strictly-above-hi toKey gate (headMap ACCEPTS toKey
+== an exclusive hi, the c16e/c16y asymmetry), check order fromKey →
+toKey → crossed "fromKey > toKey", absolute builders never
+range-check, disjoint chained narrowing THROWS. TreeMap$SubMap (5
+slots), six chained + six absolute builders, the view-of-view
+KeySet/Values/EntrySet, three bounded iterators (unbounded layout,
+slot 0 = the view; CME vs the BACKING modCount — an out-of-range
+foreign put still comodifies), n_tm_i_remove view-aware (ONE remove
+native for all six iterator classes). THE INVOKEINTERFACE
+STATIC-RECEIVER LESSON: inherited interface methods validate against
+the interface's own chain — validation-only anchor rows on
+java/util/SortedMap (18), NavigableMap (25), Collection (4). Three
+bugs the battery caught: tm_delete's root-with-one-child
+.expect()-panic (CLRS: the replacement IS the root), n_sms_clear's
+missing hi fence (the c15/c35 over-delete), sms_last_node's missing lo
+gate (c07c). Battery 498/0 lib + diff_suite 124 zero + cfg_equiv
+zero; gate-11 124/557. Next queue: the G3.3 prim rewrites riding both
+new maps, then the residuals (user-interface DEFAULT dispatch,
+HELPFUL-NPE, different-package private-ctor, the HashMap copy-ctor
+gap), the G3.1/G3.2 CFG layers, the M4 review, mappings/Mixins.)
+(Historical: run 5 of 5 — **TREEMAP LANDED, the cycle
 ENDS**: the sorted map with the CLRS red-black storage — the probed
 laws (TreeMapProbe, the 123rd fixture, three-channel zero; evidence
 scripts/evidence/treemap/), the CLRS fixups with TWO bugs found by the
