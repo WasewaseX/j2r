@@ -1117,12 +1117,12 @@ impl<'a> Sim<'a> {
             // MapGetPrim pops the key and the map and pushes the prim
             // payload (category-2 for D/J) — the same net shape as the
             // get/checkcast/unbox run it replaces.
-            MapPutPrim { prim } => {
+            MapPutPrim { prim, .. } => {
                 self.pop_exact(boxed_prim_vty(*prim))?;
                 self.pop_ref()?;
                 self.pop_ref()?;
             }
-            MapGetPrim { prim } => {
+            MapGetPrim { prim, .. } => {
                 self.pop_ref()?;
                 self.pop_ref()?;
                 self.push(boxed_prim_vty(*prim))?;

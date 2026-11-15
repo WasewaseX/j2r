@@ -1798,7 +1798,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
         // the get's result refills the map operand's slot under the
         // kind-change law, with the expect_* unwrap hoisted by the
         // unified push law (Src::Value with the prim kind).
-        I::MapPutPrim { prim } => {
+        I::MapPutPrim { kind, prim } => {
             ctx.refresh(pc);
             let (ctor, tp) = boxed_ctor(*prim);
             let val = format!(
@@ -1811,13 +1811,21 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             ctx.out.push(format!("let __k = {key};"));
             ctx.out.push(format!("let __val = {val};"));
             ctx.out.push(format!("let __r = {r};"));
+            // G3.3 slice 4: the storage kind routes the native — the
+            // hash family shares hm_put_prim (node-kind dispatch on the
+            // map's runtime class; LinkedHashMap rides with the
+            // tail-link law), TreeMap routes to the red-black walk.
+            let put_fn = match kind {
+                crate::ir::MapKind::TreeMap => "tm_put_prim",
+                _ => "hm_put_prim",
+            };
             let call = try_wrap(
                 &fault,
-                format!("{RT}::collections::hm_put_prim(&__r, __k, __val, crate::j2r_dispatch())"),
+                format!("{RT}::collections::{put_fn}(&__r, __k, __val, crate::j2r_dispatch())"),
             );
             ctx.out.push(format!("let __v = {call};"));
         }
-        I::MapGetPrim { prim } => {
+        I::MapGetPrim { kind, prim } => {
             ctx.refresh(pc);
             let (_, tp) = boxed_ctor(*prim);
             // The fused unbox law: the expected box class rides the
@@ -1833,10 +1841,15 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let r = ctx.try_ref_of(pc, vs[k - 2], &fault);
             ctx.out.push(format!("let __k = {key};"));
             ctx.out.push(format!("let __r = {r};"));
+            // The storage kind routes the native (G3.3 slice 4).
+            let get_fn = match kind {
+                crate::ir::MapKind::TreeMap => "tm_get_prim",
+                _ => "hm_get_prim",
+            };
             let call = try_wrap(
                 &fault,
                 format!(
-                    "{RT}::collections::hm_get_prim(&__r, __k, {expect:?}, crate::j2r_dispatch())"
+                    "{RT}::collections::{get_fn}(&__r, __k, {expect:?}, crate::j2r_dispatch())"
                 ),
             );
             let kind = match tp {

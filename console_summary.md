@@ -1,3 +1,30 @@
+Updated 2026-11-16 (run 6 cont. window 2 — **G3.3 SLICE 4 LANDED: the
+prim rewrites RIDE BOTH NEW MAPS**): after the probe checkpoint
+(1f2c29e), the implementation wave landed in one slice. Runtime: the
+TreeMap$Entry class-tag slot (6), tm_put_impl shared by the faithful
+and specialized puts (the overwrite return materialized before the
+slot write), tm_get_prim (the fused law at the red-black layout), the
+layout-aware materializer routed at every faithful value reader — the
+sms view natives delegate to the n_tm_* natives, so THE BOUNDED VIEWS
+RIDE BY CONSTRUCTION — the transplant-by-copy moves the tag with the
+value, and hm_put_prim is node-kind-aware (LinkedHashMap rides with the
+tail-link law). Codegen: MapKind through the IR; MAP_RECEIVERS += the
+two new classes (the adjacency window only — the receiver resolution
+still demands a proven creation run); Phase A accepts the three
+creation-run classes; the access-order LHM ctor is REFUSED (j2r's LHM
+is insertion-ordered); the proven-field set carries (PrimType, MapKind);
+both emitters route by kind. FIRED-CODE CENSUS: 5 tm_put + 4 tm_get +
+3 hm_put + 3 hm_get calls in the translated probe — all three storages
+x both receiver shapes fire, every generic exit stays faithful.
+Battery: lib **509/0** (48+160+15+286), diff_suite **125 three-channel
+zero** (357.68 s + 357.25 s sharded), cfg_equiv **zero** (432.14 s),
+fmt+clippy clean, gate-11 **125/568** in sync. Evidence:
+scripts/evidence/g3_3/treemap_lhm_prim_2026-11-16.txt. NEXT:
+FORNAME-INIT, then NEW-INSTANCE, then the residuals, the CFG layers,
+the owner asks.
+
+---
+
 Updated 2026-11-16 (run 6 cont. — the G3.3 ride-both-maps slice OPENED,
 probe landed): reset #31 rolled the local tree back to pre-M2 `b4badea`
 again — ZERO loss this time, the positive proof of push-first (all of

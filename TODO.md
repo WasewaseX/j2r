@@ -2122,9 +2122,9 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       paired numbers stand. Evidence:
       scripts/evidence/g3_3/{field_layer_2026-11-14.txt, Probe3.java}.
       NEXT: FORNAME-INIT (the registered design), then NEW-INSTANCE.
-- [~] **G3.3 SLICE 4 — the rewrites RIDE BOTH NEW MAPS (the TreeMap
-      red-black + the LinkedHashMap link chain; the bounded views ride
-      them too) — STARTED 2026-11-16 (run 6 cont.)** — the handoff
+- [x] **G3.3 SLICE 4 — the rewrites RIDE BOTH NEW MAPS — LANDED
+      (2026-11-16, run 6 cont. window 2; the TreeMap red-black + the
+      LinkedHashMap link chain; the bounded views ride them too)** — the handoff
       queue's item 1 (the updated console queue; FORNAME-INIT and
       NEW-INSTANCE queue behind it). Reset #31 survived with ZERO loss —
       the local tree rolled back to pre-M2 `b4badea` again, but every
@@ -2161,9 +2161,38 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       node-kind-aware (LinkedHashMap rides with the tail-link law);
       codegen — MAP_RECEIVERS + the Phase A creation runs + the
       proven-field set + the synthetics carry MapKind {HashMap,
-      LinkedHashMap, TreeMap}, the emitters route hm/tm. REMAINING:
-      implement, law tests, fixture 125 three-channel zero, battery,
-      gate-11 125/N, boards, push.
+      LinkedHashMap, TreeMap}, the emitters route hm/tm. LANDED: the
+      runtime (TME_TAG slot 6 — the LHM entry layout already carried the
+      tag; tm_put_impl shared by n_tm_put + tm_put_prim, the overwrite
+      return materialized BEFORE the slot write; tm_get_prim, the fused
+      law at the red-black layout; node_value_materialized_at, the
+      layout-aware form, routed at n_tm_get/get_or_default/
+      contains_value/remove-return/put-overwrite-return/tm_all_entries/
+      n_tvi_next/n_smvi_next/entry-getValue/sms_all_entries — the sms
+      natives DELEGATE to the n_tm_* natives, so the views ride by
+      construction; the transplant-by-copy moves the TAG WITH THE VALUE;
+      hm_put_prim node-kind-aware — LinkedHashMap → LinkedEntry +
+      lhm_link_at_tail) and the codegen (MAP_RECEIVERS += TreeMap/LHM —
+      the adjacency window only, the receiver resolution still demands a
+      proven creation run; Phase A accepts the three creation-run
+      classes; the LHM 3-const-arg access-order ctor REFUSED — j2r's LHM
+      is insertion-ordered, the faithful path stands; the proven-field
+      set carries (PrimType, MapKind), mixed provenance refuses; the
+      kind routes the natives in both emitters). THE FIRED-CODE CENSUS
+      (the translated probe): 5 tm_put_prim + 4 tm_get_prim (bad local,
+      tl local, STM field) + 3 hm_put_prim + 3 hm_get_prim (lm local,
+      SLM field) — all three storages x both receiver shapes provably
+      fire, every generic exit stays faithful. Battery all green: lib
+      units **509/0** (48+160+15+286; +6 runtime laws +5 peephole laws),
+      diff_suite **125 fixtures three-channel ZERO** (357.68 s +
+      357.25 s sharded; TreeMapLhmPrimProbe the 125th, byte-identical vs
+      Temurin 21.0.13+9), cfg_equiv **zero** (432.14 s), fmt+clippy
+      clean FRESH, gate-11 in sync: fixtures=125 tests=568 (README
+      124→125 / 557→568, diff guard 123→124, cfg-equiv 125/125).
+      Evidence: scripts/evidence/g3_3/{treemap_lhm_prim_2026-11-16.txt,
+      TreeMapLhmPrimProbe.java, treemap_lhm_prim_temurin_2026-11-16.txt}.
+      NEXT: FORNAME-INIT (the registered design), then NEW-INSTANCE,
+      then the residuals, the G3.1/G3.2 CFG layers, the owner asks.
 - [x] **EXTERNAL PORT REPORT PERSISTED — jbox2d 2.2.1.1 (2026-11-13,
       session 19b, owner directive: "add these in todo list and roadmap
       to survive sandbox reset")** — the owner's independent port test

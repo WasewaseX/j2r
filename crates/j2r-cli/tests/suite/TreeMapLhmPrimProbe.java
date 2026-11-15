@@ -69,10 +69,13 @@ public class TreeMapLhmPrimProbe {
         m.put("k", 7.75);
         System.out.println("c13: " + m.get("k") + " " + m);
 
-        // c14. Long core path + arithmetic on the unboxed result
+        // c14. Long core path + arithmetic on the unboxed result — the
+        // local is CLOSURE-CLEAN (every load is a core receiver), so the
+        // rewrite FIRES on the red-black storage
         TreeMap<String, Long> tl = new TreeMap<>();
         tl.put("x", 10L); tl.put("y", 20L);
-        System.out.println("c14: " + (tl.get("x") + tl.get("y")) + " " + tl);
+        long sum = tl.get("x") + tl.get("y");
+        System.out.println("c14: " + sum);
 
         // c15. Integer-KEY TreeMap: the key's valueOf stays OUTSIDE the
         // cores (only the value adjacency matches) — keys stay boxed and
@@ -133,10 +136,12 @@ public class TreeMapLhmPrimProbe {
         Object lro = l.remove("c");
         System.out.println("c26: removed=" + lro + " size=" + l.size() + " map=" + l);
 
-        // c27. Map-typed LHM local
+        // c27. Map-typed LHM local — CLOSURE-CLEAN: every load is a core
+        // receiver, so the rewrite FIRES on the linked-chain storage
         Map<String, Integer> lm = new LinkedHashMap<>();
         lm.put("n", 9);
-        System.out.println("c27: " + lm.get("n") + " " + lm);
+        int nv = lm.get("n");
+        System.out.println("c27: " + nv);
 
         // ---- D. static fields (the proven-field layer rides both maps) ----
 

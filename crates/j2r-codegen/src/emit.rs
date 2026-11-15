@@ -2022,7 +2022,7 @@ fn emit_instr(
         // existed on this path; the put's return is discarded by the
         // core's own Pop and the get's result replaces the map operand
         // exactly like the invoke-result law.
-        Instr::MapPutPrim { .. } => {
+        Instr::MapPutPrim { kind, .. } => {
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             out.push(format!(
                 "let __val = {RT}::stack::stack_pop(&mut stack);"
@@ -2036,11 +2036,20 @@ fn emit_instr(
             out.push(format!(
                 "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
             ));
+            // G3.3 slice 4: the storage kind routes the native — the
+            // hash family shares hm_put_prim (its node-kind dispatch
+            // follows the map's runtime class, so LinkedHashMap rides
+            // with the tail-link law), TreeMap routes to the red-black
+            // walk's own pair.
+            let put_fn = match kind {
+                crate::ir::MapKind::TreeMap => "tm_put_prim",
+                _ => "hm_put_prim",
+            };
             out.push(format!(
-                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::hm_put_prim(&__r, __key, __val, crate::j2r_dispatch()));"
+                "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::{put_fn}(&__r, __key, __val, crate::j2r_dispatch()));"
             ));
         }
-        Instr::MapGetPrim { prim } => {
+        Instr::MapGetPrim { kind, prim } => {
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             out.push(format!(
                 "let __key = {RT}::stack::stack_pop(&mut stack);"
@@ -2050,15 +2059,20 @@ fn emit_instr(
             ));
             // The fused unbox law: the expected box class rides the
             // synthetic — a foreign box or a mismatched prim tag throws
-            // the faithful checkcast's exact CCE (G3.3 slice 3).
+            // the faithful checkcast's exact CCE (G3.3 slice 3). The
+            // storage kind routes the native (G3.3 slice 4).
             let expect = match prim {
                 crate::ir::PrimType::Double => "java/lang/Double",
                 crate::ir::PrimType::Float => "java/lang/Float",
                 crate::ir::PrimType::Long => "java/lang/Long",
                 _ => "java/lang/Integer",
             };
+            let get_fn = match kind {
+                crate::ir::MapKind::TreeMap => "tm_get_prim",
+                _ => "hm_get_prim",
+            };
             out.push(format!(
-                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::hm_get_prim(&__r, __key, {expect:?}, crate::j2r_dispatch()));"
+                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::collections::{get_fn}(&__r, __key, {expect:?}, crate::j2r_dispatch()));"
             ));
             out.push("stack.push(__v);".into());
         }

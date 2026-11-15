@@ -1,0 +1,132 @@
+G3.3 SLICE 4 — the prim rewrites RIDE BOTH NEW MAPS (2026-11-16, run 6 cont., window 2)
+========================================================================================
+
+The handoff queue's item 1 (the updated console queue after the run-6
+bounded-views landing): extend the specialized-map put/get rewrites
+(slices 2+3, HashMap-only) to the TreeMap red-black storage and the
+LinkedHashMap link chain — the bounded views ride them too. The
+pre-reset registered NEXTs (FORNAME-INIT, NEW-INSTANCE) queue behind.
+
+RESET #31 (window opening)
+--------------------------
+The local tree rolled back to pre-M2 `b4badea` again (the snapshot
+predates the run-4/5/6 commits; no `3484c79` object in the store). ZERO
+loss — the positive proof of push-first: fetch + ff-only recovered
+`10f1361` (the run-6 REDO commit). Toolchain re-bootstrapped byte-exact
+(scripts/bootstrap_toolchain.sh): rustc 1.99.1 `58cf8f9c3`, Temurin
+javac 21.0.13. Baseline re-proven BEFORE any code:
+  lib 498/0 (48+155+15+280) · diff_suite 124 three-channel ZERO
+  (352.27 s + 360.92 s sharded) · cfg_equiv zero (426.15 s)
+
+PROBE FIRST (TreeMapLhmPrimProbe, 35 cases)
+-------------------------------------------
+Source: crates/j2r-cli/tests/suite/TreeMapLhmPrimProbe.java (+ the copy
+here). Temurin capture: treemap_lhm_prim_temurin_2026-11-16.txt (37
+lines). Pre-landing `j2r test` PASS (the faithful path was already
+byte-identical; the rewrite must keep it so).
+
+THE C12 CORRECTION (live, by the probe): the non-Comparable-key CCE
+case was first written with StringBuilder keys — WRONG, StringBuilder
+is Comparable<StringBuilder> since JDK 11, Temurin accepted it
+everywhere (first/second put AND get: NO-THROW). Re-pinned on Object
+keys: the self-compare (compare(key,key), the addEntryToEmptyMap law)
+throws CCE on the FIRST put into an empty natural-order map — exactly
+what j2r's faithful n_tm_put already implements. (CceProbe/CceProbe2,
+this dir's session, /tmp scratch.)
+
+The probe pins: the put/get core shapes over TreeMap/LHM locals (incl.
+Map-typed locals) and proven static fields; L1 get-twice-returns-the-
+same-ref; the L2 JLS cache laws (Integer in-cache TRUE, beyond-cache
+FALSE; Double never cached); the faithful overwrite/remove returns
+materializing raw slots; the null laws (fresh null value then core get
+→ bare NPE; null over a prim-tagged slot passes through — the tag is an
+ANNOTATION, not a mode switch); the SubMap view readers on a prim-tagged
+backing map (the views ride); LHM insertion order with raw slots;
+Integer-key TreeMaps (the key's valueOf stays OUTSIDE the cores); the
+CCE self-compare law. c14/c27 are CLOSURE-CLEAN locals (every load is a
+core receiver) so the rewrite provably fires on both new storages.
+
+IMPLEMENTATION
+--------------
+Runtime (collections.rs):
+- TreeMap$Entry gains slot 6 = TME_TAG (the slice-3 class-tag law on the
+  red-black storage; the LHM entry layout already carried it). The
+  put machinery is tm_put_impl (n_tm_put + tm_put_prim share it): the
+  CLRS walk, the self-compare and the modCount/size are byte-identical;
+  the tag param is None on the faithful path.
+- The overwrite branch materializes the OLD value BEFORE the slot write
+  (the hm_put pattern — the Map.put contract; allocation outside any
+  with_obj scope, the heap-lock law).
+- tm_get_prim: the fused checkcast+xValue() law at the red-black layout
+  (missing key / stored null → the bare NPE; foreign box / mismatched
+  tag → the faithful CCE through the shared helper).
+- node_value_materialized_at(node, value_idx, tag_idx): the layout-aware
+  form; tm_entry_value_materialized routes n_tm_get, get_or_default,
+  contains_value, the remove return, the put-overwrite return,
+  tm_all_entries (toString/containsValue/views), the value iterators
+  (n_tvi_next, n_smvi_next), entry getValue, sms_all_entries — the sms
+  natives DELEGATE to the n_tm_* natives, so the bounded views ride by
+  construction.
+- The transplant-by-copy moves the TAG WITH THE VALUE (the successor
+  node dies; a cleared tag on a raw slot would be a raw slot no reader
+  can name).
+- hm_put_prim is node-kind-aware: the kind follows the MAP's runtime
+  class (LinkedHashMap → LinkedEntry + lhm_link_at_tail — the tail-link
+  law; an overwrite keeps position, no link work). The hash-family get
+  needs no change (the LHM entry layout carries the tag; the readers
+  were routed in slice 3).
+
+Codegen:
+- ir.rs: MapKind {HashMap, LinkedHashMap, TreeMap}; MapPutPrim/MapGetPrim
+  carry kind.
+- peephole.rs: MAP_RECEIVERS += java/util/TreeMap, java/util/
+  LinkedHashMap (the adjacency window only — the receiver resolution
+  still demands a proven creation run); Phase A accepts the three
+  creation-run classes (New class == <init> class, const-arg shapes);
+  the LHM 3-const-arg run (the access-order ctor) is REFUSED (j2r's LHM
+  is insertion-ordered; the conservative default keeps the faithful
+  path); the proven-field set carries (PrimType, MapKind) — every site
+  must prove the SAME class or the field refuses; the splice emits the
+  kind.
+- emit.rs / typed.rs: the kind routes the natives — TreeMap →
+  tm_put_prim/tm_get_prim; the hash family → hm_put_prim/hm_get_prim
+  (the runtime node-kind dispatch makes LinkedHashMap ride).
+
+FIRED-CODE CENSUS (the translated probe module)
+-----------------------------------------------
+  5 tm_put_prim + 4 tm_get_prim   (bad local 1 put; tl local 2+2;
+                                   STM field 2+2)
+  3 hm_put_prim + 3 hm_get_prim   (lm local 1+1; SLM field 2+2)
+All three storages x both receiver shapes (closure-clean fresh local +
+proven static field) provably fire; every generic exit stays faithful.
+
+BATTERY (all green, this window, release)
+-----------------------------------------
+  lib units 509/0 (48+160+15+286) — +6 runtime law tests
+  (tm_put_prim_stores_raw_and_the_readers_materialize,
+  tm_put_overwrite_and_remove_returns_materialize,
+  tm_get_prim_failure_modes_are_the_fused_law,
+  tm_delete_transplant_moves_the_tag_with_the_value,
+  tm_view_readers_ride_the_raw_slots,
+  lhm_put_prim_links_the_tail_and_materializes)
+  and +5 peephole laws (treemap_local_rewrites_with_the_red_black_kind,
+  lhm_local_rewrites_with_the_link_chain_kind,
+  lhm_access_order_ctor_refuses_the_whole_local,
+  comparator_ctor_refuses_the_whole_local,
+  treemap_typed_receiver_without_provenance_stays_faithful)
+  diff_suite 125 fixtures three-channel ZERO divergences
+  (357.68 s + 357.25 s sharded) — TreeMapLhmPrimProbe is the 125th
+  fixture, byte-identical vs Temurin 21.0.13+9 on all channels
+  cfg_equiv zero (432.14 s)
+  fmt + clippy clean FRESH
+  gate-11 in sync: fixtures=125, tests=568 (README 124→125 / 557→568,
+  diff guard 123→124, cfg-equiv line 124/124→125/125)
+
+NOT probed/implemented this slice (the same-surface law): view
+equals/hashCode, firstEntry/lastEntry/pollFirstEntry/pollLastEntry,
+descendingMap, putAll on views (loud unsupported, unchanged); the
+access-order LHM ctor keeps the faithful path (registered refusal).
+NEXT per the queue: FORNAME-INIT (the registered design), then
+NEW-INSTANCE, then the residuals (user-interface DEFAULT dispatch,
+HELPFUL-NPE, different-package private-ctor, the HashMap copy-ctor gap),
+the G3.1/G3.2 CFG layers, the owner-review asks.

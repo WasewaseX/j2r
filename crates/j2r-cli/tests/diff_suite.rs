@@ -242,10 +242,17 @@ fn differential_suite_matches_jvm() {
     // size, the live views, the slice-only clear, the view-of-view
     // keySet/values/entrySet, and the bounded iterators sharing the
     // unbounded remove (ISE-first carries) — 124 on disk, guard one below
-    // that.
+    // that. The G3.3 slice-4 wave (2026-11-16) added TreeMapLhmPrimProbe —
+    // the prim rewrites RIDING BOTH NEW MAPS: the closure-clean TreeMap and
+    // LinkedHashMap locals, the proven static fields, L1/L2 through the
+    // materialization layer, the faithful overwrite/remove returns, the
+    // null laws (the tag is an annotation), the SubMap view readers, LHM
+    // insertion order, and the c12-corrected CCE self-compare law
+    // (StringBuilder is Comparable since JDK 11 — pinned on Object keys) —
+    // 125 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 123,
-        "differential suite shrank: {} fixtures (expected >= 123)",
+        fixtures.len() >= 124,
+        "differential suite shrank: {} fixtures (expected >= 124)",
         fixtures.len()
     );
 

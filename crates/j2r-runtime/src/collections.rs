@@ -1049,7 +1049,7 @@ fn hm_resize(map: &JRef) -> Result<(), Throw> {
 /// The node layout hm_put allocates: the plain HashMap$Node (5 slots —
 /// hash/key/value/next + the undeclared tag) or the LinkedHashMap$Entry
 /// (7 slots — before/after after the tag, the order-link pair).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum NodeKind {
     HashNode,
     LinkedEntry,
@@ -1275,8 +1275,20 @@ pub fn n_hm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
 /// The allocation happens OUTSIDE any `with_obj` scope (the heap-lock
 /// law: alloc never nests under an object borrow).
 fn node_value_materialized(node: &JRef) -> Result<Value, Throw> {
+    node_value_materialized_at(node, 2, HM_NODE_TAG)
+}
+
+/// The layout-aware form of [`node_value_materialized`] (G3.3 slice 4):
+/// the same law at an arbitrary (value slot, tag slot) pair — the
+/// red-black storage's `TreeMap$Entry` reads (TME_VALUE, TME_TAG). All
+/// other laws are the helper's own (shared above).
+fn node_value_materialized_at(
+    node: &JRef,
+    value_idx: usize,
+    tag_idx: usize,
+) -> Result<Value, Throw> {
     let (v, tag) = with_obj(*node, |o| {
-        (o.slots[2].clone(), o.slots[HM_NODE_TAG].clone())
+        (o.slots[value_idx].clone(), o.slots[tag_idx].clone())
     });
     let Value::Int(c) = tag else { return Ok(v) };
     let is_prim = matches!(
@@ -1298,8 +1310,18 @@ fn node_value_materialized(node: &JRef) -> Result<Value, Throw> {
         }
     };
     let boxed = crate::reflect::box_by_desc(v, &desc.to_string())?;
-    with_obj_mut(*node, |o| o.slots[2] = boxed.clone());
+    with_obj_mut(*node, |o| o.slots[value_idx] = boxed.clone());
     Ok(boxed)
+}
+
+/// The red-black storage's materialized value reader (G3.3 slice 4): the
+/// SAME law at the TreeMap$Entry layout. Routed at every semantic value
+/// reader — n_tm_get/get_or_default/contains_value, the remove and
+/// put-overwrite returns, tm_all_entries (toString/containsValue/the
+/// view builders), the value iterators, entry getValue, and the sms
+/// view entries — so the bounded views ride by construction.
+fn tm_entry_value_materialized(e: &JRef) -> Result<Value, Throw> {
+    node_value_materialized_at(e, TME_VALUE, TME_TAG)
 }
 
 /// The specialized-map put: stores `value` (a raw `Value::Double/Float/
@@ -1319,7 +1341,24 @@ pub fn hm_put_prim(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Resul
         Value::Long(_) => Some('J'),
         _ => None,
     };
-    let _ = hm_put(map, key, value, ctx, tag, NodeKind::HashNode)?;
+    // G3.3 slice 4: the node kind follows the MAP's runtime class — a
+    // LinkedHashMap rides the same rewrite (the link-chain storage, the
+    // tail-link law included; an overwrite keeps position, so no link
+    // work there either). The linked entry layout already carries the
+    // tag (the post-slice-3 node layout), so the materialization layer
+    // serves it unchanged.
+    let cls = with_obj(*map, |o| o.jclass.to_string());
+    let kind = if cls == "java/util/LinkedHashMap" {
+        NodeKind::LinkedEntry
+    } else {
+        NodeKind::HashNode
+    };
+    let (_, node) = hm_put(map, key, value, ctx, tag, kind)?;
+    if kind == NodeKind::LinkedEntry {
+        if let Some(node) = node {
+            lhm_link_at_tail(map, &node);
+        }
+    }
     Ok(())
 }
 
@@ -1369,6 +1408,73 @@ pub fn hm_get_prim(
                     // stamp — the provenance check the faithful checkcast
                     // would have run on the box.
                     let tag = with_obj(node, |o| o.slots[HM_NODE_TAG].clone());
+                    let Value::Int(c) = tag else {
+                        return Err(internal_error(
+                            "j2r internal: map prim slot without a class tag",
+                        ));
+                    };
+                    let actual = match char::from_u32(c as u32) {
+                        Some('D') => "java/lang/Double",
+                        Some('F') => "java/lang/Float",
+                        Some('I') => "java/lang/Integer",
+                        Some('J') => "java/lang/Long",
+                        _ => {
+                            return Err(internal_error(
+                                "j2r internal: map node carries an invalid class tag",
+                            ))
+                        }
+                    };
+                    if actual == expect {
+                        Ok(other)
+                    } else {
+                        Err(crate::cce_throw(actual, expect))
+                    }
+                }
+                other => Err(internal_error(&format!(
+                    "j2r internal: map prim slot holds {other:?}"
+                ))),
+            }
+        }
+        None => Err(throw_new("java/lang/NullPointerException", None)),
+    }
+}
+
+/// G3.3 slice 4: the fused get law at the RED-BLACK storage — the same
+/// failure modes as [`hm_get_prim`], byte-for-byte, with the walk (and
+/// the compare/CCE law on the key) being tm_find's own:
+/// - a MISSING key is the null box reaching `xValue()`: the bare NPE;
+/// - a stored null VALUE is the same bare NPE;
+/// - a FOREIGN box fails the faithful checkcast through the shared
+///   helper (the exact CCE bytes);
+/// - a raw-prim slot whose tag disagrees with `expect` is the same CCE
+///   with the tag's class as the actual type;
+/// - a matching box or tag unwraps to the prim payload.
+pub fn tm_get_prim(
+    map: &JRef,
+    key: Value,
+    expect: &'static str,
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
+    match tm_find(map, &key, ctx)? {
+        Some(node) => {
+            let v = with_obj(node, |o| o.slots[TME_VALUE].clone());
+            match v {
+                Value::Ref(None) => Err(throw_new("java/lang/NullPointerException", None)),
+                Value::Ref(Some(boxed)) => {
+                    crate::checkcast(Value::Ref(Some(boxed)), expect, ctx)?;
+                    let payload = with_obj(boxed, |o| o.slots[0].clone());
+                    match payload {
+                        p @ (Value::Double(_)
+                        | Value::Float(_)
+                        | Value::Int(_)
+                        | Value::Long(_)) => Ok(p),
+                        _ => Err(internal_error(
+                            "j2r internal: map prim slot holds a non-prim box",
+                        )),
+                    }
+                }
+                other @ (Value::Double(_) | Value::Float(_) | Value::Int(_) | Value::Long(_)) => {
+                    let tag = with_obj(node, |o| o.slots[TME_TAG].clone());
                     let Value::Int(c) = tag else {
                         return Err(internal_error(
                             "j2r internal: map prim slot without a class tag",
@@ -2330,6 +2436,13 @@ const TME_LEFT: usize = 2;
 const TME_RIGHT: usize = 3;
 const TME_PARENT: usize = 4;
 const TME_COLOR: usize = 5; // Int: 0 = RED, 1 = BLACK
+                            // G3.3 slice 4: the class tag (the slice-3 law, now on the red-black
+                            // storage too): Void = a faithful node; Int(desc char) = slot TME_VALUE
+                            // holds a RAW prim written by tm_put_prim. The tag is an ANNOTATION, not
+                            // a mode switch — a faithful overwrite clears it, a faithful overwrite
+                            // of a tagged slot leaves a box in the slot and the tag passes through
+                            // every reader.
+const TME_TAG: usize = 6;
 const TM_RED: i32 = 0;
 const TM_BLACK: i32 = 1;
 
@@ -2510,7 +2623,7 @@ fn tm_all_entries(map: &JRef) -> Result<Vec<(Value, Value)>, Throw> {
     if let Some(root) = tm_root(map) {
         let mut cur = Some(tm_leftmost(root));
         while let Some(n) = cur {
-            out.push((tm_entry_key(&n), tm_entry_value(&n)));
+            out.push((tm_entry_key(&n), tm_entry_value_materialized(&n)?));
             cur = tm_successor_of(n);
         }
     }
@@ -2741,9 +2854,15 @@ fn tm_delete(map: &JRef, z: JRef) {
     if tm_child(&z, TME_LEFT).is_some() && tm_child(&z, TME_RIGHT).is_some() {
         let s = tm_successor_of(z).expect("j2r internal: successor of a two-child node");
         let (sk, sv) = (tm_entry_key(&s), tm_entry_value(&s));
+        // G3.3 slice 4: the class tag RIDES the value in the
+        // transplant-by-copy — the successor node dies here, so its raw
+        // provenance must move with the payload (a cleared tag on a raw
+        // slot would be a raw slot no reader can name).
+        let stag = with_obj(s, |o| o.slots[TME_TAG].clone());
         with_obj_mut(z, |o| {
             o.slots[TME_KEY] = sk;
             o.slots[TME_VALUE] = sv;
+            o.slots[TME_TAG] = stag;
         });
         target = s;
     }
@@ -2842,6 +2961,44 @@ pub fn n_tm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
     let r = recv.expect("j2r internal: TreeMap.put without receiver");
     let key = args.first().cloned().unwrap_or(Value::Ref(None));
     let value = args.get(1).cloned().unwrap_or(Value::Ref(None));
+    tm_put_impl(r, key, value, ctx, None).map(|old| old.unwrap_or(Value::Ref(None)))
+}
+
+/// G3.3 slice 4: the specialized-map put on the red-black storage. The
+/// walk, the self-compare (the addEntryToEmptyMap law — a non-Comparable
+/// key throws CCE on the FIRST put), the CLRS insert and the modCount/
+/// size are n_tm_put's own machinery — only the box allocation and the
+/// valueOf dispatch disappear. The put's return (the OLD value, per the
+/// Map contract) is discarded: the rewritten core requires the `Pop`, so
+/// no caller can observe it.
+pub fn tm_put_prim(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Result<(), Throw> {
+    // The tag rides the stored value's own prim kind — the node becomes
+    // self-describing, so a faithful reader materializes the exact box
+    // class the compiler's closure law hid.
+    let tag = match &value {
+        Value::Double(_) => Some('D'),
+        Value::Float(_) => Some('F'),
+        Value::Int(_) => Some('I'),
+        Value::Long(_) => Some('J'),
+        _ => None,
+    };
+    tm_put_impl(map, key, value, ctx, tag).map(|old| old.unwrap_or(Value::Ref(None)))?;
+    Ok(())
+}
+
+/// The put machinery shared by n_tm_put and tm_put_prim. `tag` is None
+/// for the faithful path (byte-identical behavior) and Some(desc char)
+/// for the specialized path (the node stores the RAW prim + its tag).
+/// The overwrite return is materialized BEFORE the slot write (the
+/// hm_put pattern — the Map.put contract; the allocation happens
+/// outside any with_obj scope).
+fn tm_put_impl(
+    r: &JRef,
+    key: Value,
+    value: Value,
+    ctx: Dispatch,
+    tag: Option<char>,
+) -> Result<Option<Value>, Throw> {
     let _ = tm_compare(r, &key, &key, ctx)?;
     let mut parent: Option<JRef> = None;
     let mut last_cmp: i32 = 0;
@@ -2849,19 +3006,23 @@ pub fn n_tm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
     while let Some(c) = cur {
         let cmp = tm_compare(r, &key, &tm_entry_key(&c), ctx)?;
         if cmp == 0 {
-            let old = tm_entry_value(&c);
-            with_obj_mut(c, |o| o.slots[TME_VALUE] = value.clone());
-            return Ok(old);
+            let old = node_value_materialized_at(&c, TME_VALUE, TME_TAG)?;
+            with_obj_mut(c, |o| {
+                o.slots[TME_VALUE] = value.clone();
+                o.slots[TME_TAG] = tag_slot(tag);
+            });
+            return Ok(Some(old));
         }
         parent = Some(c);
         last_cmp = cmp;
         cur = tm_child(&c, if cmp < 0 { TME_LEFT } else { TME_RIGHT });
     }
-    let node = new_obj("java/util/TreeMap$Entry", 6)?;
+    let node = new_obj("java/util/TreeMap$Entry", 7)?;
     with_obj_mut(node, |o| {
         o.slots[TME_KEY] = key;
         o.slots[TME_VALUE] = value;
         o.slots[TME_COLOR] = Value::Int(TM_RED);
+        o.slots[TME_TAG] = tag_slot(tag);
     });
     match parent {
         Some(p) => {
@@ -2880,14 +3041,14 @@ pub fn n_tm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
         o.slots[TM_MODCOUNT] = Value::Int(mc + 1);
         o.slots[TM_SIZE] = Value::Int(sz + 1);
     });
-    Ok(Value::Ref(None))
+    Ok(None)
 }
 
 pub fn n_tm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.get without receiver");
     let key = args.first().cloned().unwrap_or(Value::Ref(None));
     match tm_find(r, &key, ctx)? {
-        Some(n) => Ok(tm_entry_value(&n)),
+        Some(n) => tm_entry_value_materialized(&n),
         None => Ok(Value::Ref(None)),
     }
 }
@@ -2932,7 +3093,7 @@ pub fn n_tm_get_or_default(
     let key = args.first().cloned().unwrap_or(Value::Ref(None));
     let dflt = args.get(1).cloned().unwrap_or(Value::Ref(None));
     match tm_find(r, &key, ctx)? {
-        Some(n) => Ok(tm_entry_value(&n)),
+        Some(n) => tm_entry_value_materialized(&n),
         None => Ok(dflt),
     }
 }
@@ -2942,7 +3103,7 @@ pub fn n_tm_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result
     let key = args.first().cloned().unwrap_or(Value::Ref(None));
     match tm_find(r, &key, ctx)? {
         Some(n) => {
-            let old = tm_entry_value(&n);
+            let old = node_value_materialized_at(&n, TME_VALUE, TME_TAG)?;
             tm_delete(r, n);
             Ok(old)
         }
@@ -3320,7 +3481,7 @@ pub fn n_tki_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
 /// The value iterator's next: the entry's value (values follow KEY order).
 pub fn n_tvi_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let (_, node) = tm_iter_next_node(recv, "TreeMap$ValueIterator.next")?;
-    Ok(tm_entry_value(&node))
+    tm_entry_value_materialized(&node)
 }
 
 /// The entry iterator's next IS the internal entry (the JDK law:
@@ -3387,7 +3548,7 @@ pub fn n_tme_get_value(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let e = recv.expect("j2r internal: TreeMap$Entry.getValue without receiver");
-    Ok(tm_entry_value(e))
+    tm_entry_value_materialized(e)
 }
 
 // --------------------------------------------------------- TreeMap$SubMap
@@ -3564,7 +3725,7 @@ fn sms_all_entries(view: &JRef, ctx: Dispatch) -> Result<Vec<(Value, Value)>, Th
         if sms_too_high_full(view, &k, ctx)? {
             break;
         }
-        out.push((k, tm_entry_value(&n)));
+        out.push((k, tm_entry_value_materialized(&n)?));
         cur = tm_successor_of(n);
     }
     Ok(out)
@@ -4161,7 +4322,7 @@ pub fn n_smki_next(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Resul
 
 pub fn n_smvi_next(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let (_, node) = sms_iter_next_node(recv, "TreeMap$SubMap$ValueIterator.next", ctx)?;
-    Ok(tm_entry_value(&node))
+    tm_entry_value_materialized(&node)
 }
 
 pub fn n_smei_next(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
@@ -6929,6 +7090,227 @@ mod tests {
             panic!("materialized entry value: {gv:?}")
         };
         assert_eq!(with_obj(*b, |o| o.jclass.to_string()), "java/lang/Integer");
+    }
+
+    // ---- G3.3 slice 4: the rewrites ride both new storages ----
+
+    #[test]
+    fn tm_put_prim_stores_raw_and_the_readers_materialize() {
+        let _rt = crate::test_support::runtime();
+        let m = tm_new();
+        // The specialized put: the CLRS walk runs (size/modCount move),
+        // the value slot holds the RAW prim, the node is stamped 'I'.
+        tm_put_prim(&m, key("b"), Value::Int(2), ctx()).unwrap();
+        tm_put_prim(&m, key("a"), Value::Int(1), ctx()).unwrap();
+        assert_eq!(n_tm_size(Some(&m), &[], ctx()).unwrap(), Value::Int(2));
+        let root = tm_root(&m).expect("root after two puts");
+        let (v, tag) = with_obj(root, |o| {
+            (o.slots[TME_VALUE].clone(), o.slots[TME_TAG].clone())
+        });
+        assert_eq!(v, Value::Int(2), "the value slot holds the RAW prim");
+        assert_eq!(
+            tag,
+            Value::Int('I' as i32),
+            "the node is stamped with the desc char"
+        );
+        // The faithful get materializes (and caches the box back).
+        let g1 = n_tm_get(Some(&m), &[key("a")], ctx()).unwrap();
+        let Value::Ref(Some(b)) = &g1 else {
+            panic!("materialized get must be a ref: {g1:?}")
+        };
+        assert_eq!(with_obj(*b, |o| o.jclass.to_string()), "java/lang/Integer");
+        let g2 = n_tm_get(Some(&m), &[key("a")], ctx()).unwrap();
+        assert_eq!(g1, g2, "get-twice-returns-the-same-ref (probe law L1)");
+        // toString + containsValue ride tm_all_entries (materialized).
+        let ts = n_tm_to_string(Some(&m), &[], ctx()).unwrap();
+        assert_eq!(s(&ts), "{a=1, b=2}", "sorted order, boxes materialized");
+        assert_eq!(
+            n_tm_contains_value(Some(&m), &[boxed_i32(1)], ctx()).unwrap(),
+            Value::Int(1)
+        );
+        // getOrDefault materializes; the miss returns the default.
+        assert_eq!(
+            unbox_i32(&n_tm_get_or_default(Some(&m), &[key("b"), boxed_i32(9)], ctx()).unwrap()),
+            2
+        );
+        assert_eq!(
+            unbox_i32(&n_tm_get_or_default(Some(&m), &[key("zz"), boxed_i32(9)], ctx()).unwrap()),
+            9
+        );
+    }
+
+    #[test]
+    fn tm_put_overwrite_and_remove_returns_materialize() {
+        let _rt = crate::test_support::runtime();
+        let m = tm_new();
+        tm_put_prim(&m, key("k"), Value::Long(7), ctx()).unwrap();
+        // A FAITHFUL overwrite returns the OLD value — materialized out
+        // of the raw slot (the Map.put contract).
+        let old_box = new_obj("java/lang/Long", 1).unwrap();
+        with_obj_mut(old_box, |o| o.slots[0] = Value::Long(7));
+        let old = n_tm_put(Some(&m), &[key("k"), Value::Ref(Some(old_box))], ctx()).unwrap();
+        let Value::Ref(Some(b)) = &old else {
+            panic!("faithful overwrite must return the materialized box: {old:?}")
+        };
+        assert_eq!(with_obj(*b, |o| o.jclass.to_string()), "java/lang/Long");
+        // The slot now holds the box under a CLEARED tag; a core get
+        // still unwraps through the fused law's checkcast path.
+        assert_eq!(
+            tm_get_prim(&m, key("k"), "java/lang/Long", ctx()).unwrap(),
+            Value::Long(7)
+        );
+        // remove materializes the old value too.
+        tm_put_prim(&m, key("d"), Value::Long(9), ctx()).unwrap();
+        let removed = n_tm_remove(Some(&m), &[key("d")], ctx()).unwrap();
+        let Value::Ref(Some(rb)) = &removed else {
+            panic!("remove must return the materialized box: {removed:?}")
+        };
+        assert_eq!(with_obj(*rb, |o| o.slots[0].clone()), Value::Long(9));
+    }
+
+    #[test]
+    fn tm_get_prim_failure_modes_are_the_fused_law() {
+        let _rt = crate::test_support::runtime();
+        let m = tm_new();
+        // Missing key: the bare NPE (the null box reaching xValue()).
+        let err = tm_get_prim(&m, key("no"), "java/lang/Integer", ctx()).unwrap_err();
+        assert_eq!(
+            with_obj(err.obj, |o| o.jclass.to_string()),
+            "java/lang/NullPointerException"
+        );
+        // Tag mismatch: the CCE with the tag's class as the actual type.
+        tm_put_prim(&m, key("i"), Value::Int(5), ctx()).unwrap();
+        let err = tm_get_prim(&m, key("i"), "java/lang/Double", ctx()).unwrap_err();
+        assert_eq!(
+            with_obj(err.obj, |o| o.jclass.to_string()),
+            "java/lang/ClassCastException"
+        );
+        // A faithful FOREIGN box: the same CCE (the checkcast law).
+        let foreign = new_obj("java/lang/String", 1).unwrap();
+        with_obj_mut(foreign, |o| o.slots[0] = Value::Ref(None));
+        n_tm_put(Some(&m), &[key("s"), Value::Ref(Some(foreign))], ctx()).unwrap();
+        let err = tm_get_prim(&m, key("s"), "java/lang/Integer", ctx()).unwrap_err();
+        assert_eq!(
+            with_obj(err.obj, |o| o.jclass.to_string()),
+            "java/lang/ClassCastException"
+        );
+        // The self-compare law: a non-Comparable key throws CCE on the
+        // FIRST put (compare(key,key), the addEntryToEmptyMap law).
+        let obj = new_obj("java/lang/Object", 0).unwrap();
+        let err = tm_put_prim(&m, Value::Ref(Some(obj)), Value::Int(1), ctx()).unwrap_err();
+        assert_eq!(
+            with_obj(err.obj, |o| o.jclass.to_string()),
+            "java/lang/ClassCastException"
+        );
+    }
+
+    #[test]
+    fn tm_delete_transplant_moves_the_tag_with_the_value() {
+        let _rt = crate::test_support::runtime();
+        let m = tm_new();
+        // Three raw-prim entries: the root ("b") has two children, so
+        // the delete walks the transplant-by-copy (the successor's kv
+        // moves into the root slot) — the tag must ride or the surviving
+        // raw slot becomes unnamed.
+        tm_put_prim(&m, key("b"), Value::Int(2), ctx()).unwrap();
+        tm_put_prim(&m, key("a"), Value::Int(1), ctx()).unwrap();
+        tm_put_prim(&m, key("c"), Value::Int(3), ctx()).unwrap();
+        // Faithful remove of the ROOT ("b"): the successor ("c") copies
+        // up. The core get of "c" must still unwrap.
+        assert_eq!(
+            unbox_i32(&n_tm_remove(Some(&m), &[key("b")], ctx()).unwrap()),
+            2
+        );
+        assert_eq!(
+            tm_get_prim(&m, key("c"), "java/lang/Integer", ctx()).unwrap(),
+            Value::Int(3)
+        );
+        let ts = n_tm_to_string(Some(&m), &[], ctx()).unwrap();
+        assert_eq!(s(&ts), "{a=1, c=3}");
+    }
+
+    #[test]
+    fn tm_view_readers_ride_the_raw_slots() {
+        let _rt = crate::test_support::runtime();
+        let m = tm_new();
+        tm_put_prim(&m, key("a"), Value::Int(1), ctx()).unwrap();
+        tm_put_prim(&m, key("b"), Value::Int(2), ctx()).unwrap();
+        tm_put_prim(&m, key("z"), Value::Int(26), ctx()).unwrap();
+        // The bounded view (slice-4's "the views ride"): the view's get,
+        // toString, containsValue and value iterator all materialize.
+        let view = n_tm_sub_map(Some(&m), &[key("a"), key("z")], ctx()).unwrap();
+        let Value::Ref(Some(v)) = &view else {
+            panic!("subMap view")
+        };
+        let g = n_sms_get(Some(v), &[key("b")], ctx()).unwrap();
+        let Value::Ref(Some(bg)) = &g else {
+            panic!("view get must materialize: {g:?}")
+        };
+        assert_eq!(with_obj(*bg, |o| o.jclass.to_string()), "java/lang/Integer");
+        let ts = n_sms_to_string(Some(v), &[], ctx()).unwrap();
+        // The to-EXCLUSIVE range law (run 6): z sits OUTSIDE [a, z).
+        assert_eq!(s(&ts), "{a=1, b=2}");
+        assert_eq!(
+            n_sms_contains_value(Some(v), &[boxed_i32(2)], ctx()).unwrap(),
+            Value::Int(1)
+        );
+        // The SubMap value iterator materializes too.
+        let it_v = sms_new_iterator(v, "java/util/TreeMap$SubMap$ValueIterator", ctx()).unwrap();
+        let Value::Ref(Some(it)) = &it_v else {
+            panic!("values iterator")
+        };
+        let first = n_smvi_next(Some(it), &[], ctx()).unwrap();
+        let Value::Ref(Some(bf)) = &first else {
+            panic!("view iterator must materialize: {first:?}")
+        };
+        assert_eq!(with_obj(*bf, |o| o.slots[0].clone()), Value::Int(1));
+    }
+
+    #[test]
+    fn lhm_put_prim_links_the_tail_and_materializes() {
+        let _rt = crate::test_support::runtime();
+        let m = lhm_new();
+        // The specialized put on the LINK-CHAIN storage: the node kind
+        // follows the map's runtime class (LinkedHashMap$Entry), the
+        // tail links move (insertion order), the tag rides.
+        hm_put_prim(&m, key("b"), Value::Int(2), ctx()).unwrap();
+        hm_put_prim(&m, key("a"), Value::Int(1), ctx()).unwrap();
+        hm_put_prim(&m, key("c"), Value::Int(3), ctx()).unwrap();
+        // The nodes are LinkedHashMap$Entry objects with the tag slot.
+        let node = hm_find(&m, &key("a"), ctx()).unwrap().expect("node");
+        assert_eq!(
+            with_obj(node, |o| o.jclass.to_string()),
+            "java/util/LinkedHashMap$Entry",
+            "the node kind follows the map's runtime class"
+        );
+        assert_eq!(
+            with_obj(node, |o| o.slots[HM_NODE_TAG].clone()),
+            Value::Int('I' as i32)
+        );
+        // Insertion order preserved with raw slots; values materialize.
+        let ts = n_lhm_to_string(Some(&m), &[], ctx()).unwrap();
+        assert_eq!(s(&ts), "{b=2, a=1, c=3}");
+        // The faithful HashMap-law get materializes (the parent chain).
+        let g1 = n_hm_get(Some(&m), &[key("a")], ctx()).unwrap();
+        let Value::Ref(Some(b)) = &g1 else {
+            panic!("LHM get must materialize: {g1:?}")
+        };
+        assert_eq!(with_obj(*b, |o| o.jclass.to_string()), "java/lang/Integer");
+        // The fused get unwraps; the overwrite keeps position (no link
+        // work) and the tail order survives.
+        assert_eq!(
+            hm_get_prim(&m, key("b"), "java/lang/Integer", ctx()).unwrap(),
+            Value::Int(2)
+        );
+        hm_put_prim(&m, key("b"), Value::Int(22), ctx()).unwrap();
+        let ts2 = n_lhm_to_string(Some(&m), &[], ctx()).unwrap();
+        assert_eq!(s(&ts2), "{b=22, a=1, c=3}");
+        // The remove unlink law: the old value materializes, the link
+        // chain stays walkable.
+        let removed = n_lhm_remove(Some(&m), &[key("a")], ctx()).unwrap();
+        assert_eq!(unbox_i32(&removed), 1);
+        let ts3 = n_lhm_to_string(Some(&m), &[], ctx()).unwrap();
+        assert_eq!(s(&ts3), "{b=22, c=3}");
     }
 
     // ---- the fused get's unbox law (the faithful failure modes) ----

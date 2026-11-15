@@ -133,23 +133,28 @@ pub enum Instr {
         vals: Vec<i32>,
     },
     /// Collapsed javac autobox-put core (G3.3 slice 2, peephole.rs):
-    /// `valueOf(p) -> Map/HashMap.put -> Pop` on a receiver local the
-    /// closure law proved safe becomes ONE instruction that pops
-    /// `map, key, prim(p)` and stores the RAW prim in the node's value
-    /// slot (no box, no valueOf dispatch). The put's return is discarded
-    /// (the core requires the Pop). Emitted by both backends as a direct
-    /// `collections::hm_put_prim` call.
+    /// `valueOf(p) -> Map.put -> Pop` on a receiver the closure law
+    /// proved safe becomes ONE instruction that pops `map, key, prim(p)`
+    /// and stores the RAW prim in the node's value slot (no box, no
+    /// valueOf dispatch). The put's return is discarded (the core
+    /// requires the Pop). `kind` names the storage the receiver's
+    /// creation run proved (G3.3 slice 4: HashMap, LinkedHashMap and
+    /// TreeMap all rewrite — the emitters route the prim natives
+    /// accordingly; LinkedHashMap rides hm_put_prim, whose node-kind
+    /// dispatch follows the map's runtime class).
     MapPutPrim {
+        kind: MapKind,
         prim: PrimType,
     },
     /// Collapsed javac unbox-get core (G3.3 slice 2, peephole.rs):
-    /// `Map/HashMap.get -> checkcast(Box) -> Box.unbox()` on a closure-
-    /// proven receiver local becomes ONE instruction that pops
-    /// `map, key` and pushes the node's raw prim payload. A missing key
-    /// throws the faithful bare NPE (the null box reaching `doubleValue`).
-    /// Emitted by both backends as a direct `collections::hm_get_prim`
-    /// call.
+    /// `Map.get -> checkcast(Box) -> Box.unbox()` on a closure-proven
+    /// receiver becomes ONE instruction that pops `map, key` and pushes
+    /// the node's raw prim payload. A missing key throws the faithful
+    /// bare NPE (the null box reaching `doubleValue`). `kind` names the
+    /// storage (slice 4) — TreeMap routes to the red-black walk's fused
+    /// law, the hash family to the hash walk's.
     MapGetPrim {
+        kind: MapKind,
         prim: PrimType,
     },
     ANewArray {
@@ -262,6 +267,20 @@ pub enum PrimType {
     Short,
     Int,
     Long,
+}
+
+/// G3.3 slice 4: WHICH map storage a rewritten core's receiver proven
+/// to be — the creation run's `New` class (fresh locals) or the
+/// proven-field scan's class (static fields). The emitters route the
+/// prim natives: the hash family shares the hash-walk natives (the
+/// LinkedHashMap entry layout already carries the class tag, and
+/// hm_put_prim's node-kind dispatch follows the map's runtime class),
+/// TreeMap routes to the red-black walk's own pair.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapKind {
+    HashMap,
+    LinkedHashMap,
+    TreeMap,
 }
 
 /// The element kind of an `xXaload`/`xXastore` opcode, as the verifier sees

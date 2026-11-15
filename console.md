@@ -3724,3 +3724,55 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   tm_get_prim, layout-aware materialization, reader routing, LHM-aware
   hm_put_prim) then codegen (MapKind through the matcher/IR/verify/
   emitters), law tests, fixture 125, battery, boards, push.
+
+---
+
+## 2026-11-16 — run 6 cont. (window 2, continued): **G3.3 SLICE 4 LANDED — the prim rewrites RIDE BOTH NEW MAPS**
+
+- Implementation wave, executed after the probe commit (1f2c29e):
+  RUNTIME — TreeMap$Entry gains slot 6 (TME_TAG; the LHM entry layout
+  already carried the tag on the post-slice-3 node layout); the put
+  machinery is tm_put_impl (n_tm_put + tm_put_prim share it — the CLRS
+  walk, the compare(key,key) self-compare and the modCount/size are
+  byte-identical, the tag param None on the faithful path); the
+  overwrite branch materializes the OLD value BEFORE the slot write
+  (the hm_put pattern, the Map.put contract); tm_get_prim — the fused
+  checkcast+xValue() law at the red-black layout; node_value_materialized_at
+  (the layout-aware materializer) routed at n_tm_get, get_or_default,
+  contains_value, the remove return, the put-overwrite return,
+  tm_all_entries, the value iterators, entry getValue, sms_all_entries —
+  the sms view natives DELEGATE to the n_tm_* natives, so THE BOUNDED
+  VIEWS RIDE BY CONSTRUCTION; the transplant-by-copy moves the TAG WITH
+  THE VALUE (a cleared tag on a raw slot would be unnamed); hm_put_prim
+  made node-kind-aware (LinkedHashMap → LinkedEntry + the tail link;
+  the overwrite keeps position).
+  CODEGEN — MapKind {HashMap, LinkedHashMap, TreeMap} through ir.rs;
+  MAP_RECEIVERS += TreeMap/LinkedHashMap (the ADJACENCY window only —
+  the receiver resolution still demands a proven creation run, so an
+  unproven TreeMap-typed receiver keeps the faithful path); Phase A
+  accepts the three creation-run classes (New class == <init> class);
+  the LHM 3-const-arg run (the ACCESS-ORDER ctor) is REFUSED (j2r's LHM
+  is insertion-ordered — the conservative default); the proven-field
+  set carries (PrimType, MapKind) and mixed provenance refuses the
+  field; emit.rs/typed.rs route the natives by kind (TreeMap →
+  tm_put_prim/tm_get_prim, the hash family → hm_put_prim/hm_get_prim).
+- FIRED-CODE CENSUS (the translated probe module): 5 tm_put_prim +
+  4 tm_get_prim (bad local 1 put; tl closure-clean local 2+2; STM
+  proven field 2+2) + 3 hm_put_prim + 3 hm_get_prim (lm closure-clean
+  local 1+1; SLM proven field 2+2) — all three storages x both receiver
+  shapes provably fire; every generic exit stays faithful.
+- Battery all green (release, this window): lib units **509/0**
+  (48+160+15+286; +6 runtime law tests, +5 peephole law tests);
+  diff_suite **125 fixtures three-channel ZERO divergences** (357.68 s
+  + 357.25 s sharded) — TreeMapLhmPrimProbe the 125th, byte-identical
+  vs Temurin 21.0.13+9 on all channels; cfg_equiv **zero** (432.14 s);
+  fmt + clippy clean FRESH; gate-11 in sync: fixtures=125 tests=568
+  (README 124→125 / 557→568, diff guard 123→124, cfg-equiv 125/125).
+- Evidence: scripts/evidence/g3_3/{treemap_lhm_prim_2026-11-16.txt,
+  TreeMapLhmPrimProbe.java, treemap_lhm_prim_temurin_2026-11-16.txt}.
+- NEXT queue: FORNAME-INIT (the registered design), then NEW-INSTANCE,
+  then the residuals (user-interface DEFAULT dispatch, HELPFUL-NPE,
+  different-package private-ctor, the HashMap copy-ctor gap), the
+  G3.1/G3.2 CFG layers, the owner-review asks in STATUS_G2_G3_G4.md;
+  owner order after that: the M4 concurrency review, then
+  mappings/Mixins.

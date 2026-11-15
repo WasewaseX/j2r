@@ -225,7 +225,31 @@ const BOXED_VALUE_OF: &[(&str, &str, PrimType)] = &[
     ("java/lang/Long", "(J)Ljava/lang/Long;", PrimType::Long),
 ];
 
-const MAP_RECEIVERS: &[&str] = &["java/util/Map", "java/util/HashMap"];
+const MAP_RECEIVERS: &[&str] = &[
+    "java/util/Map",
+    "java/util/HashMap",
+    // G3.3 slice 4: the rewrites ride both new storages. The
+    // LinkedHashMap entry is Comparable-key-safe and the TreeMap put
+    // self-compares (the addEntryToEmptyMap law) — the receiver-class
+    // check only opens the ADJACENCY window; the receiver resolution
+    // below still demands a proven creation run (fresh local or proven
+    // field), so a TreeMap-typed receiver the scan never proved keeps
+    // the faithful path.
+    "java/util/TreeMap",
+    "java/util/LinkedHashMap",
+];
+
+/// The storage kind a creation-run class proves (G3.3 slice 4). The
+/// LHM 3-arg access-order ctor is NOT here — see the creation-run
+/// matcher's refusal below.
+fn kind_of_class(class: &str) -> Option<crate::ir::MapKind> {
+    match class {
+        "java/util/HashMap" => Some(crate::ir::MapKind::HashMap),
+        "java/util/LinkedHashMap" => Some(crate::ir::MapKind::LinkedHashMap),
+        "java/util/TreeMap" => Some(crate::ir::MapKind::TreeMap),
+        _ => None,
+    }
+}
 
 fn boxed_of(class: &str) -> Option<&'static (&'static str, &'static str, PrimType)> {
     BOXED_VALUE_OF.iter().find(|(c, _, _)| *c == class)
@@ -281,6 +305,7 @@ struct MapCore {
     recv_pc: u32,
     prim: PrimType,
     put: bool,
+    kind: crate::ir::MapKind,
 }
 
 /// The proven provenance of a core's map operand (G3.3 slice 2 + 3):
@@ -307,7 +332,7 @@ enum Recv {
 /// the runtime's lazy materialization and the fused get's unbox law.
 pub fn proven_map_fields(
     cls: &crate::ClassPlan,
-) -> std::collections::BTreeMap<(String, String), PrimType> {
+) -> std::collections::BTreeMap<(String, String), (PrimType, crate::ir::MapKind)> {
     proven_map_fields_of(&cls.name, &cls.fields, &cls.methods)
 }
 
@@ -318,7 +343,7 @@ pub(crate) fn proven_map_fields_of(
     class_name: &str,
     fields: &[crate::FieldPlan],
     methods: &[crate::MethodPlan],
-) -> std::collections::BTreeMap<(String, String), PrimType> {
+) -> std::collections::BTreeMap<(String, String), (PrimType, crate::ir::MapKind)> {
     let mut out = std::collections::BTreeMap::new();
     for f in fields {
         if !f.is_static {
@@ -329,8 +354,8 @@ pub(crate) fn proven_map_fields_of(
             continue;
         };
         let prim = prim_of_boxed(bp);
-        if field_proven(class_name, f, methods) {
-            out.insert((class_name.to_string(), f.name.clone()), prim);
+        if let Some(kind) = field_proven(class_name, f, methods) {
+            out.insert((class_name.to_string(), f.name.clone()), (prim, kind));
         }
     }
     out
@@ -361,8 +386,13 @@ fn prim_of_boxed(bp: crate::signature::BoxedPrim) -> PrimType {
 /// throws the faithful CCE on a foreign box or a mismatched prim tag.
 /// Any non-creation store refuses the WHOLE field, the faithful path
 /// stands everywhere it is used.
-fn field_proven(class_name: &str, f: &crate::FieldPlan, methods: &[crate::MethodPlan]) -> bool {
+fn field_proven(
+    class_name: &str,
+    f: &crate::FieldPlan,
+    methods: &[crate::MethodPlan],
+) -> Option<crate::ir::MapKind> {
     let mut creation_sites = 0usize;
+    let mut kind: Option<crate::ir::MapKind> = None;
     for m in methods {
         for i in 0..m.instrs.len() {
             if let Instr::PutStatic { class, field, .. } = &m.instrs[i].1 {
@@ -370,53 +400,65 @@ fn field_proven(class_name: &str, f: &crate::FieldPlan, methods: &[crate::Method
                     // The branch-target guard needs the method's targets.
                     let mut targets = Vec::new();
                     targets_of(&m.instrs, &mut targets);
-                    if !is_creation_putstatic(&m.instrs, i, &targets) {
-                        return false;
+                    let site_kind = is_creation_putstatic(&m.instrs, i, &targets)?;
+                    // Every creation site must prove the SAME storage —
+                    // a mixed-provenance field refuses the whole pin.
+                    match kind {
+                        Some(k) if k != site_kind => return None,
+                        _ => kind = Some(site_kind),
                     }
                     creation_sites += 1;
                 }
             }
         }
     }
-    creation_sites > 0
+    if creation_sites > 0 {
+        kind
+    } else {
+        None
+    }
 }
 
-/// `New HashMap; Dup; (const pushes); Invokespecial <init>; PutStatic f`
+/// `New <map>; Dup; (const pushes); Invokespecial <map>.<init>; PutStatic f`
 /// with no branch target inside — the PutStatic-side mirror of Phase A's
-/// creation run.
-fn is_creation_putstatic(instrs: &[(u32, Instr)], i: usize, targets: &[u32]) -> bool {
+/// creation run. Returns the storage kind the run's class proves (the
+/// map family only, G3.3 slice 4).
+fn is_creation_putstatic(
+    instrs: &[(u32, Instr)],
+    i: usize,
+    targets: &[u32],
+) -> Option<crate::ir::MapKind> {
     if i == 0 {
-        return false;
+        return None;
     }
-    if !matches!(
-        instrs[i - 1].1,
-        Instr::InvokeSpecial { ref class, ref name, .. }
-            if class == "java/util/HashMap" && name == "<init>"
-    ) {
-        return false;
-    }
+    let init_class = match &instrs[i - 1].1 {
+        Instr::InvokeSpecial { class, name, .. } if name == "<init>" => class,
+        _ => return None,
+    };
+    let kind = kind_of_class(init_class)?;
     let mut j = i - 1;
     while j > 0 && matches!(instrs[j - 1].1, ref x if is_const_push(x)) {
         j -= 1;
     }
     if j == 0 {
-        return false;
+        return None;
     }
     if !matches!(instrs[j - 1].1, Instr::Dup) {
-        return false;
+        return None;
     }
     if j < 2 {
-        return false;
+        return None;
     }
-    if !matches!(
-        instrs[j - 2].1,
-        Instr::New { ref class } if class == "java/util/HashMap"
-    ) {
-        return false;
+    match &instrs[j - 2].1 {
+        Instr::New { class } if class == init_class => {}
+        _ => return None,
     }
     let start_pc = instrs[j - 2].0;
     let end_pc = instrs.get(i + 1).map(|p| p.0).unwrap_or(u32::MAX);
-    !targets.iter().any(|t| *t > start_pc && *t < end_pc)
+    if targets.iter().any(|t| *t > start_pc && *t < end_pc) {
+        return None;
+    }
+    Some(kind)
 }
 
 /// Rewrites the specialized-map cores. Returns the number of cores
@@ -428,7 +470,7 @@ pub fn map_prim_rewrites(
     instrs: &mut Vec<(u32, Instr)>,
     exception_table: &[(u32, u32, u32, Option<String>)],
     shapes: &crate::verify::MethodShapes,
-    proven: &std::collections::BTreeMap<(String, String), PrimType>,
+    proven: &std::collections::BTreeMap<(String, String), (PrimType, crate::ir::MapKind)>,
 ) -> usize {
     // Branch targets, for the span guards.
     let mut targets = Vec::new();
@@ -436,17 +478,27 @@ pub fn map_prim_rewrites(
     targets.sort_unstable();
     targets.dedup();
 
-    // Phase A — HashMap-fresh locals. A creation run is
-    // `New HashMap; Dup; (const pushes); Invokespecial HashMap.<init>;
-    //  Store(n)` with no branch target inside. Every OTHER Store(n)
-    // kills the local's freshness.
-    let mut fresh: std::collections::BTreeMap<u16, ()> = Default::default();
+    // Phase A — map-fresh locals. A creation run is
+    // `New <map>; Dup; (const pushes); Invokespecial <map>.<init>;
+    //  Store(n)` with no branch target inside, where <map> is one of
+    // the three storages (G3.3 slice 4). Every OTHER Store(n) kills the
+    // local's freshness. The LinkedHashMap 3-const-arg run (the
+    // access-order ctor `(int,float,boolean)`) is REFUSED — the rewrite
+    // must not fire where the faithful get's law could differ (j2r's
+    // LHM is insertion-ordered; the conservative default keeps the
+    // faithful path everywhere it is used).
+    let mut fresh: std::collections::BTreeMap<u16, crate::ir::MapKind> = Default::default();
     let mut creation_stores: Vec<u32> = Vec::new();
     for i in 0..instrs.len() {
         let Some(store_idx) = (|| {
-            if !matches!(&instrs[i].1, Instr::New { class: c } if c == "java/util/HashMap") {
-                return None;
-            }
+            let kind = match &instrs[i].1 {
+                Instr::New { class: c } => kind_of_class(c)?,
+                _ => return None,
+            };
+            let new_class = match &instrs[i].1 {
+                Instr::New { class: c } => c.clone(),
+                _ => unreachable!(),
+            };
             if !matches!(instrs.get(i + 1).map(|p| &p.1), Some(Instr::Dup)) {
                 return None;
             }
@@ -454,26 +506,31 @@ pub fn map_prim_rewrites(
             while matches!(instrs.get(j).map(|p| &p.1), Some(x) if is_const_push(x)) {
                 j += 1;
             }
+            // The access-order refusal: exactly 3 const args between the
+            // Dup and the <init> on a LinkedHashMap run.
+            if kind == crate::ir::MapKind::LinkedHashMap && j == i + 5 {
+                return None;
+            }
             match instrs.get(j).map(|p| &p.1) {
                 Some(Instr::InvokeSpecial { class, name, .. })
-                    if class == "java/util/HashMap" && name == "<init>" => {}
+                    if *class == new_class && name == "<init>" => {}
                 _ => return None,
             }
             match instrs.get(j + 1).map(|p| &p.1) {
-                Some(Instr::Store(n)) => Some((j + 1, *n)),
+                Some(Instr::Store(n)) => Some((j + 1, *n, kind)),
                 _ => None,
             }
         })() else {
             continue;
         };
-        let (store_idx, n) = store_idx;
+        let (store_idx, n, kind) = store_idx;
         let start_pc = instrs[i].0;
         let end_pc = instrs.get(store_idx + 1).map(|p| p.0).unwrap_or(u32::MAX);
         if targets.iter().any(|t| *t > start_pc && *t < end_pc) {
             continue;
         }
         creation_stores.push(instrs[store_idx].0);
-        fresh.insert(n, ());
+        fresh.insert(n, kind);
     }
     for (pc, i) in instrs.iter() {
         if let Instr::Store(n) = i {
@@ -543,9 +600,15 @@ pub fn map_prim_rewrites(
     let mut replaced = 0;
     for c in cores.iter().rev() {
         let synthetic = if c.put {
-            Instr::MapPutPrim { prim: c.prim }
+            Instr::MapPutPrim {
+                kind: c.kind,
+                prim: c.prim,
+            }
         } else {
-            Instr::MapGetPrim { prim: c.prim }
+            Instr::MapGetPrim {
+                kind: c.kind,
+                prim: c.prim,
+            }
         };
         instrs.splice(c.start_idx..c.start_idx + 3, vec![(c.start_pc, synthetic)]);
         replaced += 1;
@@ -642,8 +705,8 @@ fn resolve_core(
     i: usize,
     put: bool,
     prim: PrimType,
-    fresh: &std::collections::BTreeMap<u16, ()>,
-    proven: &std::collections::BTreeMap<(String, String), PrimType>,
+    fresh: &std::collections::BTreeMap<u16, crate::ir::MapKind>,
+    proven: &std::collections::BTreeMap<(String, String), (PrimType, crate::ir::MapKind)>,
 ) -> Option<MapCore> {
     // The consuming instruction: the put (i+1) for a put core, the get
     // (i) for a get core. The map operand's slot comes from its ENTRY
@@ -683,14 +746,23 @@ fn resolve_core(
             return None;
         }
     }
+    let recv = recv?;
+    // G3.3 slice 4: the storage kind follows the receiver's proof — the
+    // creation run's class for a fresh local, the proven field's class
+    // for a field.
+    let kind = match &recv {
+        Recv::Local(n) => fresh[n],
+        Recv::Field { class, field } => proven.get(&(class.clone(), field.clone())).map(|p| p.1)?,
+    };
     Some(MapCore {
         start_idx: i,
         start_pc: instrs[i].0,
         end_pc: instrs.get(i + 3).map(|p| p.0).unwrap_or(u32::MAX),
-        recv: recv?,
+        recv,
         recv_pc: recv_pc?,
         prim,
         put,
+        kind,
     })
 }
 
@@ -799,6 +871,7 @@ mod tests {
         assert_eq!(
             instrs[7].1,
             I::MapPutPrim {
+                kind: crate::ir::MapKind::HashMap,
                 prim: PrimType::Double
             },
             "the put core collapses at its valueOf pc"
@@ -807,11 +880,251 @@ mod tests {
         assert_eq!(
             instrs[10].1,
             I::MapGetPrim {
+                kind: crate::ir::MapKind::HashMap,
                 prim: PrimType::Double
             },
             "the get core collapses at its get pc"
         );
         assert_eq!(instrs[10].0, 26);
+    }
+
+    // ---- G3.3 slice 4: the rewrites ride both new storages ----
+
+    /// The canonical body with the creation run and the invoke receiver
+    /// classes parameterized: `new <new_class>` stored to local 1, the
+    /// put/get invokes on `invoke_class` (the static receiver type).
+    fn canonical_for(new_class: &str, invoke_class: &str) -> Vec<(u32, I)> {
+        vec![
+            (
+                0,
+                I::New {
+                    class: new_class.into(),
+                },
+            ),
+            (3, I::Dup),
+            (
+                4,
+                I::InvokeSpecial {
+                    class: new_class.into(),
+                    name: "<init>".into(),
+                    desc: "()V".into(),
+                },
+            ),
+            (7, I::Store(1)),
+            (8, I::Load(1)),
+            (9, I::Ldc(Ldc::String("a".into()))),
+            (10, I::Ldc2W(crate::ir::Ldc2::Double(0.5))),
+            (
+                13,
+                I::InvokeStatic {
+                    class: "java/lang/Double".into(),
+                    name: "valueOf".into(),
+                    desc: "(D)Ljava/lang/Double;".into(),
+                },
+            ),
+            (
+                16,
+                I::InvokeInterface {
+                    class: invoke_class.into(),
+                    name: "put".into(),
+                    desc: "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                },
+            ),
+            (21, I::Pop),
+            (22, I::Load(1)),
+            (23, I::Ldc(Ldc::String("a".into()))),
+            (
+                26,
+                I::InvokeInterface {
+                    class: invoke_class.into(),
+                    name: "get".into(),
+                    desc: "(Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                },
+            ),
+            (
+                31,
+                I::CheckCast {
+                    class: "java/lang/Double".into(),
+                },
+            ),
+            (
+                34,
+                I::InvokeVirtual {
+                    class: "java/lang/Double".into(),
+                    name: "doubleValue".into(),
+                    desc: "()D".into(),
+                },
+            ),
+            (37, I::Store(2)),
+            (38, I::Return(j2r_runtime::TypeDesc::Void)),
+        ]
+    }
+
+    #[test]
+    fn treemap_local_rewrites_with_the_red_black_kind() {
+        // Map-typed local over a TreeMap creation run (the invoke class
+        // stays java/util/Map) ...
+        let mut instrs = canonical_for("java/util/TreeMap", "java/util/Map");
+        let shapes = shapes_of(&instrs);
+        assert_eq!(
+            map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default()),
+            2
+        );
+        assert_eq!(
+            instrs[7].1,
+            I::MapPutPrim {
+                kind: crate::ir::MapKind::TreeMap,
+                prim: PrimType::Double
+            }
+        );
+        assert_eq!(
+            instrs[10].1,
+            I::MapGetPrim {
+                kind: crate::ir::MapKind::TreeMap,
+                prim: PrimType::Double
+            }
+        );
+        // ... and a TreeMap-TYPED local (the invokes carry the static
+        // receiver type java/util/TreeMap) rewrites the same way.
+        let mut instrs = canonical_for("java/util/TreeMap", "java/util/TreeMap");
+        let shapes = shapes_of(&instrs);
+        assert_eq!(
+            map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default()),
+            2
+        );
+        assert!(matches!(
+            instrs[7].1,
+            I::MapPutPrim {
+                kind: crate::ir::MapKind::TreeMap,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn lhm_local_rewrites_with_the_link_chain_kind() {
+        let mut instrs = canonical_for("java/util/LinkedHashMap", "java/util/LinkedHashMap");
+        let shapes = shapes_of(&instrs);
+        assert_eq!(
+            map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default()),
+            2
+        );
+        assert_eq!(
+            instrs[7].1,
+            I::MapPutPrim {
+                kind: crate::ir::MapKind::LinkedHashMap,
+                prim: PrimType::Double
+            }
+        );
+        assert_eq!(
+            instrs[10].1,
+            I::MapGetPrim {
+                kind: crate::ir::MapKind::LinkedHashMap,
+                prim: PrimType::Double
+            }
+        );
+    }
+
+    #[test]
+    fn lhm_access_order_ctor_refuses_the_whole_local() {
+        // `new LinkedHashMap<>(4, 0.75f, true)` — three const args
+        // between the Dup and the <init>: the access-order ctor. The
+        // rewrite must NOT fire (j2r's LHM is insertion-ordered; the
+        // faithful path stands everywhere). Built with fresh monotonic
+        // pcs: New(0) Dup(3) iconst(4) ldc f(5) iconst(6) <init>(7)
+        // Store(10), then the canonical body shifted by +10.
+        let mut instrs: Vec<(u32, I)> = vec![
+            (
+                0,
+                I::New {
+                    class: "java/util/LinkedHashMap".into(),
+                },
+            ),
+            (3, I::Dup),
+            (4, I::IConst(4)),
+            (5, I::Ldc(Ldc::Float(0.75))),
+            (6, I::IConst(1)),
+            (
+                7,
+                I::InvokeSpecial {
+                    class: "java/util/LinkedHashMap".into(),
+                    name: "<init>".into(),
+                    desc: "(IFZ)V".into(),
+                },
+            ),
+            (10, I::Store(1)),
+        ];
+        for (pc, i) in canonical_for("java/util/LinkedHashMap", "java/util/Map") {
+            if pc > 7 {
+                instrs.push((pc + 3, i));
+            }
+        }
+        let shapes = shapes_of(&instrs);
+        assert_eq!(
+            map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default()),
+            0,
+            "the access-order creation run refuses the whole local"
+        );
+    }
+
+    #[test]
+    fn comparator_ctor_refuses_the_whole_local() {
+        // `new TreeMap<>(comp)` — the comparator is a LOAD (not a const
+        // push), so the creation run's matcher refuses: the faithful
+        // path stands. Hand-built with monotonic pcs: the comparator
+        // local assigned first, then New(4) Dup(7) Load(2)(8) <init>(9).
+        let mut instrs: Vec<(u32, I)> = vec![
+            (0, I::Ldc(Ldc::String("c".into()))),
+            (3, I::Store(2)),
+            (
+                4,
+                I::New {
+                    class: "java/util/TreeMap".into(),
+                },
+            ),
+            (7, I::Dup),
+            (8, I::Load(2)),
+            (
+                9,
+                I::InvokeSpecial {
+                    class: "java/util/TreeMap".into(),
+                    name: "<init>".into(),
+                    desc: "(Ljava/util/Comparator;)V".into(),
+                },
+            ),
+            (12, I::Store(1)),
+        ];
+        for (pc, i) in canonical_for("java/util/TreeMap", "java/util/Map") {
+            if pc > 7 {
+                instrs.push((pc + 5, i));
+            }
+        }
+        let shapes = shapes_of(&instrs);
+        assert_eq!(
+            map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default()),
+            0,
+            "the comparator creation run refuses the whole local"
+        );
+    }
+
+    #[test]
+    fn treemap_typed_receiver_without_provenance_stays_faithful() {
+        // A TreeMap-typed receiver that is NOT a fresh creation run —
+        // local 1 assigned from a plain non-creation Store (the
+        // param/arg-shaped local): the faithful path stands.
+        let mut instrs: Vec<(u32, I)> =
+            vec![(0, I::Ldc(Ldc::String("x".into()))), (3, I::Store(1))];
+        for (pc, i) in canonical_for("java/util/TreeMap", "java/util/TreeMap") {
+            if pc > 7 {
+                instrs.push((pc, i));
+            }
+        }
+        let shapes = shapes_of(&instrs);
+        assert_eq!(
+            map_prim_rewrites(&mut instrs, &[], &shapes, &Default::default()),
+            0,
+            "no creation run, no rewrite"
+        );
     }
 
     #[test]
@@ -1181,7 +1494,7 @@ mod tests {
         assert_eq!(proven.len(), 1, "the field proves");
         assert_eq!(
             proven[&("T".to_string(), "m".to_string())],
-            PrimType::Double
+            (PrimType::Double, crate::ir::MapKind::HashMap)
         );
         // The rewrite side: both field-fed cores collapse (the synthetic
         // lands at the valueOf pc / the get pc).
@@ -1192,6 +1505,7 @@ mod tests {
         assert_eq!(
             instrs[3].1,
             I::MapPutPrim {
+                kind: crate::ir::MapKind::HashMap,
                 prim: PrimType::Double
             }
         );
@@ -1199,6 +1513,7 @@ mod tests {
         assert_eq!(
             instrs[6].1,
             I::MapGetPrim {
+                kind: crate::ir::MapKind::HashMap,
                 prim: PrimType::Double
             }
         );
@@ -1272,7 +1587,8 @@ mod tests {
         assert!(matches!(
             instrs[6].1,
             I::MapGetPrim {
-                prim: PrimType::Int
+                prim: PrimType::Int,
+                ..
             }
         ));
     }
@@ -1344,7 +1660,10 @@ mod tests {
             ]
         };
         let mut proven = std::collections::BTreeMap::new();
-        proven.insert(("T".to_string(), "m".to_string()), PrimType::Double);
+        proven.insert(
+            ("T".to_string(), "m".to_string()),
+            (PrimType::Double, crate::ir::MapKind::HashMap),
+        );
         let mut instrs = instrs_for();
         let shapes = shapes_of(&instrs);
         assert_eq!(
@@ -1355,6 +1674,7 @@ mod tests {
         assert_eq!(
             instrs[3].1,
             I::MapPutPrim {
+                kind: crate::ir::MapKind::HashMap,
                 prim: PrimType::Double
             }
         );
