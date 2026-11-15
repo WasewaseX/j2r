@@ -214,10 +214,18 @@ fn differential_suite_matches_jvm() {
     // class-typed sites dispatching through per-class vtable arms
     // (same-target receivers grouped under one arm), the inherited
     // interface method landing on the base's compiled method — 120 on
+    // disk, guard one below that. The run-4 wave (2026-11-15) added
+    // LhmProbe — LinkedHashMap the class: the insertion-order law (first
+    // insertion wins position), re-put keeps position (value replaced),
+    // remove + re-put moves to the tail, get never reorders, the
+    // ctor-from-map copies in the source's iteration order (both source
+    // kinds), is-a HashMap/Map, the three views in link order, the
+    // entry-iterator remove (order intact, modCount re-synced), the null
+    // key/value laws, clear + re-add, getOrDefault/containsValue — 121 on
     // disk, guard one below that.
     assert!(
-        fixtures.len() >= 119,
-        "differential suite shrank: {} fixtures (expected >= 119)",
+        fixtures.len() >= 120,
+        "differential suite shrank: {} fixtures (expected >= 120)",
         fixtures.len()
     );
 

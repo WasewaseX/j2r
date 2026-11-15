@@ -5842,18 +5842,8 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     // the builtin parent walk (order-neutral); put/remove/clear own rows
     // (they maintain the order links), the views and iterators own rows
     // (they walk the link chain), toString owns its row (link order).
-    (
-        "java/util/LinkedHashMap",
-        "<init>",
-        "()V",
-        c::n_lhm_init,
-    ),
-    (
-        "java/util/LinkedHashMap",
-        "<init>",
-        "(I)V",
-        c::n_lhm_init,
-    ),
+    ("java/util/LinkedHashMap", "<init>", "()V", c::n_lhm_init),
+    ("java/util/LinkedHashMap", "<init>", "(I)V", c::n_lhm_init),
     (
         "java/util/LinkedHashMap",
         "<init>",
@@ -5904,7 +5894,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()Ljava/util/Iterator;",
         c::n_lks_iterator,
     ),
-    ("java/util/LinkedHashMap$KeySet", "size", "()I", c::n_lks_size),
+    (
+        "java/util/LinkedHashMap$KeySet",
+        "size",
+        "()I",
+        c::n_lks_size,
+    ),
     (
         "java/util/LinkedHashMap$KeySet",
         "isEmpty",
@@ -5929,7 +5924,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()Ljava/util/Iterator;",
         c::n_lvs_iterator,
     ),
-    ("java/util/LinkedHashMap$Values", "size", "()I", c::n_lvs_size),
+    (
+        "java/util/LinkedHashMap$Values",
+        "size",
+        "()I",
+        c::n_lvs_size,
+    ),
     (
         "java/util/LinkedHashMap$Values",
         "isEmpty",
@@ -5954,7 +5954,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()Ljava/util/Iterator;",
         c::n_les_iterator,
     ),
-    ("java/util/LinkedHashMap$EntrySet", "size", "()I", c::n_les_size),
+    (
+        "java/util/LinkedHashMap$EntrySet",
+        "size",
+        "()I",
+        c::n_les_size,
+    ),
     (
         "java/util/LinkedHashMap$EntrySet",
         "isEmpty",

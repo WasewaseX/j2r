@@ -1920,7 +1920,11 @@ pub fn n_lhm_clear(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resu
     Ok(Value::Void)
 }
 
-pub fn n_lhm_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_lhm_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: LinkedHashMap.toString without receiver");
     let entries = lhm_all_entries(r)?;
     let mut out = String::from("{");
@@ -1965,12 +1969,17 @@ pub fn n_lhm_entry_set(
 // view shape; every order-visible operation walks the LINK CHAIN).
 
 pub fn n_lks_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
-    Ok(Value::Int(with_obj(view_map(recv, "LinkedKeySet.size"), |o| {
-        o.slots[HM_SIZE].expect_int()
-    })))
+    Ok(Value::Int(with_obj(
+        view_map(recv, "LinkedKeySet.size"),
+        |o| o.slots[HM_SIZE].expect_int(),
+    )))
 }
 
-pub fn n_lks_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_lks_is_empty(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     Ok(Value::Int(
         (with_obj(view_map(recv, "LinkedKeySet.isEmpty"), |o| {
             o.slots[HM_SIZE].expect_int()
@@ -1984,7 +1993,11 @@ pub fn n_lks_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
     Ok(Value::Int(hm_find(&map, &key, ctx)?.is_some() as i32))
 }
 
-pub fn n_lks_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_lks_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let map = view_map(recv, "LinkedKeySet.toString");
     let items: Vec<Value> = lhm_all_entries(&map)?.into_iter().map(|(k, _)| k).collect();
     collection_to_string(items, ctx)
@@ -2000,12 +2013,17 @@ pub fn n_lks_iterator(
 }
 
 pub fn n_lvs_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
-    Ok(Value::Int(with_obj(view_map(recv, "LinkedValues.size"), |o| {
-        o.slots[HM_SIZE].expect_int()
-    })))
+    Ok(Value::Int(with_obj(
+        view_map(recv, "LinkedValues.size"),
+        |o| o.slots[HM_SIZE].expect_int(),
+    )))
 }
 
-pub fn n_lvs_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_lvs_is_empty(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     Ok(Value::Int(
         (with_obj(view_map(recv, "LinkedValues.isEmpty"), |o| {
             o.slots[HM_SIZE].expect_int()
@@ -2017,7 +2035,11 @@ pub fn n_lvs_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
     n_hm_contains_value(Some(&view_map(recv, "LinkedValues.contains")), args, ctx)
 }
 
-pub fn n_lvs_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_lvs_to_string(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    ctx: Dispatch,
+) -> Result<Value, Throw> {
     let map = view_map(recv, "LinkedValues.toString");
     let items: Vec<Value> = lhm_all_entries(&map)?.into_iter().map(|(_, v)| v).collect();
     collection_to_string(items, ctx)
@@ -2033,12 +2055,17 @@ pub fn n_lvs_iterator(
 }
 
 pub fn n_les_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
-    Ok(Value::Int(with_obj(view_map(recv, "LinkedEntrySet.size"), |o| {
-        o.slots[HM_SIZE].expect_int()
-    })))
+    Ok(Value::Int(with_obj(
+        view_map(recv, "LinkedEntrySet.size"),
+        |o| o.slots[HM_SIZE].expect_int(),
+    )))
 }
 
-pub fn n_les_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_les_is_empty(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     Ok(Value::Int(
         (with_obj(view_map(recv, "LinkedEntrySet.isEmpty"), |o| {
             o.slots[HM_SIZE].expect_int()
@@ -2117,7 +2144,11 @@ fn lhm_link_has_next(recv: Option<&JRef>, who: &str) -> Result<Value, Throw> {
     Ok(Value::Int(has as i32))
 }
 
-pub fn n_lki_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_lki_has_next(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     lhm_link_has_next(recv, "LinkedKeyIterator")
 }
 
@@ -2126,7 +2157,11 @@ pub fn n_lki_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
     Ok(node_parts(&node).1)
 }
 
-pub fn n_lvi_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_lvi_has_next(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     lhm_link_has_next(recv, "LinkedValueIterator")
 }
 
@@ -2135,7 +2170,11 @@ pub fn n_lvi_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
     node_value_materialized(&node)
 }
 
-pub fn n_lei_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+pub fn n_lei_has_next(
+    recv: Option<&JRef>,
+    _args: &[Value],
+    _ctx: Dispatch,
+) -> Result<Value, Throw> {
     lhm_link_has_next(recv, "LinkedEntryIterator")
 }
 
@@ -2213,7 +2252,14 @@ pub fn n_hs_add(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
     // only requirement is being a live heap object (roots scan it through
     // the map's node slots).
     let present = new_obj("java/lang/Object", 0)?;
-    let (old, _) = hm_put(&map, e, Value::Ref(Some(present)), ctx, None, NodeKind::HashNode)?;
+    let (old, _) = hm_put(
+        &map,
+        e,
+        Value::Ref(Some(present)),
+        ctx,
+        None,
+        NodeKind::HashNode,
+    )?;
     Ok(Value::Int(old.is_null() as i32))
 }
 
@@ -3157,6 +3203,340 @@ mod tests {
         assert_eq!(err.java_class(), "java/lang/IllegalArgumentException");
         let msg = with_obj(err.obj, |o| o.slots[0].clone());
         assert_eq!(s(&msg), "Illegal initial capacity: -3");
+    }
+
+    // ---- LinkedHashMap (run 4: the ordered map) ----
+
+    fn lhm_new() -> JRef {
+        let m = new_obj("java/util/LinkedHashMap", 6).unwrap();
+        n_lhm_init(Some(&m), &[], ctx()).unwrap();
+        m
+    }
+
+    #[test]
+    fn lhm_order_laws_insertion_refixture_remove_tail() {
+        let _rt = crate::test_support::runtime();
+        let m = lhm_new();
+        for (k, v) in [("a", 1), ("b", 2), ("c", 3)] {
+            n_lhm_put(
+                Some(&m),
+                &[Value::Ref(Some(new_string(k))), boxed_i32(v)],
+                ctx(),
+            )
+            .unwrap();
+        }
+        // L1: insertion order
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{a=1, b=2, c=3}"
+        );
+        // L2: re-put replaces the value and KEEPS position
+        n_lhm_put(
+            Some(&m),
+            &[Value::Ref(Some(new_string("a"))), boxed_i32(10)],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{a=10, b=2, c=3}"
+        );
+        // L3: remove + re-put moves to the tail
+        let old = n_lhm_remove(Some(&m), &[Value::Ref(Some(new_string("a")))], ctx()).unwrap();
+        assert_eq!(unbox_i32(&old), 10);
+        n_lhm_put(
+            Some(&m),
+            &[Value::Ref(Some(new_string("a"))), boxed_i32(11)],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{b=2, c=3, a=11}"
+        );
+        // L4: get / containsKey never reorder (the inherited rows are
+        // order-neutral; the order links untouched)
+        let got = n_hm_get(Some(&m), &[Value::Ref(Some(new_string("b")))], ctx()).unwrap();
+        assert_eq!(unbox_i32(&got), 2);
+        n_hm_contains_key(Some(&m), &[Value::Ref(Some(new_string("c")))], ctx()).unwrap();
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{b=2, c=3, a=11}"
+        );
+    }
+
+    #[test]
+    fn lhm_views_iterate_in_link_order() {
+        let _rt = crate::test_support::runtime();
+        let m = lhm_new();
+        for (k, v) in [("a", 1), ("b", 2), ("c", 3)] {
+            n_lhm_put(
+                Some(&m),
+                &[Value::Ref(Some(new_string(k))), boxed_i32(v)],
+                ctx(),
+            )
+            .unwrap();
+        }
+        let ks = match n_lhm_key_set(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(k)) => k,
+            _ => panic!("keySet"),
+        };
+        assert_eq!(
+            s(&n_lks_to_string(Some(&ks), &[], ctx()).unwrap()),
+            "[a, b, c]"
+        );
+        let vs = match n_lhm_values(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("values"),
+        };
+        assert_eq!(
+            s(&n_lvs_to_string(Some(&vs), &[], ctx()).unwrap()),
+            "[1, 2, 3]"
+        );
+        // the entry iterator walks the link chain; getKey/getValue work
+        // through the $Entry node (the Node prefix layout)
+        let es = match n_lhm_entry_set(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(e)) => e,
+            _ => panic!("entrySet"),
+        };
+        let it = match n_les_iterator(Some(&es), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("iterator"),
+        };
+        let mut out = String::new();
+        while n_lei_has_next(Some(&it), &[], ctx()).unwrap().expect_int() == 1 {
+            let e = n_lei_next(Some(&it), &[], ctx()).unwrap();
+            let node = match e {
+                Value::Ref(Some(n)) => n,
+                _ => panic!("entry node"),
+            };
+            let k = n_node_get_key(Some(&node), &[], ctx()).unwrap();
+            let v = n_node_get_value(Some(&node), &[], ctx()).unwrap();
+            out.push_str(&format!("{}={};", s(&k), unbox_i32(&v)));
+        }
+        assert_eq!(out, "a=1;b=2;c=3;");
+        // size/isEmpty/contains delegate through the inherited shapes
+        assert_eq!(n_lks_size(Some(&ks), &[], ctx()).unwrap().expect_int(), 3);
+        assert_eq!(
+            n_lks_contains(Some(&ks), &[Value::Ref(Some(new_string("b")))], ctx())
+                .unwrap()
+                .expect_int(),
+            1
+        );
+        assert_eq!(
+            n_lvs_contains(Some(&vs), &[boxed_i32(3)], ctx())
+                .unwrap()
+                .expect_int(),
+            1
+        );
+    }
+
+    #[test]
+    fn lhm_iterator_remove_order_and_modcount_law() {
+        let _rt = crate::test_support::runtime();
+        let m = lhm_new();
+        for (k, v) in [("a", 1), ("b", 2), ("c", 3)] {
+            n_lhm_put(
+                Some(&m),
+                &[Value::Ref(Some(new_string(k))), boxed_i32(v)],
+                ctx(),
+            )
+            .unwrap();
+        }
+        let es = match n_lhm_entry_set(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(e)) => e,
+            _ => panic!("entrySet"),
+        };
+        let it = match n_les_iterator(Some(&es), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("iterator"),
+        };
+        n_lei_next(Some(&it), &[], ctx()).unwrap();
+        n_lhm_itr_remove(Some(&it), &[], ctx()).unwrap();
+        // the head is gone, order intact for the rest
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{b=2, c=3}"
+        );
+        // continued iteration: no CME (expectedModCount re-synced)
+        let e = n_lei_next(Some(&it), &[], ctx()).unwrap();
+        let node = match e {
+            Value::Ref(Some(n)) => n,
+            _ => panic!("entry node"),
+        };
+        assert_eq!(s(&n_node_get_key(Some(&node), &[], ctx()).unwrap()), "b");
+        // remove again right away is LEGAL (lastRet = b)
+        n_lhm_itr_remove(Some(&it), &[], ctx()).unwrap();
+        assert_eq!(s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()), "{c=3}");
+        // remove WITHOUT a next = IllegalStateException (lastRet cleared)
+        let err = n_lhm_itr_remove(Some(&it), &[], ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/IllegalStateException");
+        // CME: a structural modification behind the iterator's back
+        n_lhm_put(
+            Some(&m),
+            &[Value::Ref(Some(new_string("z"))), boxed_i32(9)],
+            ctx(),
+        )
+        .unwrap();
+        let err = n_lei_next(Some(&it), &[], ctx()).unwrap_err();
+        assert_eq!(
+            err.java_class(),
+            "java/util/ConcurrentModificationException"
+        );
+    }
+
+    #[test]
+    fn lhm_ctor_from_map_copies_source_order() {
+        let _rt = crate::test_support::runtime();
+        // LHM source: link order
+        let src = lhm_new();
+        for (k, v) in [("a", 1), ("b", 2), ("c", 3)] {
+            n_lhm_put(
+                Some(&src),
+                &[Value::Ref(Some(new_string(k))), boxed_i32(v)],
+                ctx(),
+            )
+            .unwrap();
+        }
+        let cp = new_obj("java/util/LinkedHashMap", 6).unwrap();
+        n_lhm_init(Some(&cp), &[Value::Ref(Some(src))], ctx()).unwrap();
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&cp), &[], ctx()).unwrap()),
+            "{a=1, b=2, c=3}"
+        );
+        // HashMap source: the source's OWN table order
+        let hm = map_new();
+        for (k, v) in [("x", 1), ("y", 2), ("z", 3)] {
+            n_hm_put(
+                Some(&hm),
+                &[Value::Ref(Some(new_string(k))), boxed_i32(v)],
+                ctx(),
+            )
+            .unwrap();
+        }
+        let cp2 = new_obj("java/util/LinkedHashMap", 6).unwrap();
+        n_lhm_init(Some(&cp2), &[Value::Ref(Some(hm))], ctx()).unwrap();
+        // the law: the copy iterates in the SOURCE's table order
+        let expected_entries = hm_all_entries(&hm).unwrap();
+        let expected = format!(
+            "{{{}}}",
+            expected_entries
+                .iter()
+                .map(|(k, v)| format!("{}={}", s(k), unbox_i32(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&cp2), &[], ctx()).unwrap()),
+            expected
+        );
+        assert_eq!(with_obj(cp2, |o| o.slots[HM_SIZE].expect_int()), 3);
+    }
+
+    #[test]
+    fn lhm_null_key_value_and_clear() {
+        let _rt = crate::test_support::runtime();
+        let m = lhm_new();
+        n_lhm_put(
+            Some(&m),
+            &[Value::Ref(Some(new_string("a"))), boxed_i32(1)],
+            ctx(),
+        )
+        .unwrap();
+        // L9: one null key, null values
+        n_lhm_put(Some(&m), &[Value::Ref(None), boxed_i32(0)], ctx()).unwrap();
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{a=1, null=0}"
+        );
+        n_lhm_put(
+            Some(&m),
+            &[Value::Ref(Some(new_string("n"))), Value::Ref(None)],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{a=1, null=0, n=null}"
+        );
+        let old = n_lhm_remove(Some(&m), &[Value::Ref(None)], ctx()).unwrap();
+        assert_eq!(unbox_i32(&old), 0);
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()),
+            "{a=1, n=null}"
+        );
+        // L10: clear resets everything; re-adds re-link at the tail
+        n_lhm_clear(Some(&m), &[], ctx()).unwrap();
+        assert_eq!(with_obj(m, |o| o.slots[HM_SIZE].expect_int()), 0);
+        n_lhm_put(
+            Some(&m),
+            &[Value::Ref(Some(new_string("q"))), boxed_i32(7)],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(s(&n_lhm_to_string(Some(&m), &[], ctx()).unwrap()), "{q=7}");
+    }
+
+    #[test]
+    fn lhm_is_a_hashmap_subtype_law() {
+        // L6: the builtin tables carry the OpenJDK subclass shape
+        assert_eq!(
+            crate::builtin::builtin_parent_of("java/util/LinkedHashMap"),
+            Some("java/util/HashMap")
+        );
+        assert_eq!(
+            crate::builtin::builtin_parent_of("java/util/LinkedHashMap$Entry"),
+            Some("java/util/HashMap$Node")
+        );
+        assert_eq!(
+            crate::builtin::builtin_total_slots("java/util/LinkedHashMap"),
+            Some(6)
+        );
+        let ifaces = crate::builtin::builtin_interfaces_of("java/util/LinkedHashMap");
+        assert!(ifaces.contains(&"java/util/Map"));
+        let entry_ifaces = crate::builtin::builtin_interfaces_of("java/util/LinkedHashMap$Entry");
+        assert!(entry_ifaces.contains(&"java/util/Map$Entry"));
+    }
+
+    #[test]
+    fn lhm_get_default_and_contains_value_laws() {
+        let _rt = crate::test_support::runtime();
+        let m = lhm_new();
+        for (k, v) in [("a", 1), ("b", 2)] {
+            n_lhm_put(
+                Some(&m),
+                &[Value::Ref(Some(new_string(k))), boxed_i32(v)],
+                ctx(),
+            )
+            .unwrap();
+        }
+        // getOrDefault/containsValue inherit the HashMap rows (order-neutral)
+        let d = n_hm_get_or_default(
+            Some(&m),
+            &[Value::Ref(Some(new_string("b"))), boxed_i32(-1)],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(unbox_i32(&d), 2);
+        let d = n_hm_get_or_default(
+            Some(&m),
+            &[Value::Ref(Some(new_string("zz"))), boxed_i32(-1)],
+            ctx(),
+        )
+        .unwrap();
+        assert_eq!(unbox_i32(&d), -1);
+        assert_eq!(
+            n_hm_contains_value(Some(&m), &[boxed_i32(2)], ctx())
+                .unwrap()
+                .expect_int(),
+            1
+        );
+        assert_eq!(
+            n_hm_contains_value(Some(&m), &[boxed_i32(99)], ctx())
+                .unwrap()
+                .expect_int(),
+            0
+        );
     }
 
     // ---- HashSet ----
