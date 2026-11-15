@@ -1,5 +1,56 @@
 # j2r console summary — the state board
 
+Updated 2026-11-15 (session 19b cont. 13 — **R5 SLICE 2 LANDED: the
+interface closure + the codegen-time vtable**, run 2 of the
+continuation cycle, after reset #24). Probed first (Probe4/Probe5 vs
+Temurin 21.0.13+9): the sub-interface closure law (an implementor of
+`Mid extends Top` is a possible receiver of every Top-typed site), the
+inherited interface method landing on the BASE's compiled method, the
+two-level override, the monomorphic/polymorphic pair — L1-L5
+byte-identical TODAY (the dynamic path is faithful; the fold only
+shortcuts it); L6 re-pinned the standing HELPFUL-NPE residual; Probe5
+REGISTERED the user-interface DEFAULT-method gap (Temurin runs it,
+j2r dies the internal Error — invoke_virtual visits parents[0] only;
+PRE-EXISTING, the fold mirrors the walk and never widens it; its fix
+is a runtime dispatch-law change, its own registered item). Landed:
+`virtual_receiver_set` (user class -> super-chain set; user interface
+-> the implementor closure over the user tables — super_name +
+interfaces edges transitively, exactly the runtime's is_ref_subtype
+traversal minus the builtin edges that provably cannot contribute;
+interfaces are never receivers — no instantiation, and user-interface
+lambdas are a loud compile error, so builtin-interface sites keep the
+fully dynamic path); `resolve_vtable` (per-receiver arms GROUPED by
+identical walk target, first-seen declaration order, >= 2 distinct
+groups, a dying walk gets NO arm — the `_` fallback re-enters the
+FULL dynamic walk and dies it identically); `object_class` in the
+runtime (the SAME jclass field the walk starts from, one Arc incref
+under the heap lock); the emitter's vtable match with the refresh,
+the pop_ref NPE law and the j2r_try! wrap byte-identical for every
+arm (the partitioned emitter shares emit_class; typed.rs stays
+dynamic — the slice-1 precedent). An en-route bug caught by the e2e
+diff before any push: the first emission closed the match with `};`
+(a match STATEMENT — `__v` collapsed to `()`), fixed to the tail
+expression. Fixture VTableDispatch (the 120th) byte-identical vs
+Temurin on all three channels — 9 vtable sites + 18 direct folds in
+the translated module, 21 builtin-typed sites stay dynamic.
+MEASURED same-session before/after on the four dispatch-heavy
+fixtures: 10 of the 48 slice-1-residue dynamic sites move to the
+vtable (48 -> 38 pure dynamic; the two binaries byte-identical;
+cumulative R5: 18 of the original 56, -32.1%;
+scripts/evidence/r5/vtable_2026-11-15.txt). Battery: lib units
+471/0 (codegen 141 -> 150, runtime 257 -> 258), codegen integrations
+green, cli bins green, diff_suite 120 fixtures three-channel ZERO
+divergences (298.03 s + 294.52 s sharded), cfg_equiv zero
+(430.48 s), fmt+clippy clean FRESH, gate-11 in sync: fixtures=120,
+tests=530. Disk notes: StorageFull twice — stale /tmp/j2r-test-* work
+dirs and two stale toolchain installs (~/tools 3.5 G, ~/toolchain
+1.5 G) removed; the live toolchain is work/j2r-fresh/tools per
+env.sh. Next: R7 — the perfect-hash dispatch table over the 2,169
+string-tuple registry arms; TreeMap/LinkedHashMap follow-ons queue
+behind.
+
+---
+
 Updated 2026-11-14 (session 19b cont. 11 cont. 2 — **NEW-INSTANCE
 LANDED**, the third wave of the session). Probed first
 (NewProbe/NewProbe2/NP3 vs Temurin 21.0.13+9): the clinit runs before

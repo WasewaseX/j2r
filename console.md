@@ -3163,3 +3163,104 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   vtable for the polymorphic residue; R7's perfect-hash dispatch
   table follows R5 per the register. The continuation cycle (5 runs,
   2 h apart) carries the queue forward; runs 2-5 are scheduled.
+
+
+## SESSION 19b cont. 13 (run 2 of 5) — 2026-11-15 (R5 SLICE 2: the interface closure + the codegen-time vtable LANDED)
+
+- **Reset #24 survived (run 2's recovery)** — local git objects stale
+  at pre-M2 `b4badea` AGAIN (the same stale-snapshot shape as resets
+  #22/#23; the board commits missing from local objects); fetch +
+  ff-only to `711bdd3` recovered the full chain (slice 1 closed at
+  run 1 — 8 of 56 sites fold, boards flipped). Toolchain fully wiped
+  by the reset (rust/cargo gone; java 21.0.13 survived); the
+  persistent bootstrap re-proved byte-exact (rustup-init 21,347,088
+  B, Temurin 207,858,352 B, rustc 1.99.1). Baseline re-proven BEFORE
+  any code: 461 lib units / 0.
+- **Queue decision (per the boards)**: R5 SLICE 2 — the
+  interface-closure receiver set + the vtable for the polymorphic
+  residue (R7's perfect-hash table stays the registered follow-up
+  shape after R5; TreeMap/LinkedHashMap queue behind).
+- **Probed FIRST** (Probe4/Probe5, Temurin 21.0.13+9):
+  P-L1..L5 the monomorphic interface site, the polymorphic pair, the
+  SUB-INTERFACE closure (an implementor of `Mid extends Top` is a
+  possible receiver of every Top-typed site), the inherited interface
+  method (the walk lands on the BASE's compiled method), the
+  two-level override — j2r byte-identical TODAY on all five (the
+  dynamic path is faithful; the fold only shortcuts it). L6 re-pinned
+  the PRE-EXISTING HELPFUL-NPE residual. Probe5 REGISTERED the
+  user-interface DEFAULT-method gap: Temurin prints `twice=42`; j2r
+  dies `java.lang.Error: no implementation found` — invoke_virtual's
+  walk visits parents[0] only, interface defaults are not on the
+  dispatch chain (pre-existing; the fold mirrors the walk exactly and
+  never widens it; the fix is a runtime dispatch-law change — its own
+  registered item, correctness class, NOT slice 2's perf scope).
+- **The mechanism**: `virtual_receiver_set` — user class → the
+  super-chain set (slice 1's walk, extracted); user interface → the
+  IMPLEMENTOR CLOSURE over the user tables (super_name + interfaces
+  edges, transitively — exactly the runtime's is_ref_subtype
+  traversal, minus the builtin edges that provably cannot contribute:
+  builtin tables never name user classes). Interfaces themselves are
+  never receivers (no instantiation; user-interface lambdas are a
+  loud compile error — lambda.rs's SUPPORTED_INTERFACES gate — so
+  builtin-interface sites keep the fully dynamic path: a lambda
+  closure's class IS its builtin interface). Empty closure → the
+  dynamic path (the site can only NPE). `resolve_vtable` — the
+  polymorphic residue's per-site VTABLE: per-receiver arms GROUPED by
+  identical walk target (first-seen declaration order — byte-stable
+  emission), ≥2 distinct groups required, a walk that would die the
+  internal Error gets NO arm (the `_` fallback re-enters the FULL
+  dynamic walk and dies it identically; the fold law preserved).
+  `object_class` (object.rs, root-exported) — the SAME jclass field
+  the walk starts from, one Arc incref under the heap lock. The
+  emitter's vtable match: refresh/pop_ref/j2r_try byte-identical for
+  EVERY arm (fault_pc unchanged); the partitioned emitter shares
+  emit_class. typed.rs stays dynamic (non-default --emit-typed; the
+  slice-1 precedent). CallTarget gains PartialEq/Eq (the group-by).
+- **En-route bug caught by the e2e diff**: the first vtable emission
+  closed the match with `};` — a match STATEMENT, so `__v` collapsed
+  to `()` and every generated crate failed E0308. Fixed to the tail
+  expression (`}` then `};`) — caught before any push by compiling
+  the fixtures.
+- **Fixture VTableDispatch** (the 120th): the implementor closure
+  (sub-interface + super chains), the monomorphic interface fold, the
+  polymorphic interface and class-typed vtable sites, same-target
+  grouping (DBase/DMid share an arm, DSub overrides), the inherited
+  interface method, interface-typed array iteration. Byte-identical
+  vs Temurin on all three channels. FIRING PROOF: 9 object_class
+  vtable sites + 18 direct folds in the translated module, 21
+  builtin-typed sites stay dynamic. diff_suite guard 118 → 119.
+- **MEASURED (same-session before/after, identical inputs)**: the
+  four dispatch-heavy fixtures (DispatchOrder, Inherit, Interfaces,
+  Objects; 15 classes) compiled with the 711bdd3 binary and the
+  13243ec binary: pure dynamic invoke_virtual 48 → 38, vtable sites
+  0 → 10 (fallback arms 10), direct Some-receiver calls 25 → 25 —
+  **10 of the 48 slice-1-residue sites now dispatch through the
+  codegen-time vtable** (−20.8%); one class read + one string match +
+  one direct call instead of the 2,169-arm registry match + natives
+  scan + chain walk per call. Outputs byte-identical between the two
+  binaries. Cumulative R5: 18 of the original 56 dynamic sites off
+  the registry walk (−32.1%). Evidence:
+  scripts/evidence/r5/vtable_2026-11-15.txt.
+- **Battery (all green)**: lib units **471/0** (classfile 48,
+  codegen 141 → 150 — the 10 slice-2 law tests, the superseded
+  slice-1 interface gate test REPLACED by the slice-2 law; jni-ffi
+  15; runtime 257 → 258 — object_class), codegen integrations green
+  (e2e 1, malformed 12, wide_ids 1), cli bins 15/15, diff_suite
+  **120 fixtures three-channel ZERO divergences** (298.03 s +
+  294.52 s sharded), cfg_equiv **zero** (430.48 s — the partitioned
+  emitter shares the vtable arm), fmt + clippy `-D warnings` clean
+  FRESH, gate-11 in sync: fixtures=120, tests=530 (README 119→120 /
+  520→530).
+- **Disk notes**: the sandbox hit StorageFull twice — stale kept
+  /tmp/j2r-test-* work dirs (each carries a full cargo target) and
+  two STALE toolchain installs (~/tools 3.5 G + ~/toolchain 1.5 G;
+  the live one is work/j2r-fresh/tools per env.sh) removed; the
+  bootstrap re-proves byte-exactness on demand. The first 0/2 shard
+  leg died on disk-full (environmental, not behavioral) and re-ran
+  clean after the cleanup.
+- **Next**: R7 — the perfect-hash dispatch table over the 2,169
+  string-tuple registry arms (the registered follow-up shape after
+  R5); TreeMap/LinkedHashMap follow-ons queue behind. Registered
+  residuals from this session: the user-interface DEFAULT dispatch
+  law (Probe5), HELPFUL-NPE (standing), the DIFFERENT-package
+  private-ctor IllegalAccessException (standing).

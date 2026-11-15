@@ -1,0 +1,154 @@
+R5 SLICE 2 — the interface closure + the codegen-time vtable — evidence
+=======================================================================
+Date: 2026-11-15 (j2r continuation run 2 of 5, after reset #23's
+recovery was completed by run 1; HEAD 13243ec on top of 711bdd3)
+
+TOOLCHAIN
+---------
+rustc 1.99.1 (58cf8f9c3 2026-10-13) — the persistent bootstrap script,
+re-proven after this reset (the sandbox wiped rust/cargo; javac 21.0.13
+survived). The bootstrap now vendors into the repo tree
+(scripts/bootstrap_toolchain.sh + env.sh are TRACKED).
+
+PROBES FIRST (scripts/evidence/r5/Probe4.java, Probe5.java)
+-----------------------------------------------------------
+Probe4 (Temurin 21.0.13+9 golden, j2r byte-identical on L1–L5): the
+monomorphic interface site, the polymorphic pair, the sub-interface
+closure (Mid extends Top; the implementor of Mid is a possible receiver
+of every Top-typed site), the inherited interface method (the walk
+lands on the BASE's compiled method), the two-level override. L6 pins
+the PRE-EXISTING HELPFUL-NPE residual (Temurin's JDK-15+ helpful
+message vs j2r's bare NPE — registered, unchanged by slice 2; the
+null-receiver NPE fires before any dispatch).
+Probe5 REGISTERS the user-interface DEFAULT-method gap: Temurin prints
+`twice=42`, j2r dies `java.lang.Error: j2r internal: no implementation
+found for twice()I when dispatched on Probe5$Impl` — the runtime
+dispatch walk (invoke_virtual) never visits the interface's own
+methods (parent_of walks parents[0] only). PRE-EXISTING (the dynamic
+path did the same before slice 2); the fold mirrors the walk exactly
+and never widens it. Registered as its own follow-up item (a runtime
+dispatch-law change, out of R5's perf scope).
+
+THE LAW (j2r-codegen/src/lib.rs)
+--------------------------------
+virtual_receiver_set — the closed-world receiver set of a site:
+  * user CLASS declared: the class + transitive user subclasses
+    (super_name edges — slice 1's set, extracted);
+  * user INTERFACE declared: the implementor closure — every user class
+    whose subtype closure reaches the interface through the user tables
+    (super_name + interfaces edges, transitively; the same traversal
+    the runtime's is_ref_subtype makes over the generated parents
+    table, minus the builtin edges that provably cannot contribute:
+    builtin tables never name user classes). Interfaces themselves are
+    never receivers: an interface cannot be instantiated and lambdas
+    targeting USER interfaces are a loud compile error
+    (lambda.rs SUPPORTED_INTERFACES covers the M3 builtin set only —
+    a builtin closure's class IS its interface, which is why
+    builtin-interface sites keep the fully dynamic path).
+  * empty closure -> None (the site can only NPE; the dynamic path
+    already does that faithfully).
+resolve_virtual_target — unchanged law: fold to ONE direct target only
+when EVERY receiver's walk lands on the same target. The slice-1
+interface gate is superseded: interface sites resolve through the
+closure now.
+resolve_vtable — the polymorphic residue's codegen-time VTABLE:
+  per-receiver arms grouped by identical walk target
+  (VtableArm { classes, target }), first-seen declaration order
+  (byte-stable emission); a receiver whose walk would die the internal
+  Error gets NO arm — the emitted `_` fallback re-enters the FULL
+  dynamic walk and dies it identically; any class outside the closed
+  world also falls back, byte-identically. Planned only when the direct
+  fold would NOT fire and >= 2 distinct groups exist.
+object_class (j2r-runtime/src/object.rs, root-exported) — the concrete
+class of a heap object: the SAME jclass field the dispatch walk starts
+from, cloned out under the heap lock (one Arc incref).
+Emitter (emit.rs InvokeVirtual/InvokeInterface, shared by the
+single-crate and partitioned paths): direct fold first; else the
+vtable match —
+    let __v = {
+        let __cls = ::j2r_runtime::object_class(&__r);
+        match &*__cls {
+            "Cat" => ...direct user call...,
+            "Dog" => ...direct user call...,
+            _     => ...invoke_virtual (the dynamic walk)...,
+        }
+    };
+  the frame refresh, the pop_ref NPE law and the j2r_try! wrap ride
+  the same code for every arm (fault_pc unchanged). typed.rs keeps the
+  dynamic path (--emit-typed is non-default; the slice-1 precedent).
+
+FIXTURE VTableDispatch (the 120th)
+----------------------------------
+The implementor closure (sub-interfaces + super chains), the
+monomorphic interface fold, the polymorphic interface and class-typed
+sites through the vtable arms, same-target receivers grouped under one
+arm (DBase/DMid), the inherited interface method landing on the base's
+compiled method, interface-typed array iteration. Byte-identical vs
+Temurin 21.0.13+9 on all three channels. FIRING PROOF: the translated
+module carries 9 object_class vtable sites + 18 direct Some-receiver
+calls while 21 builtin-typed sites stay dynamic.
+
+MEASUREMENT (same-session before/after, identical inputs)
+---------------------------------------------------------
+Inputs: DispatchOrder + Inherit + Interfaces + Objects (the four
+dispatch-heavy suite fixtures, 15 classes) compiled to crates with the
+711bdd3 binary (pre-slice-2) and the 13243ec binary (slice 2):
+
+                              pre-slice-2 (711bdd3)   slice 2 (13243ec)
+  pure dynamic invoke_virtual        48                    38
+  vtable sites                        0                    10
+  (vtable fallback arms               0                    10)
+  direct Some-receiver calls         25                    25
+
+-> 10 of the 48 slice-1-residue dynamic sites (−20.8%) now dispatch
+   through the codegen-time vtable: ONE class read (Arc incref) + ONE
+   string match + ONE direct call, instead of the registry's 2,169-arm
+   string-tuple match + the natives table scan + the parent-chain walk
+   per call. The two binaries' outputs are byte-identical on the four
+   fixtures. Cumulative over R5: 18 of the original 56 dynamic sites
+   (−32.1%) no longer ride the registry walk (slice 1's 8 direct
+   folds + slice 2's 10 vtables); the residue is dominated by
+   builtin-typed sites (PrintStream/String/Object rows — open receiver
+   sets, out of scope by law) and the genuinely open interface sites.
+
+GATES
+-----
+- lib units: 471 passed / 0 failed (classfile 48; codegen 141 -> 150:
+  the 10 slice-2 law tests — monomorphic interface fold, the closure
+  set, sub-interface/inherited folds, polymorphic vtable, same-target
+  grouping, class-typed vtable, the error-walk fallback, empty/
+  builtin-interface gates, fold-beats-vtable, the counter; runtime
+  257 -> 258: object_class). The superseded slice-1 interface gate
+  test was REPLACED by the slice-2 law (the old assertion contradicts
+  the new closure resolution).
+- codegen integrations: e2e 1/1, malformed 12/12, wide_ids 1/1 +
+  the remaining codegen suites green; cli bins 15/15.
+- diff_suite: 120 fixtures, three channels (stdout/stderr/exit),
+  ZERO divergences (sharded 1/2 = 298.03 s + 0/2 = 294.52 s; the
+  first 0/2 leg died on disk-full from stale kept work dirs — an
+  environmental failure, not behavioral; freed the stale toolchain
+  copies and re-ran clean).
+- cfg_equiv: zero divergences (430.48 s) — the partitioned emitter
+  shares the vtable arm (emit_class is the single source).
+- fmt + clippy -D warnings: clean FRESH.
+- gate-11: README fixtures=120, tests=530 (the checker measured;
+  diff_suite guard 118 -> 119).
+
+DISK NOTES (this session)
+-------------------------
+The sandbox hit StorageFull twice: stale kept /tmp/j2r-test-* work
+dirs (each carries a full cargo target), a 22 GB du double-count via
+bind mounts, and two STALE toolchain installs (~/tools 3.5 G,
+~/toolchain 1.5 G — the live one is work/j2r-fresh/tools per env.sh)
+plus the 219 MB tarball cache were removed; the bootstrap re-proves
+byte-exactness on demand.
+
+NEXT
+----
+R7's perfect-hash dispatch table over the 2,169 string-tuple registry
+arms (the registered follow-up shape after R5) — the vtable arms and
+the direct folds have already removed the hottest sites from that
+table's workload; the TreeMap/LinkedHashMap follow-ons queue behind
+per the boards. Registered residuals: the user-interface DEFAULT
+dispatch law (Probe5, a runtime change, correctness class), the
+DIFFERENT-package private-ctor IllegalAccessException, HELPFUL-NPE.

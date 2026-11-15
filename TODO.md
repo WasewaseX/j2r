@@ -2376,3 +2376,55 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       fixtures=119 unchanged. Next: slice 2 — the interface-closure
       receiver set + the vtable for the polymorphic residue; R7's
       perfect-hash dispatch table follows R5 per the register.
+- [x] **R5 SLICE 2 — the interface closure + the codegen-time vtable
+      (the Opt.md R5 second pull; planned + LANDED 2026-11-15, run 2
+      of the continuation cycle)** — the interface-typed sites join
+      the closed-world resolution and the POLYMORPHIC residue gets the
+      per-site VTABLE. Probed FIRST (Probe4/Probe5 vs Temurin
+      21.0.13+9): the sub-interface closure law (an implementor of
+      `Mid extends Top` is a possible receiver of every Top-typed
+      site), the inherited interface method landing on the BASE's
+      compiled method, the two-level override, the monomorphic/
+      polymorphic pair — L1–L5 byte-identical; L6 re-pinned the
+      PRE-EXISTING HELPFUL-NPE residual; Probe5 REGISTERED the
+      user-interface DEFAULT-method gap (Temurin runs it; j2r's
+      invoke_virtual walk visits parents[0] only and dies the internal
+      Error — pre-existing, the fold mirrors the walk and never
+      widens it; a runtime dispatch-law change, its own follow-up).
+      LANDED: `virtual_receiver_set` (user class → super-chain set;
+      user interface → the implementor closure over the user tables —
+      super_name + interfaces edges transitively, exactly the
+      runtime's is_ref_subtype traversal minus the builtin edges that
+      provably cannot contribute; interfaces are never receivers —
+      no instantiation, and user-interface lambdas are a loud compile
+      error, so builtin-interface sites keep the fully dynamic path);
+      `resolve_vtable` (per-receiver arms grouped by identical walk
+      target, first-seen declaration order, ≥ 2 distinct groups, a
+      dying walk gets NO arm — the `_` fallback re-enters the FULL
+      dynamic walk and dies it identically); `object_class` in the
+      runtime (the SAME jclass field the walk starts from, one Arc
+      incref under the heap lock); the emitter's vtable match (the
+      frame refresh, the pop_ref NPE law and the j2r_try! wrap ride
+      the same code for every arm; fault_pc unchanged; the
+      partitioned emitter shares emit_class). typed.rs stays dynamic
+      (--emit-typed is non-default; the slice-1 precedent). 10 new
+      law tests (the superseded slice-1 interface gate test replaced
+      by the slice-2 law). MEASURED same-session before/after on the
+      four dispatch-heavy fixtures: 10 of the 48 slice-1-residue
+      dynamic sites move to the vtable (48 → 38 pure dynamic; the two
+      binaries byte-identical on the inputs; cumulative R5: 18 of the
+      original 56, −32.1%; scripts/evidence/r5/vtable_2026-11-15.txt).
+      Fixture VTableDispatch (the 120th) byte-identical vs Temurin on
+      all three channels — 9 vtable sites + 18 direct folds in the
+      translated module, 21 builtin-typed sites stay dynamic.
+      Battery: lib units 471/0 (codegen 141 → 150, runtime 257 →
+      258), codegen e2e/malformed/wide_ids green, cli bins green,
+      diff_suite **120 fixtures three-channel ZERO divergences**
+      (298.03 s + 294.52 s sharded), cfg_equiv zero (430.48 s),
+      fmt+clippy clean FRESH, gate-11 in sync: fixtures=120,
+      tests=530 (README 119→120 / 520→530, diff_suite guard
+      118 → 119). Next: R7 — the perfect-hash dispatch table over the
+      2,169 string-tuple registry arms (the registered follow-up
+      shape after R5); the TreeMap/LinkedHashMap follow-ons queue
+      behind; the registered correctness residual: the user-interface
+      DEFAULT dispatch law (Probe5).
