@@ -1,0 +1,10 @@
+case1: ISE
+case2: ISE
+case3: ISE
+case4next: CME
+case4rm: CME
+case5: ISE
+case6: size=1 hasB=true
+case7: size=0 removed=b
+case8: size=1
+case9: walked=k1;k2;k3; size=2 has2=false

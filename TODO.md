@@ -3,7 +3,21 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-15 (run 4 of the continuation cycle:
+fix the board. Last updated: 2026-11-15 (run 4 continuation: after the LinkedHashMap
+landing, the owner's external review re-ranked the queue — residuals
+first, documentation sync second. **HASHMAP HASH-ITERATOR REMOVE()
+CLOSED**: ItrOrderProbe (the 122nd fixture) probed Temurin 21.0.13+9
+and pinned the HashIterator.remove law as **ISE FIRST** (both
+conditions → ISE, not CME) — which also exposed the run-4 LHM
+link-iterator remove as CME-first-divergent (case 5), now corrected.
+Hash iterators gained the `current` slot (4 → 5), n_hi_remove replaced
+the ArrayList-shaped rows, the missing HashMap$EntryIterator.remove
+row added; battery 486/0 lib + diff_suite 122 zero + cfg_equiv zero;
+gate-11 122/545; evidence scripts/evidence/itr_remove/. The review's
+evidence-backed status report landed as docs/STATUS_G2_G3_G4.md. Next
+queue: TreeMap (the red-black storage + the Comparable/Comparator
+dispatch law, probed FIRST), then the G3.3 prim rewrites ride both new
+maps.)
 reset #26 survived — this reset did NOT stale the git objects, only the
 toolchain; fetch+ff recovered to ea2d0af (run 3's R7 NO-GO), the repo's
 tracked bootstrap re-proved byte-exact, baseline re-proven 476/0. Queue

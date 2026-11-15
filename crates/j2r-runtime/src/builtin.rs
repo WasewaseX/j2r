@@ -479,12 +479,15 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         | "java/util/LinkedHashMap$EntrySet" => 1,
         // HashMap$Node: hash, key, value, next
         "java/util/HashMap$Node" => 4,
-        // hash iterators: map ref, table idx, pending node, expectedModCount
-        "java/util/HashMap$KeyIterator" | "java/util/HashMap$ValueIterator" => 4,
-        // stringsim corpus wave: EntryIterator shares the KeyIterator layout;
-        // EntrySet/UnmodifiableMap are slot-0-delegate views; LinkedList
-        // copies the ArrayList storage model (size, modCount, Object[]).
-        "java/util/HashMap$EntryIterator" => 4,
+        // hash iterators: map ref, table idx, pending node, expectedModCount,
+        // current (the last-returned node — the HashIterator.remove input;
+        // 4 → 5 slots with the remove() fix, probed vs Temurin 21.0.13)
+        "java/util/HashMap$KeyIterator" | "java/util/HashMap$ValueIterator" => 5,
+        // stringsim corpus wave: EntryIterator shares the KeyIterator layout
+        // (now 5 slots with `current`); EntrySet/UnmodifiableMap are
+        // slot-0-delegate views; LinkedList copies the ArrayList storage
+        // model (size, modCount, Object[]).
+        "java/util/HashMap$EntryIterator" => 5,
         // stringsim corpus wave: Pattern (the pattern text), Matcher
         // (pattern text + input text).
         "java/util/regex/Pattern" => 1,

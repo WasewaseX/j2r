@@ -25,7 +25,10 @@
 //!   materialized into its box at the first faithful read).
 //! * `java/util/HashMap$KeyIterator` — slot 0 map reference, slot 1 next
 //!   table index to scan (Int), slot 2 pending node or null, slot 3
-//!   `expectedModCount` (Int).
+//!   `expectedModCount` (Int), slot 4 `current` (the last-returned node
+//!   or null — the OpenJDK HashIterator field that remove() consumes;
+//!   added with the hash-iterator remove() fix, probed vs Temurin
+//!   21.0.13, evidence scripts/evidence/itr_remove/).
 //! * `java/util/HashMap$KeySet` / `java/util/HashMap$Values` — slot 0 map
 //!   reference.
 //! * `java/util/HashSet` — slot 0 backing `HashMap` reference.
@@ -1574,7 +1577,7 @@ pub fn n_vs_iterator(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Re
 /// the constructor advances to the first entry; `hasNext` is `next !=
 /// null` with no comodification check; `nextNode` checks modCount first).
 /// Layout: 0 = map, 1 = next table index to scan, 2 = pending node or
-/// null, 3 = expectedModCount.
+/// null, 3 = expectedModCount, 4 = current (last-returned node or null).
 fn hm_new_hash_iterator(map: &JRef, class: &str) -> Result<Value, Throw> {
     let (_, _, _, table) = hm_state(map);
     let mc = with_obj(*map, |o| o.slots[HM_MODCOUNT].expect_int());
@@ -1590,7 +1593,7 @@ fn hm_new_hash_iterator(map: &JRef, class: &str) -> Result<Value, Throw> {
             idx += 1;
         }
     }
-    let it = new_obj(class, 4)?;
+    let it = new_obj(class, 5)?;
     with_obj_mut(it, |o| {
         o.slots[0] = Value::Ref(Some(*map));
         o.slots[1] = Value::Int(idx);
@@ -1599,6 +1602,7 @@ fn hm_new_hash_iterator(map: &JRef, class: &str) -> Result<Value, Throw> {
             None => Value::Ref(None),
         };
         o.slots[3] = Value::Int(mc);
+        o.slots[4] = Value::Ref(None);
     });
     Ok(Value::Ref(Some(it)))
 }
@@ -1670,7 +1674,55 @@ fn hm_hash_next_node(recv: Option<&JRef>, who: &str) -> Result<(JRef, JRef), Thr
         return Err(throw_new("java/util/NoSuchElementException", None));
     };
     hm_advance(it, node);
+    // record `current` (the last-returned node) — the field the JDK
+    // HashIterator.remove() consumes
+    with_obj_mut(*it, |o| o.slots[4] = Value::Ref(Some(node)));
     Ok((*it, node))
+}
+
+/// The hash iterators' `remove()` (`HashMap$KeyIterator`,
+/// `HashMap$ValueIterator`, `HashMap$EntryIterator`) — the OpenJDK
+/// `HashIterator.remove` law, PROBED vs Temurin 21.0.13+9 (evidence
+/// scripts/evidence/itr_remove/itrorder_temurin_2026-11-15.txt, cases
+/// 1–9): **ISE FIRST** when `current` is null (case 1: both conditions
+/// hold → ISE, not CME), THEN the CME check (case 4rm: lastRet set +
+/// foreign mod → CME); the removal goes through the map's own remove
+/// law (the same path as `HashMap.remove`); `current` clears (case 3:
+/// double remove → ISE); `expectedModCount` re-syncs (case 9: continued
+/// iteration after remove throws no CME). This REPLACES the accidental
+/// `n_itr_remove` wiring (the ArrayList-shaped rows — the slot-2
+/// type confusion registered as a residual in the stringsim wave).
+pub fn n_hi_remove(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
+    let it = recv.expect("j2r internal: hash iterator remove without receiver");
+    let (map, expected, current) = with_obj(*it, |o| {
+        (
+            match &o.slots[0] {
+                Value::Ref(Some(m)) => *m,
+                _ => panic!("j2r internal: hash iterator without map"),
+            },
+            o.slots[3].expect_int(),
+            match &o.slots[4] {
+                Value::Ref(Some(n)) => Some(*n),
+                _ => None,
+            },
+        )
+    });
+    // probed law: ISE on null current BEFORE the CME check
+    let Some(node) = current else {
+        return Err(throw_new("java/lang/IllegalStateException", None));
+    };
+    let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
+    if expected != mc {
+        return Err(throw_new("java/util/ConcurrentModificationException", None));
+    }
+    let key = node_parts(&node).1;
+    n_hm_remove(Some(&map), std::slice::from_ref(&key), ctx)?;
+    let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
+    with_obj_mut(*it, |o| {
+        o.slots[4] = Value::Ref(None);
+        o.slots[3] = Value::Int(mc);
+    });
+    Ok(Value::Void)
 }
 
 pub fn n_ki_has_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
@@ -2185,9 +2237,12 @@ pub fn n_lei_next(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
     Ok(Value::Ref(Some(node)))
 }
 
-/// Iterator.remove over the link chain (the L8 law): the CME check
-/// FIRST, then IllegalStateException without lastRet; the removal goes
-/// through the map's own remove law (table + chain), lastRet clears,
+/// Iterator.remove over the link chain (the L8 law): **ISE FIRST** when
+/// lastRet is null (the 2026-11-15 ItrOrderProbe re-probe corrected the
+/// original check order — Temurin case 5: both conditions hold → ISE,
+/// NOT CME; the original CME-first order was never probed with both
+/// conditions combined), then the CME check; the removal goes through
+/// the map's own remove law (table + chain), lastRet clears,
 /// expectedModCount re-syncs (no CME on a continued iteration).
 pub fn n_lhm_itr_remove(
     recv: Option<&JRef>,
@@ -2208,13 +2263,15 @@ pub fn n_lhm_itr_remove(
             },
         )
     });
+    // probed law: ISE on null lastRet BEFORE the CME check
+    // (Temurin 21.0.13+9, ItrOrderProbe case 5)
+    let Some(node) = last_ret else {
+        return Err(throw_new("java/lang/IllegalStateException", None));
+    };
     let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
     if expected != mc {
         return Err(throw_new("java/util/ConcurrentModificationException", None));
     }
-    let Some(node) = last_ret else {
-        return Err(throw_new("java/lang/IllegalStateException", None));
-    };
     let key = node_parts(&node).1;
     n_lhm_remove(Some(&map), std::slice::from_ref(&key), ctx)?;
     let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
@@ -3379,6 +3436,183 @@ mod tests {
         )
         .unwrap();
         let err = n_lei_next(Some(&it), &[], ctx()).unwrap_err();
+        assert_eq!(
+            err.java_class(),
+            "java/util/ConcurrentModificationException"
+        );
+    }
+
+    #[test]
+    fn hash_iter_remove_order_and_modcount_law() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        for k in 0..3 {
+            n_hm_put(Some(&m), &[boxed_i32(k), boxed_i32(k + 10)], ctx()).unwrap();
+        }
+        let ks = match n_hm_key_set(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(k)) => k,
+            _ => panic!("keySet"),
+        };
+        let it = match n_ks_iterator(Some(&ks), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("iterator"),
+        };
+        // remove the key == 2 node mid-walk; the walk continues (no CME)
+        let mut removed = false;
+        while n_ki_has_next(Some(&it), &[], ctx()).unwrap().expect_int() == 1 {
+            let k = n_ki_next(Some(&it), &[], ctx()).unwrap();
+            if unbox_i32(&k) == 2 {
+                n_hi_remove(Some(&it), &[], ctx()).unwrap();
+                removed = true;
+            }
+        }
+        assert!(removed, "walked and removed key 2");
+        assert_eq!(n_hm_size(Some(&m), &[], ctx()).unwrap().expect_int(), 2);
+        let ks2 = match n_hm_key_set(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(k)) => k,
+            _ => panic!("keySet 2"),
+        };
+        assert_eq!(
+            n_ks_contains(Some(&ks2), &[boxed_i32(2)], ctx())
+                .unwrap()
+                .expect_int(),
+            0
+        );
+        // double remove: current cleared → ISE
+        let err = n_hi_remove(Some(&it), &[], ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/IllegalStateException");
+        // foreign modification behind the iterator's back, then next → CME
+        n_hm_put(Some(&m), &[boxed_i32(9), boxed_i32(90)], ctx()).unwrap();
+        let err = n_ki_next(Some(&it), &[], ctx()).unwrap_err();
+        assert_eq!(
+            err.java_class(),
+            "java/util/ConcurrentModificationException"
+        );
+        // THE PROBED COMBINED LAW (Temurin case 1): a fresh iterator over a
+        // foreign-modified map, remove() without ANY next() → ISE, NOT CME
+        // (the ISE check precedes the CME check in HashIterator.remove)
+        let ks3 = match n_hm_key_set(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(k)) => k,
+            _ => panic!("keySet 3"),
+        };
+        let it3 = match n_ks_iterator(Some(&ks3), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("iterator 3"),
+        };
+        let err = n_hi_remove(Some(&it3), &[], ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/IllegalStateException");
+        // the CME branch is still reachable: current set + foreign mod
+        let m4 = map_new();
+        for k in 0..2 {
+            n_hm_put(Some(&m4), &[boxed_i32(k), boxed_i32(k)], ctx()).unwrap();
+        }
+        let ks4 = match n_hm_key_set(Some(&m4), &[], ctx()).unwrap() {
+            Value::Ref(Some(k)) => k,
+            _ => panic!("keySet 4"),
+        };
+        let it4 = match n_ks_iterator(Some(&ks4), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("iterator 4"),
+        };
+        n_ki_next(Some(&it4), &[], ctx()).unwrap();
+        n_hm_remove(Some(&m4), &[boxed_i32(0)], ctx()).unwrap();
+        let err = n_hi_remove(Some(&it4), &[], ctx()).unwrap_err();
+        assert_eq!(
+            err.java_class(),
+            "java/util/ConcurrentModificationException"
+        );
+    }
+
+    #[test]
+    fn hash_iter_remove_value_and_entry_law() {
+        let _rt = crate::test_support::runtime();
+        let m = map_new();
+        for k in 0..3 {
+            n_hm_put(Some(&m), &[boxed_i32(k), boxed_i32(k + 10)], ctx()).unwrap();
+        }
+        // value iterator remove: the whole node (key AND value) is removed
+        let vs = match n_hm_values(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(v)) => v,
+            _ => panic!("values"),
+        };
+        let it = match n_vs_iterator(Some(&vs), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("value iterator"),
+        };
+        let v = n_vi_next(Some(&it), &[], ctx()).unwrap();
+        n_hi_remove(Some(&it), &[], ctx()).unwrap();
+        assert_eq!(n_hm_size(Some(&m), &[], ctx()).unwrap().expect_int(), 2);
+        // continued value iteration: no CME, two values remain
+        let rest = n_vi_next(Some(&it), &[], ctx()).unwrap();
+        let _ = unbox_i32(&rest);
+        let _ = v;
+        // entry iterator remove: next() returns the node, remove() drops it
+        let es = match n_hm_entry_set(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(e)) => e,
+            _ => panic!("entrySet"),
+        };
+        let eit = match n_hes_iterator(Some(&es), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("entry iterator"),
+        };
+        let entry = match n_ei_next(Some(&eit), &[], ctx()).unwrap() {
+            Value::Ref(Some(n)) => n,
+            _ => panic!("entry node"),
+        };
+        let key = n_node_get_key(Some(&entry), &[], ctx()).unwrap();
+        n_hi_remove(Some(&eit), &[], ctx()).unwrap();
+        assert_eq!(n_hm_size(Some(&m), &[], ctx()).unwrap().expect_int(), 1);
+        assert_eq!(
+            n_hm_contains_key(Some(&m), &[key], ctx())
+                .unwrap()
+                .expect_int(),
+            0
+        );
+        // entry iterator remove without next → ISE (fresh iterator)
+        let eit2 = match n_hes_iterator(Some(&es), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("entry iterator 2"),
+        };
+        let err = n_hi_remove(Some(&eit2), &[], ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/IllegalStateException");
+    }
+
+    #[test]
+    fn lhm_itr_remove_ise_before_cme_law() {
+        let _rt = crate::test_support::runtime();
+        // the probed LinkedHashMap combined law (Temurin case 5): a fresh
+        // link iterator over a foreign-modified map, remove() without any
+        // next() → ISE, NOT CME — the original CME-first order diverged
+        // from Temurin and was corrected against the ItrOrderProbe oracle
+        let m = lhm_new();
+        for (k, v) in [("a", 1), ("b", 2)] {
+            n_lhm_put(
+                Some(&m),
+                &[Value::Ref(Some(new_string(k))), boxed_i32(v)],
+                ctx(),
+            )
+            .unwrap();
+        }
+        let es = match n_lhm_entry_set(Some(&m), &[], ctx()).unwrap() {
+            Value::Ref(Some(e)) => e,
+            _ => panic!("entrySet"),
+        };
+        let it = match n_les_iterator(Some(&es), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("iterator"),
+        };
+        // foreign modification BEFORE any next()
+        n_lhm_remove(Some(&m), &[Value::Ref(Some(new_string("a")))], ctx()).unwrap();
+        let err = n_lhm_itr_remove(Some(&it), &[], ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/IllegalStateException");
+        // lastRet set + foreign mod → CME (the ISE check passed, CME fires)
+        let it2 = match n_les_iterator(Some(&es), &[], ctx()).unwrap() {
+            Value::Ref(Some(i)) => i,
+            _ => panic!("iterator 2"),
+        };
+        n_lei_next(Some(&it2), &[], ctx()).unwrap();
+        n_lhm_remove(Some(&m), &[Value::Ref(Some(new_string("b")))], ctx()).unwrap();
+        let err = n_lhm_itr_remove(Some(&it2), &[], ctx()).unwrap_err();
         assert_eq!(
             err.java_class(),
             "java/util/ConcurrentModificationException"

@@ -222,10 +222,15 @@ fn differential_suite_matches_jvm() {
     // kinds), is-a HashMap/Map, the three views in link order, the
     // entry-iterator remove (order intact, modCount re-synced), the null
     // key/value laws, clear + re-add, getOrDefault/containsValue — 121 on
-    // disk, guard one below that.
+    // disk, guard one below that. The run-4 residual wave (2026-11-15)
+    // added ItrOrderProbe — the hash-iterator remove() fix: mid-walk
+    // remove through keySet/values/entrySet, continued iteration without
+    // CME, double-remove ISE, foreign-mod CME, and the probed combined
+    // law (fresh iterator + foreign mod + remove without next → ISE,
+    // NOT CME) — 122 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 120,
-        "differential suite shrank: {} fixtures (expected >= 120)",
+        fixtures.len() >= 121,
+        "differential suite shrank: {} fixtures (expected >= 121)",
         fixtures.len()
     );
 

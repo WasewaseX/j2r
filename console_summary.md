@@ -1,5 +1,43 @@
 # j2r console summary — the state board
 
+Updated 2026-11-15 (run 4 continuation — **THE HASHMAP HASH-ITERATOR
+REMOVE() RESIDUAL CLOSED, AND THE PROBE FOUND A SECOND LATENT
+DIVERGENCE**, after reset #27). Recovery: fetch + ff-only from stale
+`b4badea` to `c91ca8d` (the LinkedHashMap landing); toolchain rebuilt
+byte-exact (rustc 1.99.1 `58cf8f9c3` + Temurin javac 21.0.13; the
+outside-repo bootstrap script was wiped and re-persisted); baseline
+re-proven 483/0 lib BEFORE any code. The owner's external review
+re-ranked the queue: residuals first, documentation sync second. THE
+PROBE (ItrOrderProbe vs Temurin 21.0.13+9, 9 cases, evidence
+scripts/evidence/itr_remove/): the HashIterator.remove law is **ISE
+FIRST** — both conditions holding (no lastRet + foreign modification)
+yields IllegalStateException, NOT CME (case 1); and LinkedHashMap
+behaves the same (case 5) — so the run-4 LHM link-iterator remove
+(CME-first) was ALSO divergent, never probed with both conditions
+combined. THE FIX: hash iterators gain slot 4 = current (the
+last-returned node; 4 → 5 slots), n_hi_remove implements the probed
+law, KeyIterator/ValueIterator rows rewired off the ArrayList-shaped
+n_itr_remove (the registered slot-2 type confusion), the MISSING
+HashMap$EntryIterator.remove row added (the walk fell through to the
+generic Iterator row), HashSet rides the fix, n_lhm_itr_remove order
+corrected to ISE-first. Landed: ItrOrderProbe = the 122nd fixture
+(three-channel zero, first run), 3 law tests (runtime 265 → 268).
+Battery: lib units 486/0 (48+155+15+268), diff_suite 122 three-channel
+ZERO (330.87 s + 340.36 s sharded), cfg_equiv zero (441.36 s),
+corpus/partition/jar/native_e2e green, fmt+clippy clean, gate-11 in
+sync: fixtures=122, tests=545 (README 121→122 / 542→545, diff guard
+120→121). Also landed per the review: docs/STATUS_G2_G3_G4.md — the
+single evidence-backed status report reconciling README + boards (70k
+stated honestly: emission ≠ native build). Next queue: TreeMap (the
+red-black storage + Comparable/Comparator dispatch, probed FIRST),
+then the G3.3 prim rewrites ride the new maps. Remaining residuals:
+user-interface DEFAULT dispatch (Probe5), HELPFUL-NPE, different-
+package private-ctor IllegalAccessException.
+
+---
+
+# j2r console summary — the state board
+
 Updated 2026-11-15 (run 4 of the continuation cycle — **LINKEDHASHMAP
 LANDED: the class itself, the order laws, the 121st fixture**, after
 reset #26). Recovery: fetch + ff-only to `ea2d0af` (run 3's R7 NO-GO)

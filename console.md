@@ -3451,3 +3451,56 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   hash-iterator remove mis-read (NEW, registered this run), the
   user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE, the
   DIFFERENT-package private-ctor IllegalAccessException.
+
+### [2026-11-15, run 4 continuation — the HashMap hash-iterator remove() residual CLOSED, second latent divergence found by the probe]
+- **Recovery**: local tree stale at pre-M2 `b4badea` AGAIN (reset #27);
+  fetch + ff-only to `c91ca8d` (the LinkedHashMap landing). The toolchain
+  AND the outside-repo bootstrap script were both wiped — rebuilt
+  byte-exact (rustc 1.99.1 `58cf8f9c3`, rustfmt 1.10.0, cargo 1.99.1,
+  Temurin javac 21.0.13) and re-persisted
+  `scripts/bootstrap_toolchain.sh` (lesson re-confirmed: the mirror
+  dies, only the repo copy survives). Baseline re-proven BEFORE any
+  code: lib units 483/0.
+- **The owner's external review** (pasted mid-window) re-ranked the
+  queue: close the correctness residuals FIRST (especially the HashMap
+  iterator remove()), synchronize ALL documentation, then another
+  feature wave. This window follows that order.
+- **ItrOrderProbe vs Temurin 21.0.13+9** (9 cases): the PROBED
+  HashIterator.remove law is **ISE FIRST** — when BOTH conditions hold
+  (no lastRet + a foreign modification) Temurin throws
+  IllegalStateException, NOT CME (case 1); lastRet set + foreign mod →
+  CME (case 4rm); double remove → ISE (case 3); continued iteration
+  after remove throws no CME (case 9). **LinkedHashMap behaves the same
+  (case 5) — which exposed a SECOND latent divergence**: the landed LHM
+  link-iterator remove checked CME first (LhmProbe never combined both
+  conditions; probe-first discipline vindicated twice in one window).
+- **The fix**: hash iterators gain slot 4 = `current` (the
+  last-returned node — the OpenJDK HashIterator field remove()
+  consumes; 4 → 5 slots, `hm_new_hash_iterator` + builtin slot table +
+  `hm_hash_next_node` records it after a successful next);
+  `n_hi_remove` implements the probed law (ISE → CME → the map's own
+  remove path → current clears → expectedModCount re-syncs); the
+  KeyIterator/ValueIterator remove rows rewired off the ArrayList-shaped
+  `n_itr_remove` AND the **missing HashMap$EntryIterator.remove row
+  added** (the walk previously fell through to the generic Iterator row
+  — the registered slot-2 type confusion, latent since the stringsim
+  wave); HashSet rides the fix (its iterator IS a HashMap$KeyIterator);
+  `n_lhm_itr_remove` check order corrected to ISE-first.
+- **Landed**: fixture `ItrOrderProbe` (the **122nd**, three-channel
+  zero on the first run), 3 law tests (hash_iter_remove_order_and_
+  modcount_law, hash_iter_remove_value_and_entry_law,
+  lhm_itr_remove_ise_before_cme_law; runtime 265 → 268). Battery all
+  green: lib units **486/0** (48+155+15+268), diff_suite **122
+  fixtures three-channel ZERO divergences** (330.87 s + 340.36 s
+  sharded), cfg_equiv **zero** (441.36 s), corpus/partition/jar/
+  native_e2e green, fmt + clippy clean, gate-11 in sync: fixtures=122,
+  tests=545 (README 121→122 / 542→545, diff_suite guard 120→121).
+- **Evidence**: scripts/evidence/itr_remove/ (the Temurin oracle output
+  + the probe source, kept as the fixture).
+- **Next**: TreeMap — the last of the three map classes (the red-black
+  storage + the Comparable/Comparator dispatch law; probed FIRST), then
+  the G3.3 prim rewrites ride the new maps. The owner review also
+  demanded the single evidence-backed G2/G3/G4 status report — written
+  this window (docs/STATUS_G2_G3_G4.md). Remaining residuals: the
+  user-interface DEFAULT dispatch law (Probe5), HELPFUL-NPE, the
+  different-package private-ctor IllegalAccessException.

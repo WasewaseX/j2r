@@ -5560,6 +5560,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "()Ljava/lang/Object;",
         c::n_ei_next,
     ),
+    (
+        "java/util/HashMap$EntryIterator",
+        "remove",
+        "()V",
+        c::n_hi_remove,
+    ),
     // The stringsim driver dispatches getKey/getValue through the
     // java/util/Map$Entry INTERFACE type — interface-level rows, same law
     // as the java/util/Map family above.
@@ -5817,7 +5823,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "java/util/HashMap$KeyIterator",
         "remove",
         "()V",
-        c::n_itr_remove,
+        c::n_hi_remove,
     ),
     (
         "java/util/HashMap$ValueIterator",
@@ -5835,7 +5841,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "java/util/HashMap$ValueIterator",
         "remove",
         "()V",
-        c::n_itr_remove,
+        c::n_hi_remove,
     ),
     // run 4 (2026-11-15): LinkedHashMap — the ordered map. get/getOrDefault/
     // containsKey/containsValue/size/isEmpty INHERIT the HashMap rows through
