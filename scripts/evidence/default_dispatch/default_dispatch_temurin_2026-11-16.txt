@@ -1,0 +1,5 @@
+m=21
+twice=42
+t=mid
+o=class
+t2=top2

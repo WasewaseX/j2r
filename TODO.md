@@ -26,15 +26,40 @@ time). BOARD TRUTH PASS en route: G3.1 box checked in
 REVIEW_CHECKLIST (closed session 17 `fb6683c`, the row had been left
 `[ ]`), STATUS G3.1 OPEN→CLOSED with the evidence path, STATUS G3.3
 stale "TreeMap next" line fixed (the prim rewrites ride ALL THREE map
-storages), G3.4 sub-gate state recorded. ZERO source changes —
-measurement + boards only; evidence
-scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt; docs/BENCHMARKS.md
-addendum 4; gate-11 green (no count changes). Next queue: 1) ONE more
-SSB same-session pair (the formal ≥2-session clause), 2) the
-residuals (user-interface DEFAULT dispatch, HELPFUL-NPE,
-different-package private-ctor, the HashMap copy-ctor gap), 3) the
-G3.2 CFG layer (block-join/entry-var, the named next prerequisite),
-mappings/Mixins; the M4 review belongs to the owner.)
+storages), G3.4 sub-gate state recorded. THEN THE RESIDUALS WAVE
+OPENED — **USER-INTERFACE DEFAULT-METHOD DISPATCH LANDED (the
+registered Probe5 residual)**: DefaultDispatchProbe (the 127th
+fixture, 11 classes, law matrix L1 the Probe5 shape / L2 the
+most-specific default / L3 the class-override precedence / L4 the
+super-interface reach through a non-redeclaring Mid; Temurin oracle
+scripts/evidence/default_dispatch/) RED-proved the residual exactly
+(rc=1 after "m=21", the loud internal Error) and the fix is RUNTIME-ONLY:
+invoke_virtual, after the class chain finds nothing, BFSes the
+receiver's transitive interface closure over the FULL parents arrays
+(new Dispatch::parents_of_full — parent_of returned parents[0] only),
+candidates = lookup hits on INTERFACE-typed nodes (abstract rows have
+no lookup row, so a hit IS a default body; builtin interfaces answer
+from the native rows), dominance via the existing is_subtype, exactly
+one survivor dispatches; the diamond conflict stays LOUD
+(IncompatibleClassChangeError — UNREACHABLE from javac input, which
+refuses it at compile time — probed live, the lesson pinned in the
+probe + evidence); 0 survivors keeps the loud Error. ZERO codegen
+changes (the fold mirrors the widened law by the documented `_`
+fallback). GREEN: probe stdout byte-identical vs Temurin; +5 law
+tests (lib.rs default_dispatch); lib battery **517/0**
+(48+160+15+294); diff_suite **127 fixtures three-channel ZERO**
+(365.52s + 371.10s sharded; the 127th fixture byte-identical vs
+Temurin); cfg_equiv zero (446.72s); fmt + clippy -D warnings clean
+FRESH; gate-11 in sync: fixtures=127 tests=576 (README 126→127 /
+571→576 / 127-127, diff guard 125→126 with the run-3 wave comment).
+ZERO source changes for the pairs half; ONE runtime file for the
+residual half. Evidence: scripts/evidence/g3_4_pairs/ +
+scripts/evidence/default_dispatch/. Next queue: 1) ONE more SSB
+same-session pair (the formal ≥2-session clause), 2) the REST of the
+residuals wave (HELPFUL-NPE, different-package private-ctor, the
+HashMap copy-ctor gap), 3) the G3.2 CFG layer (block-join/entry-var,
+the named next prerequisite), mappings/Mixins; the M4 review belongs
+to the owner.)
 (Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
 fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
 oracle at scripts/evidence/char_array_rep/) pinned the [C representation

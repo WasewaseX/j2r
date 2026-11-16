@@ -1,0 +1,87 @@
+DefaultDispatchProbe — the user-interface DEFAULT dispatch law: RED → GREEN
+============================================================================
+Date: 2026-11-16 (standing run 3; HEAD before the fix: f138c76)
+
+THE REGISTERED RESIDUAL (run 2 of the continuation cycle, R5 slice 2):
+  invoke_virtual's dispatch walk visits parents[0] only — a user
+  interface's DEFAULT method is off the chain. Temurin runs the default
+  body (the original Probe5: Temurin prints twice=42); j2r dies the
+  loud internal Error. The fix is a runtime dispatch-law change —
+  THIS slice.
+
+PROBE FIRST (the discipline): scripts/evidence/default_dispatch/
+  DefaultDispatchProbe.java — 11 classes, the law matrix:
+  L1 the Probe5 shape (a default calling an abstract sibling through
+     the interface-typed receiver),
+  L2 the MOST-SPECIFIC default wins (Mid extends Top redeclares; the
+     site is declared on Top),
+  L3 the class override beats the default (the chain law, pre-existing),
+  L4 the super-interface default reached through a NON-redeclaring Mid.
+  Temurin 21.0.13+9 oracle: exit 0, five lines
+    m=21 / twice=42 / t=mid / o=class / t2=top2
+  (default_dispatch_temurin_2026-11-16.txt).
+
+LESSON THE PROBE AUTHORING SURFACED (pinned in the probe comments):
+  the diamond-conflict shape (two unrelated interfaces declare the same
+  default; a class implements both without overriding) is refused by
+  javac AT COMPILE TIME ("class DC inherits unrelated defaults for d()
+  from types DA and DB") — it cannot arrive through javac-produced
+  classfiles, so j2r needs NO prepare-time conflict mechanism; the
+  runtime resolution keeps the loud IncompatibleClassChangeError for
+  the hand-crafted-classfile case only. The re-abstract shape is
+  likewise unreachable (a concrete class must implement). Both probes
+  were written and javac refused them — recorded here, not guessed.
+
+RED PROOF (pre-fix, HEAD f138c76, typed off — the bug is dispatch-law,
+  both backends):
+  j2r compile (11 classes) + vendored-runtime cargo build + run:
+    rc=1, stdout stops after "m=21", stderr:
+    Exception in thread "main" java.lang.Error: j2r internal:
+    no implementation found for twice()I when dispatched on
+    DefaultDispatchProbe$Impl
+  — the registered residual exactly.
+
+THE FIX (crates/j2r-runtime/src/lib.rs invoke_virtual + Dispatch):
+  after the class chain (parents[0] loop, unchanged) finds nothing:
+  - BFS the receiver's transitive interface closure over the FULL
+    parents arrays (new Dispatch::parents_of_full — parent_of only
+    returned parents[0]; builtin interfaces expand through
+    builtin::builtin_parent_of);
+  - candidates = lookup hits on INTERFACE-typed nodes (abstract rows
+    have no lookup row — codegen skips them at plan time — so a user-
+    lookup hit IS a concrete default body; builtin interfaces answer
+    from the native rows);
+  - dominance via the existing is_subtype (is_ref_subtype walks the
+    same parents edges): a candidate loses to a strict-subtype
+    candidate; exactly one survivor dispatches;
+  - >1 survivors = the diamond conflict: loud
+    IncompatibleClassChangeError (unreachable from javac, kept for the
+    hand-crafted case);
+  - 0 survivors: the loud internal Error stays the fallthrough.
+  The codegen fold needs NO change: a dying walk got no arm and the
+  `_` fallback re-entered the FULL dynamic walk, which now finds the
+  default — the fold mirrors the widened law by construction.
+
+GREEN PROOFS (all this session, after the fix):
+  1. DefaultDispatchProbe: exit 0, stdout BYTE-IDENTICAL vs the
+     same-session Temurin oracle (stderr empty).
+  2. Law tests +5 in lib.rs default_dispatch (synthetic tables):
+     single_default_dispatches, most_specific_default_wins,
+     superinterface_default_reached_through_non_redeclaring_sub,
+     diamond_conflict_is_loud_icerror (asserts the ICError class AND
+     the both-interfaces message), no_law_change_when_nothing_matches
+     (the loud Error fallthrough stays).
+  3. diff_suite: DefaultDispatchProbe registered as the 127th fixture;
+     127 fixtures three-channel ZERO divergences (365.52s + 371.10s
+     sharded 0/2+1/2); the diff guard 125 → 126 with the run-3 wave
+     comment.
+  4. cfg_equiv zero (446.72s).
+  5. Lib battery 517/0 (48+160+15+294; +5 law tests).
+  6. fmt clean (one survivors-loop reflow), clippy -D warnings clean
+     FRESH, gate-11 in sync: fixtures=127 tests=576 (README 126→127 /
+     571→576 / 126-126→127-127 / the diff-suite size line).
+
+SCOPE GUARDS honored: zero codegen changes (runtime dispatch law only,
+the fold mirrors by the documented fallback); typed.rs untouched (the
+non-default backend inherits the fix through the shared runtime);
+no farm builds; the M4 review untouched.

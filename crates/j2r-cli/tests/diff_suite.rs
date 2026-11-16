@@ -255,10 +255,16 @@ fn differential_suite_matches_jvm() {
     // substring-reassignment t_j law, the char[] swap, the cross-shape
     // consumers, and the distilled NGram kernel — the run-2 P0 typed-
     // backend crash regression —
-    // 126 on disk, guard one below that.
+    // The run-3 wave (2026-11-16) added DefaultDispatchProbe — the
+    // user-interface DEFAULT-method dispatch law (the registered Probe5
+    // residual): the single default through the interface-typed receiver,
+    // the most-specific default through the sub-interface, the
+    // class-override-beats-default chain precedence, and the
+    // super-interface default reached through a non-redeclaring Mid —
+    // 127 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 125,
-        "differential suite shrank: {} fixtures (expected >= 125)",
+        fixtures.len() >= 126,
+        "differential suite shrank: {} fixtures (expected >= 126)",
         fixtures.len()
     );
 

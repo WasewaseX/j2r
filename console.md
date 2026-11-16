@@ -3925,3 +3925,62 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   the HashMap copy-ctor gap), 3) the G3.2 CFG layer
   (block-join/entry-var — the named prerequisite for G3.3's full
   payoff), then mappings/Mixins; the M4 review belongs to the owner.
+
+## 2026-11-16 — standing run 3 (cont.): **THE USER-INTERFACE DEFAULT-METHOD DISPATCH LANDED — the registered Probe5 residual CLOSED, DefaultDispatchProbe the 127th fixture**
+
+- After the G3.4 pairs + the board truth pass (the entry above), the
+  residuals wave opened with its head item. PROBE FIRST: the probe
+  (scripts/evidence/default_dispatch/DefaultDispatchProbe.java, 11
+  classes) pins the law matrix — L1 the Probe5 shape (a default
+  calling an abstract sibling through the interface-typed receiver),
+  L2 the MOST-SPECIFIC default wins through a Top-typed site,
+  L3 the class override beats the default (the chain law, pre-existing),
+  L4 the super-interface default reached through a NON-redeclaring
+  Mid. Temurin 21.0.13+9 oracle: exit 0, five lines
+  (m=21/twice=42/t=mid/o=class/t2=top2).
+- LESSON the probe authoring surfaced (written, compiled, refused —
+  recorded, not guessed): the diamond-conflict shape is refused by
+  JAVAC AT COMPILE TIME ("inherits unrelated defaults"), and the
+  re-abstract shape is unreachable (a concrete class must implement) —
+  both cannot arrive through javac-produced classfiles, so j2r needs
+  NO prepare-time conflict mechanism; the runtime keeps the loud
+  IncompatibleClassChangeError for the hand-crafted-classfile case.
+- RED proof (pre-fix, f138c76): j2r rc=1, stdout stops after "m=21",
+  stderr the registered loud Error ("no implementation found for
+  twice()I ... dispatched on DefaultDispatchProbe$Impl") — exact.
+- THE FIX (runtime-only, crates/j2r-runtime/src/lib.rs): invoke_virtual,
+  after the unchanged class chain finds nothing — BFS the receiver's
+  transitive interface closure over the FULL parents arrays (NEW
+  Dispatch::parents_of_full; parent_of returned parents[0] only;
+  builtin interfaces expand through builtin::builtin_parent_of);
+  candidates = lookup hits on INTERFACE-typed nodes (abstract rows
+  have NO lookup row — codegen skips them at plan time — so a user
+  hit IS a concrete default body; builtin interfaces answer from the
+  native rows); dominance via the existing is_subtype (is_ref_subtype
+  walks the same parents edges); exactly one survivor dispatches;
+  >1 survivors = the loud ICError; 0 survivors = the loud Error
+  fallthrough. ZERO codegen changes — the fold's dying-walk-no-arm
+  contract already re-enters the FULL dynamic walk, which now finds
+  the default: the fold mirrors the widened law by construction.
+  typed.rs untouched (the non-default backend inherits through the
+  shared runtime).
+- GREEN (all this session): probe stdout byte-identical vs the
+  same-session Temurin oracle (exit 0); +5 law tests (lib.rs
+  default_dispatch: single_default, most_specific_wins,
+  superinterface_reach, diamond_is_loud_icerror (asserts the class AND
+  the both-interfaces message), no_law_change fallthrough); battery
+  all green: lib **517/0** (48+160+15+294; +5), diff_suite **127
+  fixtures three-channel ZERO** (365.52s + 371.10s sharded 0/2+1/2;
+  DefaultDispatchProbe the 127th byte-identical vs Temurin),
+  cfg_equiv **zero** (446.72s); fmt clean (one survivors-loop
+  reflow), clippy -D warnings clean FRESH; gate-11 in sync:
+  fixtures=127 tests=576 (README 126→127 / 571→576 / 127-127, diff
+  guard 125→126 with the run-3 wave comment).
+- Evidence: scripts/evidence/default_dispatch/{DefaultDispatchProbe.java,
+  default_dispatch_temurin_2026-11-16.txt,
+  DEFAULT_DISPATCH_2026-11-16.txt}.
+- NEXT queue: 1) ONE more SSB same-session pair (the formal
+  ≥2-session clause), 2) the REST of the residuals wave (HELPFUL-NPE,
+  different-package private-ctor, the HashMap copy-ctor gap), 3) the
+  G3.2 CFG layer (block-join/entry-var), then mappings/Mixins; the
+  M4 review belongs to the owner.
