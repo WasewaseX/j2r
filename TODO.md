@@ -72,11 +72,14 @@ diff_suite 128 zero, cfg_equiv zero; evidence
 scripts/evidence/helpful_npe/; the registered residuals: the
 <parameterN>/this/LVT naming branches, the composed-value/chain
 causes, the specialized map cores, the typed emitter, monitorexit),
-2) HEAD OF QUEUE — ONE more SSB same-session pair (the formal
-≥2-session clause), 3) different-package private-ctor, the HashMap
-copy-ctor gap, 4) the G3.2 CFG layer (block-join/entry-var),
-mappings/Mixins; the M4 review belongs to the owner. (Run 5 of 5
-remains in the cycle.)
+2) the SSB same-session pair — TAKEN (run 5: 275.353/277.931 =
+0.9907, byte-identical vs the same-session ref; with run 3's 0.9767
+the formal ≥2-session SSB clause HOLDS, the G3.4 checklist box
+CLOSED; evidence scripts/evidence/g3_4_pairs/PAIRS_run5_2026-11-16.txt),
+3) HEAD OF QUEUE — different-package private-ctor, the HashMap
+copy-ctor gap (both PROBE FIRST), 4) the G3.2 CFG layer
+(block-join/entry-var), mappings/Mixins; the M4 review belongs to
+the owner. (The 5-run cycle is COMPLETE: runs 1-5 all recorded.)
 (Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
 fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
 oracle at scripts/evidence/char_array_rep/) pinned the [C representation

@@ -1,0 +1,71 @@
+THE G3.4 SAME-SESSION PAIRS — standing run 5 of 5, 2026-11-16
+(the SECOND SSB pair — the formal >=2-session SSB clause)
+==============================================================
+HEAD: 5f52e8d (== origin/main, the run-4 HELPFUL-NPE tree).
+Zero source changes this run: measurement + boards only.
+Box: 2-core Xeon class sandbox, ~4 GB RAM (the recorded reference
+sandbox class). Toolchain re-bootstrapped byte-exact this session
+after the sandbox reset: rustc 1.99.1 (58cf8f9c3), Temurin
+21.0.13+9 (javac -version = 21.0.13; rustc --version exact string
+logged).
+Baseline re-proof BEFORE any measurement: cargo build --release
+--workspace green (35.61s); cargo test --workspace --lib = 532/0
+(48+172+15+297) — the boards' count for this HEAD.
+
+Protocol (the G0.7 same-session pair rule, unchanged from the
+run-3 transcript): in ONE session on ONE box: javac stem ->
+Temurin full-tiered JVM reference run -> j2r DEFAULT fresh emit +
+vendored-runtime cargo build + native run -> j2r TYPED
+(--emit-typed) fresh emit + vendored cargo build + native run;
+every native run byte-compared against the same-session JVM
+reference stdout; wall clocks recorded for all channels. Single
+JVM run per bench (the pair is native-vs-native; the JVM wall
+contextualizes the gap).
+
+----------------------------------------------------------------
+BENCH — StringsSimBench (23 classes; the audit's crash workload)
+----------------------------------------------------------------
+build: bash scripts/build_corpus_stringsimbench.sh  (JAVAC_OK,
+unchecked-warning expected; 23 .class files -> /tmp/stringsimbench_out)
+Temurin ref (same-session):
+  java -cp /tmp/stringsimbench_out StringsSimBench
+  wall **2.736 s**; output 6 lines incl. w8_ngram=12044.130793690681
+  (the crash workload row) and done
+  a SECOND reference run reproduced stdout BYTE-IDENTICAL
+  (sha256 cb155cfa84c2abe2... both)
+DEFAULT backend (fresh emit, vendored runtime):
+  j2r compile -o /tmp/ssb-default /tmp/stringsimbench_out/*.class
+    --main-class StringsSimBench --crate-name j2r_app
+  gen wall 23 ms (incremental: 23 re-emitted, 65 written);
+  cargo build --release wall 18.5 s
+  run: exit 0, wall **277.931 s**, stdout BYTE-IDENTICAL vs the
+  same-session Temurin ref (sha256 cb155cfa84c2abe2...)
+TYPED backend (--emit-typed, fresh emit, vendored runtime):
+  j2r compile --emit-typed -o /tmp/ssb-typed ... (same inputs)
+  gen wall 28 ms; cargo build --release wall 48.7 s
+  run: exit 0, wall **275.353 s**, stdout BYTE-IDENTICAL vs the
+  same-session Temurin ref (sha256 cb155cfa84c2abe2...)
+PAIR RATIO (typed/default): 275.353/277.931 = **0.9907** (< 1.0)
+Gap vs the full-tiered JVM: default 277.931/2.736 = **101.6x**,
+typed 275.353/2.736 = **100.6x** (two orders of magnitude, quoted
+per G3.5).
+
+THE FORMAL >=2-SESSION SSB CLAUSE — HOLDS:
+  2026-11-16 run 3 (161fd44): 279.224/285.873 = 0.9767
+  2026-11-16 run 5 (5f52e8d): 275.353/277.931 = 0.9907
+  Two sessions, same protocol, both ratios < 1.0, all four native
+  runs stdout byte-identical vs their same-session refs, all exit
+  0. The two ratios differ by 1.4% — the single-run noise band on
+  this box (the JamaBench chain shows the same 1.3% band); both
+  quoted. Cross-session absolute walls: typed 275.353 vs 279.224
+  (1.39% apart), default 277.931 vs 285.873 (2.78% apart).
+  The typed lever's SSB gain is REPEATABLE; the clause that run 3
+  registered as "ONE more SSB pair owed" is now CLOSED by
+  measurement.
+
+HONESTY GUARDS honored: no 20k/70k farm builds; no 70k native
+compilation claims; JMM untouched; every number same-session with
+its control; the noise band stated, not smoothed over.
+No diff-suite regressions possible from this run: ZERO source
+changes (docs + evidence only); lib battery re-proven 532/0 at
+this HEAD before measuring.

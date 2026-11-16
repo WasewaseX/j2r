@@ -4180,3 +4180,60 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   the owner. The cycle counter stands at 5 of 5 (run 5 remains).
 - Tree clean at origin/main (746dc3b + this boards commit); the run
   counter file advances 4→5.
+
+## 2026-11-16 — standing run 5 of 5 (RUN RECORD): **THE SECOND SSB SAME-SESSION PAIR TAKEN — the formal ≥2-session SSB clause HOLDS, the G3.4 checklist box CLOSED; the 5-run cycle COMPLETE**
+
+- Reset recovery first (fresh sandbox, counter file gone): runs 1-4
+  verified in the boards, counter re-initialized to 5; fetch +
+  ff-only b4badea → **5f52e8d** == origin/main (the run-4 HELPFUL-NPE
+  tree); toolchain re-bootstrapped byte-exact via the tracked script
+  (rustc 1.99.1 (58cf8f9c3), javac 21.0.13) and the rust199 symlink
+  re-wired; baseline re-proven BEFORE any measurement: release
+  workspace build green (35.61s) + lib battery **532/0**
+  (48+172+15+297) — the boards' count for this HEAD.
+- QUEUE HEAD (from the boards, not memory): ONE more SSB same-session
+  pair — the formal ≥2-session clause run 3 registered as owed.
+- THE PAIR (G0.7, one session, one box; full transcript
+  scripts/evidence/g3_4_pairs/PAIRS_run5_2026-11-16.txt): javac stem
+  JAVAC_OK (23 classes, unchecked-warning expected); Temurin ref
+  wall **2.736 s**, stdout reproduced BYTE-IDENTICAL on a second run
+  (sha256 cb155cfa84c2abe2…); DEFAULT fresh emit gen 23 ms +
+  vendored cargo build 18.5 s + native run exit 0 wall **277.931 s**
+  stdout byte-identical; TYPED (--emit-typed) fresh emit gen 28 ms +
+  vendored cargo build 48.7 s + native run exit 0 wall **275.353 s**
+  stdout byte-identical. PAIR RATIO 275.353/277.931 = **0.9907**;
+  gap vs the full-tiered JVM: default **101.6x**, typed **100.6x**
+  (two orders of magnitude, quoted per G3.5).
+- THE CLAUSE: 2026-11-16 run 3 (161fd44) 279.224/285.873 = **0.9767**
+  + 2026-11-16 run 5 (5f52e8d) **0.9907** — two sessions, same
+  protocol, both < 1.0, all four native runs byte-identical vs their
+  same-session refs, the ratios 1.4% apart (the single-run noise
+  band, both quoted; cross-session absolute walls 1.39%/2.78%
+  apart) — **the formal ≥2-session SSB clause HOLDS**. With
+  JamaBench's four sessions (0.992 → 0.936 → 0.9092 → 0.9211) the
+  G3.4 acceptance-bar checklist box is CLOSED (the box certifies the
+  LEVER's repeatability, not a changed order of magnitude — the
+  ~100x gap stays quoted per G3.5). Board truth edits: the
+  STATUS/REVIEW_CHECKLIST SSB figures updated to both sessions; the
+  stale "~66x" parenthetical in the G3.5 row removed (the run-3
+  truth pass had missed one).
+- HONESTY GUARDS honored: no 20k/70k farm builds; no 70k native
+  compilation claims; JMM untouched; every number same-session with
+  its control; the noise band stated, not smoothed over.
+- Battery statement: ZERO source changes this run (docs + evidence
+  only) — lib battery re-proven 532/0 at this HEAD before
+  measuring; diff_suite (128 fixtures) and cfg_equiv were green at
+  this exact tree in run 4 and are untouched by construction;
+  gate-11 green (no count changes: fixtures=128, tests=591).
+- HANDOFF QUEUE (updated in TODO.md): the 5-run owner cycle is
+  COMPLETE (runs 1-5 all recorded in the boards). Queue head for
+  the next work: different-package private-ctor, the HashMap
+  copy-ctor gap (both PROBE FIRST), then the G3.2 CFG layer
+  (block-join/entry-var), mappings/Mixins; the registered
+  HELPFUL-NPE residuals (<parameterN>/this/LVT naming branches, the
+  composed-value/chain causes, the specialized map cores, the typed
+  emitter, monitorexit) remain bare-NPE. The M4 review belongs to
+  the owner.
+- Tree clean at origin/main (the pair evidence + boards commit); the
+  run counter file advances 5→6 (any future window reads >5 and
+  terminates the cycle).

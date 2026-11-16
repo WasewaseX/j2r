@@ -289,12 +289,15 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
 
 State: lever ledger structuring-flat → typed-locals 0.992 → operand
 unification 0.958 → typed-payload arrays 0.936 (6.4% cumulative);
-same-session pairs at HEAD `161fd44` (2026-11-16): JamaBench
+same-session pairs: JamaBench at HEAD `161fd44` (2026-11-16)
 typed/default **0.9211** (4 sessions, all < 1.0), StringsSimBench
-**0.9767** (first pair); steady state **73.7×** (typed) / 80.0×
-(default) behind the full-tier JVM on JamaBench, **100.0×** (typed) /
-102.4× (default) on StringsSimBench — evidence
-`scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt`.
+**0.9767** (run 3, first pair) and **0.9907** (run 5, HEAD `5f52e8d`,
+275.353/277.931 — the ≥2-session clause HOLDS on SSB now too);
+steady state **73.7×** (typed) / 80.0×
+(default) behind the full-tier JVM on JamaBench, **100.6×** (typed) /
+101.6× (default) on StringsSimBench (run 5) — evidence
+`scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt` and
+`PAIRS_run5_2026-11-16.txt`.
 
 - [x] **G3.1 — the deferred-join mechanism** (tred2/orthes/hqr2
   refusals). CLOSED session 17 (`fb6683c`): landed behind `--emit-cfg`,
@@ -311,15 +314,27 @@ typed/default **0.9211** (4 sessions, all < 1.0), StringsSimBench
   2.78× container tax, addendum 7). PASS: design lands after the
   entry-var layer per the register; the BoxingBoxed/BoxingPrim pair
   re-measured; output byte-identical.
-- [ ] **G3.4 — the acceptance bar.** PASS: repeatable (≥2 sessions,
-  same protocol) improvements on BOTH JamaBench and StringsSimBench with
-  byte-identical output AND zero diff-suite regressions on every landing;
-  every number carries its same-session control pair (G0.7). FAIL: a win
-  quoted from a stale baseline (the 1.31× machine-drift lesson).
+- [x] **G3.4 — the acceptance bar.** CLOSED standing run 5
+  (2026-11-16, HEAD `5f52e8d`): repeatable (≥2 sessions, same
+  protocol) improvements on BOTH benches — JamaBench 4 pairs
+  (0.992 → 0.936 → 0.9092 → 0.9211, all < 1.0), StringsSimBench 2
+  pairs (0.9767 → 0.9907, both < 1.0) — every native run stdout
+  byte-identical vs its same-session Temurin ref and exit 0, zero
+  diff-suite regressions across every landing, every number with its
+  same-session control pair (G0.7); the two SSB ratios 1.4% apart
+  (the single-run noise band, both quoted). The ~100× gap itself
+  stays quoted per G3.5 — this box certifies the LEVER's
+  repeatability, not a changed order of magnitude. Evidence:
+  `scripts/evidence/g3_4_pairs/{PAIRS_2026-11-16,
+  PAIRS_run5_2026-11-16}.txt`.
+  (Old FAIL clause retained as the standing discipline: a win quoted
+  from a stale baseline — the 1.31× machine-drift lesson.)
 - [ ] **G3.5 — honesty guard.** The gap may be reported as "improving" but
-  the ~100× (now ~66×) figure stays quoted until a measured order-of-
-  magnitude change; no "approaching JVM performance" phrasing without the
-  number.
+  the ~100× figure stays quoted until a measured order-of-magnitude
+  change; no "approaching JVM performance" phrasing without the
+  number. (The stale "~66×" parenthetical removed 2026-11-16 run 5 —
+  the honest same-session figures are 73.7×/80.0× JamaBench and
+  100.6×/101.6× SSB, quoted above.)
 
 ## G4 — P1: Close the concurrency review (M4 + the JMM boundary)
 

@@ -60,9 +60,11 @@ framing). Open: `G2.5-ladder-continuation` (the bigger box).
 ## G3 — typed-codegen performance (P1)
 
 **The number stands: 73.7× (typed) / 80.0× (default) behind the fully
-tiered JVM on JamaBench and 100.0× (typed) / 102.4× (default) on
-StringsSimBench — the 2026-11-16 same-session pairs at HEAD `161fd44`
-(standing run 3; evidence `scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt`)**
+tiered JVM on JamaBench (standing run 3, HEAD `161fd44`) and
+100.6× (typed) / 101.6× (default) on StringsSimBench (standing run 5,
+HEAD `5f52e8d`; run 3's SSB pair at `161fd44`: 100.0× / 102.4× —
+evidence `scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt` and
+`PAIRS_run5_2026-11-16.txt`)**
 (the honesty guard G3.5 forbids "approaching JVM" phrasing until a
 measured order-of-magnitude change; the figure is quoted every time).
 
@@ -74,10 +76,14 @@ PAIRS at HEAD `161fd44` (2026-11-16, standing run 3): JamaBench
 typed/default 256.523/278.489 = **0.9211** (the 4th same-session pair:
 0.992 → 0.936 → 0.9092 → 0.9211, all < 1.0, all stdout byte-identical
 vs the same-session Temurin ref — the lever is REPEATABLE);
-StringsSimBench typed/default 279.224/285.873 = **0.9767** — SSB's
-FIRST same-session pair, closing the audit's "no post-lever SSB
-measurement" verdict; second SSB pair still owed for the formal
-≥2-session SSB clause. The R5/R7
+StringsSimBench typed/default 279.224/285.873 = **0.9767** (run 3) —
+SSB's FIRST same-session pair, closing the audit's "no post-lever SSB
+measurement" verdict; and **0.9907** (run 5, HEAD `5f52e8d`:
+275.353/277.931, evidence `PAIRS_run5_2026-11-16.txt`) — the SECOND
+same-session pair: two sessions, both < 1.0, all four native runs
+byte-identical vs their same-session refs, the ratios 1.4% apart
+(the single-run noise band, both quoted) — **the formal ≥2-session
+SSB clause HOLDS**, closed by measurement. The R5/R7
 dispatch work is measured too: direct-call folding + codegen-time
 vtable resolution eliminated 18 of 56 dynamic sites (−32.1%); the R7
 hash-dispatch selector was a **measured NO-GO** — rustc 1.99 already
@@ -107,11 +113,12 @@ measured NO-GOs (docs/M2_SHAPE_REPORT.md, docs/M2_CFG_REPORT.md).
   2026-11-15 run 5 — TreeMapLhmPrimProbe the 125th fixture, fired-code
   census 5 tm_put + 4 tm_get + 3 hm_put + 3 hm_get across all three
   storages × both receiver shapes).
-- **G3.4 the acceptance bar** — STATE 2026-11-16 (standing run 3):
-  both benches now carry post-lever same-session pairs with
-  byte-identical output (JamaBench typed/default 0.9211, 4 sessions
-  repeatable; StringsSimBench 0.9767, FIRST pair — the ≥2-session
-  clause holds on JamaBench, ONE more SSB pair owed); zero diff-suite
+- **G3.4 the acceptance bar** — STATE 2026-11-16 (standing run 5,
+  HEAD `5f52e8d`): BOTH benches now carry ≥2 same-session pairs with
+  byte-identical output — JamaBench typed/default 0.9211 at run 3
+  (4 sessions: 0.992 → 0.936 → 0.9092 → 0.9211) and StringsSimBench
+  0.9767 (run 3) → 0.9907 (run 5), 2 sessions — **the formal
+  ≥2-session clause holds on BOTH benches**; zero diff-suite
   regressions across every landing; every number with its
   same-session control pair. The bar itself is unchanged.
 - **G3.5 honesty guard** — enforced in this document by quotation.
