@@ -52,14 +52,27 @@ tests (lib.rs default_dispatch); lib battery **517/0**
 Temurin); cfg_equiv zero (446.72s); fmt + clippy -D warnings clean
 FRESH; gate-11 in sync: fixtures=127 tests=576 (README 126→127 /
 571→576 / 127-127, diff guard 125→126 with the run-3 wave comment).
-ZERO source changes for the pairs half; ONE runtime file for the
-residual half. Evidence: scripts/evidence/g3_4_pairs/ +
-scripts/evidence/default_dispatch/. Next queue: 1) ONE more SSB
-same-session pair (the formal ≥2-session clause), 2) the REST of the
-residuals wave (HELPFUL-NPE, different-package private-ctor, the
-HashMap copy-ctor gap), 3) the G3.2 CFG layer (block-join/entry-var,
-the named next prerequisite), mappings/Mixins; the M4 review belongs
-to the owner.)
+THEN THE PROBE-FIRST COMMIT FOR THE NEXT RESIDUAL: NpeShapeProbe2
+(the HELPFUL-NPE oracle matrix, 8 shapes) captured Temurin 21.0.13+9's
+JEP 358 messages for the WHOLE javac-reachable matrix (unbox
+call-result S1/S8, null local S2/S3, producer chain S4, array length
+S5, field read S6, array store S7) and pinned the message-grammar
+laws (action-first; the cause is the producer chain with the ERASED
+descriptor, or <localN> = the local SLOT index when javac omits the
+LVT — the harness compiles without -g, so <localN> IS the oracle);
+j2r's RED state captured (all eight msg=[null], exit 0, 18 diff
+lines, message-only divergence); the fix design registered (the
+messages are computable AT EMIT TIME — the emitter knows the static
+receiver class, the (name, desc), the preceding call, and the local
+slot). Zero source changes. Evidence:
+scripts/evidence/default_dispatch/NPE_SHAPE2_2026-11-16.txt. Next
+queue: 1) the HELPFUL-NPE fix (the oracle is on the boards — slices
+(a) the invoke law sites S1-S4+S8, (b) the array/field law sites
+S5-S7, each with law tests + the fixture going three-channel GREEN),
+2) ONE more SSB same-session pair (the formal ≥2-session clause), 3)
+different-package private-ctor, the HashMap copy-ctor gap, 4) the
+G3.2 CFG layer (block-join/entry-var), mappings/Mixins; the M4 review
+belongs to the owner.)
 (Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
 fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
 oracle at scripts/evidence/char_array_rep/) pinned the [C representation

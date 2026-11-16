@@ -3984,3 +3984,36 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   different-package private-ctor, the HashMap copy-ctor gap), 3) the
   G3.2 CFG layer (block-join/entry-var), then mappings/Mixins; the
   M4 review belongs to the owner.
+
+## 2026-11-16 — standing run 3 (cont. 2): **NpeShapeProbe2 — the HELPFUL-NPE oracle matrix captured (probe-first commit, zero source changes)**
+
+- The residuals wave continued with the HELPFUL-NPE residual (PROBE
+  FIRST, the fix is the next run's slice): NpeShapeProbe2 (8 shapes,
+  all caught so the channel is deterministic stdout) pinned Temurin
+  21.0.13+9's JEP 358 helpful messages for the WHOLE javac-reachable
+  matrix — S1/S8 the unbox-a-call-result shape (the registered head),
+  S2/S3 the null-local shape, S4 the producer-chain shape, S5 the
+  array-length shape, S6 the field-read shape, S7 the array-store
+  shape.
+- MESSAGE-GRAMMAR LAWS pinned (the matrix is the record): action-first
+  ("Cannot invoke/read/store ..."); the CAUSE is either the producer
+  chain ("the return value of \"<class>.<m>(<erased desc>)\" is null")
+  or the null local ("\"<localN>\" is null" — the local SLOT index,
+  because javac without -g emits no LVT and the diff_suite harness
+  compiles WITHOUT -g: <localN> IS the oracle); the receiver's STATIC
+  class drives the action (S3 String.length, S1 Double.doubleValue).
+- j2r's RED state captured at f942ebb: all eight shapes msg=[null]
+  (the bare NPE), exit 0 — 18 diff lines, message-only divergence
+  (the class, catch behavior, and control flow already match).
+- THE FIX DESIGN registered (the next run's slice): the messages are
+  COMPUTABLE AT EMIT TIME — the emitter knows at every null-check
+  site the receiver's static class, the (name, desc), the preceding
+  call (the producer chain), and the local slot (the decode already
+  parses LVT for the signature pin layer). Slices: (a) the invoke law
+  sites (S1-S4, S8), (b) the array/field law sites (S5-S7); the
+  fixture goes three-channel GREEN when the last shape lands.
+- Battery statement: zero source changes — no re-run owed; lib 517/0
+  + diff_suite 127 + cfg_equiv zero were proven this session at
+  f942ebb and the tree is unchanged since.
+- Evidence: scripts/evidence/default_dispatch/{NpeShapeProbe2.java,
+  npe_shape2_temurin_2026-11-16.txt, NPE_SHAPE2_2026-11-16.txt}.

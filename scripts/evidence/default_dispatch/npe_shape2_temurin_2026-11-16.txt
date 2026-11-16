@@ -1,0 +1,9 @@
+S1 caught: msg=[Cannot invoke "java.lang.Double.doubleValue()" because the return value of "java.util.Map.get(Object)" is null]
+S2 caught: msg=[Cannot invoke "java.lang.Double.doubleValue()" because "<local1>" is null]
+S3 caught: msg=[Cannot invoke "String.length()" because "<local1>" is null]
+S4 caught: msg=[Cannot invoke "String.length()" because the return value of "NpeShapeProbe2.getS2()" is null]
+S5 caught: msg=[Cannot read the array length because "<local1>" is null]
+S6 caught: msg=[Cannot read field "ifield" because "<local2>" is null]
+S7 caught: msg=[Cannot store to int array because "<local1>" is null]
+S8 caught: msg=[Cannot invoke "java.lang.Boolean.booleanValue()" because the return value of "java.util.Map.get(Object)" is null]
+done

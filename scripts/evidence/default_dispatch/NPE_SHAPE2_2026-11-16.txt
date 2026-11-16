@@ -1,0 +1,83 @@
+NpeShapeProbe2 — the HELPFUL-NPE residual's ORACLE MATRIX (probe-first)
+========================================================================
+Date: 2026-11-16 (standing run 3, after the default-dispatch slice;
+HEAD at probe time: f942ebb). Zero source changes — probe + boards only
+(the run-2 probe-commit precedent: the oracle lands first, the fix is
+the next run's slice).
+
+THE REGISTERED RESIDUAL (g3.3 slice 2, 2026-11-14): Temurin's JDK 15+
+helpful NullPointerException messages exist; j2r throws the bare NPE
+(message None) at every null-receiver law. The original probe pinned
+ONE shape; this probe pins the WHOLE javac-reachable matrix.
+
+THE ORACLE (Temurin 21.0.13+9, all shapes CAUGHT so the channel is
+deterministic stdout; full text in
+npe_shape2_temurin_2026-11-16.txt):
+  S1 unbox call-result:  Cannot invoke "java.lang.Double.doubleValue()"
+                         because the return value of
+                         "java.util.Map.get(Object)" is null
+  S2 unbox null local:   Cannot invoke "java.lang.Double.doubleValue()"
+                         because "<local1>" is null
+  S3 call on null local: Cannot invoke "String.length()" because
+                         "<local1>" is null
+  S4 call on call result: Cannot invoke "String.length()" because the
+                         return value of "NpeShapeProbe2.getS2()" is null
+  S5 array length:       Cannot read the array length because
+                         "<local1>" is null
+  S6 field read:         Cannot read field "ifield" because
+                         "<local2>" is null
+  S7 array store:        Cannot store to int array because
+                         "<local1>" is null
+  S8 Boolean unbox-call: Cannot invoke "java.lang.Boolean.booleanValue()"
+                         because the return value of
+                         "java.util.Map.get(Object)" is null
+
+THE MESSAGE-GRAMMAR LAWS the matrix pins:
+  1. Action-first grammar: "Cannot <action>" where action ∈ {invoke
+     "<class>.<m>(<desc>)", read the array length, read field "<name>",
+     store to <elem> array, ...}; the class in the invoke action is the
+     RECEIVER's static class (S3: String, not java/lang/String — the
+     erased name), the desc is the real descriptor.
+  2. The CAUSE grammar has exactly two javac-reachable forms:
+     - the producer chain: "the return value of
+       \"<producer-class>.<producer-m>(<erased desc>)\" is null" —
+       the desc is ERASED to the erasure (Map.get(Object), not
+       Map.get(Object)Object for the generic); S1/S4/S8.
+     - the null local: "\"<localN>\" is null" where <localN> is the
+       JVM's fallback when the LVT is ABSENT — javac without -g
+       emits no LocalVariableTable, so Temurin prints the local SLOT
+       index (S2/S3: slot 1; S6: slot 2). With -g the real names
+       would appear; the diff_suite harness compiles WITHOUT -g, so
+       the <localN> form is the oracle j2r must reproduce.
+  3. The receiver's STATIC type drives the action even when the
+     producer says otherwise (S1: Double.doubleValue is the unbox
+     call javac wove in AFTER the get).
+
+THE j2r RED STATE (captured this session, HEAD f942ebb):
+  all eight shapes: caught: msg=[null] (the bare NPE), exit 0 —
+  18 diff lines vs the oracle. The divergence is message-only (the
+  NPE class, catch behavior, and control flow already match).
+
+THE FIX DESIGN (the next run's slice, registered here):
+  the messages are COMPUTABLE AT EMIT TIME — the emitter knows, at
+  every null-check site, the receiver's static class, the method
+  (name, desc), and the PRECEDING instruction (the producer call, if
+  any) or the LVT slot (j2r's decode already parses LocalVariableTable
+  for the signature pin layer). Shape of the fix: the emitted
+  null-receiver throw site carries a STATIC message string built from
+  the site's own facts; the runtime law switches from
+  throw_new(NPE, None) to the site's message at the invoke/field/array
+  law points; the absent-key unbox path (hm_get_prim) is S1/S8 (the
+  unbox call follows the get call). Slices: (a) the invoke law sites
+  (S1-S4, S8 — the registered head), (b) the array/field law sites
+  (S5-S7), each with its law tests and the fixture (three-channel
+  goes GREEN when the last shape lands).
+  CAUTION pinned now: j2r's IR may not retain the preceding-call
+  adjacency the producer-chain grammar needs (the emitter sees the
+  instruction list; the adjacency IS there); the <localN> fallback
+  needs the local slot index, which LVT-absent programs still carry
+  in the IR locals.
+
+Probe artifacts: scripts/evidence/default_dispatch/
+  {NpeShapeProbe2.java, npe_shape2_temurin_2026-11-16.txt, this file}.
+  The j2r-side capture is reproducible with any compile of the probe.
