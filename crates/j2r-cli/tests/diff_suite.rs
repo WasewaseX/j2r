@@ -279,9 +279,18 @@ fn differential_suite_matches_jvm() {
     // reachable shapes one self-contained file pins; the diff-package
     // refusal shapes ride the law tests + the pA/pB probe corpus — 129
     // on disk, guard one below that.
+    // The cycle-complete wave (2026-11-17) added HashMapCopyProbe — the
+    // registered HashMap COPY-CTOR gap closed: the putMapEntries laws
+    // (L1 the source-order insertion read through the chain order, L2
+    // the cap-16/32 pre-size boundary tableSizeFor(s/0.75f+1) made
+    // observable by key 20, L3 the copy-of-copy law, L4/L4b the tree
+    // sources through BOTH copy ctors, L5 content, L6 the null-map NPE,
+    // L7 the null-key carry, L8 the empty-source lazy table, L9 the
+    // post-copy growth timing with the lo/hi split) — 130 on disk, guard
+    // one below that.
     assert!(
-        fixtures.len() >= 128,
-        "differential suite shrank: {} fixtures (expected >= 128)",
+        fixtures.len() >= 129,
+        "differential suite shrank: {} fixtures (expected >= 129)",
         fixtures.len()
     );
 

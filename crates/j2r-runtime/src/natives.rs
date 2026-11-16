@@ -5481,6 +5481,15 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     // java/util/HashMap
     ("java/util/HashMap", "<init>", "()V", c::n_hm_init),
     ("java/util/HashMap", "<init>", "(I)V", c::n_hm_init),
+    // the registered copy-ctor gap CLOSED: putMapEntries on a fresh
+    // table — the pre-size law + the source's iteration order drives
+    // insertion (the HashMapCopyProbe laws, scripts/evidence/hm_copy_ctor/)
+    (
+        "java/util/HashMap",
+        "<init>",
+        "(Ljava/util/Map;)V",
+        c::n_hm_init,
+    ),
     (
         "java/util/HashMap",
         "put",

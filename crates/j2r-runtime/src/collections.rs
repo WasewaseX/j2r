@@ -60,8 +60,9 @@
 
 use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
 use crate::object::{new_obj, string_value};
+use crate::subtype::is_subtype;
 use crate::Value;
-use crate::{internal_error, invoke_virtual, throw_new, Dispatch, Throw};
+use crate::{internal_error, invoke_virtual, throw_new, Dispatch, Throw, UserParents};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------- helpers
@@ -1205,21 +1206,106 @@ fn hm_all_entries(map: &JRef) -> Result<Vec<(Value, Value)>, Throw> {
     Ok(out)
 }
 
-// <init>()V / <init>(I)V
-pub fn n_hm_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
+// <init>()V / <init>(I)V / <init>(Ljava/util/Map;)V — the (I,F) ctor is
+// NOT registered (the HashMap (I,F) ctor is unsupported too; the
+// access-order (I,F,Z) ctor is its own loud gap). The Map arm is
+// OpenJDK's putMapEntries on a fresh table: the pre-size law
+// (threshold = tableSizeFor((int)((float)s / 0.75f + 1.0f)), the table
+// stays lazy until the first put) and the source's ITERATION ORDER
+// drives insertion — the probed HashMapCopyProbe laws L1-L9 (the
+// Temurin 21.0.13+9 oracle, scripts/evidence/hm_copy_ctor/).
+pub fn n_hm_init(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.<init> without receiver");
-    let thr = match args.first() {
-        None => 0,
-        Some(v) => {
-            let c = v.expect_int();
-            if c < 0 {
-                return Err(throw_new(
-                    "java/lang/IllegalArgumentException",
-                    Some(&format!("Illegal initial capacity: {c}")),
-                ));
-            }
-            table_size_for(c)
+    match args.first() {
+        None | Some(Value::Int(_)) => {
+            // HashMap(): the threshold stays 0 — the first put takes the
+            // default cap 16 (table_size_for(0) would be 1, which is the
+            // (I)-ctor law, NOT the no-arg law; the distinction is
+            // observable through the first allocation's capacity).
+            let thr = match args.first() {
+                None => 0,
+                Some(v) => {
+                    let c = v.expect_int();
+                    if c < 0 {
+                        return Err(throw_new(
+                            "java/lang/IllegalArgumentException",
+                            Some(&format!("Illegal initial capacity: {c}")),
+                        ));
+                    }
+                    table_size_for(c)
+                }
+            };
+            with_obj_mut(*r, |o| {
+                o.slots[HM_SIZE] = Value::Int(0);
+                o.slots[HM_MODCOUNT] = Value::Int(0);
+                o.slots[HM_THRESHOLD] = Value::Int(thr);
+                o.slots[HM_TABLE] = Value::Ref(None);
+            });
+            Ok(Value::Void)
         }
+        Some(Value::Ref(None)) => {
+            // putMapEntries reads m.size() on the null map FIRST.
+            Err(throw_new("java/lang/NullPointerException", None))
+        }
+        Some(Value::Ref(Some(src))) => {
+            let entries = map_source_entries(src, ctx.parents)?;
+            hm_ctor_presize(r, entries.len())?;
+            for (k, v) in entries {
+                hm_put(r, k, v, ctx, None, NodeKind::HashNode)?;
+            }
+            Ok(Value::Void)
+        }
+        Some(other) => Err(internal_error(&format!(
+            "j2r internal: HashMap.<init> unexpected arg {other:?}"
+        ))),
+    }
+}
+
+/// The copy-ctor SOURCE-storage law shared by the HashMap and
+/// LinkedHashMap copy ctors: iterate the source in ITS order — the
+/// LinkedHashMap link chain FIRST (LHM extends HashMap, so the LHM test
+/// must win the dispatch), then the TreeMap key order, then the plain
+/// HashMap table order. User subclasses inherit their builtin
+/// ancestor's storage (the generated parents table classifies them);
+/// a user class implementing Map directly has no builtin storage to
+/// walk and stays loud (the same-surface law; the user-Map-source
+/// residual — Temurin would iterate its entrySet()).
+fn map_source_entries(
+    src: &JRef,
+    parents: Option<UserParents>,
+) -> Result<Vec<(Value, Value)>, Throw> {
+    let src_class = with_obj(*src, |o| o.jclass.to_string());
+    if is_subtype(&src_class, "java/util/LinkedHashMap", parents) {
+        lhm_all_entries(src)
+    } else if is_subtype(&src_class, "java/util/TreeMap", parents) {
+        tm_all_entries(src)
+    } else if is_subtype(&src_class, "java/util/HashMap", parents) {
+        hm_all_entries(src)
+    } else {
+        Err(internal_error(&format!(
+            "j2r internal: map copy from unsupported source class {src_class} (the user-Map-source residual)"
+        )))
+    }
+}
+
+/// The putMapEntries pre-size law shared by both copy ctors: threshold
+/// = tableSizeFor((int)((float)s / 0.75f + 1.0f)) (or 0 for an empty
+/// source — putMapEntries skips everything and the first put takes the
+/// default cap 16), and the table stays lazy: hm_resize's old_thr>0
+/// arm allocates it at the threshold on the first put.
+fn hm_ctor_presize(r: &JRef, s: usize) -> Result<(), Throw> {
+    let thr = if s > 0 {
+        // Java: float ft = ((float)s / 0.75f) + 1.0f;
+        //       int t = (ft < (float)MAXIMUM_CAPACITY) ? (int)ft : Integer.MAX_VALUE;
+        let ft = (s as f32 / 0.75f32) + 1.0f32;
+        let t = if ft < (1u32 << 30) as f32 {
+            ft as i32
+        } else {
+            i32::MAX
+        };
+        table_size_for(t)
+    } else {
+        0
     };
     with_obj_mut(*r, |o| {
         o.slots[HM_SIZE] = Value::Int(0);
@@ -1227,7 +1313,7 @@ pub fn n_hm_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<
         o.slots[HM_THRESHOLD] = Value::Int(thr);
         o.slots[HM_TABLE] = Value::Ref(None);
     });
-    Ok(Value::Void)
+    Ok(())
 }
 
 pub fn n_hm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
@@ -2006,15 +2092,8 @@ pub fn n_lhm_init(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<
             Ok(Value::Void)
         }
         Some(Value::Ref(Some(src))) => {
-            let src = *src;
-            let src_class = with_obj(src, |o| o.jclass.to_string());
-            let entries = match src_class.as_str() {
-                "java/util/LinkedHashMap" => lhm_all_entries(&src)?,
-                // A plain HashMap-shaped source: its own table order (the
-                // L5 law — Temurin iterates the source in ITS order).
-                _ => hm_all_entries(&src)?,
-            };
-            n_hm_init(Some(r), &[], ctx)?;
+            let entries = map_source_entries(src, ctx.parents)?;
+            hm_ctor_presize(r, entries.len())?;
             with_obj_mut(*r, |o| {
                 o.slots[LHM_HEAD] = Value::Ref(None);
                 o.slots[LHM_TAIL] = Value::Ref(None);
@@ -6707,6 +6786,161 @@ mod tests {
             expected
         );
         assert_eq!(with_obj(cp2, |o| o.slots[HM_SIZE].expect_int()), 3);
+    }
+
+    // ------------------------------------------------------------------
+    // The HashMap copy-ctor laws (the registered copy-ctor gap CLOSED).
+    // Every expected order below is the Temurin 21.0.13+9 oracle captured
+    // in scripts/evidence/hm_copy_ctor/temurin_oracle_2026-11-17.txt
+    // (HashMapCopyProbe L1-L9) — the fixture is the three-channel check;
+    // these tests pin the internals.
+
+    /// Copies a source's entries in the source's iteration order — the
+    /// shared helper law read through the three storages.
+    fn hm_copy_keys(cp: &JRef) -> Vec<i32> {
+        hm_all_entries(cp)
+            .unwrap()
+            .into_iter()
+            .map(|(k, _)| unbox_i32(&k))
+            .collect()
+    }
+
+    /// The putMapEntries pre-size boundary: threshold =
+    /// tableSizeFor((int)((float)s/0.75f + 1.0f)) — 11 entries -> 16,
+    /// 13 entries -> 32; the table stays lazy until the first put.
+    #[test]
+    fn hm_ctor_from_map_presize_boundary_law() {
+        let _rt = crate::test_support::runtime();
+        let src11 = lhm_new();
+        for i in 0..10 {
+            n_lhm_put(Some(&src11), &[boxed_i32(i), boxed_i32(i)], ctx()).unwrap();
+        }
+        n_lhm_put(Some(&src11), &[boxed_i32(20), boxed_i32(400)], ctx()).unwrap();
+        let cp = new_obj("java/util/HashMap", 4).unwrap();
+        n_hm_init(Some(&cp), &[Value::Ref(Some(src11))], ctx()).unwrap();
+        // after the copy the first put has allocated at the PRE-SIZED cap
+        // (the threshold the put saw was 16; the post-put threshold is
+        // 16*0.75 = 12 — hm_resize's law).
+        let (_, size, thr, table) = hm_state(&cp);
+        assert_eq!(size, 11);
+        assert_eq!(thr, 12);
+        assert_eq!(hm_table_len(table.as_ref().unwrap()), 16);
+        let src13 = lhm_new();
+        for i in 0..12 {
+            n_lhm_put(Some(&src13), &[boxed_i32(i), boxed_i32(i)], ctx()).unwrap();
+        }
+        n_lhm_put(Some(&src13), &[boxed_i32(20), boxed_i32(400)], ctx()).unwrap();
+        let cp2 = new_obj("java/util/HashMap", 4).unwrap();
+        n_hm_init(Some(&cp2), &[Value::Ref(Some(src13))], ctx()).unwrap();
+        let (_, size2, thr2, table2) = hm_state(&cp2);
+        assert_eq!(size2, 13);
+        assert_eq!(thr2, 24);
+        assert_eq!(hm_table_len(table2.as_ref().unwrap()), 32);
+    }
+
+    /// L1/L3: the source's iteration order drives insertion, read
+    /// through the chain order (three keys colliding at every candidate
+    /// capacity; the LHM source inserts 16, 0, 32).
+    #[test]
+    fn hm_ctor_from_map_source_order_chain_law() {
+        let _rt = crate::test_support::runtime();
+        let src = lhm_new();
+        for k in [16, 0, 32] {
+            n_lhm_put(Some(&src), &[boxed_i32(k), boxed_i32(k * 10)], ctx()).unwrap();
+        }
+        let cp = new_obj("java/util/HashMap", 4).unwrap();
+        n_hm_init(Some(&cp), &[Value::Ref(Some(src))], ctx()).unwrap();
+        let keys = hm_copy_keys(&cp);
+        assert_eq!(keys, vec![16, 0, 32]);
+    }
+
+    /// L4: the tree source inserts in SORTED order; the copy's cap-16
+    /// table order is Temurin's exactly (0 18 3 21 6 24 9 27 12 15).
+    #[test]
+    fn hm_ctor_from_tree_source_law() {
+        let _rt = crate::test_support::runtime();
+        let src = tm_new();
+        for i in (0..10).rev() {
+            n_tm_put(Some(&src), &[boxed_i32(i * 3), boxed_i32(i)], ctx()).unwrap();
+        }
+        let cp = new_obj("java/util/HashMap", 4).unwrap();
+        n_hm_init(Some(&cp), &[Value::Ref(Some(src))], ctx()).unwrap();
+        let keys = hm_copy_keys(&cp);
+        assert_eq!(keys, vec![0, 18, 3, 21, 6, 24, 9, 27, 12, 15]);
+    }
+
+    /// L6: the null map NPE (putMapEntries reads m.size() first).
+    #[test]
+    fn hm_ctor_null_source_npe_law() {
+        let _rt = crate::test_support::runtime();
+        let m = new_obj("java/util/HashMap", 4).unwrap();
+        let err = n_hm_init(Some(&m), &[Value::Ref(None)], ctx()).unwrap_err();
+        assert_eq!(err.java_class(), "java/lang/NullPointerException");
+    }
+
+    /// L8: the empty source keeps the table lazy (threshold 0); the
+    /// first put allocates the default cap 16 (1 and 17 share bucket 1,
+    /// the chain order = insertion order).
+    #[test]
+    fn hm_ctor_empty_source_lazy_law() {
+        let _rt = crate::test_support::runtime();
+        let empty = map_new();
+        let cp = new_obj("java/util/HashMap", 4).unwrap();
+        n_hm_init(Some(&cp), &[Value::Ref(Some(empty))], ctx()).unwrap();
+        let (_, _, thr, table) = hm_state(&cp);
+        assert_eq!(thr, 0);
+        assert!(table.is_none());
+        n_hm_put(Some(&cp), &[boxed_i32(1), boxed_i32(11)], ctx()).unwrap();
+        n_hm_put(Some(&cp), &[boxed_i32(17), boxed_i32(17)], ctx()).unwrap();
+        let keys = hm_copy_keys(&cp);
+        assert_eq!(keys, vec![1, 17]);
+    }
+
+    /// L4b: the LHM ctor from a TREE source iterates the tree in KEY
+    /// order — the latent misread the shared source-storage law fixed
+    /// (the old `_` arm walked hash slots on a red-black object).
+    #[test]
+    fn lhm_ctor_from_tree_source_law() {
+        let _rt = crate::test_support::runtime();
+        let src = tm_new();
+        for i in (0..10).rev() {
+            n_tm_put(Some(&src), &[boxed_i32(i * 3), boxed_i32(i)], ctx()).unwrap();
+        }
+        let cp = new_obj("java/util/LinkedHashMap", 6).unwrap();
+        n_lhm_init(Some(&cp), &[Value::Ref(Some(src))], ctx()).unwrap();
+        // the L4b oracle line: the KEY order 0 3 6 9 12 15 18 21 24 27;
+        // the values ride the source mapping key k*3 -> k.
+        assert_eq!(
+            s(&n_lhm_to_string(Some(&cp), &[], ctx()).unwrap()),
+            "{0=0, 3=1, 6=2, 9=3, 12=4, 15=5, 18=6, 21=7, 24=8, 27=9}"
+        );
+    }
+
+    /// L9: the post-copy growth timing — threshold 12 after the copy of
+    /// the 11-entry source; the 12th entry does NOT resize (12 > 12 is
+    /// false, cap stays 16, key 100 joins key 4's chain behind key 20);
+    /// the 13th does (cap 32; the lo/hi split moves key 20 to its own
+    /// high bucket and preserves the [4, 100] chain order).
+    #[test]
+    fn hm_ctor_post_copy_growth_timing_law() {
+        let _rt = crate::test_support::runtime();
+        let src = lhm_new();
+        for i in 0..10 {
+            n_lhm_put(Some(&src), &[boxed_i32(i), boxed_i32(i)], ctx()).unwrap();
+        }
+        n_lhm_put(Some(&src), &[boxed_i32(20), boxed_i32(400)], ctx()).unwrap();
+        let cp = new_obj("java/util/HashMap", 4).unwrap();
+        n_hm_init(Some(&cp), &[Value::Ref(Some(src))], ctx()).unwrap();
+        n_hm_put(Some(&cp), &[boxed_i32(100), boxed_i32(100)], ctx()).unwrap();
+        let keys = hm_copy_keys(&cp);
+        assert_eq!(keys, vec![0, 1, 2, 3, 4, 20, 100, 5, 6, 7, 8, 9]);
+        let (_, _, _, table) = hm_state(&cp);
+        assert_eq!(hm_table_len(table.as_ref().unwrap()), 16);
+        n_hm_put(Some(&cp), &[boxed_i32(101), boxed_i32(101)], ctx()).unwrap();
+        let keys = hm_copy_keys(&cp);
+        assert_eq!(keys, vec![0, 1, 2, 3, 4, 100, 5, 101, 6, 7, 8, 9, 20]);
+        let (_, _, _, table) = hm_state(&cp);
+        assert_eq!(hm_table_len(table.as_ref().unwrap()), 32);
     }
 
     #[test]

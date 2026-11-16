@@ -4295,3 +4295,97 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   field/method access is out of scope.
 - Tree clean at origin/main; the run counter advances 5→6 (the
   5-run owner cycle is COMPLETE).
+
+---
+
+## 2026-11-17 — the cycle-complete session (owner-ordered): **THE SCAN AISLOP CLAIMS RE-AUDITED + THE HASHMAP COPY-CTOR GAP CLOSED — the queue head advanced past the last registered residual**
+
+- RESET RECOVERY (the harshest shape again): the tree had rolled back
+  to pre-M2 `b4badea` and the counter file was gone; fetch + ff-only to
+  `ab24a08` restored everything committed. The toolchain re-bootstrapped
+  byte-exact (rustc 1.99.1 (58cf8f9c3) + Temurin 21.0.13+9, USTC route
+  for rustup-init, the dist components through the mirror) — and the
+  recorded lesson was re-proven the hard way: the sandbox REAPS
+  multi-minute background processes (two nohup'd bootstraps died
+  silently), so the install ran as ONE bounded foreground chunk
+  (BOOTSTRAP-OK). Baseline re-proven BEFORE any code: release build +
+  lib battery **534/0** at ab24a08.
+- THE OWNER'S NEW ORDER: re-check the pasted scanaislop claims and HOLD
+  every pull request to this. ALL 20 CLAIMS ADJUDICATED AGAINST THE
+  BYTES (scripts/evidence/slop_audit/AUDIT_2026-11-17.md):
+  - the 6 empty-catch errors are UPSTREAM-VERBATIM: JZlibCorpus.java is
+    the project-built concatenation of the vendored jzlib package, so
+    its three sites are byte-twins of the package copies; ZOutputStream
+    and GZIPInputStream are byte-IDENTICAL to the maven
+    com.jcraft:jzlib:1.1.0 sources (pulled and diffed — 6 of 23 files
+    identical, the other 17 carry real upstream-to-upstream snapshot
+    drift proving an authentic upstream tree, not generated code);
+    Deflate's deflateCopy catch block is byte-identical at its
+    1687-1692; upstream master still quotes the same catch bytes; EVERY
+    claimed line blames clean to the vendoring commit 4cd88b7. Verdict:
+    fidelity corpus, NO ACTION. Census completeness: two MORE empty
+    catches the report did not name (the ZOutputStream close()
+    `catch (IOException ignored) {}` twin pair) — same verdict.
+  - bench_suite.py:86 "bare except with pass" is STALE — the file
+    already reads `except OSError:` with the ee92743 rationale comment
+    (the 2026-11-07 audit wave fixed it).
+  - the 12 complexity flags are the REAL algorithm cores (deflate,
+    deflate_slow, inflate, huft_build, InfBlocks.proc, InfCodes.proc,
+    orthes, hqr2 — the EISPACK/NIST line) — corpus-by-design; reshaping
+    upstream algorithms to an 80-line app-code limit would break the
+    fidelity guarantee and the measured workload.
+  - the file-too-large "441 lines" figure matches NO committed state
+    (born 7197, now 7259) — scanner artifact.
+  - ONE actionable fix on OUR side: bench_suite.py:74's broad
+    `except Exception` (the have() availability predicate) narrowed to
+    `(OSError, subprocess.SubprocessError)` — behavior-preserving; the
+    rest of scripts/*.py swept clean. Evidence
+    scripts/evidence/slop_audit/{AUDIT_2026-11-17.md,
+    upstream_1_1_0_byteproof.txt}. PR HOLD recorded: the three
+    dependabot branches (checkout-7.0.1, setup-java-6.2.0,
+    gitleaks-3.0.0) stay unmerged.
+- THE QUEUE HEAD (from the boards, not memory): the HashMap copy-ctor
+  gap (`new HashMap<>(map)` was the loud compile-time resolve refusal —
+  RED captured and saved at scripts/evidence/hm_copy_ctor/
+  red_capture_2026-11-17.txt: "cannot resolve method
+  <init>(Ljava/util/Map;)V"). PROBE FIRST: HashMapCopyProbe (the 130th
+  fixture) pins the putMapEntries laws L1-L9 with key 20 making the
+  cap-16/32 pre-size boundary OBSERVABLE (20&15=4 collides at cap 16;
+  20&31=20 is its own bucket at cap 32); the Temurin 21.0.13+9 oracle
+  byte-captured (temurin_oracle_2026-11-17.txt).
+- THE FIX: n_hm_init's Map arm — the putMapEntries pre-size law
+  (threshold = tableSizeFor((int)((float)s/0.75f + 1.0f)), the table
+  stays lazy; hm_resize's old_thr>0 arm allocates at it on the first
+  put) + the source-order inserts; the SHARED map_source_entries law
+  (LHM-first, then TreeMap, then HashMap, user subclasses through the
+  parents table, a direct user-Map source stays loud — the
+  user-Map-source residual) fixing the LATENT LHM-from-TreeMap misread
+  (the old `_` arm walked hash slots on a red-black object); the LHM
+  ctor arm now pre-sizes exactly like super(m) does. The natives row
+  added — the codegen resolve rides the same table, so the compile-time
+  refusal died with the runtime gap. +7 law tests (the pre-size
+  boundary, the chain-order law, the tree-source law, the NPE law, the
+  lazy empty law, the LHM-from-tree law, the growth-timing law with the
+  lo/hi split).
+- EN-ROUTE BUG (caught by the law battery, never shipped): the first
+  arm-merge routed the NO-ARG ctor through table_size_for(0)=1 — the
+  HashMap() law is threshold-0 (the (I)-ctor law is tableSizeFor, NOT
+  the no-arg law); the HashSet iteration flip in
+  hashset_add_contains_remove_tostring exposed it and the `None => 0`
+  law was restored with a comment.
+- GREEN: HashMapCopyProbe stdout BYTE-IDENTICAL vs the Temurin oracle on
+  BOTH backends (default + typed, exit 0, 14/14 lines); battery: lib
+  **541/0** (48+172+15+306; +7 law tests), diff_suite **130 fixtures
+  three-channel ZERO** (385.18s + 387.45s sharded), cfg_equiv zero
+  (451.66s); fmt + clippy -D warnings clean FRESH; gate-11 in sync
+  (fixtures=130, tests=600; README 129→130 fixtures, 593→600 tests,
+  cfg 129→130; diff guard 128→129 with the wave comment).
+- REGISTERED FOLLOW-ONS (honest): the user-Map-source copy-ctor residual
+  (a user class implementing Map directly has no builtin storage to
+  walk — Temurin would iterate its entrySet(); loud unsupported today);
+  Method.invoke's caller-law arm (the run-5 follow-on); the (I,F) /
+  access-order ctor gaps (loud, unchanged); the G3.2 CFG layer
+  (block-join/entry-var) is the NEW QUEUE HEAD.
+- PRs HELD per the owner; the run counter is 6 with the .done marker
+  written (the 5-run cycle is COMPLETE — this session continued the
+  queue head by direct owner order); tree clean at origin/main.

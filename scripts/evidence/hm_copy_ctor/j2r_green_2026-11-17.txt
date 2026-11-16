@@ -1,0 +1,15 @@
+L1-lhm-src size=3 order=16 0 32
+L2-s11-cap16 size=11 order=0 1 2 3 4 20 5 6 7 8 9
+L2-s12-cap32 size=13 order=0 1 2 3 4 5 6 7 8 9 10 11 20
+L3-hm-src size=3 order=16 0 32
+L4-tree-src size=10 order=0 18 3 21 6 24 9 27 12 15
+L4b-tree-src-lhm size=10 order=0 3 6 9 12 15 18 21 24 27
+L5 get16=160 get0=100 get32=320 size=3
+L6 NPE
+L7 nullKey=7 contains=true k1=70
+L7-order size=2 order=null 1
+L8-empty-src size=2 order=1 17
+L9-plus1 size=12 order=0 1 2 3 4 20 100 5 6 7 8 9
+L9-plus2 size=13 order=0 1 2 3 4 100 5 101 6 7 8 9 20
+done
+exit=0

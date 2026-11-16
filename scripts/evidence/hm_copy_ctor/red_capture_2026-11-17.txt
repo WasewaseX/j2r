@@ -1,0 +1,2 @@
+j2r: error: error in class java/util/HashMap: cannot resolve method <init>(Ljava/util/Map;)V starting at java/util/HashMap (is its class in the inputs, or is it an unsupported JDK method?)
+exit=1

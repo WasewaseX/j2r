@@ -3,8 +3,37 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-16 (standing run 3 of the 5-run
-owner cycle — **THE G3.4 SAME-SESSION PAIRS TAKEN ON BOTH BENCHES**:
+fix the board. Last updated: 2026-11-17 (the cycle-complete session —
+**THE SCAN AISLOP CLAIMS RE-AUDITED + THE HASHMAP COPY-CTOR GAP CLOSED**:
+sandbox reset survived zero-loss again (the tree had rolled back to
+pre-M2 `b4badea`; ff-only to `ab24a08` restored everything; the
+toolchain re-bootstrapped byte-exact rustc 1.99.1/58cf8f9c3 + Temurin
+21.0.13 via the foreground-chunk protocol — the sandbox reaps
+multi-minute background processes, the recorded lesson re-proven);
+baseline re-proven BEFORE any code: release build + lib battery
+**534/0**. THEN: (1) the owner-ordered scanaislop claims re-audit — all
+20 pasted claims adjudicated against the bytes (6 empty catches
+upstream-verbatim, bench_suite.py:86 stale/already-fixed, 12 complexity
+flags = the real algorithm cores, the 441-lines figure matches no
+committed state); ONE hygiene fix (the have() predicate narrowed);
+evidence scripts/evidence/slop_audit/; the three dependabot PRs HELD
+per the owner's order; (2) the HashMap copy-ctor — PROBE FIRST
+(HashMapCopyProbe, the 130th fixture: L1 the source-order chain law,
+L2 the cap-16/32 pre-size boundary made observable by key 20, L4/L4b
+the tree sources, L6 the null-map NPE, L7 the null-key carry, L8 the
+lazy empty path, L9 the growth timing + the lo/hi split; Temurin
+21.0.13+9 oracle byte-captured), then LANDED: n_hm_init's putMapEntries
+Map arm (the pre-size law + the source-order inserts), the SHARED
+source-storage law fixing the LATENT LHM-from-TreeMap misread (the old
+`_` arm walked hash slots on a red-black object), +7 law tests; one
+en-route bug caught by the law battery: the arm-merge had routed the
+no-arg ctor through table_size_for(0)=1 — the HashSet iteration flip
+exposed it, the `None => 0` law restored. GREEN: the probe stdout
+BYTE-IDENTICAL vs Temurin on BOTH backends (exit 0); battery: lib
+**541/0** (48+172+15+306), diff_suite **130 fixtures three-channel
+ZERO** (385.18s + 387.45s sharded), cfg_equiv zero (451.66s); fmt +
+clippy -D warnings clean FRESH; gate-11 in sync (fixtures=130,
+tests=600; README 129→130, 593→600, cfg 129→130; diff guard 128→129).
 sandbox reset survived zero-loss (ff to `161fd44`, toolchain
 re-bootstrapped byte-exact rustc 1.99.1/58cf8f9c3 + Temurin 21.0.13,
 rust199 symlink re-wired); baseline re-proven BEFORE measuring: lib
@@ -85,10 +114,17 @@ diff_suite 129 zero, cfg_equiv zero; evidence
 scripts/evidence/private_ctor/; registered follow-ons: Method.invoke
 carries the SAME caller law — its arm is untouched, setAccessible
 has no surface, the field/method protected instance-context nuance),
-4) HEAD OF QUEUE — the HashMap copy-ctor gap (PROBE FIRST), then the
-G3.2 CFG layer (block-join/entry-var), mappings/Mixins; the M4
-review belongs to the owner. (The 5-run cycle is COMPLETE: runs 1-5
-all recorded.)
+4) HEAD OF QUEUE — the HashMap copy-ctor gap — **CLOSED (2026-11-17,
+   the cycle-complete session, see the board head)**: HashMapCopyProbe
+   (the 130th fixture) three-channel GREEN, the putMapEntries pre-size +
+   source-order laws landed, +7 law tests, lib 541/0, diff_suite 130
+   zero, cfg_equiv zero; NEW HEAD OF QUEUE — the G3.2 CFG layer
+   (block-join/entry-var), then mappings/Mixins, then the run-5
+   registered follow-ons (Method.invoke's caller-law arm, the
+   user-Map-source copy-ctor residual); the M4 review belongs to the
+   owner. (The 5-run cycle is COMPLETE: runs 1-5 all recorded; the
+   cycle-complete session continued the queue head per the standing
+   discipline.)
 (Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
 fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
 oracle at scripts/evidence/char_array_rep/) pinned the [C representation
