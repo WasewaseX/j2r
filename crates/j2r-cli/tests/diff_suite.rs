@@ -248,11 +248,17 @@ fn differential_suite_matches_jvm() {
     // materialization layer, the faithful overwrite/remove returns, the
     // null laws (the tag is an annotation), the SubMap view readers, LHM
     // insertion order, and the c12-corrected CCE self-compare law
-    // (StringBuilder is Comparable since JDK 11 — pinned on Object keys) —
-    // 125 on disk, guard one below that.
+    // (StringBuilder is Comparable since JDK 11 — pinned on Object keys).
+    // The run-2 wave (2026-11-16) added CharArrayRepProbe — the [C
+    // representation probe: both [C producers (new char[n] payload vs
+    // String.toCharArray), the castore-into-toCharArray store shape, the
+    // substring-reassignment t_j law, the char[] swap, the cross-shape
+    // consumers, and the distilled NGram kernel — the run-2 P0 typed-
+    // backend crash regression —
+    // 126 on disk, guard one below that.
     assert!(
-        fixtures.len() >= 124,
-        "differential suite shrank: {} fixtures (expected >= 124)",
+        fixtures.len() >= 125,
+        "differential suite shrank: {} fixtures (expected >= 125)",
         fixtures.len()
     );
 

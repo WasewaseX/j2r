@@ -3,43 +3,34 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-15 (run 6, owner-triggered
-continuation — **TREEMAP BOUNDED VIEWS LANDED** (handoff item 1): the
-harshest reset yet rolled the tree PAST run 4/5 to pre-M2 `b4badea` and
-the previous window's UN-PUSHED work died with it — this run is the
-full redo from the handoff notes. TreeMapViewsProbe (the 124th fixture,
-35 Temurin cases, three-channel zero; evidence
-scripts/evidence/treemap_views/) pinned the bounded-view laws live:
-computed range size/contents, from-inclusive/to-EXCLUSIVE + 4-arg
-flags, NSEE on empty views, the range-gated surface (silent misses;
-put → IAE "key out of range"; null → NPE, non-Comparable → CCE through
-the range compare), live views, slice-only clear, and the 26-cell
-narrowing matrix — full inRange on the fromKey side vs the
-INCLUSIVITY-BLIND strictly-above-hi toKey gate (headMap ACCEPTS toKey
-== an exclusive hi, the c16e/c16y asymmetry), check order fromKey →
-toKey → crossed "fromKey > toKey", absolute builders never
-range-check, disjoint chained narrowing THROWS. TreeMap$SubMap (5
-slots), six chained + six absolute builders, the view-of-view
-KeySet/Values/EntrySet, three bounded iterators (unbounded layout,
-slot 0 = the view; CME vs the BACKING modCount — an out-of-range
-foreign put still comodifies), n_tm_i_remove view-aware (ONE remove
-native for all six iterator classes). THE INVOKEINTERFACE
-STATIC-RECEIVER LESSON: inherited interface methods validate against
-the interface's own chain — validation-only anchor rows on
-java/util/SortedMap (18), NavigableMap (25), Collection (4). Three
-bugs the battery caught: tm_delete's root-with-one-child
-.expect()-panic (CLRS: the replacement IS the root), n_sms_clear's
-missing hi fence (the c15/c35 over-delete), sms_last_node's missing lo
-gate (c07c). Battery 498/0 lib + diff_suite 124 zero + cfg_equiv
-zero; gate-11 124/557. Next queue (UPDATED by the 2026-11-16 run-1 audit): 1) the TYPED-backend
-crash on StringsSimBench (fresh finding, deterministic, twice: rc=101,
-array.rs:496 "int-group accessor on a reference array" from
-NGram.distance — probe-first, fixture, fix, battery; BLOCKS the G3.4
-BOTH-bench pair), 2) the G3.4 pairs (StringsSimBench never measured
-post-lever), 3) board truth pass (G3.1 box closed 11-11 but unchecked;
-STATUS ~66x stale), 4) the residuals (user-interface DEFAULT dispatch,
-HELPFUL-NPE, different-package private-ctor, the HashMap copy-ctor
-gap), the G3.1/G3.2 CFG layers, the M4 review, mappings/Mixins.)
+fix the board. Last updated: 2026-11-16 (standing run 2 of the 5-run owner
+cycle — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
+fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
+oracle at scripts/evidence/char_array_rep/) pinned the [C representation
+laws and reproduced the audit's crash exactly (typed exit 101,
+array_load_i <- m_ngram2___Ljava_lang_String_Ljava_lang_String__D). ROOT
+CAUSE (read, not guessed): n_str_to_char_array built the [C as prim=None
+boxed Value::Int slots — the ONE outlier producer of a prim-descriptor
+array — while the typed body's I::ALoad routes caload → array_load_i by
+the opcode's element kind (readiness MixedEpoch is NOT the gate: typed::plan
+accepts mixed positions as Cells, so NGram.distance's body IS emitted
+typed). THE FIX: n_str_to_char_array now builds the canonical prim-payload
+form (slots=[length], units in PrimData::I — the exact array_new_prim
+object shape); the raw-accessor loud contract stays as the drift detector;
++3 runtime law tests (payload shape / both-families reads incl. surrogate
+pairs / raw-store char-narrow). GREEN: lib 512/0 (48+160+15+289); probe
+typed exit 0 stdout byte-identical vs Temurin; StringsSimBench typed exit
+0 twice (was rc=101 at 167.1s), stdout byte-identical vs the same-session
+Temurin reference, run-2 wall 279.243s (the same-session default/typed
+PAIR is NOT claimable from these numbers — it is the next queue item);
+diff_suite 126 fixtures three-channel ZERO (362.59s + 366.11s sharded);
+cfg_equiv zero (434.88s); fmt + clippy clean; gate-11 126/571. Next
+queue: 1) the G3.4 pairs (StringsSimBench default/typed same-session pair
++ JamaBench re-proof at current HEAD; the ledger update), 2) board truth
+pass (G3.1 box closed 11-11 but unchecked; STATUS ~66x stale), 3) the
+residuals (user-interface DEFAULT dispatch, HELPFUL-NPE, different-package
+private-ctor, the HashMap copy-ctor gap), the G3.1/G3.2 CFG layers, the
+M4 review, mappings/Mixins.)
 (Historical: run 5 of 5 — **TREEMAP LANDED, the cycle
 ENDS**: the sorted map with the CLRS red-black storage — the probed
 laws (TreeMapProbe, the 123rd fixture, three-channel zero; evidence

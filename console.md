@@ -3786,3 +3786,74 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
 - **Re-verified personally at HEAD:** release lib battery **509/0**; gate-11 fixtures=125 tests=568; farm2000 + typed-farm parity byte-identical vs Temurin (stdout, exit 0=0).
 - Toolchain notes for recovery: rustc 1.99.1 (58cf8f9c3) + Temurin 21.0.13 live at /home/z/toolchain (rust199/, jdk/); rust dist route: USTC mirror + curl -L (404 without -L) + resumable chunks; JDK via GitHub releases ranges. Sandbox kills multi-minute background processes unpredictably — drive long builds in bounded foreground chunks (the recorded 550s-chunk protocol).
 - Run-1 queue handoff (runs 2-5 at 2h intervals, owner-bounded): 1) typed-backend array.rs:496 crash (probe-first, fixture, fix, battery); 2) G3.4 pairs after the fix; 3) board truth pass (G3.1 box, STATUS ~66x + evidence path); 4) residuals wave as previously queued.
+
+## 2026-11-16 — standing run 2 of 5: **THE P0 TYPED-BACKEND CRASH FIXED — StringsSimBench typed exit 0 twice, byte-identical**
+
+- Reset recovery first (fresh sandbox, no toolchain): fetch + ff-only
+  b4badea → 58a41ae (the boards at 58a41ae re-ranked the queue — the P0
+  crash fix is the head); toolchain re-bootstrapped byte-exact
+  (rustc 1.99.1 (58cf8f9c3) via the USTC route, Temurin 21.0.13+9,
+  rust199 symlink re-wired); baseline re-proven BEFORE any code: release
+  workspace build + lib battery **509/0** (48+160+15+286).
+- QUEUE HEAD (from the boards, not memory): the run-1 audit's P0 — the
+  typed backend crashes on StringsSimBench (rc=101, array.rs:496 "int-group
+  accessor on a reference array", array_load_i <- NGram.distance).
+- PROBE FIRST: **CharArrayRepProbe** (the 126th fixture, 15 case groups)
+  written to crates/j2r-cli/tests/suite/, source copy + Temurin oracle +
+  RED transcript at scripts/evidence/char_array_rep/. Two lessons the
+  probe authoring itself surfaced (both pinned in the fixture comments):
+  the JDK surface j2r does NOT register (String.valueOf([C), println([C),
+  Arrays.copyOf([C,I)) — the probe stays inside the registered surface —
+  and the readiness MixedEpoch verdict is NOT the typed-emission gate:
+  typed::plan accepts mixed positions as Cells, so the distilled kernel
+  MUST carry no invokedynamic concat / switch / array-literal fill or the
+  typed body is silently refused (HasInvokeDynamic) and the bug hides.
+  The faithful kernel shape (returns double, no concat) fires it.
+- RED (pre-fix, typed backend, --emit-typed): probe exit **101** at the
+  first caload over the substring().toCharArray() array — backtrace
+  array_load_i <- m_ngram2___Ljava_lang_String_Ljava_lang_String__D, the
+  audit's exact frame shape; DEFAULT backend on the same probe PASS
+  three-channel (j2r test) — the bug is typed-only, as the audit measured.
+- ROOT CAUSE (read from source, not guessed): n_str_to_char_array
+  (langext.rs) built the [C as prim=None + boxed Value::Int slots — the
+  ONE outlier producer of a prim-descriptor array (every other producer
+  — array_new_prim, array_int_group_filled, Arrays.copyOf, JNI New*Array —
+  builds the PrimData payload). The typed body's I::ALoad routes by the
+  opcode's element kind (caload → array_load_i, payload contract) → loud
+  panic on prim=None. The Value paths (array_load/array_store/arraycopy/
+  getChars/String(char[])) handle BOTH forms — the default backend never
+  trips.
+- THE FIX (one producer, one representation): n_str_to_char_array now
+  builds the CANONICAL prim-payload form — slots=[length], the UTF-16
+  units char-narrowed into PrimData::I — the exact object shape
+  array_new_prim("[C", len) builds. The raw-accessor loud contract stays
+  as the drift detector; +3 runtime law tests
+  (langext.rs char_array_rep_tests: payload shape, both-families reads
+  incl. surrogate pairs, the raw-store char-narrow law).
+- GREEN (all this session): probe DEFAULT `j2r test` PASS three-channel;
+  probe TYPED exit 0 stdout byte-identical vs Temurin (same build that
+  exited 101); **StringsSimBench TYPED exit 0 TWICE** (was rc=101 at
+  167.1s), stdout byte-identical vs the same-session Temurin reference
+  (6 checksum lines incl. w8_ngram — the crash workload prints); run-2
+  wall 279.243s. HONESTY: the same-session default/typed PAIR is NOT
+  claimable from these numbers (the audit's default 282.344s is a
+  9-days-old recording) — the G3.4 pair protocol is the next queue item.
+- Battery all green (release, this window): lib units **512/0**
+  (48+160+15+289; +3 runtime law tests); diff_suite **126 fixtures
+  three-channel ZERO divergences** (362.59s + 366.11s sharded 0/2+1/2 —
+  note: J2R_DIFF_SHARD is index % N, 0-indexed, i<N asserted);
+  cfg_equiv **zero** (434.88s); fmt + clippy clean FRESH; gate-11 in
+  sync: fixtures=126 tests=571 (README 125→126/568→571/126-126, diff
+  guard 124→125 with the run-2 wave comment).
+- Evidence: scripts/evidence/char_array_rep/{CharArrayRepProbe.java,
+  char_array_rep_temurin_2026-11-16.txt,
+  char_array_rep_typed_red_2026-11-16.txt, RED_PROOF_2026-11-16.txt,
+  GREEN_PROOF_2026-11-16.txt}.
+- NEXT queue: 1) the G3.4 pairs (StringsSimBench default/typed
+  same-session pair + JamaBench re-proof at current HEAD; the lever
+  ledger update — the typed SSB run now COMPLETES, the pair quantifies
+  what the lever actually buys on this bench), 2) board truth pass
+  (G3.1 box, STATUS ~66x + evidence path), 3) the residuals
+  (user-interface DEFAULT dispatch, HELPFUL-NPE, different-package
+  private-ctor, the HashMap copy-ctor gap), the G3.1/G3.2 CFG layers,
+  mappings/Mixins; the M4 review belongs to the owner.
