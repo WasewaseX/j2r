@@ -1,0 +1,4 @@
+
+thread '<unnamed>' (5182) panicked at runtime/src/array.rs:496:17:
+j2r internal: int-group accessor on a reference array
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

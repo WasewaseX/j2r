@@ -1,0 +1,43 @@
+CharArrayRepProbe — the [C representation probe, RED proof at 58a41ae (pre-fix)
+================================================================================
+Date: 2026-11-16 (standing run 2, queue head = the run-1 audit's P0)
+HEAD: 58a41ae (boards: run-1 owner-cycle audit)
+
+REPRODUCTION (typed backend, --emit-typed, the audit's protocol):
+  javac -d cls tests/suite/CharArrayRepProbe.java
+  j2r compile cls/*.class --main-class CharArrayRepProbe \
+      --crate-name j2r_car_typed --emit-typed -o /tmp/probe_typed
+  cargo build --release --offline
+  ./target/release/j2r_car_typed   → exit 101 (0.4 s)
+
+  stderr: j2r internal: int-group accessor on a reference array
+  backtrace (RUST_BACKTRACE=1, the audit's exact frame shape):
+    3: j2r_runtime::array::array_load_i
+    4: ...CharArrayRepProbe::m_ngram2___Ljava_lang_String_Ljava_lang_String__D
+    5: ...CharArrayRepProbe::m_main____Ljava_lang_String__V
+  stdout stops after c09b — the crash fires at the first caload over the
+  t_j = s1.substring(...).toCharArray() array inside the typed body of
+  ngram2 (the distilled NGram.distance kernel: no concat/switch/fill, so
+  the typed body is attempted exactly like the real NGram.distance).
+
+DEFAULT BACKEND on the same probe: PASS three-channel (j2r test) — the
+bug is typed-body-only, as the audit measured (default byte-identical
+282.344 s on the full bench).
+
+ROOT CAUSE (read, not guessed):
+  runtime/src/langext.rs n_str_to_char_array built the [C as
+  prim: None + boxed Value::Int slots (slot 0 = length), while every
+  newarray-produced [C is prim: Some(PrimData::I) (array_new_prim,
+  slots = [length] only). The typed body's I::ALoad routes by the
+  opcode's element kind (typed.rs): caload → array::array_load_i, whose
+  contract is the payload form — the loud internal panic on prim: None.
+  The Value paths (array_load/array_store/arraycopy/getChars/String
+  ctor) handle BOTH forms, so the default backend never trips.
+  The readiness verdict is NOT the gate: typed::plan accepts MixedEpoch
+  methods (mixed positions become Cells), and NGram.distance is
+  MixedEpoch on both counts — its body IS emitted typed.
+
+FIX (the slice this evidence belongs to): n_str_to_char_array produces
+the canonical payload form (prim: Some(PrimData::I(units)), slots=[len])
+— the ONE outlier producer unified; the raw-accessor loud contract
+stays as the drift detector.
