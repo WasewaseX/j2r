@@ -4126,3 +4126,57 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
 - Evidence: scripts/evidence/helpful_npe/{HELPFUL_NPE_2026-11-16.txt,
   NpeShapes3.java, npe_shapes3_temurin.txt, NpeShapes4.java,
   npe_shapes4_temurin.txt} + ../default_dispatch/ (the run-3 oracle).
+
+## 2026-11-16 — standing run 4 of 5 (RUN RECORD): **the HELPFUL-NPE residual CLOSED in two slices; queue head moves to the SSB pair + the two package/private-ctor residuals**
+
+- WHAT WAS RESEARCHED (reset recovery first: fetch + ff-only
+  b4badea→59ce003, toolchain re-bootstrapped byte-exact rustc 1.99.1
+  (58cf8f9c3) + Temurin 21.0.13+9 via the repo script with the rust199
+  symlink re-wired, baseline re-proven 517/0 BEFORE any code): the run-3
+  boards named the HELPFUL-NPE fix the queue head; the OpenJDK JEP 358
+  message grammar was fetched and read AT THE SOURCE
+  (interpreter/bytecodeUtils.cpp, JDK-8218628's ExceptionMessageBuilder;
+  the jdk-21 tag differs from master only by the Valhalla null-free
+  additions — the 21 cause tail is ALWAYS " is null") and re-pinned
+  EMPIRICALLY on the bootstrapped Temurin with three new probe captures
+  (the {String, Object}-only bare-name battery; NpeShapes3 A1-A15; 
+  NpeShapes4 B1-B6); the j2r emission sites were mapped by compiling the
+  probe with j2r and reading the generated Rust (every faulting site is
+  a pop_ref with the invoke's (class, name, desc) in the same IR
+  instruction; the producer chain is visible in the instruction stream).
+- WHAT WAS CODED: slice (a) c9f6c27 — the invoke law sites
+  (runtime pop_ref_msg + the static message layer + the ir.rs array-op
+  side-map, +10 law tests, S1-S4+S8 byte-identical); slice (b) 746dc3b —
+  the array/field/monitor/athrow sites (the operand accounting with the
+  pure-producer rule and the monitor-save passthrough; the A10 finding
+  that the invoke receiver sits under its args; the composed-value
+  refusal; +6 law tests) + the NpeShapeProbe2 fixture (the 128th)
+  three-channel GREEN vs live Temurin. One REAL implementation bug
+  caught by the grammar tests before any fixture ran (the array
+  element's leading-L strip), two test-side bugs (the (II[CI)V arity,
+  the wide-param ranges), one slice-b design iteration (S7 refused
+  until the operand accounting existed).
+- MEASUREMENTS (same-session pairs, honest numbers): lib 517/0 at
+  baseline → 527/0 after slice (a) → 532/0 after slice (b) (+15 law
+  tests: 3 runtime stack + 1 runtime object + 11 codegen grammar);
+  diff_suite 127 fixtures three-channel ZERO (377.28s + 377.41s
+  sharded) at slice (a), 128 fixtures three-channel ZERO (376.34s +
+  383.82s sharded) at slice (b); cfg_equiv zero (469.72s slice a,
+  480.56s slice b); fmt + clippy -D warnings clean FRESH at both
+  slices; gate-11 in sync at every commit (fixtures 127→128, tests
+  576→586→591, README 128-128).
+- WHAT REMAINS (the registered residuals, all keep the bare NPE):
+  the never-written-parameter naming branches (<parameterN>/this/LVT
+  names — A14/B1/B2), the composed-value and field-read/array-chain
+  CAUSE forms, the peephole-specialized map cores (the IR variant
+  dropped the producer facts), the typed-operand emitter's sites,
+  monitorexit. ALSO NOTED: NpeShapes4's standalone compile hits the
+  PRE-EXISTING Boolean.FALSE builtin-static gap (a j2r surface gap,
+  not this slice's scope).
+- HANDOFF QUEUE (updated in TODO.md): 2) ONE more SSB same-session
+  pair (the formal ≥2-session clause), 3) different-package
+  private-ctor, the HashMap copy-ctor gap, 4) the G3.2 CFG layer
+  (block-join/entry-var), mappings/Mixins; the M4 review belongs to
+  the owner. The cycle counter stands at 5 of 5 (run 5 remains).
+- Tree clean at origin/main (746dc3b + this boards commit); the run
+  counter file advances 4→5.
