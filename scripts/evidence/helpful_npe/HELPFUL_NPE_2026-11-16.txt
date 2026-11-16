@@ -89,3 +89,44 @@ GREEN (this session, same-session pairs):
 
 SLICE (b) NEXT: the array/field law sites (S5-S7 + the A-capture kinds),
 the fixture lands three-channel GREEN when the last shape lands.
+
+SLICE (b) — THE ARRAY/FIELD LAW SITES + THE FIXTURE LANDED:
+  emit.rs: the array accesses (ALoad/AStore — the kind is the raw
+    opcode's law via the decode side-map), ArrayLength, GetField,
+    PutField, MonitorEnter, and AThrow (object::take_thrown_msg, +1
+    runtime law — the bare law delegates) wired on the same static-
+    message layer. THE OPERAND ACCOUNTING: the array/field-write sites
+    pop operands ABOVE the receiver (astore: value+index, aload: index,
+    putfield: value, invoke: the ARGS — the A10 shape exposed that the
+    invoke receiver sits under its call arguments), so the backward
+    walk consumes exactly those operands first — and only PURE
+    producers (pop-0/push-1: loads, constants, getstatic, new) count:
+    a composed value (`q.ifld = obj.f`) has its producer deeper than
+    one push and the bounded walk REFUSES rather than mis-attribute
+    (the JVM's forward simulation lands on local2; j2r keeps the bare
+    NPE — registered residual). The javac monitor-save shape (aload;
+    dup; astore_2; monitorenter) treats Store+Dup as value
+    pass-throughs (A8's oracle). MonitorExit keeps the bare law
+    (unreachable from javac with a null monitor — registered residual).
+  +5 codegen law tests (the per-opcode array kinds iaload/baload/
+    caload/saload + their stores, the Ref/Long kinds, the operand
+    accounting for S7/A7/A10, the composed-value refusal, the monitor
+    passthrough); +1 runtime law test (take_thrown_msg).
+  THE FIXTURE: NpeShapeProbe2 (the 128th) landed in tests/suite/ — the
+    harness compiles it with javac, runs it on LIVE Temurin, compiles
+    with j2r, runs natively — THREE-CHANNEL PASS (5.72s). diff_suite
+    guard 126->127; gate-11 fixtures=128 tests=591 (README 127->128 /
+    586->591 / 127-127 -> 128-128).
+
+GREEN (this session, same-session pairs):
+  S1-S8 stdout BYTE-IDENTICAL vs the Temurin oracle, stderr 0 bytes,
+    exit 0 (the registered slice-(a)+(b) proof, completed).
+  NpeShapes3 end-to-end vs LIVE Temurin: 13 of 14 shapes byte-identical
+    (A14 = the <parameter1> never-written-parameter branch — the
+    registered conservative residual; NpeShapes4's standalone compile
+    additionally hits the PRE-EXISTING Boolean.FALSE builtin-static
+    gap, noted, not this slice's scope).
+  battery: lib 532/0 (48+172+15+297; +15 law tests total across both
+    slices), diff_suite 128 fixtures three-channel ZERO (376.34s +
+    383.82s sharded 0/2 + 1/2), cfg_equiv zero (480.56s); fmt + clippy
+    -D warnings clean FRESH; gate-11 in sync.

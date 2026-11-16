@@ -66,15 +66,16 @@ messages are computable AT EMIT TIME — the emitter knows the static
 receiver class, the (name, desc), the preceding call, and the local
 slot). Zero source changes. Evidence:
 scripts/evidence/default_dispatch/NPE_SHAPE2_2026-11-16.txt. Next
-queue: 1) the HELPFUL-NPE fix — slice (a) the invoke law sites
-LANDED (S1-S4+S8 byte-identical vs Temurin, lib 527/0, diff_suite 127
-zero, cfg_equiv zero; evidence scripts/evidence/helpful_npe/); slice
-(b) the array/field law sites S5-S7 NEXT (the message layer + the
-array-op side-map are already in; the fixture goes three-channel GREEN
-when the last shape lands), 2) ONE more SSB same-session pair (the
-formal ≥2-session clause), 3) different-package private-ctor, the
-HashMap copy-ctor gap, 4) the G3.2 CFG layer (block-join/entry-var),
-mappings/Mixins; the M4 review belongs to the owner.)
+queue: 1) HELPFUL-NPE — LANDED (both slices; the NpeShapeProbe2
+fixture, the 128th, three-channel GREEN vs live Temurin; lib 532/0,
+diff_suite 128 zero, cfg_equiv zero; evidence
+scripts/evidence/helpful_npe/; the registered residuals: the
+<parameterN>/this/LVT naming branches, the composed-value/chain
+causes, the specialized map cores, the typed emitter, monitorexit),
+2) ONE more SSB same-session pair (the formal ≥2-session clause), 3)
+different-package private-ctor, the HashMap copy-ctor gap, 4) the
+G3.2 CFG layer (block-join/entry-var), mappings/Mixins; the M4 review
+belongs to the owner.)
 (Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
 fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
 oracle at scripts/evidence/char_array_rep/) pinned the [C representation

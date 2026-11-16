@@ -216,10 +216,19 @@ pub fn new_string_array(items: &[String]) -> JRef {
 /// `athrow`: pops the reference and turns it into a pending throw.
 /// Throwing `null` raises a `NullPointerException`.
 pub fn take_thrown(stack: &mut Vec<Value>) -> Result<JRef, Throw> {
+    take_thrown_msg(stack, None)
+}
+
+/// The `take_thrown` law with the emitter-computed helpful-NPE message
+/// (the JEP 358 residual, standing run 4, slice b): `athrow` on null
+/// carries the static "Cannot throw exception ..." message the codegen
+/// built from the site's facts (A9's oracle). `msg = None` is the bare
+/// law; the success path is untouched.
+pub fn take_thrown_msg(stack: &mut Vec<Value>, msg: Option<&str>) -> Result<JRef, Throw> {
     let v = stack.pop().expect("j2r internal: athrow on empty stack");
     match v {
         Value::Ref(Some(r)) => Ok(r),
-        _ => Err(throw_new("java/lang/NullPointerException", None)),
+        _ => Err(throw_new("java/lang/NullPointerException", msg)),
     }
 }
 

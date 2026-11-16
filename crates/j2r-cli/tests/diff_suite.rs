@@ -262,9 +262,17 @@ fn differential_suite_matches_jvm() {
     // class-override-beats-default chain precedence, and the
     // super-interface default reached through a non-redeclaring Mid —
     // 127 on disk, guard one below that.
+    // The standing-run-4 wave (2026-11-16) added NpeShapeProbe2 — the
+    // HELPFUL-NPE residual's JEP 358 oracle matrix: the eight probed
+    // null-dereference shapes (unbox-a-call-result S1/S8, null local
+    // S2/S3, producer chain S4, array length S5, field read S6, array
+    // store S7) all caught and printing getMessage(), so the fix's
+    // static messages must match Temurin byte-for-byte on stdout — the
+    // registered slice-(a)+(b) proof — 128 on disk, guard one below
+    // that.
     assert!(
-        fixtures.len() >= 126,
-        "differential suite shrank: {} fixtures (expected >= 126)",
+        fixtures.len() >= 127,
+        "differential suite shrank: {} fixtures (expected >= 127)",
         fixtures.len()
     );
 

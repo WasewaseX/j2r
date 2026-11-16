@@ -1660,17 +1660,78 @@ fn npe_slot_is_param(m: &MethodPlan, slot: u16) -> bool {
     false
 }
 
+/// How many operand-stack values the receiver sits UNDER at the faulting
+/// site (the values the site pops BEFORE the receiver): the invokes, the
+/// arraylength, the getfield, the monitor ops and the athrow pop the
+/// receiver FIRST (it is on top); aload pops the index first; astore pops
+/// value+index; putfield pops the stored value first.
+fn npe_operands_above(instr: &Instr) -> usize {
+    match instr {
+        Instr::AStore(_) => 2,
+        Instr::ALoad(_) | Instr::PutField { .. } => 1,
+        // the invoke receiver sits UNDER the call's arguments
+        Instr::InvokeVirtual { desc, .. }
+        | Instr::InvokeSpecial { desc, .. }
+        | Instr::InvokeInterface { desc, .. } => arg_count(desc),
+        _ => 0,
+    }
+}
+
+/// Is this instruction a PURE operand producer (pops nothing, pushes
+/// exactly one value)? The operand accounting above the receiver only
+/// accepts these: a composed value (`q.ifld = obj.f` — the value is a
+/// load-plus-getfield pair) has its producer deeper than one push, and
+/// a backward one-push-per-operand walk would mis-attribute it — the
+/// JVM's forward simulation handles it, j2r's bounded law refuses
+/// (unprobed ground, registered residual).
+fn npe_pure_producer(instr: &Instr) -> bool {
+    matches!(
+        instr,
+        Instr::Load(_)
+            | Instr::IConst(_)
+            | Instr::LConst(_)
+            | Instr::FConst(_)
+            | Instr::DConst(_)
+            | Instr::AConstNull
+            | Instr::Ldc(_)
+            | Instr::Ldc2W(_)
+            | Instr::GetStatic { .. }
+            | Instr::New { .. }
+    )
+}
+
 /// The CAUSE look-back: the instruction that produced the null receiver,
-/// skipping pass-through `checkcast`s. Returns the `because ...` clause
-/// (without the trailing `is null`), or None when the producer kind is
-/// outside the probed matrix (bare NPE).
-fn npe_cause(m: &MethodPlan, pc: u32) -> Option<String> {
+/// skipping pass-through `checkcast`s and accounting for the operands
+/// stacked above the receiver (the array/field-write sites pop them
+/// first). Returns the `because ...` clause (without the trailing
+/// `is null`), or None when the producer kind is outside the probed
+/// matrix (bare NPE).
+fn npe_cause(m: &MethodPlan, pc: u32, instr: &Instr) -> Option<String> {
     let idx = m.instrs.iter().position(|(p, _)| *p == pc)?;
+    let mut pending = npe_operands_above(instr);
     let mut i = idx;
     while i > 0 {
         i -= 1;
+        if pending > 0 {
+            // The operands stacked above the receiver were pushed by the
+            // straight-line run before the fault; each pure producer
+            // accounts for one. Composed values (a push that itself
+            // consumed operands), dup-shaped pushes and control flow are
+            // unprobed provenance — refuse.
+            if !npe_pure_producer(&m.instrs[i].1) {
+                return None;
+            }
+            pending -= 1;
+            continue;
+        }
         match &m.instrs[i].1 {
             Instr::CheckCast { .. } => continue,
+            // javac's monitor-save shape (`aload o; dup; astore_2;
+            // monitorenter`): the store and the dup are pass-throughs
+            // for the VALUE — the JVM's simulated stack lands on the
+            // load beneath them (A8's oracle).
+            Instr::Store(_) => continue,
+            Instr::Dup => continue,
             Instr::Load(slot) => {
                 if npe_slot_is_param(m, *slot) {
                     return None;
@@ -1714,7 +1775,7 @@ fn npe_message(m: &MethodPlan, pc: u32, instr: &Instr) -> Option<String> {
         Instr::AThrow => "Cannot throw exception".to_string(),
         _ => return None,
     };
-    let cause = npe_cause(m, pc)?;
+    let cause = npe_cause(m, pc, instr)?;
     Some(format!("{action} {cause} is null"))
 }
 
@@ -1743,14 +1804,28 @@ fn npe_array_kind(m: &MethodPlan, pc: u32, kind: &crate::ir::ElemKind) -> Option
 
 /// The emitted `pop_ref` law line for a null-check site: with the
 /// computed message when one is available, the plain law (unchanged
-/// generated code) otherwise.
-fn npe_pop_ref_line(m: &MethodPlan, pc: u32, instr: &Instr, fault: &str) -> String {
+/// generated code) otherwise. `bind` names the binding (`__r` for the
+/// invoke/field/monitor receivers, `__arr` for the array accesses).
+fn npe_pop_ref_line(m: &MethodPlan, pc: u32, instr: &Instr, fault: &str, bind: &str) -> String {
     match npe_message(m, pc, instr) {
         Some(msg) => format!(
-            "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref_msg(&mut stack, ::core::option::Option::Some({msg:?})));"
+            "let {bind} = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref_msg(&mut stack, ::core::option::Option::Some({msg:?})));"
         ),
         None => format!(
-            "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+            "let {bind} = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+        ),
+    }
+}
+
+/// The emitted `athrow` law line (`object::take_thrown_msg`): the same
+/// static-message law on the thrown object itself.
+fn npe_take_thrown_line(m: &MethodPlan, pc: u32, instr: &Instr, fault: &str) -> String {
+    match npe_message(m, pc, instr) {
+        Some(msg) => format!(
+            "let __thr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::take_thrown_msg(&mut stack, ::core::option::Option::Some({msg:?})));"
+        ),
+        None => format!(
+            "let __thr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::take_thrown(&mut stack));"
         ),
     }
 }
@@ -1801,9 +1876,9 @@ fn emit_instr(
         )),
         Instr::ALoad(_) => {
             out.push("let __idx = ::j2r_runtime::pop_int(&mut stack);".into());
-            out.push(format!(
-                "let __arr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
-            ));
+            // JEP 358 slice b: the array law sites (S5-family; the kind
+            // is the raw opcode's law via the decode side-map).
+            out.push(npe_pop_ref_line(m, pc, instr, &fault, "__arr"));
             out.push(format!(
                 "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_load(&__arr, __idx));"
             ));
@@ -1812,17 +1887,15 @@ fn emit_instr(
         Instr::AStore(_) => {
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             out.push("let __idx = ::j2r_runtime::pop_int(&mut stack);".into());
-            out.push(format!(
-                "let __arr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
-            ));
+            // JEP 358 slice b: S7's shape (the store kind per opcode).
+            out.push(npe_pop_ref_line(m, pc, instr, &fault, "__arr"));
             out.push(format!(
                 "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_store(&__arr, __idx, __v, crate::j2r_dispatch()));"
             ));
         }
         Instr::ArrayLength => {
-            out.push(format!(
-                "let __arr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
-            ));
+            // JEP 358 slice b: S5's shape.
+            out.push(npe_pop_ref_line(m, pc, instr, &fault, "__arr"));
             out.push(format!(
                 "stack.push({RT}::Value::Int({RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::array::array_length(&__arr))));"
             ));
@@ -2007,9 +2080,8 @@ fn emit_instr(
                     out.push(marker);
                 }
             }
-            out.push(format!(
-                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
-            ));
+            // JEP 358 slice b: S6's shape (the field-read law).
+            out.push(npe_pop_ref_line(m, pc, instr, &fault, "__r"));
             out.push(format!(
                 "stack.push({RT}::object::obj_get(&__r, {slot}usize));"
             ));
@@ -2023,9 +2095,8 @@ fn emit_instr(
                 }
             }
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
-            out.push(format!(
-                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
-            ));
+            // JEP 358 slice b: the field-write law (A7's oracle).
+            out.push(npe_pop_ref_line(m, pc, instr, &fault, "__r"));
             out.push(format!("{RT}::object::obj_set(&__r, {slot}usize, __v);"));
         }
         Instr::InvokeVirtual { class, name, desc }
@@ -2039,7 +2110,7 @@ fn emit_instr(
             // JEP 358: the receiver's null law carries the site's static
             // message when both halves are computable (slice a — the
             // invoke law sites, oracle NpeShapeProbe2 S1-S4+S8).
-            out.push(npe_pop_ref_line(m, pc, instr, &fault));
+            out.push(npe_pop_ref_line(m, pc, instr, &fault, "__r"));
             // R5 slice 1: when the closed-world resolution proves every
             // possible runtime receiver walks to ONE target, place that
             // target directly — the InvokeSpecial forms with the receiver.
@@ -2139,7 +2210,7 @@ fn emit_instr(
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             // JEP 358: the same law on the invokespecial receiver.
-            out.push(npe_pop_ref_line(m, pc, instr, &fault));
+            out.push(npe_pop_ref_line(m, pc, instr, &fault, "__r"));
             match crate::resolve_call_pub(prog, class, name, desc).expect("validated call") {
                 CallTarget::User { module, fn_name } => {
                     out.push(format!(
@@ -2186,9 +2257,10 @@ fn emit_instr(
             out.push("stack.push(__v);".into());
         }
         Instr::MonitorEnter => {
-            out.push(format!(
-                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
-            ));
+            // JEP 358 slice b: A8's oracle ("Cannot enter synchronized
+            // block"); MonitorExit keeps the bare law (unreachable from
+            // javac with a null monitor — registered residual).
+            out.push(npe_pop_ref_line(m, pc, instr, &fault, "__r"));
             out.push(format!(
                 "{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::monitor::monitor_enter(&__r));"
             ));
@@ -2334,9 +2406,8 @@ fn emit_instr(
         Instr::AThrow => {
             // pop the exception object; on success record the pending throw
             // (the Ok path of j2r_try! would otherwise fall through!)
-            out.push(format!(
-                "let __thr = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::object::take_thrown(&mut stack));"
-            ));
+            // JEP 358 slice b: A9's oracle ("Cannot throw exception").
+            out.push(npe_take_thrown_line(m, pc, instr, &fault));
             out.push(format!(
                 "thrown = ::core::option::Option::Some({RT}::Throw {{ obj: __thr }});"
             ));
@@ -2945,6 +3016,209 @@ mod npe_message_tests {
         assert_eq!(
             npe_message(&s4, 133, &s4.instrs[1].1).expect("S4 is computable"),
             "Cannot invoke \"String.length()\" because the return value of \"NpeShapeProbe2.getS2()\" is null"
+        );
+    }
+
+    // The array kinds are the RAW OPCODE's law (S7/A1/A3/A6): iastore
+    // "int", baload "byte/boolean", caload "char", saload "short" — all
+    // ElemKind::IntGroup, so the side-map decides.
+    #[test]
+    fn array_kinds_come_from_the_raw_opcode() {
+        let cases = [
+            (0x2e, "int"),          // iaload
+            (0x4f, "int"),          // iastore
+            (0x33, "byte/boolean"), // baload
+            (0x54, "byte/boolean"), // bastore
+            (0x34, "char"),         // caload
+            (0x55, "char"),         // castore
+            (0x35, "short"),        // saload
+            (0x56, "short"),        // sastore
+        ];
+        for (op, kind) in cases {
+            let store = op >= 0x4f;
+            // loads: aload arr, iconst_0, <op> — ONE operand above the
+            // receiver; stores: aload arr, iconst_0, iconst_1, <op>.
+            let (instrs, fault) = if store {
+                (
+                    vec![
+                        (0, Instr::Load(1)),
+                        (1, Instr::IConst(0)),
+                        (2, Instr::IConst(1)),
+                        (3, Instr::AStore(crate::ir::ElemKind::IntGroup)),
+                    ],
+                    3,
+                )
+            } else {
+                (
+                    vec![
+                        (0, Instr::Load(1)),
+                        (1, Instr::IConst(0)),
+                        (2, Instr::ALoad(crate::ir::ElemKind::IntGroup)),
+                    ],
+                    2,
+                )
+            };
+            let mut m = plan(true, "([Ljava/lang/String;)V", instrs);
+            m.array_ops.insert(fault, op);
+            let instr = &m.instrs.last().unwrap().1;
+            let msg = npe_message(&m, fault, instr).expect("the probed array kinds compute");
+            let expected = if store {
+                format!("Cannot store to {kind} array because \"<local1>\" is null")
+            } else {
+                format!("Cannot load from {kind} array because \"<local1>\" is null")
+            };
+            assert_eq!(msg, expected, "opcode {op:#x}");
+        }
+    }
+
+    // The non-IntGroup kinds are ElemKind's own law (A2/A4).
+    #[test]
+    fn ref_and_long_array_kinds() {
+        let instrs = vec![
+            (0, Instr::Load(1)),
+            (1, Instr::IConst(0)),
+            (2, Instr::ALoad(crate::ir::ElemKind::Ref)),
+        ];
+        let m = plan(true, "([Ljava/lang/String;)V", instrs);
+        let msg = npe_message(&m, 2, &m.instrs[2].1).expect("aaload computes");
+        assert_eq!(
+            msg,
+            "Cannot load from object array because \"<local1>\" is null"
+        );
+        let instrs = vec![
+            (0, Instr::Load(1)),
+            (1, Instr::IConst(0)),
+            (2, Instr::ALoad(crate::ir::ElemKind::Long)),
+        ];
+        let m = plan(true, "([Ljava/lang/String;)V", instrs);
+        let msg = npe_message(&m, 2, &m.instrs[2].1).expect("laload computes");
+        assert_eq!(
+            msg,
+            "Cannot load from long array because \"<local1>\" is null"
+        );
+    }
+
+    // S7's operand accounting: the array sits UNDER the index and the
+    // stored value; A7's putfield shape sits under the stored value;
+    // A10's invoke receiver sits under its four arguments.
+    #[test]
+    fn operands_above_the_receiver_are_accounted() {
+        // S7: aload_1, iconst_0, iconst_1, iastore
+        let s7 = plan(
+            true,
+            "([Ljava/lang/String;)V",
+            vec![
+                (255, Instr::Load(1)),
+                (256, Instr::IConst(0)),
+                (257, Instr::IConst(1)),
+                (258, Instr::AStore(crate::ir::ElemKind::IntGroup)),
+            ],
+        );
+        let mut s7 = s7;
+        s7.array_ops.insert(258, 0x4f);
+        assert_eq!(
+            npe_message(&s7, 258, &s7.instrs[3].1).expect("S7 computes"),
+            "Cannot store to int array because \"<local1>\" is null"
+        );
+        // A7: aload_2, iconst_1, putfield
+        let a7 = plan(
+            false,
+            "()V",
+            vec![
+                (0, Instr::Load(2)),
+                (1, Instr::IConst(1)),
+                (
+                    2,
+                    Instr::PutField {
+                        class: "NpeShapes3".into(),
+                        field: "ifld".into(),
+                        desc: "I".into(),
+                    },
+                ),
+            ],
+        );
+        assert_eq!(
+            npe_message(&a7, 2, &a7.instrs[2].1).expect("A7 computes"),
+            "Cannot assign field \"ifld\" because \"<local2>\" is null"
+        );
+        // A10: aload_1, iconst_0, iconst_1, aload_3, iconst_0, invokevirtual
+        let a10 = plan(
+            true,
+            "([Ljava/lang/String;)V",
+            vec![
+                (0, Instr::Load(1)),
+                (1, Instr::IConst(0)),
+                (2, Instr::IConst(1)),
+                (3, Instr::Load(3)),
+                (4, Instr::IConst(0)),
+                (
+                    5,
+                    Instr::InvokeVirtual {
+                        class: "java/lang/String".into(),
+                        name: "getChars".into(),
+                        desc: "(II[CI)V".into(),
+                    },
+                ),
+            ],
+        );
+        assert_eq!(
+            npe_message(&a10, 5, &a10.instrs[5].1).expect("A10 computes"),
+            "Cannot invoke \"String.getChars(int, int, char[], int)\" because \"<local1>\" is null"
+        );
+    }
+
+    // The composed-value refusal: `q.ifld = obj.f` — the value is a
+    // load-plus-getfield pair, so the bounded backward walk refuses
+    // rather than mis-attribute (the JVM's forward simulation lands on
+    // local2; j2r keeps the bare NPE — registered residual).
+    #[test]
+    fn composed_value_operands_refuse() {
+        let composed = plan(
+            false,
+            "()V",
+            vec![
+                (0, Instr::Load(2)),
+                (1, Instr::Load(3)),
+                (
+                    2,
+                    Instr::GetField {
+                        class: "NpeShapes3".into(),
+                        field: "ifld".into(),
+                        desc: "I".into(),
+                    },
+                ),
+                (
+                    5,
+                    Instr::PutField {
+                        class: "NpeShapes3".into(),
+                        field: "ifld".into(),
+                        desc: "I".into(),
+                    },
+                ),
+            ],
+        );
+        assert!(npe_message(&composed, 5, &composed.instrs[3].1).is_none());
+    }
+
+    // A8's monitor-save passthrough: aload_1, dup, astore_2,
+    // monitorenter — the store and the dup are value pass-throughs.
+    #[test]
+    fn monitor_save_shape_walks_to_the_load() {
+        let a8 = plan(
+            true,
+            "([Ljava/lang/String;)V",
+            vec![
+                (0, Instr::AConstNull),
+                (1, Instr::Store(1)),
+                (2, Instr::Load(1)),
+                (3, Instr::Dup),
+                (4, Instr::Store(2)),
+                (5, Instr::MonitorEnter),
+            ],
+        );
+        assert_eq!(
+            npe_message(&a8, 5, &a8.instrs[5].1).expect("A8 computes"),
+            "Cannot enter synchronized block because \"<local1>\" is null"
         );
     }
 

@@ -4077,3 +4077,52 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
 - Evidence: scripts/evidence/helpful_npe/{HELPFUL_NPE_2026-11-16.txt,
   NpeShapes3.java, npe_shapes3_temurin.txt, NpeShapes4.java,
   npe_shapes4_temurin.txt}.
+
+## 2026-11-16 — standing run 4 of 5 (slice b): **THE HELPFUL-NPE ARRAY/FIELD LAW SITES LANDED — the NpeShapeProbe2 fixture (the 128th) three-channel GREEN vs live Temurin, the registered HELPFUL-NPE residual CLOSED**
+
+- SLICE (b) — THE ARRAY/FIELD LAW SITES LANDED: emit.rs wires the
+  same static-message layer on the array accesses (ALoad/AStore — the
+  per-opcode kinds int/byte-boolean/char/short ride the decode
+  side-map; long/float/double/object are ElemKind's own law), the
+  arraylength, getfield, putfield, monitorenter, and athrow
+  (object::take_thrown_msg — the bare law delegates; +1 runtime law).
+- THE OPERAND ACCOUNTING (the slice-b finding): the array/field-write
+  sites pop operands ABOVE the receiver — astore: value+index (S7's
+  shape), aload: index, putfield: the stored value (A7), and INVOKE:
+  the call's ARGUMENTS (A10's getChars exposed it — the invoke
+  receiver sits under its args; slice a only ever proved the 0-arg
+  shapes) — so the backward walk consumes exactly those operands
+  first, and only PURE producers (pop-0/push-1: loads, constants,
+  getstatic, new) count: a COMPOSED value (`q.ifld = obj.f`) has its
+  producer deeper than one push and the bounded walk REFUSES rather
+  than mis-attribute (the JVM's forward simulation would land on
+  local2; j2r keeps the bare NPE — the registered residual). The javac
+  monitor-save shape (aload; dup; astore_2; monitorenter) treats
+  Store+Dup as value pass-throughs (A8's oracle). MonitorExit keeps
+  the bare law (unreachable from javac with a null monitor —
+  registered residual). +5 codegen law tests (the per-opcode array
+  kinds, the Ref/Long kinds, the operand accounting, the composed-
+  value refusal, the monitor passthrough).
+- THE FIXTURE: NpeShapeProbe2 (the 128th) landed in tests/suite/ —
+  the harness compiles it with javac, runs it on LIVE Temurin, runs
+  j2r natively — THREE-CHANNEL PASS. diff_suite guard 126→127; gate-11
+  fixtures=128 tests=591 (README 127→128 / 586→591 / 128-128).
+- GREEN all this session: S1-S8 stdout BYTE-IDENTICAL vs the Temurin
+  oracle (stderr 0 bytes, exit 0 — the registered slice-(a)+(b) proof
+  COMPLETED); NpeShapes3 end-to-end vs LIVE Temurin 13 of 14 shapes
+  byte-identical (A14 = the <parameter1> never-written-parameter
+  branch, the registered conservative residual; NpeShapes4's
+  standalone compile additionally hits the PRE-EXISTING Boolean.FALSE
+  builtin-static gap — noted, not this slice's scope); battery: lib
+  532/0 (48+172+15+297; +15 law tests across both slices), diff_suite
+  128 fixtures three-channel ZERO (376.34s + 383.82s sharded),
+  cfg_equiv zero (480.56s); fmt + clippy -D warnings clean FRESH.
+- THE REGISTERED RESIDUALS (unprobed/uncomputed ground, all keep the
+  bare NPE): the never-written-parameter branches (<parameterN>/this/
+  LVT names — A14/B1/B2), the composed-value and field-read/array-
+  chain CAUSE forms, the peephole-specialized map cores (the IR
+  variant dropped the producer facts), the typed-operand emitter's
+  sites, monitorexit.
+- Evidence: scripts/evidence/helpful_npe/{HELPFUL_NPE_2026-11-16.txt,
+  NpeShapes3.java, npe_shapes3_temurin.txt, NpeShapes4.java,
+  npe_shapes4_temurin.txt} + ../default_dispatch/ (the run-3 oracle).
