@@ -1,0 +1,96 @@
+THE G3.4 SAME-SESSION PAIRS — standing run 3 of 5, 2026-11-16
+==============================================================
+HEAD: 161fd44 (== origin/main, the run-2 char-array-rep fix tree).
+Zero source changes this run: measurement + boards only.
+Box: 2-core Xeon, ~4 GB RAM (the recorded reference sandbox class).
+Toolchain: rustc 1.99.1 (58cf8f9c3), Temurin 21.0.13+9 (both
+re-bootstrapped byte-exact this session after the sandbox reset;
+javac -version = 21.0.13, rustc --version exact string logged).
+Baseline re-proof BEFORE any measurement: cargo build --release
+--workspace green; cargo test --workspace --lib = 512/0
+(48+160+15+289) — the boards' count for this HEAD.
+
+Protocol (the G0.7 same-session pair rule): for each bench, in ONE
+session on ONE box: javac stem -> Temurin full-tiered JVM reference
+run -> j2r DEFAULT emit + cargo build + native run -> j2r TYPED
+(--emit-typed) emit + cargo build + native run; every native run
+byte-compared against the same-session JVM reference stdout; wall
+clocks recorded for all channels. Single JVM run per bench (the
+pair is native-vs-native; the JVM wall contextualizes the gap).
+
+----------------------------------------------------------------
+BENCH 1 — StringsSimBench (23 classes; the audit's crash workload)
+----------------------------------------------------------------
+build: bash scripts/build_corpus_stringsimbench.sh  (javac OK,
+unchecked-warning expected; 23 .class files)
+Temurin ref (same-session):
+  java -cp /tmp/stringsimbench_out StringsSimBench
+  wall 2.791 s (a second reference run reproduced stdout
+  byte-identical, wall 2.791 s recorded once)
+  output: 6 checksum lines incl. w8_ngram (the crash workload row)
+DEFAULT backend (fresh emit, vendored runtime):
+  j2r compile -o /tmp/ssb-default .../stringsimbench_out/*.class
+    --main-class StringsSimBench --crate-name j2r_app
+  gen wall 22 ms; cargo build --release wall 17.5 s
+  run: exit 0, wall **285.873 s**, stdout BYTE-IDENTICAL vs the
+  same-session Temurin ref
+TYPED backend (--emit-typed, fresh emit, vendored runtime):
+  gen wall 29 ms; cargo build --release wall 48.0 s
+  run: exit 0, wall **279.224 s**, stdout BYTE-IDENTICAL vs the
+  same-session Temurin ref
+PAIR RATIO (typed/default): 279.224/285.873 = **0.9767**
+Gap vs the full-tiered JVM: default 285.873/2.791 = **102.4x**,
+typed 279.224/2.791 = **100.0x**.
+Cross-session consistency: typed 279.224 vs run-2's 279.243
+(2026-11-16 earlier window) = 0.007% apart; default 285.873 vs the
+audit's 282.344 (2026-11-07 recording) = 1.25% apart over 9 days.
+HONESTY: this is SSB's FIRST same-session default/typed pair — the
+audit's verdict "no post-lever measurement at all" is now closed by
+measurement; the formal >=2-session repeatability clause for SSB
+still needs a second session's pair (the cross-session typed runs
+support but do not substitute).
+
+----------------------------------------------------------------
+BENCH 2 — JamaBench re-proof at current HEAD (8 classes)
+----------------------------------------------------------------
+build: bash scripts/build_corpus_jamabench.sh (javac OK, 8 .class)
+Temurin ref (same-session):
+  java -cp /tmp/jamabench_out JamaBench
+  wall 3.482 s; output K=1200 N=40 M=24 / acc=5.3624293456203656E14
+  / seedTail=-5877300977697633972
+DEFAULT backend: gen wall 86 ms; cargo build wall 49.1 s
+  run: exit 0, wall **278.489 s**, stdout BYTE-IDENTICAL vs the
+  same-session Temurin ref
+TYPED backend: gen wall 130 ms; cargo build wall 75.2 s
+  run: exit 0, wall **256.523 s**, stdout BYTE-IDENTICAL vs the
+  same-session Temurin ref
+PAIR RATIO (typed/default): 256.523/278.489 = **0.9211**
+Gap vs the full-tiered JVM: default 278.489/3.482 = **80.0x**,
+typed 256.523/3.482 = **73.7x**.
+Ledger chain of JamaBench typed/default pairs (all same-session,
+all stdout byte-identical, all exit 0):
+  2026-11-08  0.992  (355.9/358.7, docs/BENCHMARKS.md addendum 3)
+  2026-11-12  0.936  (the typed-payload-arrays lever, ledger)
+  2026-11-16a 0.9092 (audit fresh pair 253.046/278.319, at 3ea225c)
+  2026-11-16b 0.9211 (THIS run, at 161fd44: 256.523/278.489)
+Four sessions, four ratios in [0.909, 0.992], every one < 1.0: the
+typed lever's JamaBench gain is REPEATABLE (the G3.4 >=2-session
+clause holds on this bench). The audit's 0.9092 vs today's 0.9211
+differ by 1.3% — single-run noise band on this box; both quoted.
+
+----------------------------------------------------------------
+G3.4 STATE AFTER THIS SESSION
+----------------------------------------------------------------
+- BOTH benches now have post-lever measurements with same-session
+  pairs and byte-identical output (the audit's BOTH-bench failure
+  clause is closed by SSB's pair).
+- JamaBench repeatability: 4 same-session pairs across 4 dates.
+- SSB repeatability: 1 pair + 1 independent typed run (0.007% apart)
+  — second pair still owed for the formal >=2-session SSB claim.
+- No diff-suite regressions possible from this run: ZERO source
+  changes (docs + evidence only); lib battery re-proven 512/0 at
+  this HEAD before measuring.
+- The stale "~66x" board figure replaced by the same-session
+  figures above (73.7x typed JamaBench, 100.0x typed SSB; G3.5
+  forbids "approaching JVM" phrasing — the gap remains two orders
+  of magnitude and is still quoted every time).

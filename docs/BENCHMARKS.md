@@ -634,3 +634,52 @@ Repro:
       --crate-name j2r_jb_typed --emit-typed -o /tmp/jb_typed
     (cd /tmp/jb_typed && cargo build --release --offline)
     # default twin minus --emit-typed; time both, compare vs java output
+
+## 2026-11-16 addendum 4 — standing run 3: the G3.4 same-session PAIRS on BOTH benches at HEAD `161fd44` (SSB's first pair ever)
+
+The audit (run 1, at `3ea225c`) ruled G3.4 NOT COMPLETE on one count:
+JamaBench had its same-session pairs, StringsSimBench had NO post-lever
+measurement at all (its typed channel crashed — fixed in run 2,
+`161fd44`). Run 3 took BOTH pairs in ONE session, same box, same
+binary base, every native run byte-compared against the same-session
+Temurin 21.0.13+9 full-tiered reference (protocol G0.7; full
+transcript `scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt`):
+
+    bench           default     typed       ratio    JVM ref    gap (typed)
+    JamaBench       278.489 s   256.523 s   0.9211   3.482 s    73.7x
+    StringsSimBench 285.873 s   279.224 s   0.9767   2.791 s    100.0x
+
+(default-backend gaps: JamaBench 80.0x, StringsSimBench 102.4x. All
+four native runs exit 0 with stdout BYTE-IDENTICAL to the same-session
+reference; gen walls 22–130 ms, cargo walls 17.5–75.2 s — both quoted
+in the transcript.)
+
+- JamaBench ledger chain of typed/default same-session pairs:
+  11-08 **0.992** → 11-12 **0.936** → audit 11-16 **0.9092** → run 3
+  **0.9211**. Four sessions, four ratios in [0.909, 0.992], every one
+  < 1.0: the typed lever's gain is REPEATABLE (the G3.4 ≥2-session
+  clause holds on this bench). The audit's 0.9092 vs today's 0.9211
+  differ by 1.3% — the single-run noise band on this box; both quoted.
+- StringsSimBench: FIRST same-session default/typed pair (0.9767).
+  Cross-session: typed 279.224 vs run 2's 279.243 = 0.007% apart;
+  default 285.873 vs the audit's 282.344 = 1.25% over 9 days. The
+  formal ≥2-session SSB clause needs one more session's pair — owed,
+  stated on the boards.
+- The stale "~66x" figure (which divided the 11-12 typed wall by a
+  3.89 s JVM reference) is replaced by the same-session figures above;
+  G3.5 unchanged — the gap is still two orders of magnitude and is
+  quoted every time.
+- Zero source changes this run; lib battery re-proven 512/0 at this
+  HEAD before measuring; diff_suite/cfg_equiv untouched by
+  construction.
+
+Repro (the run-3 transcript is the canonical record):
+
+    bash scripts/build_corpus_jamabench.sh
+    java -cp /tmp/jamabench_out JamaBench                 # ref, 3.482 s
+    ./target/release/j2r compile -o /tmp/jb-default \
+      /tmp/jamabench_out/*.class --main-class JamaBench --crate-name j2r_app
+    (cd /tmp/jb-default && cargo build --release)
+    time /tmp/jb-default/target/release/j2r_app           # 278.489 s
+    # typed twin: add --emit-typed, -o /tmp/jb-typed       # 256.523 s
+    # StringsSimBench twin: build_corpus_stringsimbench.sh, same shape

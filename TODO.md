@@ -3,8 +3,39 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-16 (standing run 2 of the 5-run owner
-cycle — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
+fix the board. Last updated: 2026-11-16 (standing run 3 of the 5-run
+owner cycle — **THE G3.4 SAME-SESSION PAIRS TAKEN ON BOTH BENCHES**:
+sandbox reset survived zero-loss (ff to `161fd44`, toolchain
+re-bootstrapped byte-exact rustc 1.99.1/58cf8f9c3 + Temurin 21.0.13,
+rust199 symlink re-wired); baseline re-proven BEFORE measuring: lib
+battery **512/0** (48+160+15+289); then, in ONE session, the G0.7
+same-session pairs, every native run stdout byte-identical vs the
+same-session Temurin full-tiered reference: **JamaBench default
+278.489s / typed 256.523s = 0.9211** (the 4th same-session pair:
+0.992 → 0.936 → 0.9092 → 0.9211, all < 1.0 — the typed lever is
+REPEATABLE, the ≥2-session clause HOLDS on this bench) and
+**StringsSimBench default 285.873s / typed 279.224s = 0.9767** — SSB's
+FIRST same-session pair, closing the audit's "no post-lever SSB
+measurement" verdict (typed cross-session 279.224 vs run-2's 279.243
+= 0.007% apart; default 285.873 vs the audit's 282.344 = 1.25% over
+9 days; one more SSB pair owed for the formal ≥2-session SSB clause).
+Same-session JVM gaps: JamaBench 73.7x typed / 80.0x default,
+SSB 100.0x typed / 102.4x default — the stale "~66x" board figure
+REPLACED (G3.5 unchanged: two orders of magnitude, quoted every
+time). BOARD TRUTH PASS en route: G3.1 box checked in
+REVIEW_CHECKLIST (closed session 17 `fb6683c`, the row had been left
+`[ ]`), STATUS G3.1 OPEN→CLOSED with the evidence path, STATUS G3.3
+stale "TreeMap next" line fixed (the prim rewrites ride ALL THREE map
+storages), G3.4 sub-gate state recorded. ZERO source changes —
+measurement + boards only; evidence
+scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt; docs/BENCHMARKS.md
+addendum 4; gate-11 green (no count changes). Next queue: 1) ONE more
+SSB same-session pair (the formal ≥2-session clause), 2) the
+residuals (user-interface DEFAULT dispatch, HELPFUL-NPE,
+different-package private-ctor, the HashMap copy-ctor gap), 3) the
+G3.2 CFG layer (block-join/entry-var, the named next prerequisite),
+mappings/Mixins; the M4 review belongs to the owner.)
+(Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
 fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
 oracle at scripts/evidence/char_array_rep/) pinned the [C representation
 laws and reproduced the audit's crash exactly (typed exit 101,
@@ -22,15 +53,10 @@ pairs / raw-store char-narrow). GREEN: lib 512/0 (48+160+15+289); probe
 typed exit 0 stdout byte-identical vs Temurin; StringsSimBench typed exit
 0 twice (was rc=101 at 167.1s), stdout byte-identical vs the same-session
 Temurin reference, run-2 wall 279.243s (the same-session default/typed
-PAIR is NOT claimable from these numbers — it is the next queue item);
-diff_suite 126 fixtures three-channel ZERO (362.59s + 366.11s sharded);
-cfg_equiv zero (434.88s); fmt + clippy clean; gate-11 126/571. Next
-queue: 1) the G3.4 pairs (StringsSimBench default/typed same-session pair
-+ JamaBench re-proof at current HEAD; the ledger update), 2) board truth
-pass (G3.1 box closed 11-11 but unchecked; STATUS ~66x stale), 3) the
-residuals (user-interface DEFAULT dispatch, HELPFUL-NPE, different-package
-private-ctor, the HashMap copy-ctor gap), the G3.1/G3.2 CFG layers, the
-M4 review, mappings/Mixins.)
+PAIR is NOT claimable from these numbers — it was the run-3 queue
+item, TAKEN 2026-11-16: see the run-3 block above); diff_suite 126
+fixtures three-channel ZERO (362.59s + 366.11s sharded);
+cfg_equiv zero (434.88s); fmt + clippy clean; gate-11 126/571.)
 (Historical: run 5 of 5 — **TREEMAP LANDED, the cycle
 ENDS**: the sorted map with the CLRS red-black storage — the probed
 laws (TreeMapProbe, the 123rd fixture, three-channel zero; evidence

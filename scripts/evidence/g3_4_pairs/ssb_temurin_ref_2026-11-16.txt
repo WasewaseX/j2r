@@ -1,0 +1,6 @@
+w1_lev_short=2449167.0
+w5_jw=192374.1393435562
+w7a_profile_sizes=811272
+w7b_precomputed=4024.3242675735173
+w8_ngram=12044.130793690681
+done

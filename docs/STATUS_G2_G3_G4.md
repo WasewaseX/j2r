@@ -59,15 +59,25 @@ framing). Open: `G2.5-ladder-continuation` (the bigger box).
 
 ## G3 — typed-codegen performance (P1)
 
-**The number stands: ~66× behind the fully tiered JVM on JamaBench,
-~73–104× on StringsSimBench** (the honesty guard G3.5 forbids
-"approaching JVM" phrasing until a measured order-of-magnitude
-change; the figure is quoted every time).
+**The number stands: 73.7× (typed) / 80.0× (default) behind the fully
+tiered JVM on JamaBench and 100.0× (typed) / 102.4× (default) on
+StringsSimBench — the 2026-11-16 same-session pairs at HEAD `161fd44`
+(standing run 3; evidence `scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt`)**
+(the honesty guard G3.5 forbids "approaching JVM" phrasing until a
+measured order-of-magnitude change; the figure is quoted every time).
 
 ### The lever ledger (each entry a same-session controlled pair, G0.7)
 
 structuring-flat → typed-locals 0.992 → operand unification 0.958 →
-typed-payload arrays 0.936 (6.4% cumulative so far). The R5/R7
+typed-payload arrays 0.936 (6.4% cumulative so far). The SAME-SESSION
+PAIRS at HEAD `161fd44` (2026-11-16, standing run 3): JamaBench
+typed/default 256.523/278.489 = **0.9211** (the 4th same-session pair:
+0.992 → 0.936 → 0.9092 → 0.9211, all < 1.0, all stdout byte-identical
+vs the same-session Temurin ref — the lever is REPEATABLE);
+StringsSimBench typed/default 279.224/285.873 = **0.9767** — SSB's
+FIRST same-session pair, closing the audit's "no post-lever SSB
+measurement" verdict; second SSB pair still owed for the formal
+≥2-session SSB clause. The R5/R7
 dispatch work is measured too: direct-call folding + codegen-time
 vtable resolution eliminated 18 of 56 dynamic sites (−32.1%); the R7
 hash-dispatch selector was a **measured NO-GO** — rustc 1.99 already
@@ -80,23 +90,30 @@ measured NO-GOs (docs/M2_SHAPE_REPORT.md, docs/M2_CFG_REPORT.md).
 
 ### Sub-gate status
 
-- **G3.1 deferred joins** (tred2/orthes/hqr2 refusals) — OPEN; the
-  registered next CFG layer, PASS shape = lands behind `--emit-cfg`,
-  the three kernels lift, cfg_equiv stays zero, controlled pair
-  recorded either way.
+- **G3.1 deferred joins** (tred2/orthes/hqr2 refusals) — **CLOSED
+  session 17 (`fb6683c`)**: the deferred-join mechanism landed behind
+  `--emit-cfg` and ALL FOUR JamaBench kernels lift TypedReady (tred2
+  83.4%, tql2 92.2%, orthes 86.5%, hqr2 93.2% prim); cfg_equiv zero
+  divergences; evidence `scripts/evidence/g3_1/`. (The checklist row
+  was left `[ ]` — fixed 2026-11-16 in the board truth pass.)
 - **G3.2 block-join / entry-var layer** (~140 slot-var sites) — OPEN;
   the named prerequisite for G3.3's full payoff.
 - **G3.3 primitive-specialized collection paths** — SLICES LANDED
   (the measured 2.78× container tax attack): slice 2 (put/get rewrites
   + the closure law), slice 3 (class-level provenance scan, node-stamped
   class tag, lazy box materialization, `hm_get_prim` as the fused
-  checkcast+unbox law); the specialized rewrites now also ride the two
-  NEW map storages (LinkedHashMap landed 2026-11-15; TreeMap is the
-  next queue item — the classes did not exist and were probed as loud
-  unsupported before their waves started).
-- **G3.4 the acceptance bar** — unchanged: repeatable (≥2 sessions)
-  gains on BOTH benchmarks, byte-identical output, zero diff-suite
-  regressions, every number with its same-session control pair.
+  checkcast+unbox law); the specialized rewrites RIDE ALL THREE map
+  storages (HashMap, LinkedHashMap landed 2026-11-15, TreeMap landed
+  2026-11-15 run 5 — TreeMapLhmPrimProbe the 125th fixture, fired-code
+  census 5 tm_put + 4 tm_get + 3 hm_put + 3 hm_get across all three
+  storages × both receiver shapes).
+- **G3.4 the acceptance bar** — STATE 2026-11-16 (standing run 3):
+  both benches now carry post-lever same-session pairs with
+  byte-identical output (JamaBench typed/default 0.9211, 4 sessions
+  repeatable; StringsSimBench 0.9767, FIRST pair — the ≥2-session
+  clause holds on JamaBench, ONE more SSB pair owed); zero diff-suite
+  regressions across every landing; every number with its
+  same-session control pair. The bar itself is unchanged.
 - **G3.5 honesty guard** — enforced in this document by quotation.
 
 ### What would actually move the number

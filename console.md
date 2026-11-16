@@ -3857,3 +3857,71 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   (user-interface DEFAULT dispatch, HELPFUL-NPE, different-package
   private-ctor, the HashMap copy-ctor gap), the G3.1/G3.2 CFG layers,
   mappings/Mixins; the M4 review belongs to the owner.
+
+## 2026-11-16 — standing run 3 of 5: **THE G3.4 SAME-SESSION PAIRS TAKEN ON BOTH BENCHES — SSB's first pair ever, JamaBench's 4th**
+
+- Reset recovery first (fresh sandbox, no toolchain): fetch + ff-only
+  b4badea → **161fd44** == origin/main (the boards at 161fd44 name the
+  run-3 queue: the G3.4 pairs head, then the board truth pass, then the
+  residuals); toolchain re-bootstrapped byte-exact via the tracked
+  script (rustc 1.99.1 (58cf8f9c3), javac 21.0.13) and the rust199
+  symlink re-wired to the rustup toolchain dir; baseline re-proven
+  BEFORE any measurement: release workspace build + lib battery
+  **512/0** (48+160+15+289) — the boards' count for this HEAD.
+- QUEUE HEAD (from the boards, not memory): the G3.4 pairs — the
+  run-2 SSB typed run completed but its default control was a
+  9-days-old audit recording, so the same-session default/typed PAIR
+  was not claimable; JamaBench owed a re-proof at current HEAD; the
+  lever ledger owed the update.
+- PROTOCOL (G0.7, same-session pair): for each bench in ONE session —
+  javac the stem (build_corpus_*.sh), Temurin 21.0.13+9 full-tiered
+  JVM reference run, j2r DEFAULT fresh emit + vendored-runtime cargo
+  build + native run, j2r TYPED (--emit-typed) fresh emit + build +
+  native run; every native stdout byte-compared against the
+  same-session reference; walls recorded. Full transcript:
+  scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt (commands, walls,
+  checksums, gen/build walls, the ledger chain).
+- THE PAIRS (all four native runs exit 0, stdout BYTE-IDENTICAL vs
+  the same-session Temurin ref):
+  - **JamaBench: default 278.489s / typed 256.523s = 0.9211** (JVM
+    ref 3.482s → typed gap 73.7x, default 80.0x). The 4th
+    same-session pair in the ledger chain: 11-08 0.992 → 11-12
+    0.936 → audit 11-16 0.9092 → today 0.9211 — four sessions, all
+    < 1.0, all byte-identical: the typed lever's gain is REPEATABLE,
+    the G3.4 ≥2-session clause HOLDS on this bench (0.9092 vs
+    0.9211 = 1.3%, the single-run noise band; both quoted).
+  - **StringsSimBench: default 285.873s / typed 279.224s = 0.9767**
+    (JVM ref 2.791s, reproduced byte-identical twice → typed gap
+    100.0x, default 102.4x). SSB's FIRST same-session pair — the
+    audit's "no post-lever SSB measurement at all" verdict is closed
+    by measurement. Cross-session: typed 279.224 vs run-2's 279.243
+    = 0.007% apart; default 285.873 vs the audit's 282.344 = 1.25%
+    over 9 days. HONESTY: the formal ≥2-session SSB clause needs ONE
+    more session's pair — owed, stated on the boards.
+- BOARD TRUTH PASS (queue item 2, docs-only): the stale "~66x" figure
+  replaced by the same-session figures above in STATUS_G2_G3_G4.md +
+  REVIEW_CHECKLIST.md (G3.5 unchanged — still two orders of
+  magnitude, quoted every time); **G3.1 box CHECKED in
+  REVIEW_CHECKLIST** (closed session 17 `fb6683c`, all four JamaBench
+  kernels TypedReady, the row had been left `[ ]` since 11-11 — the
+  audit's finding); STATUS G3.1 OPEN→CLOSED with the evidence path;
+  STATUS G3.3 stale "TreeMap is the next queue item" fixed (the prim
+  rewrites RIDE ALL THREE map storages, TreeMapLhmPrimProbe the 125th
+  fixture); G3.4 sub-gate state recorded (both benches measured,
+  JamaBench repeatable, one SSB pair owed).
+- HONESTY GUARDS honored: no 20k/70k farm builds; no 70k native
+  compilation claims; JMM untouched; every number same-session with
+  its control; the SSB repeatability gap stated, not smoothed over.
+- Battery statement: ZERO source changes this run (docs + evidence
+  only) — lib battery re-proven 512/0 at this HEAD before measuring;
+  diff_suite (126 fixtures) and cfg_equiv were green at this exact
+  tree in run 2 and are untouched by construction; gate-11 green
+  (no count changes: fixtures=126 tests=571).
+- Evidence: scripts/evidence/g3_4_pairs/{PAIRS_2026-11-16.txt,
+  ssb_temurin_ref_2026-11-16.txt, jb_temurin_ref_2026-11-16.txt}.
+- NEXT queue: 1) ONE more SSB same-session pair (the formal
+  ≥2-session clause), 2) the residuals wave (user-interface DEFAULT
+  dispatch — Probe5, HELPFUL-NPE, different-package private-ctor,
+  the HashMap copy-ctor gap), 3) the G3.2 CFG layer
+  (block-join/entry-var — the named prerequisite for G3.3's full
+  payoff), then mappings/Mixins; the M4 review belongs to the owner.

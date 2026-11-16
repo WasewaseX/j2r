@@ -288,14 +288,23 @@ rustc ≈0.99 GB at k=250; build peak 3.09 GB = rust-lld, the link stage
 ## G3 — P1: Typed-codegen performance (the ~100× steady-state gap)
 
 State: lever ledger structuring-flat → typed-locals 0.992 → operand
-unification 0.958 → typed-payload arrays 0.936 (6.4% cumulative); steady
-state ~66× behind the full-tier JVM on JamaBench; ~73–104× on StringsSimBench.
+unification 0.958 → typed-payload arrays 0.936 (6.4% cumulative);
+same-session pairs at HEAD `161fd44` (2026-11-16): JamaBench
+typed/default **0.9211** (4 sessions, all < 1.0), StringsSimBench
+**0.9767** (first pair); steady state **73.7×** (typed) / 80.0×
+(default) behind the full-tier JVM on JamaBench, **100.0×** (typed) /
+102.4× (default) on StringsSimBench — evidence
+`scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt`.
 
-- [ ] **G3.1 — the deferred-join mechanism** (tred2/orthes/hqr2 refusals,
-  the registered next CFG layer). PASS: lands behind `--emit-cfg`, the
-  three kernels lift, cfg_equiv stays zero-divergence on the whole suite,
-  and the same-session controlled pair is recorded EITHER WAY (a measured
-  NO-GO is a valid recorded outcome; a silent no-measurement is not).
+- [x] **G3.1 — the deferred-join mechanism** (tred2/orthes/hqr2
+  refusals). CLOSED session 17 (`fb6683c`): landed behind `--emit-cfg`,
+  all FOUR JamaBench kernels lift TypedReady (tred2 83.4%, tql2 92.2%,
+  orthes 86.5%, hqr2 93.2% prim), cfg_equiv zero-divergence on the
+  whole suite, the same-session controlled pair recorded (the census
+  control pair + the closure pair) — evidence
+  `scripts/evidence/g3_1/`. (The box was checked late — the closure
+  commit landed 2026-11-11 but this row was left `[ ]`; fixed in the
+  2026-11-16 board truth pass.)
 - [ ] **G3.2 — the block-join/entry-var layer** (~140 slot-var sites, the
   named next prerequisite). Same PASS shape as G3.1.
 - [ ] **G3.3 — primitive-specialized collection paths** (the measured
