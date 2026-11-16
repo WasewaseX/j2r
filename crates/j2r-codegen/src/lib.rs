@@ -318,6 +318,12 @@ pub struct MethodPlan {
     /// receiver-pin resolution of the G3.3 rewrite slices looks the
     /// receiver's slot up here.
     pub lvtt: Vec<j2r_classfile::LocalVarType>,
+    /// The raw opcodes of the method's array-access instructions, keyed
+    /// by pc (the `ir::decode` side-map): the helpful-NPE message layer
+    /// derives the array kind from the OPCODE — the JVM's law — and
+    /// iaload/baload/caload/saload share `ElemKind::IntGroup` in the IR,
+    /// so the opcode distinction rides alongside (standing run 4).
+    pub array_ops: std::collections::BTreeMap<u32, u8>,
     pub fn_name: String,
     pub instrs: Vec<(u32, ir::Instr)>,
     pub exception_table: Vec<(u32, u32, u32, Option<String>)>,
@@ -1104,6 +1110,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
                     modifiers: m.access,
                     signature: m.signature.clone(),
                     lvtt: Vec::new(),
+                    array_ops: std::collections::BTreeMap::new(),
                     fn_name: method_fn_name(&m.name, &m.descriptor),
                     instrs: Vec::new(),
                     exception_table: Vec::new(),
@@ -1120,7 +1127,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
             });
         }
         let code = m.code().map_err(cf_err)?;
-        let instrs =
+        let (instrs, array_ops) =
             ir::decode(&code.code, &c.cf.constant_pool).map_err(|e| CodegenError::Unsupported {
                 class: c.name.clone(),
                 method: format!("{}{}", m.name, m.descriptor),
@@ -1167,6 +1174,7 @@ fn plan_methods(prog: &Program, ci: usize) -> Result<MethodPlans> {
             modifiers: m.access,
             signature: m.signature.clone(),
             lvtt: code.lvtt.clone(),
+            array_ops,
             fn_name: method_fn_name(&m.name, &m.descriptor),
             instrs,
             exception_table: code
@@ -2075,6 +2083,7 @@ mod virtual_resolution_tests {
                 modifiers: 0x0001,
                 signature: None,
                 lvtt: Vec::new(),
+                array_ops: Default::default(),
                 fn_name: method_fn_name(n, d),
                 instrs: Vec::new(),
                 exception_table: Vec::new(),

@@ -1,0 +1,6 @@
+B1: msg=[Cannot read the array length because "<parameter1>" is null]
+B2: msg=[Cannot read the array length because "<parameter1>" is null]
+B3: msg=[Cannot invoke "String.concat(String)" because "<local1>" is null]
+B5: msg=[Cannot invoke "java.util.List.add(Object)" because "<local2>" is null]
+B6: msg=[Cannot invoke "String.length()" because "<local2>" is null]
+done

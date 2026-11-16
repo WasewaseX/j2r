@@ -2577,6 +2577,7 @@ mod tests {
             modifiers: 0,
             signature: None,
             lvtt: Vec::new(),
+            array_ops: Default::default(),
             fn_name: "t".into(),
             instrs: vec![
                 (0, Instr::Goto(9)),                         // forward

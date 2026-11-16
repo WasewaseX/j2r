@@ -1,0 +1,91 @@
+HELPFUL-NPE — the JEP 358 fix, slice (a): the invoke law sites (S1-S4+S8)
+=========================================================================
+Date: 2026-11-16 (standing run 4 of 5; HEAD at slice time: 59ce003).
+The registered residual (run 3's probe commit): Temurin 21.0.13+9 carries
+the JEP 358 helpful NullPointerException messages; j2r threw the bare NPE
+(message None) at every null-receiver law. The fix: the messages are
+COMPUTABLE AT EMIT TIME — the emitter builds the STATIC message string
+from the site's own facts and hands it to the new runtime law
+(pop_ref_msg); the message lands on the thrown object's detailMessage
+slot so getMessage() reads it exactly like Temurin's.
+
+THE GRAMMAR (OpenJDK interpreter/bytecodeUtils.cpp law, fetched and read
+this session; JDK-21 tag = master modulo the Valhalla null-restricted
+additions, which do not exist in 21.0.13 — the cause tail is ALWAYS
+`" is null"`):
+  print_klass_name: internal name, '/'->'.', with EXACTLY two classes
+    printed bare (the JVM's hardcoded law): java.lang.Object->Object,
+    java.lang.String->String. EMPIRICALLY CONFIRMED on Temurin 21.0.13:
+    {String, Object} bare; Integer/StringBuilder/Double/Boolean/Thread/
+    Class/ArrayList/HashMap/CharSequence/Comparable/Iterable/Own/[I all
+    dotted.
+  parameters: print_as_signature_external_parameters (arrays: element
+    form + "[]" per dimension; classes dotted; primitives as keywords)
+    joined ", ", then trim_well_known_class_names_from_signature (the
+    16-char prefix trimmer: java.lang.Object/java.lang.String at the
+    string start or after ", " — it trims the ARRAY form too:
+    java.lang.String[] -> String[]).
+  the ACTION: "Cannot invoke \"<klass>.<name>(<args>)\"" (invokes),
+    "Cannot read field \"f\"" (getfield), "Cannot assign field \"f\""
+    (putfield), "Cannot read the array length", the per-opcode array
+    kinds (int/byte-boolean/char/short/long/float/double/object),
+    "Cannot enter synchronized block" (monitorenter), "Cannot throw
+    exception" (athrow). (monitorexit exists in the JVM switch but is
+    unreachable from javac — not wired; registered residual.)
+  the CAUSE, exactly the probed forms: the producing invoke (any of the
+    four opcodes, through pass-through checkcasts) — "because the return
+    value of \"<name>\""; the producing local load of a NON-parameter
+    slot — "because \"<localN>\"" (the raw slot index, the LVT-absent
+    fallback; the harness compiles WITHOUT -g so <localN> IS the
+    oracle); the producing getstatic — "because \"<class>.<field>\"".
+    Every other producer kind keeps the bare NPE: field-read/array-chain
+    causes, the never-written-parameter branch (<parameterN>/this/LVT
+    names), the peephole-specialized map cores (the IR variant dropped
+    the producer facts), the typed-operand emitter's sites, monitorexit.
+
+ORACLE CAPTURES (this session, bootstrapped Temurin 21.0.13+9):
+  npe_shapes3_temurin.txt — A1-A15: the aload/astore kinds, putfield,
+    monitorenter, athrow, the array-param arg list (char[]), the 2-arg
+    producer (Map.put(Object, Object)), the getstatic producer
+    (NpeShapes3.iArr), <parameter1> (the never-written param), the
+    written-param slot (<local0>).
+  npe_shapes4_temurin.txt — B1-B6: the array-length on a never-written
+    param (<parameter1>), the String[][] param, the concat fault.
+  (The S1-S8 matrix itself is run 3's committed oracle:
+  ../default_dispatch/npe_shape2_temurin_2026-11-16.txt — re-proven
+  byte-identical this session before any code.)
+
+SLICE (a) — THE INVOKE LAW SITES (this slice):
+  runtime: stack.rs pop_ref_msg (pop_ref delegates with None — the bare
+    law unchanged); +3 runtime law tests (message lands on slot 0 / None
+    is the bare law / the success path is untouched).
+  codegen: emit.rs the message layer (npe_klass_name, npe_param_type/
+    npe_param_raw, npe_params, npe_method_name, npe_slot_is_param,
+    npe_cause, npe_message, npe_array_kind, npe_pop_ref_line) wired on
+    the InvokeVirtual/InvokeInterface/InvokeSpecial receiver pops;
+    ir.rs decode returns the array-op raw-opcode side-map
+    (DecodedMethod) — iaload/baload/caload/saload share
+    ElemKind::IntGroup so the opcode distinction rides alongside
+    (inert until slice b); MethodPlan.array_ops.
+  +7 codegen grammar law tests (the two bare names, the params law incl.
+    the array trim, the producer forms, the slot law incl. wide params
+    and the receiver, the S1 chain end-to-end, S2/S4, the conservative
+    boundary).
+  Slice-a found and fixed three of its own law-test bugs en route (the
+    (II[CI)V arity, the wide-param slot ranges) and ONE real
+    implementation bug (the array-element form's leading-L strip —
+    java.lang.String[] would have printed LJava.lang.String[]).
+
+GREEN (this session, same-session pairs):
+  NpeShapeProbe2 compiled with the slice-a emitter: S1/S2/S3/S4/S8
+    stdout BYTE-IDENTICAL vs the Temurin oracle; S5/S6/S7 still
+    msg=[null] (the slice-b boundary, exactly as registered); exit 0.
+  lib 527/0 (48+167+15+297; +10 law tests).
+  diff_suite 127 fixtures three-channel ZERO (377.28s + 377.41s
+    sharded 0/2 + 1/2).
+  cfg_equiv zero (469.72s).
+  fmt + clippy -D warnings clean FRESH; gate-11 in sync: fixtures=127
+    tests=586 (README 576->586).
+
+SLICE (b) NEXT: the array/field law sites (S5-S7 + the A-capture kinds),
+the fixture lands three-channel GREEN when the last shape lands.

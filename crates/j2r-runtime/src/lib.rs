@@ -53,7 +53,7 @@ use std::sync::Arc;
 pub use desc::{parse_field_desc, parse_method_desc, type_slots, unmarshal_args, TypeDesc};
 pub use heap::JRef;
 pub use object::{intern_string, object_class, JObj};
-pub use stack::{pop_double, pop_float, pop_int, pop_long, pop_n, pop_ref};
+pub use stack::{pop_double, pop_float, pop_int, pop_long, pop_n, pop_ref, pop_ref_msg};
 pub use subtype::is_subtype;
 
 /// The uniform value representation of the compiled world.

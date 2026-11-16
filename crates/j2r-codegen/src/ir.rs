@@ -414,13 +414,26 @@ impl<'a> Decoder<'a> {
     }
 }
 
-/// Decodes a method body into `(pc, instruction)` pairs, in code order.
-pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<Vec<(u32, Instr)>> {
+/// The `ir::decode` result: the `(pc, instruction)` body plus the raw
+/// opcodes of the array-access instructions (`0x2e..0x35`, `0x4f..0x56`)
+/// keyed by pc — the helpful-NPE message layer derives the array kind
+/// from the OPCODE (the JVM's law), and `iaload`/`baload`/`caload`/
+/// `saload` share `ElemKind::IntGroup`, so the distinction has to ride
+/// alongside (standing run 4; factored out for clippy type_complexity).
+pub type DecodedMethod = (Vec<(u32, Instr)>, std::collections::BTreeMap<u32, u8>);
+
+/// Decodes a method body into `(pc, instruction)` pairs, in code order,
+/// plus the array-op side-map (see [`DecodedMethod`]).
+pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<DecodedMethod> {
     let mut d = Decoder { code, pos: 0, cp };
     let mut out = Vec::new();
+    let mut array_ops = std::collections::BTreeMap::new();
     while d.pos < code.len() {
         let at = d.pos as u32;
         let op = d.u1()?;
+        if (0x2e..=0x35).contains(&op) || (0x4f..=0x56).contains(&op) {
+            array_ops.insert(at, op);
+        }
         let instr = match op {
             0x00 => Instr::Nop,
             0x01 => Instr::AConstNull,
@@ -667,7 +680,7 @@ pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<Vec<(u32, Instr)>>
         };
         out.push((at, instr));
     }
-    Ok(out)
+    Ok((out, array_ops))
 }
 
 fn branch_s2(d: &mut Decoder<'_>, at: u32) -> DecodeResult<u32> {
@@ -892,7 +905,7 @@ mod tests {
     fn decodes_simple_straight_line() {
         // iconst_1 iconst_3 iadd ireturn
         let code = [0x04, 0x06, 0x60, 0xac];
-        let instrs = decode(&code, &empty_pool()).unwrap();
+        let instrs = decode(&code, &empty_pool()).unwrap().0;
         assert_eq!(
             instrs,
             vec![
@@ -914,7 +927,7 @@ mod tests {
     fn decodes_branches_and_switches() {
         // goto +5; nop; nop; nop; return  (goto at 0 -> 5)
         let code = [0xa7, 0x00, 0x05, 0x00, 0x00, 0x00, 0xb1];
-        let instrs = decode(&code, &empty_pool()).unwrap();
+        let instrs = decode(&code, &empty_pool()).unwrap().0;
         assert_eq!(instrs[0], (0, Instr::Goto(5)));
         assert_eq!(instrs[1], (3, Instr::Nop));
         assert_eq!(instrs[4], (6, Instr::Return(TypeDesc::Void)));
@@ -930,7 +943,7 @@ mod tests {
         code.extend_from_slice(&4i32.to_be_bytes()); // case 1 -> 4
         code.extend_from_slice(&6i32.to_be_bytes()); // case 2 -> 6
         code.extend_from_slice(&[0xb1]);
-        let instrs = decode(&code, &empty_pool()).unwrap();
+        let instrs = decode(&code, &empty_pool()).unwrap().0;
         match &instrs[0].1 {
             Instr::TableSwitch {
                 default,

@@ -2101,6 +2101,7 @@ mod tests {
             modifiers: 0,
             signature: None,
             lvtt: Vec::new(),
+            array_ops: Default::default(),
             instrs,
             exception_table: vec![],
             max_locals: 2,

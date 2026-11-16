@@ -1315,6 +1315,7 @@ mod tests {
             modifiers: 0,
             signature: None,
             lvtt: Vec::new(),
+            array_ops: Default::default(),
             fn_name: "m_t".to_string(),
             instrs,
             exception_table: Vec::new(),

@@ -53,9 +53,23 @@ pub fn pop_double(s: &mut Vec<Value>) -> f64 {
 /// Pops a reference; `null` raises `NullPointerException` at the caller's
 /// faulting pc.
 pub fn pop_ref(s: &mut Vec<Value>) -> Result<JRef, Throw> {
+    pop_ref_msg(s, None)
+}
+
+/// The `pop_ref` law with the emitter-computed helpful-NPE message (the
+/// JEP 358 residual, standing run 4): `msg` is the STATIC message string
+/// the codegen built from the faulting site's own facts (the receiver's
+/// static class, the (name, desc), the producing instruction or the local
+/// slot — the OpenJDK `bytecodeUtils.cpp` grammar, oracle-pinned by
+/// NpeShapeProbe2 and the extended captures in scripts/evidence/helpful_npe/).
+/// The message lands on the thrown object's `detailMessage` slot, so
+/// `getMessage()` reads it exactly like Temurin's. `msg = None` is the
+/// bare NPE (the pre-existing law) — sites without a computable message
+/// keep emitting plain `pop_ref`, so their generated code is unchanged.
+pub fn pop_ref_msg(s: &mut Vec<Value>, msg: Option<&str>) -> Result<JRef, Throw> {
     match stack_pop(s) {
         Value::Ref(Some(r)) => Ok(r),
-        _ => Err(crate::throw_new("java/lang/NullPointerException", None)),
+        _ => Err(crate::throw_new("java/lang/NullPointerException", msg)),
     }
 }
 
@@ -313,5 +327,59 @@ mod tests {
         let mut s = vec![i(1), i(2), i(3)];
         assert_eq!(pop_n(&mut s, 2), vec![i(2), i(3)]);
         assert_eq!(s, vec![i(1)]);
+    }
+
+    // ------------------------------------------------ helpful-NPE laws
+    // (JEP 358 residual, standing run 4): `pop_ref_msg` lands the
+    // emitter-computed message on the thrown object's `detailMessage`
+    // slot (slot 0) so `Throwable.getMessage()` reads it — Temurin's
+    // oracle behavior, probed by NpeShapeProbe2 and the extended
+    // captures in scripts/evidence/helpful_npe/.
+
+    #[test]
+    fn pop_ref_msg_carries_the_message_on_null() {
+        let _rt = crate::test_support::runtime();
+        let mut s = vec![Value::Ref(None)];
+        let t = pop_ref_msg(
+            &mut s,
+            Some("Cannot invoke \"String.length()\" because \"<local1>\" is null"),
+        )
+        .expect_err("null receiver must throw");
+        let msg = crate::heap::with_obj(t.obj, |o| o.slots[0].clone());
+        let Value::Ref(Some(r)) = msg else {
+            panic!("detailMessage slot must hold the string");
+        };
+        assert_eq!(
+            crate::object::string_value(&r).as_str(),
+            "Cannot invoke \"String.length()\" because \"<local1>\" is null"
+        );
+    }
+
+    #[test]
+    fn pop_ref_msg_none_is_the_bare_npe_law() {
+        let _rt = crate::test_support::runtime();
+        // None == the pre-existing pop_ref law: the slot holds a null
+        // ref and getMessage() reads it back as null.
+        let mut s = vec![Value::Ref(None)];
+        let t = pop_ref_msg(&mut s, None).expect_err("null receiver must throw");
+        let msg = crate::heap::with_obj(t.obj, |o| o.slots[0].clone());
+        assert_eq!(msg, Value::Ref(None));
+        // pop_ref delegates: the same law.
+        let mut s = vec![Value::Ref(None)];
+        let t2 = pop_ref(&mut s).expect_err("null receiver must throw");
+        let msg2 = crate::heap::with_obj(t2.obj, |o| o.slots[0].clone());
+        assert_eq!(msg2, Value::Ref(None));
+    }
+
+    #[test]
+    fn pop_ref_msg_success_law_unchanged() {
+        let _rt = crate::test_support::runtime();
+        // A non-null receiver pops identically with and without a
+        // message — the message never touches the success path.
+        let obj = crate::object::new_string("s");
+        let mut s = vec![Value::Ref(Some(obj))];
+        let r = pop_ref_msg(&mut s, Some("unused")).expect("non-null pops");
+        assert_eq!(crate::object::string_value(&r).as_str(), "s");
+        assert!(s.is_empty());
     }
 }

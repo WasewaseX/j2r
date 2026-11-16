@@ -1514,6 +1514,247 @@ fn emit_block(
     lines
 }
 
+// ------------------------------------------------------- helpful NPE messages
+//
+// JEP 358 (the registered HELPFUL-NPE residual, standing run 4): Temurin
+// 21.0.13 computes a null-detail message at every null-dereference fault
+// by decompiling the faulting method's bytecode (OpenJDK
+// `interpreter/bytecodeUtils.cpp`). j2r's emitter knows the same facts at
+// emit time — the receiver's static class, the (name, desc), the
+// producing instruction, the local slot — so the message is a STATIC
+// string the emitter builds and hands to the runtime law (`pop_ref_msg`).
+//
+// The grammar below is the OpenJDK law, oracle-pinned by NpeShapeProbe2
+// (the S1-S8 fixture matrix) and the extended captures
+// scripts/evidence/helpful_npe/ (aload/astore kinds, putfield, monitor,
+// athrow, the <parameterN> branch, the getstatic producer, the 2-arg
+// producer list):
+//   * `print_klass_name`: the internal name with `/` -> `.`, with exactly
+//     java.lang.Object and java.lang.String printed bare (the JVM's
+//     hardcoded two-name law);
+//   * the parameter list: arrays print the element form then `[]` per
+//     dimension, classes print the dotted name, primitives print the
+//     keyword, joined with ", " — then the JVM's two-name trimmer
+//     (java.lang.Object/java.lang.String at the start of the list);
+//   * the ACTION: `Cannot invoke "<klass>.<name>(<args>)"` for the
+//     invokes, `Cannot read field "f"` (getfield), `Cannot assign field
+//     "f"` (putfield), `Cannot read the array length`, the per-opcode
+//     array kinds (`int` / `byte/boolean` / `char` / `short` / `long` /
+//     `float` / `double` / `object`), `Cannot enter synchronized block`,
+//     `Cannot throw exception`;
+//   * the CAUSE, exactly the probed forms: the producing invoke —
+//     `because the return value of "<name>"` — the producing local load
+//     of a NON-parameter slot — `because "<localN>"` (the raw slot
+//     index, the LVT-absent fallback; j2r's harness compiles without -g,
+//     so `<localN>` IS the oracle) — and the producing getstatic —
+//     `because "<class>.<field>"`. The walk-back skips pass-through
+//     `checkcast`s (the S1 unbox shape: javac's cast between the get and
+//     the unbox call is transparent to the JVM's analysis).
+//
+// Everything else keeps the bare NPE (msg=None) — the registered
+// residual, unprobed ground: field-read/array-element CAUSE chains, the
+// never-written-parameter branch (<parameterN>/this/LVT names), the
+// peephole-specialized map cores (the IR variant dropped the producer
+// facts), and the typed-operand emitter's sites.
+
+/// The JVM's `print_klass_name`: internal name with `/` -> `.`, exactly
+/// two classes bare.
+fn npe_klass_name(class: &str) -> String {
+    let dotted = class.replace('/', ".");
+    match dotted.as_str() {
+        "java.lang.Object" => "Object".to_string(),
+        "java.lang.String" => "String".to_string(),
+        _ => dotted,
+    }
+}
+
+/// One parameter's external form (the OpenJDK `Symbol` printer law):
+/// `N` leading `[`s print `[]` N times after the element (a dotted class
+/// or a primitive keyword), then the JVM's two-name trimmer (per
+/// parameter the exact-prefix form is equivalent for real classfiles).
+fn npe_param_type(t: &j2r_runtime::TypeDesc) -> String {
+    match t {
+        j2r_runtime::TypeDesc::Object(name) => npe_klass_name(name),
+        // `inner` is the full array descriptor (`[C`, `[Ljava/lang/String;`)
+        j2r_runtime::TypeDesc::Array(inner) => npe_param_raw(inner),
+        j2r_runtime::TypeDesc::Boolean => "boolean".to_string(),
+        j2r_runtime::TypeDesc::Byte => "byte".to_string(),
+        j2r_runtime::TypeDesc::Short => "short".to_string(),
+        j2r_runtime::TypeDesc::Char => "char".to_string(),
+        j2r_runtime::TypeDesc::Int => "int".to_string(),
+        j2r_runtime::TypeDesc::Long => "long".to_string(),
+        j2r_runtime::TypeDesc::Float => "float".to_string(),
+        j2r_runtime::TypeDesc::Double => "double".to_string(),
+        j2r_runtime::TypeDesc::Void => "void".to_string(),
+    }
+}
+
+/// The array-parameter form: the element (dotted class or primitive
+/// keyword) then `[]` per dimension, then the two-name trimmer.
+fn npe_param_raw(desc: &str) -> String {
+    let dims = desc.bytes().take_while(|&b| b == b'[').count();
+    let elem = &desc[dims..];
+    let mut out = match elem.as_bytes().first() {
+        Some(b'L') => npe_klass_name(
+            elem.strip_suffix(';')
+                .and_then(|s| s.strip_prefix('L'))
+                .unwrap_or(elem),
+        ),
+        Some(b'Z') => "boolean".to_string(),
+        Some(b'B') => "byte".to_string(),
+        Some(b'S') => "short".to_string(),
+        Some(b'C') => "char".to_string(),
+        Some(b'I') => "int".to_string(),
+        Some(b'J') => "long".to_string(),
+        Some(b'F') => "float".to_string(),
+        Some(b'D') => "double".to_string(),
+        _ => elem.to_string(),
+    };
+    for _ in 0..dims {
+        out.push_str("[]");
+    }
+    if let Some(rest) = out.strip_prefix("java.lang.Object") {
+        return format!("Object{rest}");
+    }
+    if let Some(rest) = out.strip_prefix("java.lang.String") {
+        return format!("String{rest}");
+    }
+    out
+}
+
+/// The `(...)` argument list of a method descriptor.
+fn npe_params(desc: &str) -> String {
+    let (params, _) = j2r_runtime::parse_method_desc(desc).expect("valid descriptor");
+    params
+        .iter()
+        .map(npe_param_type)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The JVM's `print_method_name`: `<klass>.<name>(<params>)`.
+fn npe_method_name(class: &str, name: &str, desc: &str) -> String {
+    format!("{}.{}({})", npe_klass_name(class), name, npe_params(desc))
+}
+
+/// Is `slot` one of the method's incoming-parameter slots (slot 0 is the
+/// receiver for instance methods)? The JVM's law prints `<parameterN>` /
+/// `this` / the LVT name for a never-written parameter slot — forms j2r
+/// keeps unprobed (bare NPE); a written non-parameter slot is the probed
+/// `<localN>` form.
+fn npe_slot_is_param(m: &MethodPlan, slot: u16) -> bool {
+    // The instance receiver slot is the JVM's `this` branch (never null
+    // in javac bytecode) — unprobed ground, treated like a parameter.
+    if !m.is_static && slot == 0 {
+        return true;
+    }
+    let (params, _) = j2r_runtime::parse_method_desc(&m.desc).expect("valid descriptor");
+    let mut cur = if m.is_static { 0usize } else { 1usize };
+    for p in &params {
+        let size = j2r_runtime::type_slots(p);
+        if (slot as usize) >= cur && (slot as usize) < cur + size {
+            return true;
+        }
+        cur += size;
+    }
+    false
+}
+
+/// The CAUSE look-back: the instruction that produced the null receiver,
+/// skipping pass-through `checkcast`s. Returns the `because ...` clause
+/// (without the trailing `is null`), or None when the producer kind is
+/// outside the probed matrix (bare NPE).
+fn npe_cause(m: &MethodPlan, pc: u32) -> Option<String> {
+    let idx = m.instrs.iter().position(|(p, _)| *p == pc)?;
+    let mut i = idx;
+    while i > 0 {
+        i -= 1;
+        match &m.instrs[i].1 {
+            Instr::CheckCast { .. } => continue,
+            Instr::Load(slot) => {
+                if npe_slot_is_param(m, *slot) {
+                    return None;
+                }
+                return Some(format!("because \"<local{slot}>\""));
+            }
+            Instr::GetStatic { class, field, .. } => {
+                return Some(format!("because \"{}.{}\"", npe_klass_name(class), field));
+            }
+            Instr::InvokeVirtual { class, name, desc }
+            | Instr::InvokeSpecial { class, name, desc }
+            | Instr::InvokeStatic { class, name, desc }
+            | Instr::InvokeInterface { class, name, desc } => {
+                return Some(format!(
+                    "because the return value of \"{}\"",
+                    npe_method_name(class, name, desc)
+                ));
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// The full null-detail message for a null-check site (the ACTION plus
+/// the CAUSE), or None to keep the bare NPE. Both halves must be
+/// computable — the JVM never emits the action alone in probed ground.
+fn npe_message(m: &MethodPlan, pc: u32, instr: &Instr) -> Option<String> {
+    let action = match instr {
+        Instr::InvokeVirtual { class, name, desc }
+        | Instr::InvokeSpecial { class, name, desc }
+        | Instr::InvokeInterface { class, name, desc } => {
+            format!("Cannot invoke \"{}\"", npe_method_name(class, name, desc))
+        }
+        Instr::GetField { field, .. } => format!("Cannot read field \"{field}\""),
+        Instr::PutField { field, .. } => format!("Cannot assign field \"{field}\""),
+        Instr::ArrayLength => "Cannot read the array length".to_string(),
+        Instr::ALoad(kind) => format!("Cannot load from {} array", npe_array_kind(m, pc, kind)?),
+        Instr::AStore(kind) => format!("Cannot store to {} array", npe_array_kind(m, pc, kind)?),
+        Instr::MonitorEnter => "Cannot enter synchronized block".to_string(),
+        Instr::AThrow => "Cannot throw exception".to_string(),
+        _ => return None,
+    };
+    let cause = npe_cause(m, pc)?;
+    Some(format!("{action} {cause} is null"))
+}
+
+/// The JVM's per-opcode array kind (the message is driven by the opcode,
+/// not the array's runtime type). iaload/baload/caload/saload (and the
+/// matching stores) share `ElemKind::IntGroup` — the decoder records the
+/// raw opcodes for the message layer.
+fn npe_array_kind(m: &MethodPlan, pc: u32, kind: &crate::ir::ElemKind) -> Option<&'static str> {
+    match kind {
+        crate::ir::ElemKind::Long => Some("long"),
+        crate::ir::ElemKind::Float => Some("float"),
+        crate::ir::ElemKind::Double => Some("double"),
+        crate::ir::ElemKind::Ref | crate::ir::ElemKind::Nest(_) => Some("object"),
+        crate::ir::ElemKind::IntGroup => {
+            let op = *m.array_ops.get(&pc)?;
+            Some(match op {
+                0x2e | 0x4f => "int",
+                0x33 | 0x54 => "byte/boolean",
+                0x34 | 0x55 => "char",
+                0x35 | 0x56 => "short",
+                _ => return None,
+            })
+        }
+    }
+}
+
+/// The emitted `pop_ref` law line for a null-check site: with the
+/// computed message when one is available, the plain law (unchanged
+/// generated code) otherwise.
+fn npe_pop_ref_line(m: &MethodPlan, pc: u32, instr: &Instr, fault: &str) -> String {
+    match npe_message(m, pc, instr) {
+        Some(msg) => format!(
+            "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref_msg(&mut stack, ::core::option::Option::Some({msg:?})));"
+        ),
+        None => format!(
+            "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
+        ),
+    }
+}
+
 // ---------------------------------------------------------------- instructions
 
 fn emit_instr(
@@ -1795,9 +2036,10 @@ fn emit_instr(
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
-            out.push(format!(
-                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
-            ));
+            // JEP 358: the receiver's null law carries the site's static
+            // message when both halves are computable (slice a — the
+            // invoke law sites, oracle NpeShapeProbe2 S1-S4+S8).
+            out.push(npe_pop_ref_line(m, pc, instr, &fault));
             // R5 slice 1: when the closed-world resolution proves every
             // possible runtime receiver walks to ONE target, place that
             // target directly — the InvokeSpecial forms with the receiver.
@@ -1896,9 +2138,8 @@ fn emit_instr(
             out.push("__frame.refresh(&locals, &stack, &thrown);".into());
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
-            out.push(format!(
-                "let __r = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::pop_ref(&mut stack));"
-            ));
+            // JEP 358: the same law on the invokespecial receiver.
+            out.push(npe_pop_ref_line(m, pc, instr, &fault));
             match crate::resolve_call_pub(prog, class, name, desc).expect("validated call") {
                 CallTarget::User { module, fn_name } => {
                     out.push(format!(
@@ -2478,4 +2719,297 @@ fn emit_convert(conv: Conv, out: &mut Vec<String>) {
     out.push(format!(
         "let __a = {from_pop}(&mut stack); stack.push({RT}::Value::{ctor}(__a{cast}));"
     ));
+}
+
+// ------------------------------------------------------- helpful-NPE tests
+//
+// The grammar laws, oracle-pinned by NpeShapeProbe2 (the S1-S8 fixture
+// matrix) and the extended captures in scripts/evidence/helpful_npe/
+// (standing run 4). The end-to-end differential proof is the fixture;
+// these pins hold the EMIT-TIME computation to the captured forms.
+
+#[cfg(test)]
+mod npe_message_tests {
+    use super::*;
+    use crate::ir::Instr;
+
+    fn plan(is_static: bool, desc: &str, instrs: Vec<(u32, Instr)>) -> MethodPlan {
+        MethodPlan {
+            name: "t".into(),
+            desc: desc.into(),
+            is_static,
+            is_native: false,
+            is_sync: false,
+            modifiers: 0x0009,
+            signature: None,
+            lvtt: Vec::new(),
+            array_ops: Default::default(),
+            fn_name: "t".into(),
+            instrs,
+            exception_table: Vec::new(),
+            max_locals: 5,
+            max_stack: 3,
+        }
+    }
+
+    // print_klass_name: the two bare names and the dotted law.
+    #[test]
+    fn klass_name_two_bare_names_and_dotted_law() {
+        assert_eq!(npe_klass_name("java/lang/Double"), "java.lang.Double");
+        assert_eq!(npe_klass_name("java/lang/String"), "String");
+        assert_eq!(npe_klass_name("java/lang/Object"), "Object");
+        assert_eq!(npe_klass_name("java/util/Map"), "java.util.Map");
+        assert_eq!(npe_klass_name("NpeShapeProbe2"), "NpeShapeProbe2");
+        assert_eq!(npe_klass_name("[I"), "[I");
+        // the bare law is EXACT — no prefix-family drift
+        assert_eq!(
+            npe_klass_name("java/lang/StringBuilder"),
+            "java.lang.StringBuilder"
+        );
+    }
+
+    // The parameter list law: keywords, dotted names, arrays, the trimmer.
+    #[test]
+    fn params_keywords_arrays_and_the_two_name_trimmer() {
+        assert_eq!(npe_params("()V"), "");
+        assert_eq!(
+            npe_params("(Ljava/lang/Object;)Ljava/lang/Object;"),
+            "Object"
+        );
+        assert_eq!(npe_params("(I)V"), "int");
+        assert_eq!(npe_params("(II)V"), "int, int");
+        assert_eq!(npe_params("(Ljava/lang/String;)V"), "String");
+        assert_eq!(
+            npe_params("(Ljava/lang/CharSequence;)V"),
+            "java.lang.CharSequence"
+        );
+        // A10's oracle: `String.getChars(int, int, char[], int)`
+        assert_eq!(npe_params("(II[CI)V"), "int, int, char[], int");
+        // the JVM's 16-char prefix trimmer trims the array form too
+        assert_eq!(npe_params("([Ljava/lang/String;)V"), "String[]");
+        // the trimmer covers the array form too
+        assert_eq!(npe_params("([Ljava/lang/Object;)V"), "Object[]");
+        // the 2-arg producer list (A11)
+        assert_eq!(
+            npe_params("(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"),
+            "Object, Object"
+        );
+    }
+
+    // print_method_name: the producer-chain forms from the oracle.
+    #[test]
+    fn method_name_forms_match_the_oracle() {
+        assert_eq!(
+            npe_method_name(
+                "java/util/Map",
+                "get",
+                "(Ljava/lang/Object;)Ljava/lang/Object;"
+            ),
+            "java.util.Map.get(Object)"
+        );
+        assert_eq!(
+            npe_method_name("NpeShapeProbe2", "getS2", "()Ljava/lang/String;"),
+            "NpeShapeProbe2.getS2()"
+        );
+        assert_eq!(
+            npe_method_name(
+                "java/lang/String",
+                "compareToIgnoreCase",
+                "(Ljava/lang/String;)I"
+            ),
+            "String.compareToIgnoreCase(String)"
+        );
+        assert_eq!(
+            npe_method_name(
+                "java/lang/StringBuilder",
+                "insert",
+                "(ILjava/lang/CharSequence;II)Ljava/lang/StringBuilder;"
+            ),
+            "java.lang.StringBuilder.insert(int, java.lang.CharSequence, int, int)"
+        );
+    }
+
+    // The slot law: main's args occupy slot 0 only; a static no-arg
+    // method has no parameter slots; an instance method's slot 0 is the
+    // receiver (`this` — unprobed ground, treated like a parameter).
+    #[test]
+    fn slot_law_params_receiver_and_written_locals() {
+        let m = plan(true, "([Ljava/lang/String;)V", vec![]);
+        assert!(npe_slot_is_param(&m, 0));
+        assert!(!npe_slot_is_param(&m, 1));
+        assert!(!npe_slot_is_param(&m, 2));
+        let no_args = plan(true, "()V", vec![]);
+        assert!(!npe_slot_is_param(&no_args, 0));
+        // wide params occupy two slots
+        let wide = plan(true, "(JD)V", vec![]);
+        assert!(npe_slot_is_param(&wide, 0));
+        assert!(npe_slot_is_param(&wide, 1));
+        assert!(npe_slot_is_param(&wide, 2));
+        assert!(npe_slot_is_param(&wide, 3));
+        assert!(!npe_slot_is_param(&wide, 4));
+        // the instance receiver slot
+        let ctor = plan(false, "()V", vec![]);
+        assert!(npe_slot_is_param(&ctor, 0));
+    }
+
+    // The S1 unbox chain: get (interface) -> checkcast -> unbox; the
+    // checkcast is a pass-through and the producer names the get with
+    // the ERASED argument list.
+    #[test]
+    fn s1_unbox_chain_through_checkcast() {
+        let m = plan(
+            true,
+            "([Ljava/lang/String;)V",
+            vec![
+                (0, Instr::Ldc(Ldc::String("missing".into()))),
+                (8, Instr::Load(1)),
+                (9, Instr::Ldc(Ldc::String("missing".into()))),
+                (
+                    11,
+                    Instr::InvokeInterface {
+                        class: "java/util/Map".into(),
+                        name: "get".into(),
+                        desc: "(Ljava/lang/Object;)Ljava/lang/Object;".into(),
+                    },
+                ),
+                (
+                    16,
+                    Instr::CheckCast {
+                        class: "java/lang/Double".into(),
+                    },
+                ),
+                (
+                    19,
+                    Instr::InvokeVirtual {
+                        class: "java/lang/Double".into(),
+                        name: "doubleValue".into(),
+                        desc: "()D".into(),
+                    },
+                ),
+            ],
+        );
+        let msg = npe_message(&m, 19, &m.instrs[5].1).expect("S1 is computable");
+        assert_eq!(
+            msg,
+            "Cannot invoke \"java.lang.Double.doubleValue()\" because the return value of \"java.util.Map.get(Object)\" is null"
+        );
+    }
+
+    // The S2 null-local law: the producing Load names the SLOT (the
+    // LVT-absent fallback); S4 names the producing static call.
+    #[test]
+    fn s2_local_and_s4_producer_forms() {
+        let s2 = plan(
+            true,
+            "([Ljava/lang/String;)V",
+            vec![
+                (54, Instr::AConstNull),
+                (55, Instr::Store(1)),
+                (56, Instr::Load(1)),
+                (
+                    57,
+                    Instr::InvokeVirtual {
+                        class: "java/lang/Double".into(),
+                        name: "doubleValue".into(),
+                        desc: "()D".into(),
+                    },
+                ),
+            ],
+        );
+        assert_eq!(
+            npe_message(&s2, 57, &s2.instrs[3].1).expect("S2 is computable"),
+            "Cannot invoke \"java.lang.Double.doubleValue()\" because \"<local1>\" is null"
+        );
+        let s4 = plan(
+            true,
+            "([Ljava/lang/String;)V",
+            vec![
+                (
+                    130,
+                    Instr::InvokeStatic {
+                        class: "NpeShapeProbe2".into(),
+                        name: "getS2".into(),
+                        desc: "()Ljava/lang/String;".into(),
+                    },
+                ),
+                (
+                    133,
+                    Instr::InvokeVirtual {
+                        class: "java/lang/String".into(),
+                        name: "length".into(),
+                        desc: "()I".into(),
+                    },
+                ),
+            ],
+        );
+        assert_eq!(
+            npe_message(&s4, 133, &s4.instrs[1].1).expect("S4 is computable"),
+            "Cannot invoke \"String.length()\" because the return value of \"NpeShapeProbe2.getS2()\" is null"
+        );
+    }
+
+    // The conservative boundary: a never-written parameter slot (the
+    // JVM's <parameterN>/this branch), a field-read producer (the chain
+    // cause), a dup-shaped producer and the specialized map cores all
+    // keep the bare NPE.
+    #[test]
+    fn unprobed_producers_keep_the_bare_npe() {
+        let param = plan(
+            true,
+            "(Ljava/lang/String;)V",
+            vec![
+                (0, Instr::Load(0)),
+                (
+                    1,
+                    Instr::InvokeVirtual {
+                        class: "java/lang/String".into(),
+                        name: "length".into(),
+                        desc: "()I".into(),
+                    },
+                ),
+            ],
+        );
+        assert!(npe_message(&param, 1, &param.instrs[1].1).is_none());
+        let field_chain = plan(
+            true,
+            "([Ljava/lang/String;)V",
+            vec![
+                (0, Instr::Load(1)),
+                (
+                    1,
+                    Instr::GetField {
+                        class: "NpeShapeProbe2".into(),
+                        field: "ifield".into(),
+                        desc: "Ljava/lang/Double;".into(),
+                    },
+                ),
+                (
+                    4,
+                    Instr::InvokeVirtual {
+                        class: "java/lang/Double".into(),
+                        name: "doubleValue".into(),
+                        desc: "()D".into(),
+                    },
+                ),
+            ],
+        );
+        assert!(npe_message(&field_chain, 4, &field_chain.instrs[2].1).is_none());
+        let dup = plan(
+            true,
+            "()V",
+            vec![
+                (0, Instr::AConstNull),
+                (1, Instr::Dup),
+                (
+                    2,
+                    Instr::InvokeVirtual {
+                        class: "java/lang/Double".into(),
+                        name: "doubleValue".into(),
+                        desc: "()D".into(),
+                    },
+                ),
+            ],
+        );
+        assert!(npe_message(&dup, 2, &dup.instrs[2].1).is_none());
+    }
 }

@@ -4017,3 +4017,63 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
   f942ebb and the tree is unchanged since.
 - Evidence: scripts/evidence/default_dispatch/{NpeShapeProbe2.java,
   npe_shape2_temurin_2026-11-16.txt, NPE_SHAPE2_2026-11-16.txt}.
+
+## 2026-11-16 — standing run 4 of 5 (slice a): **THE HELPFUL-NPE INVOKE LAW SITES LANDED — S1/S2/S3/S4/S8 byte-identical vs Temurin, pop_ref_msg the new runtime law**
+
+- Reset recovery first (fresh sandbox, no toolchain): fetch + ff-only
+  b4badea → 59ce003 (the boards at 59ce003 name the queue: the
+  HELPFUL-NPE fix is the head — run 3's probe landed the oracle matrix
+  and the registered fix design); toolchain re-bootstrapped byte-exact
+  (rustc 1.99.1 (58cf8f9c3) via the repo script + the rust199 symlink
+  re-wired, Temurin 21.0.13+9); baseline re-proven BEFORE any code:
+  release workspace build + lib battery **517/0** (48+160+15+294) and
+  the run-3 oracle re-proven byte-identical on the fresh JVM.
+- THE RESEARCH (before any code): the OpenJDK message grammar fetched
+  and read at the source (interpreter/bytecodeUtils.cpp, jdk-21 tag —
+  JDK-8218628's ExceptionMessageBuilder): print_klass_name's EXACTLY
+  two bare names (java.lang.Object/java.lang.String — empirically
+  re-pinned on Temurin with a 20-class battery: {String, Object} bare,
+  everything else dotted incl. interfaces and arrays), the parameter
+  printer + the 16-char two-name trimmer (it trims the ARRAY form:
+  java.lang.String[] → String[]), the JDK-21 cause tail is ALWAYS
+  `" is null"` (the aastore/null-restricted variants are master-only),
+  print_local_var's four naming branches, the max-5-step walk-back.
+  EXTENDED ORACLE CAPTURES this session
+  (scripts/evidence/helpful_npe/): NpeShapes3 (A1-A15: the aload/astore
+  kinds, putfield "Cannot assign field", monitorenter, athrow "Cannot
+  throw exception", the array-arg list "int, int, char[], int", the
+  2-arg producer "Map.put(Object, Object)", the getstatic producer
+  "NpeShapes3.iArr", the <parameter1> never-written-param branch, the
+  written-param slot law <local0>) and NpeShapes4 (B1-B6).
+- SLICE (a) — THE INVOKE LAW SITES LANDED (the registered head):
+  runtime pop_ref_msg (pop_ref delegates with None — the bare law
+  unchanged; the message lands on detailMessage slot 0 so getMessage()
+  reads it) +3 runtime law tests; emit.rs the STATIC message layer
+  (npe_klass_name/npe_param_type/npe_params/npe_method_name/
+  npe_slot_is_param/npe_cause/npe_message/npe_array_kind/
+  npe_pop_ref_line) wired on the InvokeVirtual/InvokeInterface/
+  InvokeSpecial receiver pops +7 codegen grammar law tests; ir.rs
+  decode returns the array-op raw-opcode side-map (DecodedMethod —
+  iaload/baload/caload/saload share ElemKind::IntGroup so the opcode
+  distinction rides alongside; inert until slice b) +
+  MethodPlan.array_ops. CONSERVATIVE BOUNDARY (the registered
+  residual): field-read/array-chain causes, the <parameterN>/this/LVT
+  branches, the specialized map cores, the typed emitter, monitorexit —
+  all keep the bare NPE. The S1 unbox chain walks the pass-through
+  checkcast and names the get with the erased arg list; the
+  instance-receiver slot 0 is unprobed ground (treated like a
+  parameter). THREE law-test bugs fixed en route (the (II[CI)V arity,
+  the wide-param ranges) and ONE real implementation bug (the array
+  element's leading-L strip — caught by the grammar tests BEFORE any
+  fixture ran).
+- GREEN all this session: NpeShapeProbe2 compiled with the slice-a
+  emitter — S1/S2/S3/S4/S8 stdout BYTE-IDENTICAL vs the Temurin oracle,
+  S5/S6/S7 still msg=[null] (the slice-b boundary, exactly as
+  registered), exit 0; battery: lib 527/0 (48+167+15+297; +10 law
+  tests), diff_suite 127 fixtures three-channel ZERO (377.28s +
+  377.41s sharded 0/2 + 1/2), cfg_equiv zero (469.72s); fmt + clippy
+  -D warnings clean FRESH; gate-11 in sync: fixtures=127 tests=586
+  (README 576→586).
+- Evidence: scripts/evidence/helpful_npe/{HELPFUL_NPE_2026-11-16.txt,
+  NpeShapes3.java, npe_shapes3_temurin.txt, NpeShapes4.java,
+  npe_shapes4_temurin.txt}.
