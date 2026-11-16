@@ -76,10 +76,19 @@ causes, the specialized map cores, the typed emitter, monitorexit),
 0.9907, byte-identical vs the same-session ref; with run 3's 0.9767
 the formal ≥2-session SSB clause HOLDS, the G3.4 checklist box
 CLOSED; evidence scripts/evidence/g3_4_pairs/PAIRS_run5_2026-11-16.txt),
-3) HEAD OF QUEUE — different-package private-ctor, the HashMap
-copy-ctor gap (both PROBE FIRST), 4) the G3.2 CFG layer
-(block-join/entry-var), mappings/Mixins; the M4 review belongs to
-the owner. (The 5-run cycle is COMPLETE: runs 1-5 all recorded.)
+3) different-package private-ctor — LANDED (run 5: the NestHost
+attribute parse end-to-end, the emit-time caller tag on
+Constructor.newInstance, the runtime JEP 181 law + Temurin's exact
+refusal messages; the 8-shape pA/pB probe corpus byte-identical
+three-channel, PrivateCtorAccess the 129th fixture, lib 534/0,
+diff_suite 129 zero, cfg_equiv zero; evidence
+scripts/evidence/private_ctor/; registered follow-ons: Method.invoke
+carries the SAME caller law — its arm is untouched, setAccessible
+has no surface, the field/method protected instance-context nuance),
+4) HEAD OF QUEUE — the HashMap copy-ctor gap (PROBE FIRST), then the
+G3.2 CFG layer (block-join/entry-var), mappings/Mixins; the M4
+review belongs to the owner. (The 5-run cycle is COMPLETE: runs 1-5
+all recorded.)
 (Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
 fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
 oracle at scripts/evidence/char_array_rep/) pinned the [C representation

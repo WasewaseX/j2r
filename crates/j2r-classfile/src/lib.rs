@@ -484,6 +484,14 @@ pub struct ClassFile {
     /// (type parameters, superclass and superinterface type arguments),
     /// unparsed. `None` for non-generic classes.
     pub signature: Option<String>,
+    /// `NestHost` attribute (JVMS §4.7.28): the host class named by the
+    /// attribute, `None` when absent (a top-level class IS its own nest
+    /// host). JDK 11+ private-member access is NEST-based, not
+    /// package-based (JEP 181) — the different-package private-ctor
+    /// IllegalAccessException law resolves both sides' hosts and
+    /// compares (areNestMates), so this attribute is the authoritative
+    /// fact the check keys on.
+    pub nest_host: Option<String>,
 }
 
 impl ClassFile {
@@ -559,6 +567,7 @@ impl ClassFile {
         let mut bootstrap_methods = Vec::new();
         let mut inner_name: Option<String> = None;
         let mut signature: Option<String> = None;
+        let mut nest_host: Option<String> = None;
         let attr_count = r.u2()?;
         for _ in 0..attr_count {
             let name_idx = r.u2()?;
@@ -583,6 +592,17 @@ impl ClassFile {
                     let idx = r.u2()?;
                     signature = Some(constant_pool.utf8(idx)?.to_string());
                 }
+                "NestHost" => {
+                    // JVMS §4.7.28: exactly one u2, the host_class_index.
+                    if len != 2 {
+                        return Err(Error::new(
+                            r.pos,
+                            format!("NestHost.attribute_length must be 2, got {len}"),
+                        ));
+                    }
+                    let idx = r.u2()?;
+                    nest_host = Some(constant_pool.class_name(idx)?.to_string());
+                }
                 _ => {
                     r.skip(len as usize)?;
                 }
@@ -602,6 +622,7 @@ impl ClassFile {
             bootstrap_methods,
             inner_name,
             signature,
+            nest_host,
         })
     }
 }

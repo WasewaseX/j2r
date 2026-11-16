@@ -4237,3 +4237,61 @@ ff-merge pulled both commits. See console_summary.md session-18 block.)
 - Tree clean at origin/main (the pair evidence + boards commit); the
   run counter file advances 5→6 (any future window reads >5 and
   terminates the cycle).
+
+## 2026-11-16 — standing run 5 of 5 (cont.): **THE DIFFERENT-PACKAGE PRIVATE-CTOR RESIDUAL CLOSED — the reflection CALLER LAW landed (the emit-time caller tag + the NestHost attribute + the JEP 181 nest compare), the 8-shape probe corpus byte-identical vs Temurin**
+
+- The registered residual (2026-11-14, NEW-INSTANCE slice): j2r's
+  `Constructor.newInstance` ALWAYS invoked — Temurin refuses a
+  different-package private ctor with IllegalAccessException. The
+  2026-11-14 note called it unmodelable without a caller concept; the
+  closed-world answer: the caller IS the emit-time class of the call
+  site — known statically, no runtime caller stack needed.
+- PROBE FIRST (scripts/evidence/private_ctor/, 7 files, packages
+  pA/pB, 8 shapes S1-S8, Temurin 21.0.13+9 oracle, exit 0): the laws
+  went SHARPER than the registration assumed — (1) JDK 11+ private
+  access is NEST-based (JEP 181), so the SAME-package non-nestmate
+  caller is refused too (S2) — the 2026-11-14 P5 "same-package
+  private succeeds" had actually pinned the NESTMATE shape (NP3's
+  Private was nested); (2) the diff-package protected SUBCLASS caller
+  is refused as well (S4 — newInstance passes obj=null, no instance
+  context); (3) the package-private refusal's message tail is
+  `with package access`, not a modifiers word (S8); the refusal
+  message is Temurin's exact `class <caller> cannot access a member
+  of class <declaring> with modifiers "<word>"`. RED state: j2r ran
+  ALL EIGHT shapes (five divergences, all wrongly-succeeding).
+- THE FIX, end-to-end: the NestHost attribute parse (JVMS 4.7.28,
+  j2r-classfile) -> ClassPlan.nest_host -> UserClassInfo.nest_host
+  (BOTH META generators; cfg_equiv guards the partition site) -> the
+  emitter's caller tag (the InvokeVirtual/Interface dynamic-fallback
+  arm specializes builtin `Constructor.newInstance` to
+  `reflect::ctor_new_instance_caller(..., c.name)` — a builtin class
+  cannot be subclassed in the closed world, so the arm is exact) ->
+  the runtime law (public passes; private compares the resolved nest
+  hosts; protected/package-private require the same package; the
+  check runs BEFORE the args unpack) + Temurin's exact messages
+  (Modifier.toString replicated bit-for-bit; dotted names).
+- GREEN: the 8-shape corpus stdout byte-identical vs the same-session
+  Temurin oracle (sha256 85441fb8fa2f95f3 both, exit 0) on the FINAL
+  build; PrivateCtorAccess the 129th fixture three-channel GREEN (the
+  reachable shapes one self-contained file pins: nestmate allowed,
+  same-package non-nestmate refused, foreign-host nested refused,
+  same-package protected/package-private allowed, public allowed, the
+  raw modifier bits); +2 runtime law tests (caller_law_matrix — the
+  full access matrix including the two-host same-simple-name
+  negative; refusal_message_laws — the exact S1/S4/S8 message bytes).
+  One en-route law honored: the law-test's first message read sat
+  INSIDE a with_obj closure and DEADLOCKED the heap lock (the
+  registered never-repeat rule) — the read moved outside the
+  closure.
+- BATTERY: lib 534/0 (48+172+15+299); diff_suite 129 fixtures
+  three-channel ZERO (374.89s + 372.61s sharded); cfg_equiv zero
+  (477.57s); fmt + clippy -D warnings clean FRESH; gate-11 in sync
+  (fixtures=129, tests=593; README 128->129, 591->593; diff_suite
+  guard 127->128).
+- REGISTERED FOLLOW-ONS (honest): Method.invoke carries the SAME
+  caller law and its emitter arm is UNTOUCHED (the next probe); 
+  setAccessible has no j2r surface (the override-flag suppression
+  law unprobeable); the protected instance-context nuance for
+  field/method access is out of scope.
+- Tree clean at origin/main; the run counter advances 5→6 (the
+  5-run owner cycle is COMPLETE).

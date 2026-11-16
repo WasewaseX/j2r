@@ -182,6 +182,12 @@ pub struct UserClassInfo {
     /// `InnerClasses` `inner_name` (`None` = top-level / absent attribute,
     /// `Some("")` = anonymous). `getSimpleName` uses it verbatim.
     pub simple_name: Option<&'static str>,
+    /// `NestHost` attribute (JVMS §4.7.28): the declared host, `None`
+    /// when absent (a top-level class IS its own nest host). The
+    /// different-package private-ctor IllegalAccessException law
+    /// (JEP 181 areNestMates — the 2026-11-16 probe S1/S2/S6) resolves
+    /// both sides' hosts and compares.
+    pub nest_host: Option<&'static str>,
     /// Total instance slots including inherited ones (NEW-INSTANCE: the
     /// `new_obj` arity).
     pub total_slots: usize,
@@ -886,6 +892,7 @@ mod default_dispatch {
         is_interface: true,
         is_abstract: false,
         simple_name: Some("WithDefault"),
+        nest_host: None,
         total_slots: 0,
         defaults_spec: "",
         fields: &[],
@@ -913,6 +920,7 @@ mod default_dispatch {
         is_interface: false,
         is_abstract: false,
         simple_name: Some("Impl"),
+        nest_host: None,
         total_slots: 0,
         defaults_spec: "",
         fields: &[],
@@ -990,6 +998,7 @@ mod default_dispatch {
             is_interface: true,
             is_abstract: false,
             simple_name: Some("Top"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],
@@ -1008,6 +1017,7 @@ mod default_dispatch {
             is_interface: true,
             is_abstract: false,
             simple_name: Some("Mid"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],
@@ -1026,6 +1036,7 @@ mod default_dispatch {
             is_interface: false,
             is_abstract: false,
             simple_name: Some("Impl"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],
@@ -1077,6 +1088,7 @@ mod default_dispatch {
             is_interface: true,
             is_abstract: false,
             simple_name: Some("Top2"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],
@@ -1095,6 +1107,7 @@ mod default_dispatch {
             is_interface: true,
             is_abstract: true,
             simple_name: Some("Mid2"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],
@@ -1113,6 +1126,7 @@ mod default_dispatch {
             is_interface: false,
             is_abstract: false,
             simple_name: Some("Impl"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],
@@ -1162,6 +1176,7 @@ mod default_dispatch {
             is_interface: true,
             is_abstract: false,
             simple_name: Some("DA"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],
@@ -1180,6 +1195,7 @@ mod default_dispatch {
             is_interface: true,
             is_abstract: false,
             simple_name: Some("DB"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],
@@ -1198,6 +1214,7 @@ mod default_dispatch {
             is_interface: false,
             is_abstract: false,
             simple_name: Some("Impl"),
+            nest_host: None,
             total_slots: 0,
             defaults_spec: "",
             fields: &[],

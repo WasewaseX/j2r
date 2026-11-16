@@ -270,9 +270,18 @@ fn differential_suite_matches_jvm() {
     // static messages must match Temurin byte-for-byte on stdout — the
     // registered slice-(a)+(b) proof — 128 on disk, guard one below
     // that.
+    // The standing-run-5 wave (2026-11-16) added PrivateCtorAccess — the
+    // reflection CALLER law (the different-package private-ctor residual
+    // closed): the nestmate private allowed (JEP 181 NestHost), the
+    // SAME-package NON-nestmate private refused, the foreign-host nested
+    // private refused, the same-package protected/package-private
+    // allowed, the public allowed, and the raw modifier bits — the
+    // reachable shapes one self-contained file pins; the diff-package
+    // refusal shapes ride the law tests + the pA/pB probe corpus — 129
+    // on disk, guard one below that.
     assert!(
-        fixtures.len() >= 127,
-        "differential suite shrank: {} fixtures (expected >= 127)",
+        fixtures.len() >= 128,
+        "differential suite shrank: {} fixtures (expected >= 128)",
         fixtures.len()
     );
 

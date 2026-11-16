@@ -342,6 +342,13 @@ pub struct ClassPlan {
     /// `Some("")` for anonymous classes; exported into the generated
     /// registry for `Class.getSimpleName`.
     pub simple_name: Option<String>,
+    /// `NestHost` attribute (JVMS §4.7.28): the declared host, `None`
+    /// when absent (a top-level class IS its own nest host). The
+    /// different-package private-ctor law resolves both sides' hosts
+    /// and compares (JEP 181 areNestMates) — the reflection
+    /// `Constructor.newInstance` access check consumes it via the
+    /// runtime META.
+    pub nest_host: Option<String>,
     pub module: String,
     /// Internal class id used by the generated `statics` registry (`u32`,
     /// same rationale as [`FieldPlan::static_slot`]).
@@ -660,6 +667,7 @@ fn parse_and_add(
         is_interface,
         is_abstract,
         simple_name: cf.inner_name.clone(),
+        nest_host: cf.nest_host.clone(),
         module,
         id,
         base_slots: 0,
@@ -2098,6 +2106,7 @@ mod virtual_resolution_tests {
             is_interface: false,
             is_abstract: false,
             simple_name: None,
+            nest_host: None,
             module: sanitize_module(name),
             id: 0,
             base_slots: 0,
@@ -2124,6 +2133,7 @@ mod virtual_resolution_tests {
                 bootstrap_methods: Vec::new(),
                 inner_name: None,
                 signature: None,
+                nest_host: None,
             },
         }
     }

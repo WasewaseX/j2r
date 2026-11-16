@@ -1827,12 +1827,14 @@ mod tests {
             bootstrap_methods: Vec::new(),
             inner_name: None,
             signature: None,
+            nest_host: None,
         };
         let c = ClassPlan {
             name: "T".to_string(),
             super_name: Some("java/lang/Object".to_string()),
             interfaces: Vec::new(),
             is_interface: false,
+            nest_host: None,
             is_abstract: false,
             simple_name: None,
             module: "T".to_string(),

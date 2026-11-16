@@ -1,0 +1,97 @@
+THE DIFFERENT-PACKAGE PRIVATE-CTOR REFLECTION CALLER LAW
+(standing run 5 of 5, 2026-11-16 — the residual registered 2026-11-14
+at the NEW-INSTANCE slice, CLOSED this run)
+==============================================================
+HEAD: 5f52e8d at probe time (the run-4 HELPFUL-NPE tree).
+
+THE PROBE (scripts/evidence/private_ctor/{pA,pB}/*.java, 7 files, 2
+packages, 8 classes; javac 21.0.13, Temurin 21.0.13+9 oracle, wall
+0.058 s, exit 0):
+
+  S1  diff-package PRIVATE ctor -> IllegalAccessException,
+      message: class pB.Caller cannot access a member of class
+      pA.Private with modifiers "private"
+  S2  SAME-package NON-nestmate private ctor -> REFUSED TOO (the
+      sharpest law: JDK 11+ private access is NEST-based (JEP 181),
+      not package-based — a same-package top-level caller is still
+      refused; the 2026-11-14 P5 registration ("same-package private
+      succeeds") had actually pinned the NESTMATE shape — NP3's
+      Private was a nested class of its caller)
+  S3  diff-package protected ctor, unrelated caller -> refused
+  S4  diff-package protected ctor, SUBCLASS caller (pB.Sub extends
+      pA.Prot) -> REFUSED TOO — newInstance passes obj=null, so the
+      protected instance-context rule has nothing to satisfy
+  S5  diff-package public ctor -> allowed
+  S6  the nestmate shape (nested private class, host caller) -> allowed
+  S7  the raw modifier bits the law keys on: private=2
+  S8  package-private ctor, diff-package caller -> refused, and the
+      message tail is DIFFERENT: `with package access` (not a
+      modifiers word)
+
+THE RED STATE (j2r before the fix): ALL EIGHT shapes ran the ctor
+(j2r "always invokes" — the registered no-caller-concept residual);
+S5/S6/S7 matched, five divergences, all "succeeds where Temurin
+refuses". The full RED stdout is preserved at
+j2r_red_before_fix_2026-11-16.txt (captured pre-fix).
+
+THE DESIGN (closed-world caller concept): the caller class is the
+EMIT-TIME class of the call site — a closed-world compile knows it
+statically, no runtime caller stack needed. The emitter tags every
+builtin `Constructor.newInstance` invoke with the emitting class's
+binary name (the InvokeVirtual/Interface dynamic-fallback arm in
+emit.rs; a builtin class cannot be subclassed by user code in the
+closed world, so no other receiver class can reach the shape).
+
+THE LAW (JEP 181 + Reflection.verifyMemberAccess, reduced to the
+probed shapes; runtime `reflect::ctor_access_allowed`):
+  public            -> allowed (the unnamed module reads every
+                       classpath class)
+  private           -> nestmates ONLY: both sides' NestHost
+                       attributes (JVMS 4.7.28, NEW decoder parse)
+                       resolve — absent attribute = self — and
+                       compare; the same-package non-nestmate is
+                       refused (S2)
+  protected         -> same package ONLY (S4 refuses the subclass)
+  package-private   -> same package (S8)
+The refusal is IllegalAccessException with Temurin's exact message:
+`class <caller-dotted> cannot access a member of class
+<declaring-dotted> with modifiers "<Modifier.toString>"`, or the
+`with package access` tail for the zero-bit set (S8). The access
+check runs BEFORE the args unpack (a refused caller must not
+surface the args validation).
+
+THE GREEN STATE (j2r after the fix, the FINAL release build):
+stdout byte-identical vs the same-session Temurin oracle on the
+whole 8-shape corpus (sha256 85441fb8fa2f95f3 both sides, exit 0):
+oracle_temurin_2026-11-16.txt == j2r_after_fix_2026-11-16.txt.
+
+THE FIXTURE (PrivateCtorAccess, the 129th, one self-contained file —
+the suite convention): the reachable shapes three-channel — the
+nestmate private allowed (F1), the SAME-package NON-nestmate private
+refused (F2), the foreign-host nested private refused (F3), the
+same-package protected (F4) and package-private (F5) allowed, the
+public allowed (F6), the raw modifier bits (F7-F10). The diff-package
+refusal shapes (S1/S3/S4/S8) are pinned by the LAW TESTS
+(reflect.rs caller_law_matrix / refusal_message_laws — the pA/pB
+meta fixture carries the two-host nest map) + this corpus capture.
+
+THE NEST FACTS END-TO-END: the NestHost attribute parse (j2r-
+classfile) -> ClassPlan.nest_host -> UserClassInfo.nest_host (BOTH
+META generators — the cfg_equiv cross-emitter comparison guards the
+partition site, the FORNAME-INIT precedent) -> the runtime host
+resolution.
+
+BATTERY (2026-11-16, run 5): lib 534/0 (48+172+15+299, +2 law
+tests); diff_suite 129 fixtures three-channel ZERO (374.89 s +
+372.61 s sharded); cfg_equiv zero (477.57 s); fmt + clippy -D
+warnings clean FRESH; gate-11 in sync (fixtures=129, tests=593,
+README 128->129 / 591->593, diff_suite guard 127->128).
+
+RESIDUALS REGISTERED (honest):
+  - Method.invoke carries the SAME caller law — its emitter path is
+    a different builtin arm and was NOT touched this slice; probe
+    and fix remain (the registered follow-on).
+  - setAccessible does not exist in j2r's reflection surface (the
+    override-flag suppression law is unprobeable through it).
+  - The JDK's protected instance-context nuance for FIELD/METHOD
+    access (obj != null shapes) is out of this slice's scope.

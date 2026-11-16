@@ -303,8 +303,8 @@ pub fn j2r_dispatch() -> ::j2r_runtime::Dispatch {
         };
         let _ = writeln!(
             registry,
-            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ id: {}, is_interface: {}, is_abstract: {}, simple_name: {}, total_slots: {}, defaults_spec: {:?}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag}, clinit: {} }};",
-            c.id, c.is_interface, c.is_abstract, simple, c.total_slots, c.default_spec, clinit_expr
+            "static META_{tag}: ::j2r_runtime::UserClassInfo = ::j2r_runtime::UserClassInfo {{ id: {}, is_interface: {}, is_abstract: {}, simple_name: {}, nest_host: {:?}, total_slots: {}, defaults_spec: {:?}, fields: &FIELDS_{tag}, methods: &METHODS_{tag}, ctors: &CTORS_{tag}, clinit: {} }};",
+            c.id, c.is_interface, c.is_abstract, simple, c.nest_host.clone(), c.total_slots, c.default_spec, clinit_expr
         );
     }
     let _ = writeln!(
@@ -2168,9 +2168,28 @@ fn emit_instr(
                         out.push("};".into());
                     }
                     None => {
-                        out.push(format!(
-                            "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch()));"
-                        ));
+                        // The reflection CALLER law (the different-package
+                        // private-ctor residual, closed 2026-11-16): a
+                        // closed-world compile knows the caller
+                        // statically — the emitting class IS the JDK's
+                        // Reflection.getCallerClass() for every site —
+                        // so the builtin Constructor.newInstance invoke
+                        // is emitted CALLER-TAGGED and the runtime
+                        // applies the probed access matrix (probe
+                        // S1-S8, scripts/evidence/private_ctor/). Builtin
+                        // classes cannot be subclassed by user code in
+                        // the closed world, so no other receiver class
+                        // can reach this shape through a vtable arm.
+                        if class == "java/lang/reflect/Constructor" && name == "newInstance" {
+                            out.push(format!(
+                                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::reflect::ctor_new_instance_caller(crate::j2r_dispatch(), &__r, &__a, {caller:?}));",
+                                caller = c.name,
+                            ));
+                        } else {
+                            out.push(format!(
+                                "let __v = {RT}::j2r_try!('run, thrown, fault_pc, {fault}, {RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch()));"
+                            ));
+                        }
                     }
                 },
             }

@@ -1,0 +1,10 @@
+S1: caught java.lang.IllegalAccessException: class pB.Caller cannot access a member of class pA.Private with modifiers "private"
+S2: caught java.lang.IllegalAccessException: class pA.Same cannot access a member of class pA.Private with modifiers "private"
+S3: caught java.lang.IllegalAccessException: class pB.Caller cannot access a member of class pA.Prot with modifiers "protected"
+S4: caught java.lang.IllegalAccessException: class pB.Sub cannot access a member of class pA.Prot with modifiers "protected"
+public<init> ran
+S5: diff-package public OK
+nested-private<init> ran
+S6: nestmate private OK
+S7: modifiers=2
+S8: caught java.lang.IllegalAccessException: class pB.PkgCall cannot access a member of class pA.Package with package access

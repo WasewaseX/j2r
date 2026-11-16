@@ -1248,6 +1248,142 @@ fn wrap_in_ite(t: Throw) -> Throw {
     Throw { obj }
 }
 
+/// The reflection CALLER law for `Constructor.newInstance` (the
+/// different-package private-ctor residual, registered 2026-11-14 and
+/// closed 2026-11-16). Oracle-pinned on Temurin 21.0.13+9 (probe
+/// S1-S8, scripts/evidence/private_ctor/PRIVATE_CTOR_2026-11-16.txt):
+///   public               -> allowed (the unnamed module reads every
+///                           classpath class; probe S5)
+///   private              -> NESTMATES only (JEP 181: the host classes
+///                           resolve and compare; the same-package
+///                           NON-nestmate caller is REFUSED too — probe
+///                           S2; the nestmate shape is allowed — probe
+///                           S6). The NestHost attribute (JVMS 4.7.28)
+///                           is the authoritative fact; a class with no
+///                           attribute IS its own nest host.
+///   protected            -> same package ONLY for newInstance (the
+///                           check passes obj=null, so the protected
+///                           instance-context rule refuses even the
+///                           different-package SUBCLASS caller — probe
+///                           S4)
+///   package-private      -> same package (probe S8)
+/// The refusal is `IllegalAccessException` with Temurin's exact
+/// message: `class <caller-dotted> cannot access a member of class
+/// <declaring-dotted> with modifiers "<Modifier.toString>"`, or the
+/// tail `with package access` when the raw bits are zero (probe S8).
+/// The CALLER is the EMIT-TIME class of the call site — a closed-world
+/// compile knows it statically, so the emitter tags every
+/// `Constructor.newInstance` invoke with the emitting class's binary
+/// name and no runtime caller stack is needed.
+pub fn ctor_new_instance_caller(
+    ctx: Dispatch,
+    ctor: &JRef,
+    args: &[Value],
+    caller: &str,
+) -> Result<Value, Throw> {
+    // The access check runs BEFORE the args unpack (the JDK checks
+    // access first — a refused caller must not surface the args
+    // validation's IllegalArgumentException).
+    let (owner, _desc, modifiers) = ctor_slots(ctor);
+    if !ctor_access_allowed(&ctx, caller, &owner, modifiers) {
+        return Err(throw_illegal_access(caller, &owner, modifiers));
+    }
+    // The args unpack mirrors n_ctor_new_instance bit-for-bit: the
+    // `Object[]` param rides as the single invoke argument (a null
+    // array is legal for a no-arg ctor).
+    let argv = match args.first() {
+        Some(Value::Ref(r)) => r.as_ref(),
+        _ => {
+            return Err(crate::internal_error(
+                "Constructor.newInstance needs the args array",
+            ))
+        }
+    };
+    ctor_new_instance(ctx, ctor, argv)
+}
+
+/// The member-access law (Reflection.verifyMemberAccess reduced to the
+/// ctor shapes the probe pinned). Same-class callers pass through the
+/// arms below (same class = same package, or nestmate for private).
+fn ctor_access_allowed(ctx: &Dispatch, caller: &str, owner: &str, modifiers: u16) -> bool {
+    let is_public = (modifiers & 0x0001) != 0;
+    let is_private = (modifiers & 0x0002) != 0;
+    if is_public {
+        return true;
+    }
+    if is_private {
+        return nest_host_of(ctx, caller) == nest_host_of(ctx, owner);
+    }
+    // protected and package-private: the package branch only (probe
+    // S4 refuses the different-package subclass; there is no receiver
+    // instance to satisfy the protected context rule).
+    package_of(caller) == package_of(owner)
+}
+
+/// The class's package — everything before the last `/` of the binary
+/// name, the empty package for a bare name (nested `$` names stay
+/// inside their top-level package, exactly like the JDK's derivation).
+fn package_of(class: &str) -> &str {
+    match class.rfind('/') {
+        Some(i) => &class[..i],
+        None => "",
+    }
+}
+
+/// The class's resolved nest host: the NestHost attribute's class, or
+/// the class itself when the attribute is absent (a top-level class IS
+/// its own nest host). Builtin classes carry no nest metadata and
+/// resolve to themselves.
+fn nest_host_of(ctx: &Dispatch, class: &str) -> String {
+    ctx.class_info(class)
+        .and_then(|info| info.nest_host.map(|h| h.to_string()))
+        .unwrap_or_else(|| class.to_string())
+}
+
+/// `Modifier.toString` replicated bit-for-bit (the same canonical bit
+/// order the natives row uses) for the refusal message's modifier word.
+fn modifiers_word(modifiers: u16) -> String {
+    let mut sb = String::new();
+    let push = |sb: &mut String, bit: u16, word: &str| {
+        if (modifiers & bit) != 0 {
+            sb.push_str(word);
+            sb.push(' ');
+        }
+    };
+    push(&mut sb, 0x0001, "public");
+    push(&mut sb, 0x0004, "protected");
+    push(&mut sb, 0x0002, "private");
+    push(&mut sb, 0x0400, "abstract");
+    push(&mut sb, 0x0008, "static");
+    push(&mut sb, 0x0010, "final");
+    push(&mut sb, 0x0080, "transient");
+    push(&mut sb, 0x0040, "volatile");
+    push(&mut sb, 0x0020, "synchronized");
+    push(&mut sb, 0x0100, "native");
+    push(&mut sb, 0x0800, "strictfp");
+    sb.strip_suffix(' ').unwrap_or(&sb).to_string()
+}
+
+/// Temurin's exact refusal message (probe S1/S3/S4/S8): dotted binary
+/// names both sides, `with modifiers "..."` for any nonzero bit set and
+/// `with package access` for the zero set.
+fn throw_illegal_access(caller: &str, owner: &str, modifiers: u16) -> Throw {
+    let tail = if modifiers == 0 {
+        "with package access".to_string()
+    } else {
+        format!("with modifiers \"{}\"", modifiers_word(modifiers))
+    };
+    crate::throw_new(
+        "java/lang/IllegalAccessException",
+        Some(&format!(
+            "class {} cannot access a member of class {} {}",
+            caller.replace('/', "."),
+            owner.replace('/', "."),
+            tail
+        )),
+    )
+}
+
 /// Unit tests: name formatting and the intern table (identity + GC rooting).
 #[cfg(test)]
 mod tests {
@@ -1374,5 +1510,161 @@ mod tests {
             Some("[Ljava/lang/String;")
         );
         assert!(component_type_of("java/lang/String").is_none());
+    }
+}
+
+#[cfg(test)]
+mod caller_law_tests {
+    use super::*;
+
+    // ---- The reflection CALLER law (the different-package private-ctor
+    // residual, registered 2026-11-14, closed 2026-11-16) --------------
+    // The probe matrix (scripts/evidence/private_ctor/, Temurin
+    // 21.0.13+9): S1 diff-package private refused; S2 same-package
+    // NON-nestmate private refused (JEP 181: the law is NEST-based, not
+    // package-based); S3 diff-package protected refused; S4 the
+    // diff-package protected SUBCLASS refused too (newInstance passes
+    // obj=null — no instance context); S5 diff-package public allowed;
+    // S6 nestmate private allowed; S8 package-private refused with the
+    // `with package access` message tail.
+    static PC_INFO: crate::UserClassInfo = crate::UserClassInfo {
+        id: 0,
+        is_interface: false,
+        is_abstract: false,
+        simple_name: None,
+        nest_host: None,
+        total_slots: 0,
+        defaults_spec: "",
+        fields: &[],
+        methods: &[],
+        ctors: &[],
+        clinit: None,
+    };
+    static PC_NESTED: crate::UserClassInfo = crate::UserClassInfo {
+        id: 0,
+        is_interface: false,
+        is_abstract: false,
+        simple_name: None,
+        nest_host: Some("pB/Caller"),
+        total_slots: 0,
+        defaults_spec: "",
+        fields: &[],
+        methods: &[],
+        ctors: &[],
+        clinit: None,
+    };
+    static PC_HOST2_NESTED: crate::UserClassInfo = crate::UserClassInfo {
+        id: 0,
+        is_interface: false,
+        is_abstract: false,
+        simple_name: None,
+        nest_host: Some("pA/Holder"),
+        total_slots: 0,
+        defaults_spec: "",
+        fields: &[],
+        methods: &[],
+        ctors: &[],
+        clinit: None,
+    };
+    fn pc_meta(class: &str) -> Option<&'static crate::UserClassInfo> {
+        match class {
+            "pA/Private" | "pA/Same" | "pA/Prot" | "pA/Package" | "pA/Public" | "pB/Caller"
+            | "pB/Sub" | "pA/Holder" => Some(&PC_INFO),
+            "pB/Caller$NestedPrivate" => Some(&PC_NESTED),
+            "pA/Holder$NestedPrivate" => Some(&PC_HOST2_NESTED),
+            _ => None,
+        }
+    }
+    fn pc_ctx() -> Dispatch {
+        Dispatch {
+            meta: Some(pc_meta),
+            ..Dispatch::default()
+        }
+    }
+
+    #[test]
+    fn caller_law_matrix() {
+        let ctx = pc_ctx();
+        // S1: private, different package -> REFUSED.
+        assert!(!ctor_access_allowed(
+            &ctx,
+            "pB/Caller",
+            "pA/Private",
+            0x0002
+        ));
+        // S2: private, SAME package but a non-nestmate -> REFUSED.
+        assert!(!ctor_access_allowed(&ctx, "pA/Same", "pA/Private", 0x0002));
+        // S6: private, nestmates (the NestedPrivate META carries the
+        // NestHost attribute) -> allowed.
+        assert!(ctor_access_allowed(
+            &ctx,
+            "pB/Caller",
+            "pB/Caller$NestedPrivate",
+            0x0002
+        ));
+        // Nest-mateship keys on the HOST, not the simple name: two
+        // same-simple-name nested classes of different hosts refuse.
+        assert!(!ctor_access_allowed(
+            &ctx,
+            "pA/Holder$NestedPrivate",
+            "pB/Caller$NestedPrivate",
+            0x0002
+        ));
+        // The same class calling its own private ctor passes (its host
+        // resolves to itself).
+        assert!(ctor_access_allowed(
+            &ctx,
+            "pA/Private",
+            "pA/Private",
+            0x0002
+        ));
+        // S3/S4: protected, different package -> REFUSED even for the
+        // subclass caller (newInstance passes obj=null).
+        assert!(!ctor_access_allowed(&ctx, "pB/Caller", "pA/Prot", 0x0004));
+        assert!(!ctor_access_allowed(&ctx, "pB/Sub", "pA/Prot", 0x0004));
+        // protected, same package -> allowed.
+        assert!(ctor_access_allowed(&ctx, "pA/Same", "pA/Prot", 0x0004));
+        // S8: package-private (zero bits), different package -> REFUSED.
+        assert!(!ctor_access_allowed(
+            &ctx,
+            "pB/Caller",
+            "pA/Package",
+            0x0000
+        ));
+        // package-private, same package -> allowed.
+        assert!(ctor_access_allowed(&ctx, "pA/Same", "pA/Package", 0x0000));
+        // S5: public, different package -> allowed.
+        assert!(ctor_access_allowed(&ctx, "pB/Caller", "pA/Public", 0x0001));
+    }
+
+    #[test]
+    fn refusal_message_laws() {
+        let _rt = crate::test_support::runtime();
+        // The message reads OUTSIDE the with_obj closure — a nested
+        // heap read on the same object deadlocks the heap lock (the
+        // registered never-repeat rule).
+        let msg = |t: Throw| {
+            let slot = with_obj(t.obj, |o| o.slots[0].clone());
+            match slot {
+                Value::Ref(Some(r)) => crate::object::string_value(&r).to_string(),
+                other => panic!("bad detailMessage slot {other:?}"),
+            }
+        };
+        // Probe S1's exact bytes (dotted names both sides).
+        assert_eq!(
+            msg(throw_illegal_access("pB/Caller", "pA/Private", 0x0002)),
+            "class pB.Caller cannot access a member of class pA.Private with modifiers \"private\""
+        );
+        // Probe S3/S4's protected word.
+        assert_eq!(
+            msg(throw_illegal_access("pB/Sub", "pA/Prot", 0x0004)),
+            "class pB.Sub cannot access a member of class pA.Prot with modifiers \"protected\""
+        );
+        // Probe S8's package-access tail (the zero-bit set has NO
+        // modifiers word).
+        assert_eq!(
+            msg(throw_illegal_access("pB/PkgCall", "pA/Package", 0x0000)),
+            "class pB.PkgCall cannot access a member of class pA.Package with package access"
+        );
     }
 }
