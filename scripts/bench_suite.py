@@ -67,11 +67,15 @@ DEFAULT_FIXTURES = [
 
 
 def have(tool: str) -> bool:
+    # Availability predicate only: a missing binary raises OSError-family,
+    # a timeout raises TimeoutExpired (a SubprocessError) — narrowed per
+    # the 2026-11-17 ai-slop re-audit so a programming error can no
+    # longer masquerade as "tool unavailable".
     try:
         subprocess.run([tool, "-version"] if tool == "java" else [tool, "--version"],
                        capture_output=True, timeout=30)
         return True
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
 
 

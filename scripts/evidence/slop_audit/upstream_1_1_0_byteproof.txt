@@ -1,0 +1,36 @@
+byte-diff: vendored corpus/jzlib/*.java vs maven com.jcraft:jzlib:1.1.0:sources (up113/)
+DIFFERS:   Adler32.java (52 lines)
+DIFFERS:   CRC32.java (7 lines)
+IDENTICAL: Checksum.java
+DIFFERS:   Deflate.java (22 lines)
+DIFFERS:   Deflater.java (24 lines)
+DIFFERS:   DeflaterOutputStream.java (4 lines)
+IDENTICAL: GZIPException.java
+DIFFERS:   GZIPHeader.java (40 lines)
+IDENTICAL: GZIPInputStream.java
+IDENTICAL: GZIPOutputStream.java
+DIFFERS:   InfBlocks.java (100 lines)
+DIFFERS:   InfCodes.java (41 lines)
+DIFFERS:   InfTree.java (2 lines)
+DIFFERS:   Inflate.java (84 lines)
+DIFFERS:   Inflater.java (35 lines)
+DIFFERS:   InflaterInputStream.java (13 lines)
+DIFFERS:   JZlib.java (14 lines)
+DIFFERS:   StaticTree.java (11 lines)
+DIFFERS:   Tree.java (16 lines)
+DIFFERS:   ZInputStream.java (2 lines)
+IDENTICAL: ZOutputStream.java
+DIFFERS:   ZStream.java (43 lines)
+IDENTICAL: ZStreamException.java
+
+upstream-1.1.0 Deflate deflateCopy catch block (lines 1685-1694):
+
+    try{
+      dest.dstate = (Deflate)src.dstate.clone();
+      dest.dstate.strm = dest;
+    }
+    catch(CloneNotSupportedException e){
+      //
+    }
+    return Z_OK;
+  }
