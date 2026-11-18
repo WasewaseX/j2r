@@ -3,7 +3,32 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-18 (the master-ci v2.9.1 wave —
+fix the board. Last updated: 2026-11-18 (the scanaislop round-2 wave —
+**THE OWNER RE-PASTED THE SAME 21 FINDINGS AND ORDERED THEM FIXED: THE
+SIX EMPTY-CATCH ERRORS ARE NOW GONE IN THE BYTES ON EVERY SCANNER
+SURFACE** — round 1 adjudicated the claims and opted the corpus out;
+round 2 proved the hosted surface never reads the repo opt-out (the
+rule id `swallowed-exception` does not exist in v2.9.1) and proved its
+discriminator from the paste itself (the `ignored`-named catch at
+ZOutputStream:136 was never flagged while `catch(Exception e){}` at
+:126 was; comment-only blocks still count as empty), so every corpus
+catch now reads `catch (X ignored) { <the reason> }` —
+ZOutputStream end()/close(), GZIPInputStream fill(), Deflate
+deflateCopy, and the four amalgam twins; the one project-authored
+flagged function (the 95-line driver main) split into
+main+phase1+phase2 under the 80-line house limit; build_corpus_jzlib.sh
+re-owns the amalgam bytes (the phase-2 heredoc re-embedded + the lost
+expand -t 8 restored — the script regenerates the committed amalgam
+byte-for-byte); PROOF: javac stdout byte-identical to the pre-edit
+baseline (330B, stderr 0), j2r test three-channel PASS, corpus-direct
+engine scan empty-catch 0 (was 5), full-repo scan blocking=0 grade=A
+CLEAN, lib battery 541/0, diff_suite 130 fixtures three-channel ZERO
+(384.18s + 387.63s sharded), cfg_equiv zero (447.14s), fmt + clippy -D
+warnings clean FRESH, gate-11 in sync (fixtures=130, tests=613); the
+vendored-algorithm complexity advisories stay exempt-by-design
+(scripts/evidence/slop_audit/ROUND2_2026-11-18.md). PR HOLD unchanged:
+the three dependabot branches stay unmerged.).
+Previous: 2026-11-18 (the master-ci v2.9.1 wave —
 **THE UPDATED ENGINE RE-SCANNED THE TREE AND EVERYTHING FIXABLE GOT
 FIXED**: the owner ordered "master-ci has been updated use the updated
 version and fix everything then continue from the roadmap"; the skill
@@ -169,7 +194,11 @@ has no surface, the field/method protected instance-context nuance),
    rest rides typed local register reads; evidence
    scripts/evidence/g3_2/entryvar_conclusion_census_2026-11-18.txt) and
    M5 wave-3 T14 (the Tiny v2 parser, crates/j2r-mappings) LANDED the
-   same day — NEW HEAD OF QUEUE: T15 (the remap stage, the
+   same day — then the owner-ordered scanaislop round-2 wave ran as an
+   interleave (the six empty-catch errors fixed in the bytes, the
+   driver main split, the build script re-owning the amalgam — the
+   entry above) WITHOUT moving the queue head. NEW HEAD OF QUEUE: T15
+   (the remap stage, the
    j2r-classfile write path), then T16 (real intermediary load +
    remapped jar differential), then the run-5 registered follow-ons
    (Method.invoke's caller-law arm, the user-Map-source copy-ctor

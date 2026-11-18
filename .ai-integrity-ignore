@@ -15,6 +15,13 @@
 # byte-identical output vs Temurin (gate-2 diff_suite, 130 fixtures),
 # which is strictly stronger than content heuristics; hand-reshaping
 # would break the fidelity the corpus exists to preserve.
+# Round-2 update (2026-11-18): every empty catch now carries the
+# `ignored` name + an honest rationale comment (the hosted surface's
+# own `ignored` convention, upstream 1.1.0's idiom) and the one
+# project-authored flagged function (the driver main) was split under
+# the 80-line limit — see scripts/evidence/slop_audit/ROUND2_2026-11-18.md.
+# What remains here is the vendored algorithm SHAPE (state machines,
+# EISPACK numerics) whose bytes the corpus exists to preserve.
 corpus/
 
 # GENERATED FILE — scripts/gen_jni_env_table.py owns the bytes; the slot
