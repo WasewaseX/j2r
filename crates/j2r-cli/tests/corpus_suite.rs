@@ -66,6 +66,14 @@ fn corpus_entries_match_jvm() {
         // split surfaced the missing Float.toHexString(F)/
         // Double.toHexString(D) builtins; they are in now).
         "HexFloatProbe.java".to_string(),
+        // Entry 6 (scanaislop round-3 wave, 2026-11-18): EigenNonsymProbe —
+        // the nonsymmetric branch of the JAMA eigenvalue decomposition
+        // (orthes/hqr2/backsubstitution), which the steady-state bench
+        // driver never runs (its eig argument is symmetric by
+        // construction). The probe pins the reshaped EigenHqr2 family
+        // (complex pairs, isolated roots, the triangular cases) against
+        // Temurin on all three channels.
+        "EigenNonsymProbe.java".to_string(),
     ];
     let mut failures = Vec::new();
     for entry in &entries {

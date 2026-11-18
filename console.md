@@ -4737,3 +4737,48 @@ roadmap" on the A-graded tree.
   PASS (5m31s), corpus_suite 5/5, fmt + clippy -D warnings clean,
   REGEN-BYTE-IDENTICAL over the generated set with the HAND list in
   force.
+
+### slice-h addendum (same day): EigenvalueDecomposition reshaped — the 956-line class with the four flagged algorithms is five files; the nonsymmetric branch gets its own pinned probe
+
+- THE FILES: EigenvalueDecomposition 151 (fields package-visible + ctor
+  + getters), EigenSymmetric 305 (tred2 117 → reduce+householder+
+  accum, tql2 120 → main+iterate), EigenOrthes 133 (orthes 94 →
+  reduce+accum), EigenHqr2 419 (hqr2 445 → main+find_l+two_roots+
+  shift+search_m+chase+finish, cdiv rides here), EigenHqr2Backsub 163
+  (the backsubstitution, real+complex branches). All <=441 lines,
+  every function under the 80-line house limit.
+- THE MECHANICS: the slice-e2 work-area model — each algorithm class
+  owns the upstream locals as fields set at entry exactly where the
+  upstream locals lived; explicit local declarations convert to bare
+  assignments (the value is written before every read, so the
+  semantics are identical); for-header variables stay local (the
+  local shadows the field inside the loop, exactly the upstream
+  scoping). hqr2's running eigenvalue index renames n -> nrun (the
+  bare upstream local shadowed the dimension field; every dimension
+  read inside hqr2 uses nn); EigenHqr2Backsub reads the shared state
+  through the st receiver.
+- THE CAUGHT BUGS (compile-gated, none shipped): the decl splitter
+  needed a paren-aware comma split (Math.pow(2.0,-52.0) is one
+  initializer, not two vars); the block ranges must exclude the
+  upstream signatures and the method's own closing brace; ra/sa/vr/
+  vr/vi needed real fields; EigenHqr2's work area is package-visible
+  for the st receiver; and THE GATE CAUGHT A REAL BUG the compile
+  could not: the first cut dropped the tred2_accum() call — acc
+  came out 1.56e20 vs the pinned 5.36e14, restored, byte-identical.
+- THE NEW GATE SURFACE (probe first): the bench driver eigs only the
+  SPD matrix S = A*A^T + N*I, so orthes/hqr2/backsubstitution NEVER
+  run on the gated workload — the byte-identity proof covered only
+  tred2/tql2. New corpus/EigenNonsymProbe (7 deterministic cases:
+  plain nonsymmetric 8/13/21, a forced rotation block = complex
+  pair, a rank-deficient matrix, upper-triangular = isolated roots,
+  a rotation on a triangular matrix = the l == n-1 complex branch)
+  — javac+java output BYTE-IDENTICAL against the pre-split amalgam
+  classes (compiled from the pre-slice-f tree), and PINNED as
+  corpus_suite entry 6 permanently.
+- GATES: driver javac+java stdout BYTE-IDENTICAL (85 bytes, sha256
+  e830385d..., stderr 0, exit 0); probe javac+java byte-identical vs
+  the pre-split classes; j2r test --release three-channel PASS on
+  BOTH the probe (47.4s) and the bench driver (5m50s); corpus_suite
+  6/6; fmt + clippy -D warnings clean, exit codes CHECKED;
+  REGEN-BYTE-IDENTICAL over the generated set with the HAND list in
+  force.

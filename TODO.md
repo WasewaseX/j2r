@@ -35,7 +35,12 @@ corpus_suite 5/5, fmt + clippy -D warnings clean, REGEN-BYTE-IDENTICAL.
 REMAINING under the same order: the jamaentry reshape slices (Matrix
 1046 → DONE in slice-g as Matrix 421 + MatrixOps 434 + MatrixSolve 82 +
 MatrixIo 243, all ≤441 with the receiver-mx mechanics and one-line
-delegators; EigenvalueDecomposition 956 with tred2/tql2/orthes/hqr2,
+delegators; EigenvalueDecomposition 956 → DONE in slice-h as five files
+(151 + EigenSymmetric 305 + EigenOrthes 133 + EigenHqr2 419 +
+EigenHqr2Backsub 163, the slice-e2 work-area model, the running
+index renamed nrun, the backsubstitution reaching the state through
+the st receiver; the NEW corpus/EigenNonsymProbe pins the
+never-gated nonsymmetric branch and is corpus_suite entry 6);
 SingularValueDecomposition 548 still to go) — every flagged
 function/file to the limits, then flip to HAND-maintained in the
 script; the per-commit
