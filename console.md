@@ -4475,10 +4475,58 @@ everything then continue from the roadmap." Executed as one slice.
   gate-11 in sync (fixtures=130, tests=600); check_stubs GREEN.
   Evidence: scripts/evidence/slop_audit/v291_scan_{before,after_fixes,
   final_clean}_2026-11-18.txt (+ AUDIT_2026-11-17.md unchanged).
-- REMAINING (honest): the roadmap queue head is UNCHANGED — the G3.2
-  CFG layer (block-join/entry-var), then Method.invoke's caller-law
-  arm, the user-Map-source copy-ctor residual, the (I,F)/access-order
-  ctor gaps. PR HOLD unchanged (three dependabot branches). The
-  "continue from the roadmap" order is picked up NEXT session (this
-  session was the fix wave; the roadmap item starts on a clean,
-  A-graded tree).
+- REMAINING (honest): PR HOLD unchanged (three dependabot branches).
+  The "continue from the roadmap" order executes IN THIS SESSION: the
+  queue head is the G3.2 CFG layer (block-join/entry-var) — research
+  and the probe begin on the clean, A-graded tree this wave produced
+  (the console entry continues below).
+
+## Session cont. — 2026-11-18: the roadmap order — G3.2 concluded + T14 (Tiny v2 parser) LANDED
+
+The same session continued straight into "then continue from the
+roadmap" on the A-graded tree.
+
+- QUEUE-HEAD RESEARCH (probe first): the 2026-11-17 board named "the
+  G3.2 CFG layer (block-join/entry-var)" the head. BOTH census tools
+  re-ran on a FRESH typed emit of JamaBench at HEAD: crossblock_census
+  1711 cross-block entry reads — but the s-cell CLONE census shows only
+  13 CROSS-BLOCK clones on the whole JAMA crate (Matrix 9, Eigen 3,
+  Cholesky 1) — the hottest "entry variables" are typed LOCALS (v3e0
+  233 reads) which ride plain Rust register reads. The entry-var
+  layer's measurable target is CONSUMED (the unification + payload
+  waves + slices 1+2 did it). VERDICT: the block-join/entry-var layer
+  is CONCLUDED; the board head was stale by one session. The queue
+  advances to mappings/Mixins exactly as the 2026-11-17 line ordered.
+  Evidence: scripts/evidence/g3_2/entryvar_conclusion_census_2026-11-18.txt
+  (the census outputs + the verdict + the third-family registration).
+- REAL-SHAPE PROBE for T14: the actual Fabric intermediary 1.21.4 map
+  fetched from maven.fabricmc.net (intermediary-1.21.4-v2.jar): 93 017
+  lines, header `tiny	2	0	official	intermediary`, 8841 class rows,
+  39 880 field rows, 44 295 method rows, ZERO depth-2+ rows — the
+  parser must still handle the full spec (the synthetic fixture
+  exercises params/inner classes; the real T16 load never needs them).
+- THE SLICE: crates/j2r-mappings — MappingSet/ClassEntry/MemberEntry/
+  ParamEntry with both-direction lookups (map_class/map_field/
+  map_method — overloads disambiguate by descriptor — and
+  method_params in slot order); the strict Tiny v2 parser with loud
+  ParseError{line,message} on every malformed shape; the context-stack
+  nesting law. TWO REAL DEFECTS CAUGHT BY THE LAW TESTS (never
+  shipped): (1) the first index walked only top-level classes — inner
+  classes (which carry their OWN binary names) were unindexable; (2)
+  the first pop-loop broke on depth-0 class frames so a new top-level
+  class after a method row nested as an INNER class — the fixture
+  census test exposed it. Both fixed, both now pinned by tests.
+- GREEN: 13 law tests (header/both-directions/descriptor+overload
+  disambiguation/param nesting/inner-class nesting+indexing/empty
+  columns/CRLF+blank tolerance/4 malformed headers/7 malformed rows
+  with exact line numbers/error display/row census/OOB-namespace
+  miss-not-panic); battery 541/0 lib (additive slice — no existing
+  crate touched beyond the workspace manifest); fmt + clippy -D
+  warnings clean FRESH; gate-11 130/613 (README 600→613, TODO board
+  counts); the real 93 017-line map parses in 32 ms release (8841
+  classes, matches the grep census exactly). Evidence:
+  scripts/evidence/m5_mappings/t14_parse_2026-11-18.txt.
+- NEXT (the new head): T15 — the remap stage (constant-pool
+  Class/NameAndType rewrite BEFORE j2r proper) — needs the
+  j2r-classfile write path; then T16 (real intermediary load +
+  remapped jar differential). PR HOLD unchanged.

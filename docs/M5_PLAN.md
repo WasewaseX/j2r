@@ -378,7 +378,16 @@ Status: `[ ]` pending · `[~]` started · `[x]` done (with evidence).
 
 ### Wave 3 — mappings pipeline
 
-- [ ] **T14** Tiny v2 parser + unit fixtures. → §4
+- [x] **T14** Tiny v2 parser + unit fixtures — LANDED 2026-11-18:
+      crates/j2r-mappings, the strict parser (loud ParseError{line,
+      message} on every malformed shape), both-direction lookups with
+      descriptor disambiguation, the full-tree index (inner classes
+      carry their own binary names), the depth-stack nesting law; 13
+      law tests against the real-shaped synthetic fixture; the actual
+      Fabric intermediary 1.21.4 map (93 017 lines, 8841 classes)
+      parses in 32 ms release, matching the grep census exactly.
+      Evidence: scripts/evidence/m5_mappings/t14_parse_2026-11-18.txt.
+      → §4
 - [ ] **T15** Remap stage before j2r (constant-pool rewrite),
       name-for-name parity vs reference remapper on a fixture jar. → §4
 - [ ] **T16** Real intermediary-map load + remapped jar compiles and runs

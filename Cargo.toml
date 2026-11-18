@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/j2r-classfile",
+    "crates/j2r-mappings",
     "crates/j2r-runtime",
     "crates/j2r-codegen",
     "crates/j2r-jni-ffi",

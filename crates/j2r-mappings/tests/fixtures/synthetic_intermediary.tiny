@@ -1,0 +1,17 @@
+tiny	2	0	official	intermediary
+c	a	net/minecraft/class_7833
+	f	La;	a	field_40713
+	f	La;	b	field_40714
+	m	(F)Lorg/joml/Quaternionf;	a	method_46349
+	m	(Lorg/joml/Vector3f;F)Lorg/joml/Quaternionf;	a	method_46350
+	m	(F)Lorg/joml/Quaternionf;	b	method_46351
+c	b	net/minecraft/class_5973
+	f	F	a	field_29658
+	m	(Lb;I)V	a	method_36079
+		p	0	b	p_i_50528_1_
+		p	1	a	p_i_50528_2_
+c	net/minecraft/client/Minecraft	net/minecraft/client/class_310
+	c	$inner$a	net/minecraft/client/class_310$class_1
+		m	()V	a	method_1505
+c	only	
+c		unmapped_in_official_class_8888

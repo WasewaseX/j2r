@@ -1,0 +1,31 @@
+G3.2 entry-var conclusion census — 2026-11-18 (the queue-head research)
+========================================================================
+
+The 2026-11-17 session named "the G3.2 CFG layer (block-join/entry-var)"
+the queue head. This session re-ran BOTH census tools on a FRESH typed
+emit of JamaBench at origin/main 7090f3e (javac 21.0.13, --emit-typed,
+8 classes re-emitted) and the target set is CONSUMED:
+
+  crossblock_census.py: 1711 cross-block ENTRY reads
+    EigenvalueDecomposition 883, Matrix 438, QR 138, LU 127, JamaBench 27,
+    Cholesky 67, Maths 12, SVD 19
+    hottest: v3e0:233, v2e0:227, v4e0:163, v5e0:126 (typed LOCAL vars —
+    plain Rust register reads, NOT Value cells)
+  s-cell clone census (this session): 658 clones total, of which
+    CROSS-BLOCK = 13 (Matrix 9, Eigen 3, Cholesky 1)
+
+The unification + payload waves (2026-11-12) plus G3.2 slices 1+2
+consumed the entry-var layer's measurable target: cross-block operand
+handoff now rides typed local variables read directly (register reads),
+and the s-cell round trip is 13 clones per full JAMA run — noise. The
+2026-11-12 register correction already re-aimed the layer; slices 1+2
+took the refresh projection (0.918→0.913) and the arg-vec stack arrays
+(0.913→0.894). VERDICT: the G3.2 block-join/entry-var layer is
+CONCLUDED — the board head naming was stale by one session. The queue
+advances to mappings/Mixins (M5_PLAN §4, T14-T16) exactly as the
+2026-11-17 board line ordered ("then mappings/Mixins").
+
+The third G3.2 family (obj_get/invoke helper dispatch inside the
+runtime) stays REGISTERED for the post-G3.3 waves; the G3.3 prim track
+(slices 1-4) is LANDED per the board; G3.3's implementation waves ride
+the ledger as recorded.

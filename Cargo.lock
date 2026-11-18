@@ -137,6 +137,10 @@ name = "j2r-jni-ffi"
 version = "0.1.0"
 
 [[package]]
+name = "j2r-mappings"
+version = "0.1.0"
+
+[[package]]
 name = "j2r-runtime"
 version = "0.1.0"
 dependencies = [

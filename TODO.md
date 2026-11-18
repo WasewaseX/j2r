@@ -44,7 +44,7 @@ GREEN end-to-end: toolchain re-bootstrapped byte-exact (rustc
 battery **541/0** (48+172+15+306); diff_suite **130 fixtures
 three-channel ZERO** (381.59s + 383.94s sharded); cfg_equiv zero
 (461.32s); fmt + clippy -D warnings clean FRESH; gate-11 in sync
-(fixtures=130, tests=600); check_stubs gate GREEN; the tables.rs
+(fixtures=130, tests=613); check_stubs gate GREEN; the tables.rs
 regeneration sanity (generator runs, 235 slots, 159 wired — the import
 removal changed nothing; the fmt-vs-generated delta was restored).
 PR HOLD unchanged: the three dependabot branches stay unmerged.).
@@ -78,7 +78,7 @@ BYTE-IDENTICAL vs Temurin on BOTH backends (exit 0); battery: lib
 **541/0** (48+172+15+306), diff_suite **130 fixtures three-channel
 ZERO** (385.18s + 387.45s sharded), cfg_equiv zero (451.66s); fmt +
 clippy -D warnings clean FRESH; gate-11 in sync (fixtures=130,
-tests=600; README 129→130, 593→600, cfg 129→130; diff guard 128→129).
+tests=613; README 129→130, 593→600, cfg 129→130; diff guard 128→129).
 sandbox reset survived zero-loss (ff to `161fd44`, toolchain
 re-bootstrapped byte-exact rustc 1.99.1/58cf8f9c3 + Temurin 21.0.13,
 rust199 symlink re-wired); baseline re-proven BEFORE measuring: lib
@@ -163,11 +163,17 @@ has no surface, the field/method protected instance-context nuance),
    the cycle-complete session, see the board head)**: HashMapCopyProbe
    (the 130th fixture) three-channel GREEN, the putMapEntries pre-size +
    source-order laws landed, +7 law tests, lib 541/0, diff_suite 130
-   zero, cfg_equiv zero; NEW HEAD OF QUEUE — the G3.2 CFG layer
-   (block-join/entry-var), then mappings/Mixins, then the run-5
-   registered follow-ons (Method.invoke's caller-law arm, the
-   user-Map-source copy-ctor residual); the M4 review belongs to the
-   owner. (The 5-run cycle is COMPLETE: runs 1-5 all recorded; the
+   zero, cfg_equiv zero; the G3.2 CFG layer (block-join/entry-var)
+   CONCLUDED (2026-11-18 census: the entry-var target set is consumed
+   — 13 cross-block s-cell clones on the full JAMA typed emit, the
+   rest rides typed local register reads; evidence
+   scripts/evidence/g3_2/entryvar_conclusion_census_2026-11-18.txt) and
+   M5 wave-3 T14 (the Tiny v2 parser, crates/j2r-mappings) LANDED the
+   same day — NEW HEAD OF QUEUE: T15 (the remap stage, the
+   j2r-classfile write path), then T16 (real intermediary load +
+   remapped jar differential), then the run-5 registered follow-ons
+   (Method.invoke's caller-law arm, the user-Map-source copy-ctor
+   residual); the M4 review belongs to the owner. (The 5-run cycle is COMPLETE: runs 1-5 all recorded; the
    cycle-complete session continued the queue head per the standing
    discipline.)
 (Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
@@ -1871,8 +1877,28 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       (T14–T23) UNBLOCKED — G1 AND G2 both checked — ordered
       after G3/G4 per the review; M6 planning drafted per owner request:
       docs/M6_PLAN.md rev 0 (owner review pending).
-- [ ] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
-      constant-pool remap stage before j2r)
+- [~] Mojang/intermediary mappings pipeline (§4, T14–T16, Tiny v2 +
+      constant-pool remap stage before j2r) — **T14 LANDED (2026-11-18,
+      the master-ci-wave session, the roadmap order executed)**:
+      crates/j2r-mappings (the separate pipeline-stage home per §4)
+      — the strict Tiny v2 parser (loud ParseError{line,message}: wrong
+      magic/major, <2 namespaces, unknown kind char, column-count
+      mismatch, empty descriptor, depth jump without context, bad param
+      index), both-direction lookups (map_class/map_field/map_method
+      — overloads disambiguate by descriptor — + method_params in
+      slot order), the full-tree index (inner classes carry their own
+      binary names — the law test caught the first draft missing
+      them), the nesting law (a row at depth d attaches at its parent's
+      depth+1 — the first draft broke on depth-0 rows after depth-0
+      class frames, the fixture census test caught it); 13 law tests
+      against the real-shaped synthetic fixture; REAL-MAP SANITY: the
+      actual Fabric intermediary 1.21.4 map (93 017 lines, 8841 classes
+      — fetched from maven.fabricmc.net this session) parses in 32 ms
+      release, matching the grep census exactly. Battery 541/0 lib;
+      fmt + clippy -D warnings clean; gate-11 130/613 (README 600→613).
+      Evidence: scripts/evidence/m5_mappings/t14_parse_2026-11-18.txt.
+      NEXT: T15 (the remap stage — the j2r-classfile write path),
+      then T16 (real intermediary load + remapped jar differential).
 - [ ] mixin application at the bytecode level before j2r (R1; §4,
       T17–T21; class-identity design answer T17 gates all rewrites;
       acceptance = real Fabric mod, ≥3 mixins, identical both sides)

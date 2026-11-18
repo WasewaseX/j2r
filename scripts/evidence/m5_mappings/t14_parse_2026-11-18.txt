@@ -1,0 +1,51 @@
+M5 wave 3 — T14 the Tiny v2 parser: evidence record — 2026-11-18
+=================================================================
+
+THE REAL-SHAPE PROBE (owner discipline: probe first): the real Fabric
+intermediary map (maven.fabricmc.net net/fabricmc/intermediary/1.21.4
+-v2.jar, the published intermediary for the 1.21.4 target) fetched and
+captured: mappings.tiny, 93 017 lines, header
+`tiny\t2\t0\tofficial\tintermediary`, 8841 class rows, 39 880 field
+rows, 44 295 method rows, ZERO depth-2+ rows (the intermediary map
+carries no params/inner classes — the synthetic fixture exercises them,
+the real T16 load never needs them).
+
+THE SLICE: crates/j2r-mappings (the separate-pipeline-stage home per
+M5_PLAN §4 — never a compiler hack):
+  - src/lib.rs: MappingSet/ClassEntry/MemberEntry/ParamEntry — the
+    names Vec<Option<String>> per header namespace, both-direction
+    lookups map_class/map_field/map_method (overloads disambiguate by
+    descriptor), method_params in slot order; the index walks the FULL
+    tree (inner classes carry their own binary names — first draft
+    missed them, the law test caught it).
+  - src/parser.rs: the strict Tiny v2 parser — loud ParseError{line,
+    message} for wrong magic, wrong major, <2 namespaces, unknown kind
+    char, column-count mismatch, empty descriptor, depth jump without
+    context, non-u32 param index, method-kind row under a method.
+    Nesting law: a row at tab-depth d attaches at its parent's
+    depth+1; the context stack pops anything at or below the row's
+    depth (the first draft broke on depth-0 rows after depth-0 class
+    frames — the fixture census test caught it).
+  - tests/fixtures/synthetic_intermediary.tiny: the real-shaped
+    synthetic fixture (tabs verified byte-level): header, class rows,
+    field rows with descriptors, method overloads sharing a name,
+    parameter rows (slot-ordered), an inner class with its own method,
+    a one-namespace-named class, a row named only in the second
+    namespace.
+  - tests/parse.rs: 13 law tests (header, both-direction class maps,
+    descriptor disambiguation, overload disambiguation, param nesting,
+    inner-class nesting + indexing, empty columns as None, CRLF/blank
+    tolerance, 4 malformed headers, 7 malformed rows with exact line
+    numbers, error display, row census, out-of-bounds namespace miss).
+
+GREEN: cargo test -p j2r-mappings 13/13; fmt + clippy -D warnings
+clean; workspace battery 541/0 lib (the crate is additive — no
+existing crate touched beyond the workspace manifest); gate-11 sync
+613 (README 600→613, TODO board counts); REAL-MAP SANITY: the 93 017
+-line intermediary map parses in 32 ms (release), 8841 classes —
+matches the grep census exactly.
+
+NEXT: T15 — the remap stage (constant-pool Class/NameAndType rewrite
+BEFORE j2r proper) — needs the j2r-classfile write path; T16 — the
+real intermediary load + remapped jar compiles and runs differentially
+clean.

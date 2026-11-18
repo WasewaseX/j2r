@@ -1,0 +1,9 @@
+[package]
+name = "j2r-mappings"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Tiny v2 mappings parser for the J2R Java-to-Rust compiler (M5 wave 3, the separate mappings-pipeline stage)"
+repository = "https://github.com/WasewaseX/j2r"
+
+[dependencies]
