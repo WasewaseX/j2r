@@ -19,17 +19,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  ******************************************************************************/
-package com.eclipsesource.json;
+package minimaljsonentry;
 
 import java.io.IOException;
 
 
 @SuppressWarnings("serial") // use default serial UID
-class JsonNumber extends JsonValue {
+public class JsonNumber extends JsonValue {
 
   private final String string;
 
-  JsonNumber(String string) {
+  public JsonNumber(String string) {
     if (string == null) {
       throw new NullPointerException("string is null");
     }

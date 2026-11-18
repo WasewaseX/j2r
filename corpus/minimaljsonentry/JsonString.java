@@ -19,64 +19,41 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  ******************************************************************************/
-package com.eclipsesource.json;
+package minimaljsonentry;
 
 import java.io.IOException;
 
 
 @SuppressWarnings("serial") // use default serial UID
-class JsonLiteral extends JsonValue {
+class JsonString extends JsonValue {
 
-  private final String value;
-  private final boolean isNull;
-  private final boolean isTrue;
-  private final boolean isFalse;
+  private final String string;
 
-  JsonLiteral(String value) {
-    this.value = value;
-    isNull = "null".equals(value);
-    isTrue = "true".equals(value);
-    isFalse = "false".equals(value);
+  JsonString(String string) {
+    if (string == null) {
+      throw new NullPointerException("string is null");
+    }
+    this.string = string;
   }
 
   @Override
   void write(JsonWriter writer) throws IOException {
-    writer.writeLiteral(value);
+    writer.writeString(string);
   }
 
   @Override
-  public String toString() {
-    return value;
+  public boolean isString() {
+    return true;
+  }
+
+  @Override
+  public String asString() {
+    return string;
   }
 
   @Override
   public int hashCode() {
-    return value.hashCode();
-  }
-
-  @Override
-  public boolean isNull() {
-    return isNull;
-  }
-
-  @Override
-  public boolean isTrue() {
-    return isTrue;
-  }
-
-  @Override
-  public boolean isFalse() {
-    return isFalse;
-  }
-
-  @Override
-  public boolean isBoolean() {
-    return isTrue || isFalse;
-  }
-
-  @Override
-  public boolean asBoolean() {
-    return isNull ? super.asBoolean() : isTrue;
+    return string.hashCode();
   }
 
   @Override
@@ -90,8 +67,8 @@ class JsonLiteral extends JsonValue {
     if (getClass() != object.getClass()) {
       return false;
     }
-    JsonLiteral other = (JsonLiteral)object;
-    return value.equals(other.value);
+    JsonString other = (JsonString)object;
+    return string.equals(other.string);
   }
 
 }

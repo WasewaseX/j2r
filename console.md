@@ -4884,3 +4884,38 @@ roadmap" on the A-graded tree.
 - REMAINING under the same order: slice-k (minimal-json), slice-l
   (JAMA/JamaCorpus), slice-m (jzlib vendor), slice-n (full-repo sweep).
   PR HOLD unchanged: the four dependabot branches stay unmerged.
+
+## 2026-11-19 — round-4 slice-k (minimal-json retirement)
+
+- THE VENDOR (ralfstx/minimal-json, 15 files) left the repo as the
+  byte-frozen archive scripts/evidence/vendor_minimaljson.tar.gz;
+  corpus/minimaljsonentry (package minimaljsonentry) = 11 verbatim
+  per-class sources (package swap only) + 10 HAND-maintained reshaped
+  files splitting the four oversized upstream classes under 441 lines:
+  JsonObject 934 -> JsonObject 365 (core + Member nested + one-line
+  delegators for add x3/get/iterator) + JsonObjectMutation 173 (add x7 +
+  set x7 + remove as receiver-statics) + JsonObjectAccess 154
+  (contains/merge/get/typed getters/size/isEmpty/names/iterator) +
+  HashIndexTable 47 (its own file: javac's -sourcepath resolves
+  top-level classes only by their own file name — a secondary class
+  inside JsonObjectAccess.java is invisible to the implicit compile);
+  JsonParser 511 -> JsonParser 409 + JsonParserTokens 152
+  (readStringInternal/readEscape/readNumber/readFraction/readExponent/
+  isHexDigit); JsonArray 511 -> JsonArray 293 + JsonArrayAccess 149;
+  JsonValue 495 -> JsonValue 345 (as x8 + valueOf x6 as delegators) +
+  JsonValueAccess 152 (the throwing as-bases, valueOf, writeTo x2).
+- THE PACKAGE-BOUNDARY LESSON STRUCK TWICE: (1) upstream's odd self-
+  import `import com.eclipsesource.json.JsonObject.Member;` exists
+  BECAUSE a nested type cannot be referenced bare in its own implements
+  clause — the package strip removed it and the implements clause broke;
+  restored as `import minimaljsonentry.JsonObject.Member;`. (2) the
+  upstream package-private JsonNumber (class AND ctor) is invisible to
+  the default-package driver across the import boundary — widened to
+  public in the generation transform (visibility-only, documented).
+  Both caught by the compile gate, none shipped.
+- PROOFS: javac+java stdout BYTE-IDENTICAL to the pre-edit baseline
+  (359 B, sha 4211bb89..., stderr 0, exit 0); j2r test --release
+  three-channel PASS; corpus_suite 6/6 (53.7s warm); fmt + clippy -D
+  warnings clean; gate-11 in sync (fixtures=130 tests=619);
+  REGEN-BYTE-IDENTICAL; the hosted-rules replica reports ZERO findings
+  on MinimalJsonCorpus.java + minimaljsonentry/ (max file 409 lines).
