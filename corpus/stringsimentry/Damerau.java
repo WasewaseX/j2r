@@ -21,12 +21,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.MetricStringDistance;
 import java.util.HashMap;
 
-import net.jcip.annotations.Immutable;
 
 /**
  * Implementation of Damerau-Levenshtein distance with transposition (also
@@ -42,7 +40,6 @@ import net.jcip.annotations.Immutable;
  *
  * @author Thibault Debatty
  */
-@Immutable
 public class Damerau implements MetricStringDistance {
 
     /**

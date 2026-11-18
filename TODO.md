@@ -3,7 +3,39 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-18 (the scanaislop round-3 corpus
+fix the board. Last updated: 2026-11-19 (the scanaislop round-4 wave,
+slice-j — **THE OWNER PASTED 20 COMPLEXITY FINDINGS OVER THE WAVE-1/3/4
+CORPUS AND THE JAMA VENDOR (files above 441 lines, functions above 88,
+nesting max 5; the paste is the first 20 of a report that also covers
+corpus/jzlib, corpus/minimal-json and corpus/stringsim by path order)
+and ordered them FIXED with every PR held to the same standard.** The
+end-state doctrine: no vendored .java tree and no amalgam remain in the
+repo — vendors become byte-frozen evidence archives, the compiled
+library is the <lib>entry package, oversized generated classes get the
+HAND reshape. slice-j (stringsim) DONE: vendor archived to
+scripts/evidence/vendor_stringsim.tar.gz, corpus/stringsimentry = 19
+script-generated verbatim per-class sources + 2 HAND reshapes (NGram
+distanceShort/buildPrefixed, Sift4 earlyResult/scanTranspositions/
+bestShift + the method-local Offset class now a package-private
+top-level carrier), StringsSimCorpus main split main+phase1..3 under
+the 80-line limit (the pasted :56 finding), StringsSimBench driver-only;
+build_corpus_stringsim.sh rewritten to own the new layout (REGEN-BYTE-
+IDENTICAL), build_corpus_stringsimbench.sh regenerates the bench driver
+over the same entry. PROOF (slice-j): javac+java stdout BYTE-IDENTICAL
+to the pre-edit baselines (SSC 580 B sha 2781d680…, SSB 140 B sha
+cb155cfa…, stderr 0, exit 0), j2r test --release three-channel PASS on
+both drivers, corpus_suite 6/6, fmt + clippy -D warnings clean,
+gate-11 in sync (fixtures=130 tests=619). REMAINING under the same
+order: slice-k (minimal-json: vendor archived, minimaljsonentry with
+the JsonObject 934/JsonParser 511/JsonArray 511/JsonValue 495 HAND
+reshape families), slice-l (JAMA: vendor archived, JamaCorpus driver
+imports the already-proven jamaentry.* — the API-gap audit re-gates
+BOTH drivers), slice-m (jzlib vendor archived, build_corpus_jzlib.sh
+extracts from the archive, REGEN-BYTE-IDENTICAL), slice-n (full-repo
+hosted-rules sweep). THEN the queue head T15.2 (the MappingSet-driven
+remap pass). PR HOLD unchanged: the four dependabot branches stay
+unmerged.).
+Previous: 2026-11-18 (the scanaislop round-3 corpus
 wave, slices a-f — **THE AMALGAM SHAPE RETIRES AND THE
 VENDORED-EXEMPTION RETIRES WITH IT**: the owner re-pasted the
 complexity-only findings (file above 441 lines, function above 88,

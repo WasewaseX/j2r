@@ -1,12 +1,10 @@
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.StringDistance;
 
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import net.jcip.annotations.Immutable;
 
 /**
  * Q-gram distance, as defined by Ukkonen in "Approximate string-matching with
@@ -18,7 +16,6 @@ import net.jcip.annotations.Immutable;
  *
  * @author Thibault Debatty
  */
-@Immutable
 public class QGram extends ShingleBased implements StringDistance {
 
     /**

@@ -1,7 +1,5 @@
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.MetricStringDistance;
-import net.jcip.annotations.Immutable;
 
 /**
  * The Levenshtein distance between two words is the minimum number of
@@ -10,7 +8,6 @@ import net.jcip.annotations.Immutable;
  *
  * @author Thibault Debatty
  */
-@Immutable
 public class Levenshtein implements MetricStringDistance {
 
     /**

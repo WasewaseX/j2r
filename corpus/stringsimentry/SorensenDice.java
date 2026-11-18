@@ -21,15 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringSimilarity;
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringDistance;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import net.jcip.annotations.Immutable;
 
 /**
  * Similar to Jaccard index, but this time the similarity is computed as 2 * |V1
@@ -37,7 +34,6 @@ import net.jcip.annotations.Immutable;
  *
  * @author Thibault Debatty
  */
-@Immutable
 public class SorensenDice extends ShingleBased implements
         NormalizedStringDistance, NormalizedStringSimilarity {
 

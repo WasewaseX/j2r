@@ -1,7 +1,4 @@
-package info.debatty.java.stringsimilarity;
-
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringDistance;
-import net.jcip.annotations.Immutable;
+package stringsimentry;
 
 /**
  * N-Gram Similarity as defined by Kondrak, "N-Gram Similarity and Distance",
@@ -13,8 +10,14 @@ import net.jcip.annotations.Immutable;
  * total similarity score the original length of the longest word.
  *
  * http://webdocs.cs.ualberta.ca/~kondrak/papers/spire05.pdf
+ *
+ * Reshaped from the vendored tdebatty/java-string-similarity v0.24 source
+ * (scanaislop round-4 wave): the short-input path and the prefixed source
+ * array construction are extracted verbatim so every function stays under
+ * the 80-line house limit. Arithmetic, control flow and evaluation order
+ * are unchanged (byte-identity gated by StringsSimCorpus rows ng/ng4 and
+ * the StringsSimBench W8 checksum).
  */
-@Immutable
 public class NGram implements NormalizedStringDistance {
 
     private static final int DEFAULT_N = 2;
@@ -63,29 +66,15 @@ public class NGram implements NormalizedStringDistance {
             return 1;
         }
 
-        int cost = 0;
         if (sl < n || tl < n) {
-            for (int i = 0, ni = Math.min(sl, tl); i < ni; i++) {
-                if (s0.charAt(i) == s1.charAt(i)) {
-                    cost++;
-                }
-            }
-            return (float) cost / Math.max(sl, tl);
+            return distanceShort(s0, s1, sl, tl);
         }
 
-        char[] sa = new char[sl + n - 1];
+        char[] sa = buildPrefixed(s0, sl, special);
         float[] p; //'previous' cost array, horizontally
         float[] d; // cost array, horizontally
         float[] d2; //placeholder to assist in swapping p and d
 
-        //construct sa with prefix
-        for (int i = 0; i < sa.length; i++) {
-            if (i < n - 1) {
-                sa[i] = special; //add prefix
-            } else {
-                sa[i] = s0.charAt(i - n + 1);
-            }
-        }
         p = new float[sl + 1];
         d = new float[sl + 1];
 
@@ -113,7 +102,7 @@ public class NGram implements NormalizedStringDistance {
             }
             d[0] = j;
             for (i = 1; i <= sl; i++) {
-                cost = 0;
+                int cost = 0;
                 int tn = n;
                 //compare sa to t_j
                 for (int ni = 0; ni < n; ni++) {
@@ -139,5 +128,40 @@ public class NGram implements NormalizedStringDistance {
         // our last action in the above loop was to switch d and p, so p now
         // actually has the most recent cost counts
         return p[sl] / Math.max(tl, sl);
+    }
+
+    /**
+     * The short-input path of the upstream distance() (either string
+     * shorter than n), extracted verbatim: positional matches over the
+     * common prefix, normalized by the longer length with the upstream
+     * (float) int-division cast order.
+     */
+    private double distanceShort(final String s0, final String s1,
+            final int sl, final int tl) {
+        int cost = 0;
+        for (int i = 0, ni = Math.min(sl, tl); i < ni; i++) {
+            if (s0.charAt(i) == s1.charAt(i)) {
+                cost++;
+            }
+        }
+        return (float) cost / Math.max(sl, tl);
+    }
+
+    /**
+     * The prefixed source array construction of the upstream distance(),
+     * extracted verbatim: the first n-1 slots carry the '\n' affix, the
+     * rest carry s0 shifted by n-1.
+     */
+    private char[] buildPrefixed(final String s0, final int sl,
+            final char special) {
+        char[] sa = new char[sl + n - 1];
+        for (int i = 0; i < sa.length; i++) {
+            if (i < n - 1) {
+                sa[i] = special; //add prefix
+            } else {
+                sa[i] = s0.charAt(i - n + 1);
+            }
+        }
+        return sa;
     }
 }

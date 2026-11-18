@@ -1,19 +1,75 @@
 #!/bin/bash
-# Build the java-string-similarity real-world corpus file: one .java,
-# multiple package-private classes + a public StringsSimCorpus driver.
-# Source: tdebatty/java-string-similarity v0.24 (Apache-2.0), vendored to
-# corpus/stringsim/ — the same library an external regex-shaped converter
-# mangled into 309 rustc errors; through j2r it must be byte-identical to
-# Temurin on first differential contact.
+# Build the java-string-similarity corpus ENTRY in the post-amalgam layout
+# (scanaislop round-4 wave: the amalgam shape retires, the vendored
+# source tree leaves the repo as an evidence archive).
+#
+# Layout owned by this script:
+#   corpus/StringsSimCorpus.java   — driver only (imports stringsimentry.*),
+#                                    main split main+phase1..3 under the
+#                                    80-line house limit
+#   corpus/stringsimentry/         — package stringsimentry, 19 verbatim
+#                                    per-class sources generated from the
+#                                    archived vendor tree (package swap
+#                                    only) + 2 HAND-maintained reshaped
+#                                    files (NGram, Sift4 — existence check,
+#                                    never overwritten)
+#   scripts/evidence/vendor_stringsim.tar.gz — the pristine tdebatty/
+#                                    java-string-similarity v0.24 tree
+#                                    (Apache-2.0), byte-frozen input
+#
+# REGEN-BYTE-IDENTICAL: re-running this script leaves the tree unchanged.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-OUT=corpus/StringsSimCorpus.java
-IMP=$(mktemp)
-FRAG=$(mktemp)
-DRV=$(mktemp)
-trap 'rm -f "$IMP" "$FRAG" "$DRV"' EXIT
+ARCHIVE=scripts/evidence/vendor_stringsim.tar.gz
+ENTRY=corpus/stringsimentry
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
 
-cat > "$DRV" <<'DRIVER'
+mkdir -p "$ENTRY"
+tar xzf "$ARCHIVE" -C "$WORK"
+
+VDIR="$WORK/corpus/stringsim"
+
+# VERBATIM generation: package swap + intra-library import / net.jcip /
+# @Immutable strip; public stays public (the amalgam-only public demotion
+# cannot cross a package boundary); javadoc and bytes otherwise untouched.
+gen_verbatim() {
+  local f="$1"
+  local base
+  base=$(basename "$f")
+  sed -e 's/^package info\.debatty\.java\.stringsimilarity.*/package stringsimentry;/' \
+      -e '/^import info\.debatty\.java\.stringsimilarity\./d' \
+      -e '/^import net\.jcip\.annotations\./d' \
+      -e '/^@Immutable/d' \
+      "$f" > "$ENTRY/$base"
+}
+
+for f in CharacterSubstitutionInterface.java Cosine.java Damerau.java \
+         Jaccard.java JaroWinkler.java Levenshtein.java \
+         LongestCommonSubsequence.java MetricLCS.java \
+         NormalizedLevenshtein.java OptimalStringAlignment.java \
+         QGram.java ShingleBased.java SorensenDice.java \
+         WeightedLevenshtein.java \
+         MetricStringDistance.java NormalizedStringDistance.java \
+         NormalizedStringSimilarity.java StringDistance.java \
+         StringSimilarity.java; do
+  if [ -f "$VDIR/$f" ]; then
+    gen_verbatim "$VDIR/$f"
+  else
+    gen_verbatim "$VDIR/interfaces/$f"
+  fi
+done
+
+# HAND-maintained reshaped files: existence check, never overwritten.
+for h in NGram.java Sift4.java; do
+  if [ ! -f "$ENTRY/$h" ]; then
+    echo "FATAL: HAND file missing: $ENTRY/$h (it carries the round-4" \
+         "function-length reshape and is never regenerated)" >&2
+    exit 1
+  fi
+done
+
+cat > corpus/StringsSimCorpus.java <<'DRIVER'
 /**
  * Differential driver over the java-string-similarity library
  * (real-world corpus entry 4). Deterministic output only: every double is
@@ -22,7 +78,13 @@ cat > "$DRV" <<'DRIVER'
  * pin the three external-report silent-semantic classes: UTF-16 code units
  * (astral = 2 units), f32 intermediates (JaroWinkler bits), and the ASCII
  * \s law (NBSP must survive whitespace collapse).
+ *
+ * scanaislop round-4 wave: the driver imports the stringsimentry entry
+ * package (the amalgam shape retires) and main is split main+phase1..3
+ * under the 80-line house limit; output order is unchanged.
  */
+import stringsimentry.*;
+
 public class StringsSimCorpus {
 
   // Named impl instead of an anonymous class: deterministic, and the
@@ -65,7 +127,12 @@ public class StringsSimCorpus {
     String b = "My String2";
     String emoji = "\uD83D\uDC4D";
     String x = "x";
+    phase1(a, b, emoji, x);
+    phase2(a, b, emoji, x);
+    phase3(a, b, emoji, x);
+  }
 
+  static void phase1(String a, String b, String emoji, String x) {
     // --- Levenshtein: the UTF-16 law row + nulls + the 3-arg overload ---
     Levenshtein lev = new Levenshtein();
     System.out.println("lev_ab=" + lev.distance(a, b));
@@ -106,7 +173,9 @@ public class StringsSimCorpus {
     System.out.println("ng=" + ng.distance(a, b));
     NGram ng4 = new NGram(4);
     System.out.println("ng4=" + ng4.distance(a, b));
+  }
 
+  static void phase2(String a, String b, String emoji, String x) {
     // --- ShingleBased profile + the ASCII \s law (B21) -------------------
     QGram q2 = new QGram(2);
     pp("q2_profile_ws", q2.getProfile("a  b\n\tc"));
@@ -131,7 +200,9 @@ public class StringsSimCorpus {
     Cosine cos = new Cosine(3);
     System.out.println("cos=" + cos.similarity(a, b));
     System.out.println("cos_emoji=" + cos.similarity(emoji, x));
+  }
 
+  static void phase3(String a, String b, String emoji, String x) {
     // --- WeightedLevenshtein: interface dispatch -------------------------
     WeightedLevenshtein wl = new WeightedLevenshtein(new DoubleSub());
     System.out.println("wl=" + wl.distance(a, b));
@@ -143,7 +214,7 @@ public class StringsSimCorpus {
       System.out.println("wl_null: " + e.getMessage());
     }
 
-    // --- Sift4 (experimental): LinkedList + local class ------------------
+    // --- Sift4 (experimental): LinkedList + top-level Offset carrier -----
     Sift4 sift = new Sift4();
     System.out.println("sift_ab=" + sift.distance(a, b));
     System.out.println("sift_emoji=" + sift.distance(emoji, x));
@@ -165,43 +236,4 @@ public class StringsSimCorpus {
 }
 DRIVER
 
-# Library files: drop package + intra-library imports; demote top-level
-# public; split imports from bodies.
-for f in corpus/stringsim/CharacterSubstitutionInterface.java \
-         corpus/stringsim/Cosine.java corpus/stringsim/Damerau.java \
-         corpus/stringsim/Jaccard.java corpus/stringsim/JaroWinkler.java \
-         corpus/stringsim/Levenshtein.java \
-         corpus/stringsim/LongestCommonSubsequence.java \
-         corpus/stringsim/MetricLCS.java corpus/stringsim/NGram.java \
-         corpus/stringsim/NormalizedLevenshtein.java \
-         corpus/stringsim/OptimalStringAlignment.java \
-         corpus/stringsim/QGram.java corpus/stringsim/ShingleBased.java \
-         corpus/stringsim/SorensenDice.java \
-         corpus/stringsim/WeightedLevenshtein.java \
-         corpus/stringsim/experimental/Sift4.java \
-         corpus/stringsim/interfaces/MetricStringDistance.java \
-         corpus/stringsim/interfaces/NormalizedStringDistance.java \
-         corpus/stringsim/interfaces/NormalizedStringSimilarity.java \
-         corpus/stringsim/interfaces/StringDistance.java \
-         corpus/stringsim/interfaces/StringSimilarity.java; do
-  # @Immutable (net.jcip) is third-party metadata with zero semantics —
-  # stripped alongside the package/imports, like the JAMA wave's merge.
-  grep -v -e '^import info\.debatty\.java\.stringsimilarity\.' \
-          -e '^import net\.jcip\.annotations\.' \
-          -e '^@Immutable' "$f"
-done | sed -e 's/^package .*;//' \
-    -e 's/^public \(final \|abstract \)\+\(class\|interface\|enum\)/\1\2/' \
-    -e 's/^public \(class\|interface\|enum\)/\1/' | while IFS= read -r line; do
-  case "$line" in
-    import\ *) printf '%s\n' "$line" >> "$IMP" ;;
-    *) printf '%s\n' "$line" >> "$FRAG" ;;
-  esac
-done
-
-{
-  sort -u "$IMP"
-  cat "$DRV"
-  cat "$FRAG"
-} > "$OUT"
-
-javac -d /tmp/stringsim_corpus_out "$OUT" && echo JAVAC_OK
+javac -sourcepath corpus -d /tmp/stringsim_corpus_out corpus/StringsSimCorpus.java && echo JAVAC_OK

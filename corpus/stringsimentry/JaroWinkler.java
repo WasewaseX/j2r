@@ -1,10 +1,7 @@
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringSimilarity;
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringDistance;
 import java.util.Arrays;
 
-import net.jcip.annotations.Immutable;
 
 /**
  * The Jaro–Winkler distance metric is designed and best suited for short
@@ -17,7 +14,6 @@ import net.jcip.annotations.Immutable;
  * The distance is computed as 1 - Jaro-Winkler similarity.
  * @author Thibault Debatty
  */
-@Immutable
 public class JaroWinkler
         implements NormalizedStringSimilarity, NormalizedStringDistance {
 

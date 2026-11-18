@@ -21,9 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import net.jcip.annotations.Immutable;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -50,7 +49,6 @@ import java.util.regex.Pattern;
  *
  * @author Thibault Debatty
  */
-@Immutable
 abstract class ShingleBased {
 
     private static final int DEFAULT_K = 3;

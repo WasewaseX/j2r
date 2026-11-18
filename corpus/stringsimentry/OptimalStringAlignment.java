@@ -21,10 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.StringDistance;
-import net.jcip.annotations.Immutable;
 
 /**
  * Implementation of the the Optimal String Alignment (sometimes called the
@@ -37,7 +35,6 @@ import net.jcip.annotations.Immutable;
  *
  * @author Michail Bogdanos
  */
-@Immutable
 public final class OptimalStringAlignment implements StringDistance {
 
     /**

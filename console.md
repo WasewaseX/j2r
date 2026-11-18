@@ -4825,3 +4825,62 @@ roadmap" on the A-graded tree.
   carry throws; the bench_suite handler assigns its fallback
   explicitly). Every jamaentry/ and jzlibentry/ file is <=441 lines.
   NEXT: the queue head T15.2 (the MappingSet-driven remap pass).
+
+## 2026-11-19 — scanaislop round-4 wave opens: slice-j (stringsim retirement)
+
+- THE OWNER PASTED 20 COMPLEXITY FINDINGS (files above 441 lines,
+  functions above 88, nesting max 5) over corpus/JamaCorpus,
+  MinimalJsonCorpus, StringsSimBench, StringsSimCorpus and the corpus/
+  jama vendor, and ordered them FIXED with "Hold every pull request to
+  this". Path-order analysis: the paste is the first 20 findings of the
+  hosted report — corpus/jzlib (still at HEAD with upstream-sized state
+  machines), corpus/minimal-json (JsonObject 934/JsonParser 511/
+  JsonArray 511/JsonValue 495) and corpus/stringsim sort AFTER
+  corpus/jama/SVD and are the truncated tail; they are in scope under
+  the same order.
+- Sandbox reset recovery: toolchain re-bootstrapped (rustc 1.99.1
+  58cf8f9c3, javac 21.0.13+9), repo fast-forwarded b4badea -> 4b23bab
+  (232 commits — the whole round-3 wave was past this checkout's last
+  sync), release build 36s, pre-edit byte-oracles captured for ALL
+  eight drivers (SSC 580 B sha 2781d680…, SSB 140 B sha cb155cfa…,
+  MinimalJson 359 B, JamaCorpus 5015 B, HexFloat 5103 B, JZlib 330 B,
+  JamaBench 73 B sha e830385d… matching the board, EigenNonsym 716 B).
+- A local replica of the hosted rules (scripts/slop_check_hosted.py in
+  the workspace, not the repo) was calibrated against the paste: raw
+  line counting for file/function length, control-structure depth for
+  nesting, the `ignored` catch convention — it reproduces all 20 pasted
+  findings at the exact pasted lines. Known hosted divergences stay
+  documented (FmtResidualProbe's 187-line main is invisible to three
+  hosted scans in a row — likely its parser aborts on the unbalanced
+  string-paren the file carries; SingularValueCore's nest-6 shape was
+  slice-i-verified and is not re-flagged here).
+- SLICE-J (stringsim): the vendor tree (tdebatty/java-string-similarity
+  v0.24, 21 files incl. interfaces/ + experimental/Sift4) left the repo
+  as the byte-frozen archive scripts/evidence/vendor_stringsim.tar.gz;
+  corpus/stringsimentry (package stringsimentry) = 19 script-generated
+  verbatim per-class sources (package swap only, public stays public) +
+  2 HAND-reshaped files: NGram (distanceShort + buildPrefixed extracted;
+  the pasted-class >88-line distance now 78) and Sift4 (earlyResult +
+  scanTranspositions + bestShift extracted; the method-local Offset
+  class is now a package-private top-level carrier with package-visible
+  fields; distance 124 -> 62 lines). StringsSimCorpus main (102 lines,
+  the pasted :56) split main+phase1..3 under the 80-line house limit;
+  StringsSimBench is driver-only over the same entry. Both build
+  scripts rewritten to own the new layout; stringsimbench delegates
+  entry generation to stringsim.sh (single source of truth).
+- PROOFS: REGEN-BYTE-IDENTICAL (re-run leaves the tree unchanged);
+  javac+java stdout BYTE-IDENTICAL to the pre-edit baselines (SSC 580 B
+  sha 2781d680…, SSB 140 B sha cb155cfa…, stderr 0, exit 0); j2r test
+  --release three-channel PASS on BOTH drivers; all six corpus entries
+  PASS individually + corpus_suite 6/6 (test ok, 55 s warm); fmt +
+  clippy -D warnings clean exit-code CHECKED; gate-11 in sync
+  (fixtures=130 tests=619); local hosted-rules checker ZERO findings on
+  StringsSimCorpus.java, StringsSimBench.java and stringsimentry/.
+- One compile gate catch en route: scanTranspositions' `trans` param
+  was declared final while the extracted body increments it — caught by
+  javac, fixed before anything shipped. The sandbox kills process
+  groups between tool calls (the nohup'd suite died silently, load
+  0.04) — long gates run in the foreground per entry from now on.
+- REMAINING under the same order: slice-k (minimal-json), slice-l
+  (JAMA/JamaCorpus), slice-m (jzlib vendor), slice-n (full-repo sweep).
+  PR HOLD unchanged: the four dependabot branches stay unmerged.

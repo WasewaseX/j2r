@@ -1,7 +1,5 @@
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.StringDistance;
-import net.jcip.annotations.Immutable;
 
 /**
  * The longest common subsequence (LCS) problem consists in finding the longest
@@ -23,7 +21,6 @@ import net.jcip.annotations.Immutable;
  *
  * @author Thibault Debatty
  */
-@Immutable
 public class LongestCommonSubsequence implements StringDistance {
 
     /**

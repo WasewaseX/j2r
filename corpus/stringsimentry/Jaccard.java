@@ -22,16 +22,12 @@
  * THE SOFTWARE.
  */
 
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.MetricStringDistance;
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringSimilarity;
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringDistance;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import net.jcip.annotations.Immutable;
 
 /**
  * Each input string is converted into a set of n-grams, the Jaccard index is
@@ -43,7 +39,6 @@ import net.jcip.annotations.Immutable;
  * Jaccard index is a metric distance.
  * @author Thibault Debatty
  */
-@Immutable
 public class Jaccard extends ShingleBased implements
         MetricStringDistance, NormalizedStringDistance,
         NormalizedStringSimilarity {

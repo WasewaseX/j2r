@@ -21,13 +21,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package info.debatty.java.stringsimilarity;
+package stringsimentry;
 
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringSimilarity;
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringDistance;
 import java.util.Map;
 
-import net.jcip.annotations.Immutable;
 
 /**
  * The similarity between the two strings is the cosine of the angle between
@@ -36,7 +33,6 @@ import net.jcip.annotations.Immutable;
  *
  * @author Thibault Debatty
  */
-@Immutable
 public class Cosine extends ShingleBased implements
         NormalizedStringDistance, NormalizedStringSimilarity {
 

@@ -441,6 +441,15 @@ runs **output-identical to Temurin 21.0.13** (after the surface gaps
 below closed), merging by scripts/build_corpus_stringsim.sh, driver
 StringsSimCorpus, corpus_suite 3 -> 4 entries (70.9s local).
 
+Round-4 update (scanaislop wave, 2026-11-19): the amalgam shape retired
+— the vendor tree left the repo as the byte-frozen archive
+`scripts/evidence/vendor_stringsim.tar.gz` and the compiled library is
+now the `corpus/stringsimentry` entry package (19 script-generated
+verbatim per-class sources + the HAND-reshaped NGram/Sift4 whose long
+functions split under the 80-line house limit); both drivers
+(StringsSimCorpus, StringsSimBench) import `stringsimentry.*` and their
+outputs stayed byte-identical (580 B / 140 B).
+
 What it cost (each found by a loud failure or the differential):
 
 1. **Map.entrySet / Map.Entry** — the JDK's entry iterator hands out the

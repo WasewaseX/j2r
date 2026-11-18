@@ -1,4 +1,4 @@
-package info.debatty.java.stringsimilarity.interfaces;
+package stringsimentry;
 
 import java.io.Serializable;
 

@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2015 tibo.
+ * Copyright 2015 Thibault Debatty.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,35 +21,31 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-package info.debatty.java.stringsimilarity;
 
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringSimilarity;
-import info.debatty.java.stringsimilarity.interfaces.NormalizedStringDistance;
-import net.jcip.annotations.Immutable;
+package stringsimentry;
+
 
 /**
- * This distance is computed as levenshtein distance divided by the length of
- * the longest string. The resulting value is always in the interval [0.0 1.0]
- * but it is not a metric anymore! The similarity is computed as 1 - normalized
- * distance.
+ * Distance metric based on Longest Common Subsequence, from the notes "An
+ * LCS-based string metric" by Daniel Bakkelund.
  *
  * @author Thibault Debatty
  */
-@Immutable
-public class NormalizedLevenshtein implements
-        NormalizedStringDistance, NormalizedStringSimilarity {
+public class MetricLCS
+        implements MetricStringDistance, NormalizedStringDistance {
 
-    private final Levenshtein l = new Levenshtein();
+    private final LongestCommonSubsequence lcs = new LongestCommonSubsequence();
 
     /**
-     * Compute distance as Levenshtein(s1, s2) / max(|s1|, |s2|).
+     * Distance metric based on Longest Common Subsequence, computed as
+     * 1 - |LCS(s1, s2)| / max(|s1|, |s2|).
+     *
      * @param s1 The first string to compare.
      * @param s2 The second string to compare.
-     * @return The computed distance in the range [0, 1]
+     * @return The computed distance metric value.
      * @throws NullPointerException if s1 or s2 is null.
      */
     public final double distance(final String s1, final String s2) {
-
         if (s1 == null) {
             throw new NullPointerException("s1 must not be null");
         }
@@ -63,23 +59,11 @@ public class NormalizedLevenshtein implements
         }
 
         int m_len = Math.max(s1.length(), s2.length());
-
         if (m_len == 0) {
             return 0;
         }
-
-        return l.distance(s1, s2) / m_len;
+        return 1.0
+            - (1.0 * lcs.length(s1, s2))
+            / m_len;
     }
-
-    /**
-     * Return 1 - distance.
-     * @param s1 The first string to compare.
-     * @param s2 The second string to compare.
-     * @return 1.0 - the computed distance
-     * @throws NullPointerException if s1 or s2 is null.
-     */
-    public final double similarity(final String s1, final String s2) {
-        return 1.0 - distance(s1, s2);
-    }
-
 }
