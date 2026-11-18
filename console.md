@@ -4635,3 +4635,70 @@ roadmap" on the A-graded tree.
   Signature text, StackMapTable Object_variable_info, Record
   components); then T15.3 the CLI `remap` stage; then T16 (real
   intermediary load + remapped jar differential). PR HOLD unchanged.
+
+## Session cont. — 2026-11-18: the scanaislop round-3 corpus wave, slices a-f — **THE AMALGAM SHAPE RETIRES, THE VENDORED-EXEMPTION RETIRES WITH IT — JamaBench lands as driver + jamaentry (67 lines), the last file-too-large finding dies** (board record written late, with slice-f: slices a-e2 landed in their own commits without a same-commit boards entry — recorded here together, per-commit detail lives in the commit messages)
+
+- THE ORDER: the owner re-pasted the complexity-only findings
+  ("continue scanai slop claims fix them complexity/function-too-long")
+  — file-too-large above 441 lines, function-too-long above 88,
+  deep-nesting max 5 — over corpus/HexFloatProbe.java,
+  corpus/JZlibCorpus.java (the 7279-line amalgam),
+  corpus/JamaBench.java (the 3363-line amalgam). The round-1/2
+  "vendored-algorithm advisories are exempt-by-design" line is RETIRED:
+  the owner's order fixes them, so the fix is reshape, not adjudicate.
+- THE WAVE (each slice PROBE FIRST with a byte-exact javac+java stdout
+  baseline, every stdout claim a same-session diff, every push gated):
+  slice-a multi-file differential entries (cmd_test passes -sourcepath
+  <file parent>; RED probe MfDriver/MfLib captured, PASS after);
+  HexFloatProbe main split (main 111 → main(9)+basics(35)+missing(14)+
+  rounding(22)+subnormals(35)) which forced the first full three-channel
+  check of that file and exposed that Float/Double.toHexString NEVER
+  passed — closed probe-first with javafmt double_to_hex_string/
+  float_to_hex_string pinned against the live Temurin 21.0.13 oracle
+  over the 76-row probe matrix (76/76) + natives registered +
+  HexFloatProbe pinned as corpus_suite entry 5;
+  slice-c JZlibCorpus split into driver (114) + jzlibentry/ (18
+  script-generated per-class sources REGEN-BYTE-IDENTICAL + 5
+  hand-maintained state machines);
+  slice-d Deflate → nine files (every function ≤80, nest ≤4, file
+  ≤439) — which exposed AND closed a real j2r gap: field resolution
+  walked only superclasses, so an interface-declared static (javac
+  emits the Fieldref with the ACCESSING class as owner) was
+  unresolvable and its declaring interface <clinit> never ensured —
+  resolve_field/resolve_field_slot now walk the JVMS 5.4.3.2
+  superinterface closure (BFS, 256-step cap, seen-set);
+  slice-e1 Inflate → InflateC + Return + Inflate (the 23-arm
+  dispatcher) + InflateHeader + InflateSync, with the three dispatcher
+  laws caught by the build (input-wait guards, terminal states throw
+  not return, fallthrough tails re-dispatch);
+  slice-e2 InfBlocks → InfBlocksC + InfBlocksProc (the cursor locals
+  b/k/p/n/q/m/i/j/c/t as fields — the upstream UPDATE-macro sharing
+  model), InfCodes → InfCodesC + InfCodesFast (inflate_fast verbatim)
+  + InfCodes, InfTree → InfTree + InfTreeBuild (huft_build split into
+  build_counts/new_tables/make_entry, the MANY-overflow return
+  propagated through the helper boundary);
+  slice-f (THIS RUN) JamaBench → driver (67 lines) + jamaentry/ (7
+  per-class sources generated verbatim from the untouched NIST
+  corpus/jama/ tree by the rewritten build_corpus_jamabench.sh,
+  REGEN-BYTE-IDENTICAL — classes stay public, the amalgam-only
+  public-demotion cannot cross the package boundary and was the
+  script's one caught bug: `import jamaentry.*` from the default
+  package cannot see package-private types, javac says "not public in
+  jamaentry").
+- THE STATE: every file the hosted paste named is now clean
+  (HexFloatProbe 141 lines; JZlibCorpus 115; JamaBench 67); the
+  remaining jamaentry files above the limits (Matrix 1046, Eigen 956
+  with tred2/tql2/orthes/hqr2 flagged, SVD 548 with the flagged
+  constructor) reshape in the NEXT slices exactly like the JZlib
+  state machines did, then flip to HAND-maintained in the build
+  script.
+- GATES (slice-f, this run): javac+java stdout BYTE-IDENTICAL to the
+  pre-edit baseline (85 bytes, sha256 e830385d…, stderr 0, exit 0);
+  j2r test --release three-channel PASS (5m35s — the bench entry's
+  release native run is ~274s, debug native would not fit a gate);
+  corpus_suite 5/5 PASS; fmt + clippy -D warnings clean, exit codes
+  CHECKED; REGEN-BYTE-IDENTICAL (the script re-run leaves the tree
+  unchanged). No rust crate changed, batteries unchanged.
+- NEXT: the jamaentry reshape slices (Matrix, EigenvalueDecomposition,
+  SingularValueDecomposition), then the queue head T15.2 (the
+  MappingSet-driven remap pass). PR HOLD unchanged.

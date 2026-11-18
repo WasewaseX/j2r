@@ -3,7 +3,45 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-18 (the scanaislop round-2 wave —
+fix the board. Last updated: 2026-11-18 (the scanaislop round-3 corpus
+wave, slices a-f — **THE AMALGAM SHAPE RETIRES AND THE
+VENDORED-EXEMPTION RETIRES WITH IT**: the owner re-pasted the
+complexity-only findings (file above 441 lines, function above 88,
+nesting max 5) over HexFloatProbe/JZlibCorpus/JamaBench and ordered
+them FIXED, so round 1/2's "vendored-algorithm advisories are
+exempt-by-design" is retired — the fix is reshape, not adjudicate.
+HexFloatProbe main split (main 9 + 4 helpers under the 80-line limit)
+forced the file's first full three-channel check and exposed that
+Float/Double.toHexString NEVER passed — closed probe-first with
+javafmt double_to_hex_string/float_to_hex_string pinned against the
+live Temurin oracle over the 76-row matrix + natives registered +
+HexFloatProbe pinned as corpus_suite entry 5; JZlibCorpus split into
+the 114-line driver + jzlibentry/ (18 script-generated REGEN-BYTE-
+IDENTICAL + 5 hand-maintained state machines) — Deflate → nine files
+(functions ≤80, nest ≤4, files ≤439) which exposed AND closed a real
+j2r gap (field resolution now walks the JVMS 5.4.3.2 superinterface
+closure so an interface-declared static resolves and its declaring
+interface <clinit> is ensured), Inflate → the 23-arm dispatcher +
+Header/Sync families, InfBlocks/InfCodes/InfTree → proc families with
+the upstream UPDATE-macro cursor-locals as fields; JamaBench (THIS
+run, slice-f) → the 67-line driver + jamaentry/ (7 per-class sources
+generated verbatim from the untouched NIST tree by the rewritten
+build_corpus_jamabench.sh — the one caught bug: the amalgam's
+public-demotion cannot cross a package boundary, `import jamaentry.*`
+cannot see package-private types). PROOF (slice-f): javac+java stdout
+BYTE-IDENTICAL to the pre-edit baseline (85 bytes, sha256 e830385d…,
+stderr 0, exit 0), j2r test --release three-channel PASS (5m35s),
+corpus_suite 5/5, fmt + clippy -D warnings clean, REGEN-BYTE-IDENTICAL.
+REMAINING under the same order: the jamaentry reshape slices (Matrix
+1046, EigenvalueDecomposition 956 with tred2/tql2/orthes/hqr2,
+SingularValueDecomposition 548) — every flagged function/file to the
+limits, then flip to HAND-maintained in the script; the per-commit
+detail lives in the commit messages, the board record for the wave is
+written with slice-f (slices a-e2 landed without a same-commit boards
+entry). THEN the queue head T15.2 (the MappingSet-driven remap pass).
+PR HOLD unchanged:
+the three dependabot branches stay unmerged.).
+Previous: 2026-11-18 (the scanaislop round-2 wave —
 **THE OWNER RE-PASTED THE SAME 21 FINDINGS AND ORDERED THEM FIXED: THE
 SIX EMPTY-CATCH ERRORS ARE NOW GONE IN THE BYTES ON EVERY SCANNER
 SURFACE** — round 1 adjudicated the claims and opted the corpus out;

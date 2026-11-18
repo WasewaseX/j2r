@@ -1,22 +1,36 @@
 #!/bin/bash
-# Build the JAMA steady-state bench corpus file: one .java, multiple
-# package-private classes + a public JamaBench driver entry point.
-# Same mechanical merge as build_corpus_jama.sh (NIST JAMA 1.0.3, public
-# domain, vendored verbatim under corpus/jama/) with a bench-only driver.
+# Build the JAMA steady-state bench corpus entry: the driver
+# corpus/JamaBench.java plus the library entry sources
+# corpus/jamaentry/*.java (package jamaentry).
 #
-# Purpose (R5 steady-state gap): a real-library workload long enough that
-# the full tiered JVM (C1 -> C2) reaches steady state — startup and JIT
-# warmup become noise — so the native-vs-JIT hot-loop comparison is
-# honest. Output is a fixed handful of deterministic lines (fixed xorshift
-# seed, no Math.random), so the same stem can later join the differential
-# corpus suite unchanged.
+# Round-3 (2026-11-18): the hosted scanaislop surface's complexity rules
+# (file flagged above 441 lines, function above 88 lines, nesting max 5)
+# apply to the single-file amalgam shape too, so the entry is now a
+# driver plus a directory of per-class sources. The seven classes are
+# GENERATED here from the vendored upstream tree (corpus/jama/ and
+# corpus/jama/util/, package Jama — NIST public-domain JAMA 1.0.3, kept
+# untouched as the provenance record) and the script reproduces the
+# committed bytes byte-for-byte (REGEN-BYTE-IDENTICAL). The three files
+# that still carry the owner's round-3 complexity findings (Matrix
+# 1046 lines; EigenvalueDecomposition 956 lines with tred2/tql2/orthes/
+# hqr2 flagged function-too-long/deep-nesting; SingularValueDecomposition
+# 548 lines with the flagged SVD constructor) are reshaped in the
+# following round-3 slices and then flip to HAND-maintained (verified
+# for existence here, never overwritten) exactly like the JZlib entry's
+# five state machines.
+#
+# The old single-file amalgam (driver + 7 classes, 3363 lines) is
+# retired: corpus/JamaBench.java is the driver only and imports
+# jamaentry.*. Class names inside jamaentry are unchanged from the
+# amalgam, so the javac+java differential proof and the j2r
+# three-channel comparison see the same program modulo the documented
+# complexity reshaping.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=corpus/JamaBench.java
-IMP=$(mktemp)
-FRAG=$(mktemp)
+ENTRY=corpus/jamaentry
 DRV=$(mktemp)
-trap 'rm -f "$IMP" "$FRAG" "$DRV"' EXIT
+trap 'rm -f "$DRV"' EXIT
 
 cat > "$DRV" <<'DRIVER'
 /**
@@ -86,26 +100,33 @@ public class JamaBench {
 }
 DRIVER
 
-# Library files: drop package + intra-library imports; demote top-level
-# public; split imports from bodies. (Identical merge to the JAMA wave.)
+# Library entry sources: the vendored file with its own package line
+# replaced by the entry package and the intra-library Jama imports
+# dropped (one flat package now); license and javadoc stay. The classes
+# stay PUBLIC: in the one-file amalgam the old script had to demote
+# them (a .java file can carry only one public top-level class), but a
+# per-class source file is named after its class, so public is legal
+# again — and the default-package driver imports jamaentry.*, which
+# cannot see package-private types across the package boundary. The
+# Jama vendored files are space-indented already — no tab expansion
+# needed (unlike the JZlib ones).
+mkdir -p "$ENTRY"
 for f in corpus/jama/Matrix.java corpus/jama/CholeskyDecomposition.java \
          corpus/jama/EigenvalueDecomposition.java \
          corpus/jama/LUDecomposition.java corpus/jama/QRDecomposition.java \
          corpus/jama/SingularValueDecomposition.java corpus/jama/util/Maths.java; do
-  grep -v '^import Jama\.' "$f"
-done | sed -e 's/^package .*;//' \
-    -e 's/^public \(final \|abstract \)\+\(class\|interface\|enum\)/\1\2/' \
-    -e 's/^public \(class\|interface\|enum\)/\1/' | while IFS= read -r line; do
-  case "$line" in
-    import\ *) printf '%s\n' "$line" >> "$IMP" ;;
-    *) printf '%s\n' "$line" >> "$FRAG" ;;
-  esac
+  cls=$(basename "$f" .java)
+  {
+    echo "package jamaentry;"
+    echo
+    grep -v '^package ' "$f" | grep -v '^import Jama\.'
+  } > "$ENTRY/$cls.java"
 done
 
 {
-  sort -u "$IMP"
+  echo "import jamaentry.*;"
+  echo
   cat "$DRV"
-  cat "$FRAG"
 } > "$OUT"
 
-rm -rf /tmp/jamabench_out && javac -d /tmp/jamabench_out "$OUT" && echo JAVAC_OK
+javac -sourcepath corpus -d /tmp/jamabench-bin "$OUT" && echo "JAVAC_OK: $OUT + $ENTRY/*"
