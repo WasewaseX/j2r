@@ -1,15 +1,34 @@
 #!/bin/bash
-# Build the JZlib real-world corpus file: one .java, multiple
-# package-private classes + a public JZlibCorpus driver entry point.
-# Source: ymnk/jzlib (BSD-style license, corpus/jzlib/LICENSE.txt),
-# vendored to corpus/jzlib/ (23 files, ~7.2k lines).
+# Build the JZlib real-world corpus entry (entry 2): the differential
+# driver corpus/JZlibCorpus.java plus the library entry sources
+# corpus/jzlibentry/*.java (package jzlibentry).
+#
+# Round-3 (2026-11-18): the hosted scanaislop surface's complexity rules
+# (file flagged above 441 lines, function above 88 lines, nesting max 5)
+# apply to the single-file amalgam shape too, so the entry is now a
+# driver plus a directory of per-class sources. Eighteen mechanical
+# classes are GENERATED here from the vendored upstream tree
+# (corpus/jzlib/, package com.jcraft.jzlib — kept untouched as the
+# provenance record, with the round-2 `ignored` catch convention riding
+# along) and the script reproduces the committed bytes byte-for-byte
+# (REGEN-BYTE-IDENTICAL). The five algorithm state machines (Deflate,
+# Inflate, InfBlocks, InfCodes, InfTree) and any refactoring helper
+# classes are HAND-MAINTAINED (the owner-ordered complexity reshaping;
+# behavior is pinned by the javac+java byte-identical stdout proof and
+# the three-channel corpus_suite gate) and are verified for existence
+# here, not generated.
+#
+# The old single-file amalgam (the 23 classes + driver concatenated,
+# 7279 lines) is retired: corpus/JZlibCorpus.java is the driver only and
+# imports jzlibentry.*. Class names inside jzlibentry are unchanged from
+# the amalgam, so the j2r three-channel comparison sees the same program
+# modulo the documented complexity reshaping.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=corpus/JZlibCorpus.java
-IMP=$(mktemp)
-FRAG=$(mktemp)
+ENTRY=corpus/jzlibentry
 DRV=$(mktemp)
-trap 'rm -f "$IMP" "$FRAG" "$DRV"' EXIT
+trap 'rm -f "$DRV"' EXIT
 
 cat > "$DRV" <<'DRIVER'
 /**
@@ -127,28 +146,37 @@ public class JZlibCorpus {
 }
 DRIVER
 
-# Library files: drop package decls; strip top-level public modifiers
-# (one default-package file, package-private classes); split imports.
-# expand -t 8 reproduces the committed amalgam's whitespace (the per-file
-# tree keeps upstream tabs; the amalgam has always carried them expanded
-# to the 8-column stops).
+# The five state-machine classes are hand-maintained (complexity
+# reshaping, behavior byte-identical); the script never overwrites them.
+HAND="Deflate Inflate InfBlocks InfCodes InfTree"
+mkdir -p "$ENTRY"
 for f in corpus/jzlib/*.java; do
-  grep -v '^package ' "$f"
-done | expand -t 8 | sed -e 's/^public \(final \|abstract \|static \)\+\(class\|interface\|enum\)/\1\2/' \
-    -e 's/^final public \(class\|interface\|enum\)/final \1/' \
-    -e 's/^abstract public \(class\|interface\|enum\)/abstract \1/' \
-    -e 's/^public \(class\|interface\|enum\)/\1/' \
-    -e '/^public[[:space:]]*$/d' | while IFS= read -r line; do
-  case "$line" in
-    import\ *) printf '%s\n' "$line" >> "$IMP" ;;
-    *) printf '%s\n' "$line" >> "$FRAG" ;;
-  esac
+  cls=$(basename "$f" .java)
+  skip=""
+  for h in $HAND; do [ "$cls" = "$h" ] && skip=1; done
+  if [ -z "$skip" ]; then
+    # per-class entry source: the vendored file with its own package line
+    # replaced by the entry package; imports and license stay; tabs
+    # expanded to the 8-column stops (the amalgam convention, kept).
+    {
+      echo "package jzlibentry;"
+      echo
+      grep -v '^package ' "$f" | expand -t 8
+    } > "$ENTRY/$cls.java"
+  fi
+done
+
+for h in $HAND; do
+  if [ ! -f "$ENTRY/$h.java" ]; then
+    echo "missing hand-maintained entry class $ENTRY/$h.java" >&2
+    exit 1
+  fi
 done
 
 {
-  sort -u "$IMP"
-  cat "$FRAG"
+  echo "import java.io.*;"
+  echo "import jzlibentry.*;"
   cat "$DRV"
 } > "$OUT"
 
-javac -d /tmp/jzlib-corpus-bin "$OUT" && echo "JAVAC_OK: $OUT"
+javac -sourcepath corpus -d /tmp/jzlib-corpus-bin "$OUT" && echo "JAVAC_OK: $OUT + $ENTRY/*"
