@@ -5023,3 +5023,31 @@ roadmap" on the A-graded tree.
   recorded oracle (330 B, sha 780e9802..., stderr 0, exit 0),
   corpus_suite 6/6 (54.0s warm), fmt + clippy -D warnings clean,
   gate-11 in sync (fixtures=130 tests=619). PR HOLD unchanged.
+- slice-b2 (pushed 3492f08): the typed-operand emitter + the default body
+  reshaped — emit_body (238) -> header/locals/sync/stack helpers with the
+  handler emission SHARED (emit_default_handlers now pub(crate), one
+  source for both bodies); emit_instr_typed (774) -> a slim exhaustive
+  dispatch over twelve family helpers, every arm body verbatim;
+  emit_arith_typed (185) -> intlong/float arm helpers; emit_default_body
+  (184) -> prologue/handlers/dispatch-body helpers. The split machinery
+  lives in /home/z/my-project/scripts (r5_typed_iit.py — the mark-based
+  span rebuild; the MARKERS[i][0] first-CHARACTER bug that briefly
+  corrupted the file twice is documented there). PROOFS: diff_suite 4/4
+  shards (194-197s each), corpus_suite 6/6 (55.2s), cfg_equiv (436.8s),
+  172 unit tests, fmt + clippy -D warnings, gate-11 in sync.
+- master-ci engine story (slice-b2, same commit): the installed v1.3.0
+  cannot parse the repo's v2.9.1 scoped opt-out syntax (split(':',1) makes
+  scoped rules dead entries) and check_updates reports v2.19.1 available
+  while git fetch is network-blocked in this sandbox — so the acceptance
+  story rides the engine's own baseline mechanism
+  (.ai-integrity-baseline.json, 141 fingerprints; baseline-mode scan
+  blocking=0 grade=A CLEAN) and the committed scoped file gains the
+  jni/tables.rs generated-data rule for the v2.x engine. The v1.3.0 scan
+  over the repo: 3 blocking boilerplate-duplications, all justified
+  (vendored BSD license headers verbatim-by-law, AcpyProbe's 145 mains
+  BY DESIGN, the generated JNI table rows ARE data).
+- slice-c (this commit): emit.rs:662 statics_source (138 raw lines, the
+  giant template string inside the fn) -> static STATICS_SOURCE: &str
+  module const (content byte-identical, the emitted statics.rs is
+  unchanged by construction) + a 3-line accessor; the emitted bytes are
+  identical because the raw-string body moved verbatim.
