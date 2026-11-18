@@ -4,6 +4,7 @@ Cargo.lock.bak
 j2r-out/
 *.class
 !crates/j2r-codegen/tests/fixtures/*.class
+!crates/j2r-classfile/tests/vectors/remap/*.class
 tools/
 target/
 __pycache__/
