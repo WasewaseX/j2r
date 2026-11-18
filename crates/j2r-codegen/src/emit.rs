@@ -2541,20 +2541,34 @@ pub(crate) fn jmm_boundary_marker(f: &FieldPlan, class: &str) -> Option<String> 
 
 /// `ensure` calls for the user-class chain from the topmost user ancestor
 /// down to `start` — mirrors Java's rule that initializing a class first
-/// initializes its superclasses.
+/// initializes its superclasses; the walk also covers superinterfaces
+/// (JVMS 5.4.3.2 + 5.5: an inherited static resolves to its declaring
+/// interface, whose <clinit> must run before the access).
 pub(crate) fn ensure_calls(prog: &Program, start: &str) -> Vec<(u32, String)> {
+    // BFS over user superclasses AND superinterfaces. JVMS 5.4.3.2 field
+    // resolution + 5.5 active use: an inherited static (javac emits the
+    // Fieldref with the ACCESSING class as owner) resolves to its
+    // declaring interface, whose <clinit> must run before the access.
+    // The reversed chain keeps parents first; the runtime ensure is
+    // idempotent, so shared-interface diamonds are safe.
     let mut chain: Vec<String> = Vec::new();
-    let mut cur = start.to_string();
-    for _ in 0..64 {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(start.to_string());
+    for _ in 0..256 {
+        let Some(cur) = queue.pop_front() else { break };
+        if !seen.insert(cur.clone()) {
+            continue;
+        }
         if prog.is_user(&cur) {
             chain.push(cur.clone());
             let c = prog.class(&cur).unwrap();
-            match &c.super_name {
-                Some(s) if prog.is_user(s) => cur = s.clone(),
-                _ => break,
+            for i in &c.interfaces {
+                queue.push_back(i.clone());
             }
-        } else {
-            break;
+            if let Some(s) = &c.super_name {
+                queue.push_back(s.clone());
+            }
         }
     }
     chain.reverse();

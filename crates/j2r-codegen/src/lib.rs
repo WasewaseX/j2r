@@ -1406,15 +1406,26 @@ fn validate_virtual(prog: &Program, declared: &str, name: &str, desc: &str) -> R
 }
 
 /// Resolves an instance or static field reference to its owning user class
-/// and its slot plan. `want_static` selects the field kind.
+/// and its slot plan. `want_static` selects the field kind. The walk follows
+/// JVMS 5.4.3.2 field resolution: the named class, then its direct
+/// superinterfaces (recursively, BFS — a class inherits statics through a
+/// constant interface), then the superclass chain. javac emits the Fieldref
+/// with the ACCESSING class as owner for inherited statics, so the interface
+/// steps are load-bearing for the constant-interface pattern.
 fn resolve_field<'a>(
     prog: &'a Program,
     start: &str,
     field: &str,
     want_static: bool,
 ) -> Result<&'a FieldPlan> {
-    let mut cur = start.to_string();
-    for _ in 0..64 {
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(start.to_string());
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..256 {
+        let Some(cur) = queue.pop_front() else { break };
+        if !seen.insert(cur.clone()) {
+            continue;
+        }
         if prog.is_user(&cur) {
             let c = prog.class(&cur).unwrap();
             if let Some(f) = c.fields.iter().find(|f| f.name == field) {
@@ -1430,12 +1441,14 @@ fn resolve_field<'a>(
                     ),
                 });
             }
-            match &c.super_name {
-                Some(s) => cur = s.clone(),
-                None => break,
+            for i in &c.interfaces {
+                queue.push_back(i.clone());
+            }
+            if let Some(s) = &c.super_name {
+                queue.push_back(s.clone());
             }
         } else {
-            break;
+            continue;
         }
     }
     Err(CodegenError::Semantic {
@@ -1460,8 +1473,14 @@ pub fn resolve_field_slot(
     field: &str,
     want_static: bool,
 ) -> Result<usize> {
-    let mut cur = start.to_string();
-    for _ in 0..64 {
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(start.to_string());
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..256 {
+        let Some(cur) = queue.pop_front() else { break };
+        if !seen.insert(cur.clone()) {
+            continue;
+        }
         if prog.is_user(&cur) {
             let c = prog.class(&cur).unwrap();
             if let Some(f) = c.fields.iter().find(|f| f.name == field) {
@@ -1481,9 +1500,11 @@ pub fn resolve_field_slot(
                     f.instance_slot.expect("instance slot assigned")
                 });
             }
-            match &c.super_name {
-                Some(s) => cur = s.clone(),
-                None => break,
+            for i in &c.interfaces {
+                queue.push_back(i.clone());
+            }
+            if let Some(s) = &c.super_name {
+                queue.push_back(s.clone());
             }
         } else {
             if !want_static {
@@ -1500,7 +1521,7 @@ pub fn resolve_field_slot(
                     return Ok(base + own);
                 }
             }
-            break;
+            continue;
         }
     }
     Err(CodegenError::Semantic {
