@@ -2048,8 +2048,10 @@ final class Deflate implements Cloneable {
       dest.dstate = (Deflate)src.dstate.clone();
       dest.dstate.strm = dest;
     }
-    catch(CloneNotSupportedException e){
-      //
+    catch(CloneNotSupportedException ignored){
+      // statically unreachable: Deflate implements Cloneable (the class
+      // declaration above), so src.dstate.clone() cannot refuse; upstream
+      // 1.1.0 keeps the defensive catch
     }
     return Z_OK;
   }
@@ -2849,7 +2851,9 @@ class GZIPInputStream extends InflaterInputStream {
       try {
         i = in.read(buf, n, buf.length - n);
       }
-      catch(IOException e){
+      catch(IOException ignored){
+        // read failure mid-fill behaves as EOF: i stays -1 and the loop
+        // breaks with the partial n it gathered
       }
       if(i == -1){
         break;
@@ -6700,7 +6704,10 @@ class ZOutputStream extends FilterOutputStream {
   public synchronized void end() {
     if(end) return;
     if(compress){
-      try { dos.finish(); } catch(Exception e){}
+      try { dos.finish(); } catch(Exception ignored){
+        // terminal teardown: finish() already ran in finish(); upstream 1.1.0
+        // swallows the residual failure, nothing is recoverable past end()
+      }
     }
     else{
       inflater.end();
@@ -6710,7 +6717,10 @@ class ZOutputStream extends FilterOutputStream {
   public void close() throws IOException {
     try{
       try{finish();}
-      catch (IOException ignored) {}
+      catch (IOException ignored) {
+        // close() must not mask the underlying IO failure with a finish()
+        // failure; end() below completes the teardown either way
+      }
     }
     finally{
       end();
@@ -7164,6 +7174,14 @@ public class JZlibCorpus {
   public static void main(String[] args) throws Exception {
     String text = "the quick brown fox jumps over the lazy dog; repeat, repeat, repeat; 0123456789";
     byte[] data = text.getBytes("UTF-8");
+    phase1(data, text);
+    phase2(data, text);
+  }
+
+  // phase 1: core deflate/inflate through the public ZStream API (levels 0-9
+  // sampled, Z_FINISH/Z_NO_FLUSH semantics, wrapper off), Adler32 and CRC32
+  // checksums over a fixed vector, and the library version string.
+  private static void phase1(byte[] data, String text) throws Exception {
     for (int level = 0; level <= 9; level += 3) {
       ZStream z = new ZStream();
       z.deflateInit(level);
@@ -7193,13 +7211,14 @@ public class JZlibCorpus {
     c.update(data, 0, data.length);
     System.out.println("crc=" + Long.toHexString(c.getValue()));
     System.out.println("JZlib=" + JZlib.version());
+  }
 
-    // phase 2 (unblocked when ByteArrayInputStream landed, skip/charset
-    // wave): the STREAM wrappers over the landed stream builtins —
-    // DeflaterOutputStream/InflaterInputStream, ZOutputStream/ZInputStream,
-    // GZIPOutputStream/GZIPInputStream. Compressed sizes are deterministic
-    // (same JZlib source both sides), so they diff too.
-
+  // phase 2 (unblocked when ByteArrayInputStream landed, skip/charset
+  // wave): the STREAM wrappers over the landed stream builtins —
+  // DeflaterOutputStream/InflaterInputStream, ZOutputStream/ZInputStream,
+  // GZIPOutputStream/GZIPInputStream. Compressed sizes are deterministic
+  // (same JZlib source both sides), so they diff too.
+  private static void phase2(byte[] data, String text) throws Exception {
     // DeflaterOutputStream -> BAOS; InflaterInputStream over BAIS
     ByteArrayOutputStream bout = new ByteArrayOutputStream();
     DeflaterOutputStream dos = new DeflaterOutputStream(bout);

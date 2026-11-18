@@ -1,0 +1,963 @@
+
+Scanned `corpus`: 5 blocking / 891 advisory finding(s).
+Blocking score **16**, advisory score 892 (advisory findings never fail a build).
+
+**Slop score 65/100 - grade F - INFLATED** (0.6x worst file + 0.4x mean file deficit).
+
+
+### Quality dimensions
+
+Scored independently - AI integrity is the only dimension under the slop-score gate; the others are reported so code quality and AI slop never blur into one number.
+
+| Dimension | Blocking | Advisory | Score | Grade |
+|---|---|---|---|---|
+| Architecture | 0 | 0 | 0/100 | A |
+| Code health | 12 | 125 | 63/100 | D |
+| Maintainability | 0 | 0 | 0/100 | A |
+| Security | 0 | 0 | 0/100 | A |
+| Test assurance | 0 | 2 | 6/100 | A |
+| Dependency health | 0 | 0 | 0/100 | A |
+| AI integrity | 4 | 765 | 59/100 | D |
+
+| Rule | Findings | Severity |
+|---|---|---|
+| prose-block | 760 | advisory |
+| god-function | 39 | advisory |
+| debug-print | 26 | advisory |
+| bloat-long-file | 18 | advisory |
+| bloat-comment-ratio | 17 | advisory |
+| deep-nesting | 15 | advisory |
+| java-broad-throws | 6 | advisory |
+| phantom-import | 4 | advisory |
+| boilerplate-duplication | 3 | blocking |
+| meta-comment | 2 | advisory |
+| placeholder-naming | 2 | advisory |
+| ai-vocab | 2 | blocking |
+| humanizer | 1 | advisory |
+| missing-tests | 1 | advisory |
+
+### Fix these first
+
+1. `corpus/JZlibCorpus.java:3155` [boilerplate-duplication] identical line repeated 58x: z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p... -> Extract the repeated lines into a shared helper
+2. `corpus/JZlibCorpus.java:7` [boilerplate-duplication] identical line repeated 46x: Redistribution and use in source and binary forms, with or w... -> Extract the repeated lines into a shared helper
+3. `corpus/JZlibCorpus.java:8` [boilerplate-duplication] identical line repeated 46x: modification, are permitted provided that the following cond... -> Extract the repeated lines into a shared helper
+4. `corpus/MinimalJsonCorpus.java:3201` [ai-vocab] 'moreover' in comment (2x) -> Rewrite the comment to describe intent in plain words
+5. `corpus/minimal-json/JsonValue.java:311` [ai-vocab] 'moreover' in comment (2x) -> Rewrite the comment to describe intent in plain words
+
+### Blocking findings
+
+| Check | Where | Detail | Weight | Fix |
+|---|---|---|---|---|
+| ai-vocab | `corpus/MinimalJsonCorpus.java:3201` | 'moreover' in comment (2x) | 2 | Rewrite the comment to describe intent in plain words |
+| ai-vocab | `corpus/minimal-json/JsonValue.java:311` | 'moreover' in comment (2x) | 2 | Rewrite the comment to describe intent in plain words |
+| boilerplate-duplication | `corpus/JZlibCorpus.java:3155` | identical line repeated 58x: z.avail_in=n;z.total_in+=p-z.next_in_index;z.next_in_index=p... | 4 | Extract the repeated lines into a shared helper |
+| boilerplate-duplication | `corpus/JZlibCorpus.java:7` | identical line repeated 46x: Redistribution and use in source and binary forms, with or w... | 4 | Extract the repeated lines into a shared helper |
+| boilerplate-duplication | `corpus/JZlibCorpus.java:8` | identical line repeated 46x: modification, are permitted provided that the following cond... | 4 | Extract the repeated lines into a shared helper |
+
+### Advisory signals (never fail a build)
+
+| Check | Where | Detail | Weight |
+|---|---|---|---|---|
+| debug-print | `corpus/AcpyProbe.java:1` | System.out debug output (7x) | 1 |
+| debug-print | `corpus/AseProbe.java:1` | System.out debug output (5x) | 1 |
+| debug-print | `corpus/BoxingBoxedBench.java:1` | System.out debug output (2x) | 1 |
+| prose-block | `corpus/BoxingBoxedBench.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/BoxingPrimBench.java:1` | System.out debug output (2x) | 1 |
+| prose-block | `corpus/BoxingPrimBench.java:1` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| god-function | `corpus/BufferedProbe.java:22` | function block spans 87 lines | 1 |
+| debug-print | `corpus/BufferedProbe.java:1` | System.out debug output (21x) | 1 |
+| java-broad-throws | `corpus/BufferedProbe.java:22` | broad Exception thrown - declare the specific type | 1 |
+| prose-block | `corpus/BufferedProbe.java:5` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/DeepArraysProbe.java:1` | System.out debug output (18x) | 1 |
+| prose-block | `corpus/DeepArraysProbe.java:1` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/ElementMismatchProbe.java:1` | System.out debug output (7x) | 1 |
+| god-function | `corpus/EnumProbe.java:40` | function block spans 81 lines | 1 |
+| debug-print | `corpus/EnumProbe.java:1` | System.out debug output (22x) | 1 |
+| prose-block | `corpus/EnumProbe.java:3` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/FPProbe.java:1` | System.out debug output (10x) | 1 |
+| debug-print | `corpus/FmtProbe.java:1` | System.out debug output (45x) | 1 |
+| prose-block | `corpus/FmtProbe.java:3` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| god-function | `corpus/FmtResidualProbe.java:17` | function block spans 187 lines | 1 |
+| debug-print | `corpus/FmtResidualProbe.java:1` | System.out debug output (131x) | 1 |
+| prose-block | `corpus/FmtResidualProbe.java:5` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/FmtResidualProbe.java:181` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| god-function | `corpus/HexFloatProbe.java:18` | function block spans 111 lines | 1 |
+| debug-print | `corpus/HexFloatProbe.java:1` | System.out debug output (4x) | 1 |
+| bloat-long-file | `corpus/JZlibCorpus.java:1` | file spans 6202 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/JZlibCorpus.java:1365` | function block spans 101 lines | 1 |
+| god-function | `corpus/JZlibCorpus.java:1470` | function block spans 128 lines | 1 |
+| god-function | `corpus/JZlibCorpus.java:1853` | function block spans 166 lines | 1 |
+| god-function | `corpus/JZlibCorpus.java:3089` | function block spans 396 lines | 1 |
+| god-function | `corpus/JZlibCorpus.java:3678` | function block spans 284 lines | 1 |
+| god-function | `corpus/JZlibCorpus.java:4881` | function block spans 377 lines | 1 |
+| deep-nesting | `corpus/JZlibCorpus.java:3089` | nests more than 5 levels | 1 |
+| deep-nesting | `corpus/JZlibCorpus.java:3678` | nests more than 5 levels | 1 |
+| deep-nesting | `corpus/JZlibCorpus.java:4881` | nests more than 5 levels | 1 |
+| debug-print | `corpus/JZlibCorpus.java:1` | System.out debug output (13x) | 1 |
+| java-broad-throws | `corpus/JZlibCorpus.java:7174` | broad Exception thrown - declare the specific type | 1 |
+| java-broad-throws | `corpus/JZlibCorpus.java:7184` | broad Exception thrown - declare the specific type | 1 |
+| java-broad-throws | `corpus/JZlibCorpus.java:7221` | broad Exception thrown - declare the specific type | 1 |
+| prose-block | `corpus/JZlibCorpus.java:3` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:119` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:141` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:285` | 22-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:319` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:361` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:546` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:640` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:956` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1142` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1245` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1273` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1307` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1335` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1360` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1640` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1695` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1908` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:1958` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:2082` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:2118` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:2288` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:2467` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:2510` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:2722` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:2867` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:2955` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:3568` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:4177` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:4416` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:4694` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:5078` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:5339` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:5444` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:5611` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:5856` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:5947` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6094` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6248` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6321` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6406` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6428` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6460` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6490` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6584` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6614` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6747` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6782` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:6987` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:7123` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:7166` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JZlibCorpus.java:7216` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| meta-comment | `corpus/JZlibCorpus.java:6280` | 1 comment(s) about the task/change, not the code | 1 |
+| placeholder-naming | `corpus/JZlibCorpus.java:1` | 23 foo/bar/baz-style identifiers | 1 |
+| bloat-long-file | `corpus/JamaBench.java:1` | file spans 2874 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/JamaBench.java:1372` | function block spans 114 lines | 1 |
+| god-function | `corpus/JamaBench.java:1489` | function block spans 117 lines | 1 |
+| god-function | `corpus/JamaBench.java:1609` | function block spans 90 lines | 1 |
+| god-function | `corpus/JamaBench.java:1722` | function block spans 439 lines | 1 |
+| god-function | `corpus/JamaBench.java:2845` | function block spans 421 lines | 1 |
+| deep-nesting | `corpus/JamaBench.java:1722` | nests more than 5 levels | 1 |
+| deep-nesting | `corpus/JamaBench.java:2845` | nests more than 5 levels | 1 |
+| debug-print | `corpus/JamaBench.java:1` | System.out debug output (3x) | 1 |
+| phantom-import | `corpus/JamaBench.java:6` | import 'FieldPosition' is never used | 1 |
+| prose-block | `corpus/JamaBench.java:9` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:77` | 42-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:152` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:169` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:186` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:198` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:331` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:342` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:366` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:388` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:411` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:434` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:445` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:466` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:485` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:505` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:799` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:936` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:953` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:971` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:980` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:997` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:1015` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:1041` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:1052` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:1113` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:1184` | 61-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:1266` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:1314` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:2269` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:2293` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:2381` | 58-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:2536` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:2581` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:2750` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:2799` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:2853` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaBench.java:3061` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/JamaCorpus.java:1` | file spans 3026 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/JamaCorpus.java:48` | function block spans 180 lines | 1 |
+| god-function | `corpus/JamaCorpus.java:1527` | function block spans 114 lines | 1 |
+| god-function | `corpus/JamaCorpus.java:1644` | function block spans 117 lines | 1 |
+| god-function | `corpus/JamaCorpus.java:1764` | function block spans 90 lines | 1 |
+| god-function | `corpus/JamaCorpus.java:1877` | function block spans 439 lines | 1 |
+| god-function | `corpus/JamaCorpus.java:3000` | function block spans 421 lines | 1 |
+| deep-nesting | `corpus/JamaCorpus.java:1877` | nests more than 5 levels | 1 |
+| deep-nesting | `corpus/JamaCorpus.java:3000` | nests more than 5 levels | 1 |
+| debug-print | `corpus/JamaCorpus.java:1` | System.out debug output (28x) | 1 |
+| phantom-import | `corpus/JamaCorpus.java:6` | import 'FieldPosition' is never used | 1 |
+| prose-block | `corpus/JamaCorpus.java:9` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:232` | 42-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:307` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:324` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:341` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:353` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:486` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:497` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:521` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:543` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:566` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:589` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:600` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:621` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:640` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:660` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:954` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1091` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1108` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1126` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1135` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1152` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1170` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1196` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1207` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1268` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1339` | 61-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1421` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:1469` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:2424` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:2448` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:2536` | 58-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:2691` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:2736` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:2905` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:2954` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:3008` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/JamaCorpus.java:3216` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/MinimalJsonCorpus.java:1` | file spans 3600 non-blank lines (budget 400) | 1 |
+| bloat-comment-ratio | `corpus/MinimalJsonCorpus.java:1` | 1894/3600 lines are comments (53% - budget 50%) | 1 |
+| debug-print | `corpus/MinimalJsonCorpus.java:1` | System.out debug output (10x) | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:43` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:68` | 26-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:115` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:126` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:137` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:151` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:165` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:176` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:187` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:197` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:216` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:235` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:254` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:273` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:292` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:310` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:320` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:339` | 16-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:432` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:457` | 30-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:499` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:520` | 19-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:544` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:561` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:577` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:590` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:603` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:616` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:629` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:642` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:654` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:669` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:687` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:705` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:723` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:741` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:759` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:777` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:797` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:812` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:821` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:830` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:844` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:855` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:909` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:937` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:961` | 30-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:995` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1025` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1042` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1059` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1069` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1085` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1096` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1108` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1121` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1139` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1149` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1160` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1172` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1185` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1200` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1296` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1389` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1415` | 37-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1468` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1493` | 19-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1517` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1534` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1551` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1574` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1597` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1620` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1643` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1666` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1689` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1720` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1742` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1764` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1786` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1808` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1830` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1852` | 16-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1886` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1908` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1921` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1940` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1957` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1976` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:1995` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2014` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2033` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2052` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2070` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2079` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2088` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2099` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2215` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2224` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2241` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2315` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2362` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2371` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2387` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2409` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2428` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2823` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2896` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2921` | 32-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:2981` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3003` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3018` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3031` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3044` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3057` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3070` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3083` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3096` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3106` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3116` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3125` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3134` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3144` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3153` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3162` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3171` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3183` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3195` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3214` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3233` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3249` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3265` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3277` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3289` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3305` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3330` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3342` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3360` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3386` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3529` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3605` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3641` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3650` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3662` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3673` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3686` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3711` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3727` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3736` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3752` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3840` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3889` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/MinimalJsonCorpus.java:3914` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/ParseProbe.java:1` | System.out debug output (7x) | 1 |
+| debug-print | `corpus/PushbackProbe.java:1` | System.out debug output (13x) | 1 |
+| java-broad-throws | `corpus/PushbackProbe.java:22` | broad Exception thrown - declare the specific type | 1 |
+| prose-block | `corpus/PushbackProbe.java:5` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/SkipProbe.java:1` | System.out debug output (22x) | 1 |
+| java-broad-throws | `corpus/SkipProbe.java:26` | broad Exception thrown - declare the specific type | 1 |
+| phantom-import | `corpus/SkipProbe.java:3` | import 'IOException' is never used | 1 |
+| prose-block | `corpus/SkipProbe.java:6` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/StringsSimBench.java:1` | file spans 1855 non-blank lines (budget 400) | 1 |
+| bloat-comment-ratio | `corpus/StringsSimBench.java:1` | 993/1855 lines are comments (54% - budget 50%) | 1 |
+| god-function | `corpus/StringsSimBench.java:1037` | function block spans 98 lines | 1 |
+| god-function | `corpus/StringsSimBench.java:1850` | function block spans 125 lines | 1 |
+| deep-nesting | `corpus/StringsSimBench.java:1850` | nests more than 5 levels | 1 |
+| debug-print | `corpus/StringsSimBench.java:1` | System.out debug output (6x) | 1 |
+| prose-block | `corpus/StringsSimBench.java:10` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:67` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:119` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:145` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:156` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:164` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:191` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:201` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:213` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:223` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:255` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:295` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:307` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:322` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:349` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:365` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:453` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:481` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:495` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:506` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:515` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:550` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:565` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:592` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:602` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:612` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:648` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:721` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:730` | 25-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:823` | 20-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:845` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:871` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:889` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:927` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:954` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:965` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:999` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1030` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1136` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1162` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1175` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1205` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1217` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1243` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1256` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1341` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1353` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1368` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1382` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1410` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1443` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1470` | 20-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1501` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1520` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1529` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1558` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1585` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1594` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1609` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1622` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1661` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1673` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1699` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1717` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1788` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1814` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1829` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1838` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:1976` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:2001` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:2013` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:2021` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:2046` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:2054` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:2086` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:2118` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimBench.java:2135` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/StringsSimCorpus.java:1` | file spans 1887 non-blank lines (budget 400) | 1 |
+| bloat-comment-ratio | `corpus/StringsSimCorpus.java:1` | 996/1887 lines are comments (53% - budget 50%) | 1 |
+| god-function | `corpus/StringsSimCorpus.java:56` | function block spans 102 lines | 1 |
+| god-function | `corpus/StringsSimCorpus.java:1077` | function block spans 98 lines | 1 |
+| god-function | `corpus/StringsSimCorpus.java:1890` | function block spans 125 lines | 1 |
+| deep-nesting | `corpus/StringsSimCorpus.java:1890` | nests more than 5 levels | 1 |
+| debug-print | `corpus/StringsSimCorpus.java:1` | System.out debug output (35x) | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:10` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:159` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:185` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:196` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:204` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:231` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:241` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:253` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:263` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:295` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:335` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:347` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:362` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:389` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:405` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:493` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:521` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:535` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:546` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:555` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:590` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:605` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:632` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:642` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:652` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:688` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:761` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:770` | 25-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:863` | 20-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:885` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:911` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:929` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:967` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:994` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1005` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1039` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1070` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1176` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1202` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1215` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1245` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1257` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1283` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1296` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1381` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1393` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1408` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1422` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1450` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1483` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1510` | 20-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1541` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1560` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1569` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1598` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1625` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1634` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1649` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1662` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1701` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1713` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1739` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1757` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1828` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1854` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1869` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:1878` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2016` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2041` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2053` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2061` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2086` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2094` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2126` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2158` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/StringsSimCorpus.java:2175` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/Utf16Probe.java:1` | System.out debug output (7x) | 1 |
+| prose-block | `corpus/Utf16Probe.java:3` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/jama/CholeskyDecomposition.java:1` | 109/168 lines are comments (65% - budget 50%) | 1 |
+| prose-block | `corpus/jama/CholeskyDecomposition.java:3` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/CholeskyDecomposition.java:74` | 61-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/CholeskyDecomposition.java:156` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/jama/EigenvalueDecomposition.java:1` | file spans 804 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/jama/EigenvalueDecomposition.java:62` | function block spans 114 lines | 1 |
+| god-function | `corpus/jama/EigenvalueDecomposition.java:179` | function block spans 117 lines | 1 |
+| god-function | `corpus/jama/EigenvalueDecomposition.java:299` | function block spans 90 lines | 1 |
+| god-function | `corpus/jama/EigenvalueDecomposition.java:412` | function block spans 439 lines | 1 |
+| deep-nesting | `corpus/jama/EigenvalueDecomposition.java:412` | nests more than 5 levels | 1 |
+| prose-block | `corpus/jama/EigenvalueDecomposition.java:4` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/LUDecomposition.java:3` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/LUDecomposition.java:27` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/LUDecomposition.java:115` | 58-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/LUDecomposition.java:270` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/jama/Matrix.java:1` | file spans 902 non-blank lines (budget 400) | 1 |
+| phantom-import | `corpus/jama/Matrix.java:7` | import 'FieldPosition' is never used | 1 |
+| prose-block | `corpus/jama/Matrix.java:13` | 42-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:88` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:105` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:122` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:134` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:267` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:278` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:302` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:324` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:347` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:370` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:381` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:402` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:421` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:441` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:735` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:872` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:889` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:907` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:916` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:933` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:951` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:977` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/Matrix.java:988` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/QRDecomposition.java:4` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/QRDecomposition.java:173` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/jama/SingularValueDecomposition.java:1` | file spans 478 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/jama/SingularValueDecomposition.java:50` | function block spans 421 lines | 1 |
+| deep-nesting | `corpus/jama/SingularValueDecomposition.java:50` | nests more than 5 levels | 1 |
+| prose-block | `corpus/jama/SingularValueDecomposition.java:4` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/SingularValueDecomposition.java:58` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jama/SingularValueDecomposition.java:266` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/jzlib/Adler32.java:1` | System.out debug output (1x) | 1 |
+| prose-block | `corpus/jzlib/Adler32.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Adler32.java:118` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/jzlib/CRC32.java:1` | System.out debug output (1x) | 1 |
+| prose-block | `corpus/jzlib/CRC32.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/CRC32.java:146` | 22-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Checksum.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/jzlib/Deflate.java:1` | file spans 1476 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/jzlib/Deflate.java:1007` | function block spans 101 lines | 1 |
+| god-function | `corpus/jzlib/Deflate.java:1112` | function block spans 128 lines | 1 |
+| god-function | `corpus/jzlib/Deflate.java:1495` | function block spans 166 lines | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:188` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:282` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:598` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:784` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:887` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:915` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:949` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:977` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:1002` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:1282` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:1337` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:1550` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:1600` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Deflate.java:1724` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| placeholder-naming | `corpus/jzlib/Deflate.java:1` | 12 foo/bar/baz-style identifiers | 1 |
+| prose-block | `corpus/jzlib/Deflater.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/DeflaterOutputStream.java:1` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/GZIPException.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/GZIPHeader.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/GZIPInputStream.java:1` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/GZIPOutputStream.java:1` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/jzlib/InfBlocks.java:1` | file spans 524 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/jzlib/InfBlocks.java:136` | function block spans 396 lines | 1 |
+| deep-nesting | `corpus/jzlib/InfBlocks.java:136` | nests more than 5 levels | 1 |
+| debug-print | `corpus/jzlib/InfBlocks.java:1` | System.out debug output (1x) | 1 |
+| prose-block | `corpus/jzlib/InfBlocks.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/jzlib/InfCodes.java:1` | file spans 508 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/jzlib/InfCodes.java:112` | function block spans 284 lines | 1 |
+| deep-nesting | `corpus/jzlib/InfCodes.java:112` | nests more than 5 levels | 1 |
+| prose-block | `corpus/jzlib/InfCodes.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/jzlib/InfTree.java:1` | file spans 474 non-blank lines (budget 400) | 1 |
+| prose-block | `corpus/jzlib/InfTree.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/InfTree.java:241` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/jzlib/Inflate.java:1` | file spans 645 non-blank lines (budget 400) | 1 |
+| god-function | `corpus/jzlib/Inflate.java:189` | function block spans 377 lines | 1 |
+| deep-nesting | `corpus/jzlib/Inflate.java:189` | nests more than 5 levels | 1 |
+| prose-block | `corpus/jzlib/Inflate.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Inflate.java:386` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Inflate.java:647` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Inflater.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/InflaterInputStream.java:1` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/JZlib.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/StaticTree.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Tree.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Tree.java:156` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Tree.java:229` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Tree.java:314` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/Tree.java:336` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| meta-comment | `corpus/jzlib/Tree.java:188` | 1 comment(s) about the task/change, not the code | 1 |
+| prose-block | `corpus/jzlib/ZInputStream.java:1` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/ZInputStream.java:33` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/ZOutputStream.java:1` | 28-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/ZOutputStream.java:33` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| debug-print | `corpus/jzlib/ZStream.java:1` | System.out debug output (2x) | 1 |
+| prose-block | `corpus/jzlib/ZStream.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/ZStream.java:37` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/ZStream.java:242` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/jzlib/ZStreamException.java:1` | 33-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/minimal-json/Json.java:1` | 184/352 lines are comments (52% - budget 50%) | 1 |
+| prose-block | `corpus/minimal-json/Json.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:28` | 26-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:75` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:86` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:97` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:111` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:125` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:136` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:147` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:157` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:176` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:195` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:214` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:233` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:252` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:270` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:280` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Json.java:299` | 16-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/minimal-json/JsonArray.java:1` | file spans 471 non-blank lines (budget 400) | 1 |
+| bloat-comment-ratio | `corpus/minimal-json/JsonArray.java:1` | 302/471 lines are comments (64% - budget 50%) | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:32` | 30-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:74` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:95` | 19-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:119` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:136` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:152` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:165` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:178` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:191` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:204` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:217` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:229` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:244` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:262` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:280` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:298` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:316` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:334` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:352` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:372` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:387` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:396` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:405` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:419` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:430` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonArray.java:484` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/minimal-json/JsonHandler.java:1` | 195/240 lines are comments (81% - budget 50%) | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:25` | 30-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:59` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:89` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:106` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:123` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:133` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:149` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:160` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:172` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:185` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:203` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:213` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:224` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:236` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonHandler.java:249` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonLiteral.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonNumber.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/minimal-json/JsonObject.java:1` | file spans 865 non-blank lines (budget 400) | 1 |
+| bloat-comment-ratio | `corpus/minimal-json/JsonObject.java:1` | 525/865 lines are comments (61% - budget 50%) | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:35` | 37-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:88` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:113` | 19-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:137` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:154` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:171` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:194` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:217` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:240` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:263` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:286` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:309` | 18-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:340` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:362` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:384` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:406` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:428` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:450` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:472` | 16-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:506` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:528` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:541` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:560` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:577` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:596` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:615` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:634` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:653` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:672` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:690` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:699` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:708` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:719` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:835` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:844` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonObject.java:861` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/minimal-json/JsonParser.java:1` | file spans 472 non-blank lines (budget 400) | 1 |
+| prose-block | `corpus/minimal-json/JsonParser.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonParser.java:51` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonParser.java:60` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonParser.java:76` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonParser.java:98` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonParser.java:117` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonString.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-long-file | `corpus/minimal-json/JsonValue.java:1` | file spans 456 non-blank lines (budget 400) | 1 |
+| bloat-comment-ratio | `corpus/minimal-json/JsonValue.java:1` | 323/456 lines are comments (71% - budget 50%) | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:31` | 32-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:91` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:113` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:128` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:141` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:154` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:167` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:180` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:193` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:206` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:216` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:226` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:235` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:244` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:254` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:263` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:272` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:281` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:293` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:305` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:324` | 15-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:343` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:359` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:375` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:387` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:399` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:415` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:440` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:452` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonValue.java:470` | 13-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/JsonWriter.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/Location.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/minimal-json/ParseException.java:1` | 49/73 lines are comments (67% - budget 50%) | 1 |
+| prose-block | `corpus/minimal-json/ParseException.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/ParseException.java:37` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/ParseException.java:46` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/ParseException.java:58` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/ParseException.java:69` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/PrettyPrint.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/PrettyPrint.java:29` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/PrettyPrint.java:45` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/PrettyPrint.java:54` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/PrettyPrint.java:70` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/WriterConfig.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/WritingBuffer.java:1` | 21-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/minimal-json/WritingBuffer.java:28` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/CharacterSubstitutionInterface.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/CharacterSubstitutionInterface.java:27` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/CharacterSubstitutionInterface.java:38` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/stringsim/Cosine.java:1` | 73/141 lines are comments (52% - budget 50%) | 1 |
+| prose-block | `corpus/stringsim/Cosine.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Cosine.java:32` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Cosine.java:43` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Cosine.java:55` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Cosine.java:65` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Cosine.java:97` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Cosine.java:137` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Cosine.java:149` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Damerau.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Damerau.java:31` | 14-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Damerau.java:48` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/stringsim/Jaccard.java:1` | 59/100 lines are comments (59% - budget 50%) | 1 |
+| prose-block | `corpus/stringsim/Jaccard.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Jaccard.java:36` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Jaccard.java:51` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Jaccard.java:62` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Jaccard.java:71` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Jaccard.java:106` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/JaroWinkler.java:9` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/JaroWinkler.java:37` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/JaroWinkler.java:47` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/JaroWinkler.java:57` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/JaroWinkler.java:93` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| humanizer | `corpus/stringsim/LICENSE.txt:9` | 'granted,' found (1x) | 1 |
+| prose-block | `corpus/stringsim/Levenshtein.java:6` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/Levenshtein.java:16` | 25-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/stringsim/LongestCommonSubsequence.java:1` | 56/94 lines are comments (60% - budget 50%) | 1 |
+| prose-block | `corpus/stringsim/LongestCommonSubsequence.java:6` | 20-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/LongestCommonSubsequence.java:29` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/LongestCommonSubsequence.java:55` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/LongestCommonSubsequence.java:73` | 17-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/stringsim/MetricLCS.java:1` | 38/65 lines are comments (58% - budget 50%) | 1 |
+| prose-block | `corpus/stringsim/MetricLCS.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/MetricLCS.java:31` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/MetricLCS.java:43` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| god-function | `corpus/stringsim/NGram.java:45` | function block spans 98 lines | 1 |
+| prose-block | `corpus/stringsim/NGram.java:6` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/NGram.java:38` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/stringsim/NormalizedLevenshtein.java:1` | 45/73 lines are comments (62% - budget 50%) | 1 |
+| prose-block | `corpus/stringsim/NormalizedLevenshtein.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/NormalizedLevenshtein.java:30` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/NormalizedLevenshtein.java:44` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/NormalizedLevenshtein.java:74` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/OptimalStringAlignment.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/OptimalStringAlignment.java:29` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/OptimalStringAlignment.java:43` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/QGram.java:11` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/QGram.java:24` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/QGram.java:39` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/QGram.java:53` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/QGram.java:81` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/stringsim/ShingleBased.java:1` | 70/108 lines are comments (65% - budget 50%) | 1 |
+| prose-block | `corpus/stringsim/ShingleBased.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/ShingleBased.java:33` | 20-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/ShingleBased.java:65` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/ShingleBased.java:84` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/ShingleBased.java:93` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| bloat-comment-ratio | `corpus/stringsim/SorensenDice.java:1` | 65/108 lines are comments (60% - budget 50%) | 1 |
+| prose-block | `corpus/stringsim/SorensenDice.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/SorensenDice.java:34` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/SorensenDice.java:44` | 11-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/SorensenDice.java:59` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/SorensenDice.java:72` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/SorensenDice.java:111` | 8-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/WeightedLevenshtein.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/WeightedLevenshtein.java:29` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/WeightedLevenshtein.java:48` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| god-function | `corpus/stringsim/experimental/Sift4.java:65` | function block spans 125 lines | 1 |
+| deep-nesting | `corpus/stringsim/experimental/Sift4.java:65` | nests more than 5 levels | 1 |
+| prose-block | `corpus/stringsim/experimental/Sift4.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/experimental/Sift4.java:29` | 9-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/experimental/Sift4.java:44` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/experimental/Sift4.java:53` | 12-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/MetricStringDistance.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/MetricStringDistance.java:26` | 10-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/MetricStringDistance.java:38` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/NormalizedStringDistance.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/NormalizedStringDistance.java:26` | 5-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/NormalizedStringSimilarity.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/StringDistance.java:1` | 23-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/StringDistance.java:34` | 7-line comment block narrates the code - keep only the non-obvious why | 1 |
+| prose-block | `corpus/stringsim/interfaces/StringSimilarity.java:10` | 6-line comment block narrates the code - keep only the non-obvious why | 1 |
+| missing-tests | `AcpyProbe.java:1` | 88 source files and no test files in the repository (test inventory, advisory) | 2 |
+
+### Highest-deficit files
+
+| File | Deficit |
+|---|---|
+| `corpus/JZlibCorpus.java` | 100 |
+| `corpus/MinimalJsonCorpus.java` | 91 |
+| `corpus/minimal-json/JsonValue.java` | 89 |
+| `corpus/JamaBench.java` | 29 |
+| `corpus/JamaCorpus.java` | 29 |
+
+Opt out per path or check via `.ai-integrity-ignore` (glob lines, or `check:<id>` to disable one rule); accept existing findings with `--write-baseline` + `--baseline`.

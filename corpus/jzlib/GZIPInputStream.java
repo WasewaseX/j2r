@@ -132,7 +132,9 @@ public class GZIPInputStream extends InflaterInputStream {
       try {
         i = in.read(buf, n, buf.length - n);
       }
-      catch(IOException e){
+      catch(IOException ignored){
+        // read failure mid-fill behaves as EOF: i stays -1 and the loop
+        // breaks with the partial n it gathered
       }
       if(i == -1){
         break;

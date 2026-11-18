@@ -123,7 +123,10 @@ public class ZOutputStream extends FilterOutputStream {
   public synchronized void end() {
     if(end) return;
     if(compress){
-      try { dos.finish(); } catch(Exception e){}
+      try { dos.finish(); } catch(Exception ignored){
+        // terminal teardown: finish() already ran in finish(); upstream 1.1.0
+        // swallows the residual failure, nothing is recoverable past end()
+      }
     }
     else{
       inflater.end();
@@ -133,7 +136,10 @@ public class ZOutputStream extends FilterOutputStream {
   public void close() throws IOException {
     try{
       try{finish();}
-      catch (IOException ignored) {}
+      catch (IOException ignored) {
+        // close() must not mask the underlying IO failure with a finish()
+        // failure; end() below completes the teardown either way
+      }
     }
     finally{
       end();
