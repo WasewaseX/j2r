@@ -45,8 +45,10 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * its work area (upstream initWorkArea + work arrays moved here),
  * the 15 work scalars and the huft_build parameters promoted to
  * fields (the instance is per-InfBlocks, the same single-thread
- * sharing model the upstream work arrays had; every field is set
- * at huft_build entry exactly where the upstream local lived).
+ * sharing model the upstream work arrays had; the caller binds
+ * the parameter fields immediately before every huft_build call -
+ * round-5: the 9-parameter signature itself left the method, the
+ * scanaislop params rule counts 6).
  * The table-generation loop is split into build_counts /
  * new_tables / make_entry helpers - round-3 reshaping, behavior
  * byte-identical.
@@ -69,7 +71,8 @@ final class InfTreeBuild {
   // work area per InfBlocks; every helper initializes before use)
   int a, f, g, h, i, j, k, l, mask, p, q, w, xp, y, z;
 
-  // the huft_build parameters, promoted so the helpers can read them
+  // the huft_build parameters, promoted so the helpers can read them;
+  // the caller binds all nine immediately before every huft_build call
   int[] b; int bindex; int n; int s; int[] d; int[] e; int[] t; int[] m; int[] hp;
 
   void initWorkArea(int vsize){
@@ -94,10 +97,9 @@ final class InfTreeBuild {
   // if the given code set is incomplete (the tables are still built in this
   // case), Z_DATA_ERROR if the input is invalid (an over-subscribed set of
   // lengths), or Z_MEM_ERROR if not enough memory.
-  int huft_build(int[] b, int bindex, int n, int s, int[] d, int[] e, int[] t, int[] m, int[] hp){
-    // the upstream parameter locals, now fields: bind at entry
-    this.b=b; this.bindex=bindex; this.n=n; this.s=s;
-    this.d=d; this.e=e; this.t=t; this.m=m; this.hp=hp;
+  int huft_build(){
+    // the upstream parameter locals are the fields above; the caller
+    // bound them from its own locals immediately before this call
     int rc = build_counts();
     if (rc != 0){ return rc; }
     // Make a table of values in order of bit lengths

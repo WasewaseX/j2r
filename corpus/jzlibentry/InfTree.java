@@ -236,7 +236,12 @@ final class InfTree {
 
     wb.initWorkArea(19);
     wb.hn[0]=0;
-    result = wb.huft_build(c, 0, 19, 19, null, null, tb, bb, hp);
+    // bind the huft_build parameter fields (the 9-arg signature left
+    // the method in round-5; the same values the old call passed)
+    wb.b=c; wb.bindex=0; wb.n=19;
+    wb.s=19; wb.d=null; wb.e=null;
+    wb.t=tb; wb.m=bb; wb.hp=hp;
+    result = wb.huft_build();
 
     if(result == Z_DATA_ERROR){
       z.msg = "oversubscribed dynamic bit lengths tree";
@@ -265,7 +270,10 @@ final class InfTree {
     // build literal/length tree
     wb.initWorkArea(288);
     wb.hn[0]=0;
-    result = wb.huft_build(c, 0, nl, 257, cplens, cplext, tl, bl, hp);
+    wb.b=c; wb.bindex=0; wb.n=nl;
+    wb.s=257; wb.d=cplens; wb.e=cplext;
+    wb.t=tl; wb.m=bl; wb.hp=hp;
+    result = wb.huft_build();
     if (result != Z_OK || bl[0] == 0){
       if(result == Z_DATA_ERROR){
         z.msg = "oversubscribed literal/length tree";
@@ -279,7 +287,10 @@ final class InfTree {
 
     // build distance tree
     wb.initWorkArea(288);
-    result = wb.huft_build(c, nl, nd, 0, cpdist, cpdext, td, bd, hp);
+    wb.b=c; wb.bindex=nl; wb.n=nd;
+    wb.s=0; wb.d=cpdist; wb.e=cpdext;
+    wb.t=td; wb.m=bd; wb.hp=hp;
+    result = wb.huft_build();
 
     if (result != Z_OK || (bd[0] == 0 && nl > 257)){
       if (result == Z_DATA_ERROR){

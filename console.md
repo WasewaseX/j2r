@@ -4991,3 +4991,35 @@ roadmap" on the A-graded tree.
   per-finding resolution table + the four archives + the PR hold).
 - THE ROUND-4 ORDER IS FULLY RESOLVED. Queue head: T15.2 (the
   MappingSet-driven remap pass).
+
+## 2026-11-19 — round-5 wave (the owner pasted the hosted complexity
+## report over the Rust crates + one corpus finding; "Hold every pull
+## request to this")
+
+- The paste shape: 20 findings ending mid-line at
+  crates/j2r-runtime/src/formatter.rs:781 — the head of a longer
+  hosted report. The new rules on .rs: file-too-large limit 1000
+  (flagged above 1100 raw lines), function-too-long limit 120
+  (flagged above 132 raw lines), and the params rule (max 6) seen on
+  corpus/jzlibentry/InfTreeBuild.java:97 (huft_build, 9 params).
+- The local replica rebuilt for round 5
+  (/home/z/my-project/scripts/slop_check_hosted_r5.py): mask-based
+  Rust fn-item scan calibrated to reproduce ALL 9 pasted Rust
+  findings at the exact pasted lines (377/1206/947/1238/638/799/467/
+  6264/781) plus the Java round-4 rules + params>6. Full sweep: 112
+  findings, 73 enforced — the paste tail reconstructed (16 oversized
+  .rs src files, 27 over-length fns); hosted skips tests/ dirs (no
+  j2r-cli/tests findings in its path-ordered report) and never
+  flagged FmtResidualProbe (three scans running — documented
+  divergence, not churned); the params rule has no Rust data point
+  (report-only locally, never enforced).
+- slice-r5-a: the corpus params finding FIXED — InfTreeBuild.huft_build
+  (9 params) becomes the 0-arg field-binding form (the nine parameter
+  fields already existed; the three InfTree call sites bind them
+  immediately before every call, the same values the old arguments
+  carried); InfTreeBuild joins the build script's HAND existence-check
+  contract. PROOFS: REGEN-BYTE-IDENTICAL (the 18 archive-generated
+  files byte-unchanged), javac+java stdout BYTE-IDENTICAL to the
+  recorded oracle (330 B, sha 780e9802..., stderr 0, exit 0),
+  corpus_suite 6/6 (54.0s warm), fmt + clippy -D warnings clean,
+  gate-11 in sync (fixtures=130 tests=619). PR HOLD unchanged.

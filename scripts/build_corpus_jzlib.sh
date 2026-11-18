@@ -148,7 +148,9 @@ DRIVER
 
 # The five state-machine classes are hand-maintained (complexity
 # reshaping, behavior byte-identical); the script never overwrites them.
-HAND="Deflate Inflate InfBlocks InfCodes InfTree"
+# InfTreeBuild (the round-3 huft_build helper split) is hand-maintained
+# too and checked for existence (round-5: the params-rule reshape).
+HAND="Deflate Inflate InfBlocks InfCodes InfTree InfTreeBuild"
 mkdir -p "$ENTRY"
 # Round-4 (2026-11-19): the vendored com.jcraft.jzlib tree left the repo
 # as the byte-frozen archive (the hosted scanaislop complexity rules flag
