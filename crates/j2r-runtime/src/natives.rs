@@ -1906,6 +1906,18 @@ fn n_double_to_long_bits(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Res
         arg(args, "Double.doubleToLongBits").expect_double(),
     )))
 }
+
+// Float/Double.toHexString (corpus/HexFloatProbe wave): the JDK hex-string
+// grammar lives in javafmt (double_to_hex_string / float_to_hex_string,
+// Temurin-21.0.13-pinned law tests there); these natives are the bridge.
+fn n_float_to_hex_string(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
+    let s = crate::javafmt::float_to_hex_string(arg(args, "Float.toHexString").expect_float());
+    Ok(Value::Ref(Some(crate::object::new_string(&s))))
+}
+fn n_double_to_hex_string(_r: Option<&JRef>, args: &[Value], _c: Dispatch) -> Result<Value, Throw> {
+    let s = crate::javafmt::double_to_hex_string(arg(args, "Double.toHexString").expect_double());
+    Ok(Value::Ref(Some(crate::object::new_string(&s))))
+}
 fn n_double_to_raw_long_bits(
     _r: Option<&JRef>,
     args: &[Value],
@@ -4661,6 +4673,19 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "longBitsToDouble",
         "(J)D",
         n_long_bits_to_double,
+    ),
+    // HexFloatProbe wave: the JDK hex-string formatters (Temurin-pinned)
+    (
+        "java/lang/Float",
+        "toHexString",
+        "(F)Ljava/lang/String;",
+        n_float_to_hex_string,
+    ),
+    (
+        "java/lang/Double",
+        "toHexString",
+        "(D)Ljava/lang/String;",
+        n_double_to_hex_string,
     ),
     (
         "java/lang/Float",

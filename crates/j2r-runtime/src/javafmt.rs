@@ -375,6 +375,86 @@ pub fn int_to_hex_string(v: i32) -> String {
     format!("{:x}", v as u32)
 }
 
+/// Java `Double.toHexString` (JDK float-to-hex grammar, pinned against the
+/// live Temurin 21.0.13 oracle over the 76-row corpus/HexFloatProbe matrix):
+/// NaN -> "NaN"; infinities -> "Infinity"/"-Infinity"; zeros -> "0x0.0p0"
+/// ("-0x0.0p0" for negative zero); normals -> `0x1.<hex>p<exp>` with the
+/// decimal unbiased exponent; subnormals -> `0x0.<hex>p-1022` with the
+/// min-normal exponent. The fraction digits are the 52-bit significand's
+/// 13-nibble field with trailing zero NIBBLES stripped (leading zeros are
+/// positional and stay — MIN_VALUE keeps all 13), minimum 1 digit.
+pub fn double_to_hex_string(v: f64) -> String {
+    let b = v.to_bits();
+    hex_string_from_parts(
+        b >> 63 != 0,
+        (b >> 52) & 0x7ff,
+        b & ((1u64 << 52) - 1),
+        13,
+        2047,
+        1023,
+        1022,
+    )
+}
+
+/// Java `Float.toHexString` — the same grammar at f32 width: the 23-bit
+/// significand is aligned to nibbles by shifting one bit left into a
+/// 24-bit field (6 nibbles), subnormal exponent -126.
+pub fn float_to_hex_string(v: f32) -> String {
+    let b = v.to_bits() as u64;
+    hex_string_from_parts(
+        b >> 31 != 0,
+        (b >> 23) & 0xff,
+        (b & 0x7f_ffff) << 1,
+        6,
+        255,
+        127,
+        126,
+    )
+}
+
+/// The shared JDK hex-string law over already-split fields. `mant` must be
+/// the nibble-aligned fraction field (float's arrives pre-shifted).
+fn hex_string_from_parts(
+    neg: bool,
+    expf: u64,
+    mant: u64,
+    nwidth: u32,
+    exp_max: u64,
+    bias: i64,
+    emin: i64,
+) -> String {
+    if expf == exp_max {
+        return if mant == 0 {
+            if neg {
+                "-Infinity".to_string()
+            } else {
+                "Infinity".to_string()
+            }
+        } else {
+            "NaN".to_string()
+        };
+    }
+    if expf == 0 && mant == 0 {
+        return if neg {
+            "-0x0.0p0".to_string()
+        } else {
+            "0x0.0p0".to_string()
+        };
+    }
+    let digits_full = format!("{:0width$x}", mant, width = nwidth as usize);
+    // strip trailing zero nibbles only; leading zeros are positional
+    let frac = match digits_full.rfind(|c| c != '0') {
+        Some(i) => &digits_full[..=i],
+        None => "0",
+    };
+    let sign = if neg { "-" } else { "" };
+    if expf == 0 {
+        format!("{sign}0x0.{frac}p{}", -emin)
+    } else {
+        format!("{sign}0x1.{frac}p{}", expf as i64 - bias)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,5 +533,103 @@ mod tests {
         assert_eq!(int_to_hex_string(255), "ff");
         assert_eq!(int_to_hex_string(-1), "ffffffff");
         assert_eq!(int_to_hex_string(0), "0");
+    }
+
+    // Float/Double.toHexString — every vector below is a live Temurin
+    // 21.0.13 row from the corpus/HexFloatProbe capture (the (bits, text)
+    // pairs are the oracle; the grammar law they pin is documented on
+    // double_to_hex_string above).
+
+    #[test]
+    fn double_to_hex_matches_temurin() {
+        let _rt = crate::runtime();
+        // normals: trailing-zero nibble strip, min 1 digit, decimal exp
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x3ff0000000000000)),
+            "0x1.0p0"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x7fe0000000000000)),
+            "0x1.0p1023"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x7fefffffffffffff)),
+            "0x1.fffffffffffffp1023"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x43723456789abcdf)),
+            "0x1.23456789abcdfp56"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x430fdb97530eca86)),
+            "0x1.fdb97530eca86p49"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x38b0000000000000)),
+            "0x1.0p-116"
+        );
+        // rounding boundaries landing on 1.0 strip all the way down
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x3ff0000000000001)),
+            "0x1.0000000000001p0"
+        );
+        // subnormals: 0x0. form, min-normal exponent, leading zeros stay
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(1)),
+            "0x0.0000000000001p-1022"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x8000000000000)),
+            "0x0.8p-1022"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x10000000000000)),
+            "0x1.0p-1022"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x1fffffffffffff)),
+            "0x1.fffffffffffffp-1022"
+        );
+        assert_eq!(
+            double_to_hex_string(f64::from_bits(0x8000000000000001)),
+            "-0x0.0000000000001p-1022"
+        );
+        // zeros / special values
+        assert_eq!(double_to_hex_string(0.0), "0x0.0p0");
+        assert_eq!(double_to_hex_string(-0.0), "-0x0.0p0");
+        assert_eq!(double_to_hex_string(f64::NAN), "NaN");
+        assert_eq!(double_to_hex_string(f64::INFINITY), "Infinity");
+        assert_eq!(double_to_hex_string(f64::NEG_INFINITY), "-Infinity");
+    }
+
+    #[test]
+    fn float_to_hex_matches_temurin() {
+        let _rt = crate::runtime();
+        // the one-bit shift into the 24-bit field: MIN_VALUE prints its
+        // single bit in the SECOND nibble (0x0.000002p-126), not the last
+        assert_eq!(float_to_hex_string(f32::from_bits(1)), "0x0.000002p-126");
+        assert_eq!(float_to_hex_string(f32::from_bits(2)), "0x0.000004p-126");
+        assert_eq!(float_to_hex_string(f32::from_bits(0x400000)), "0x0.8p-126");
+        assert_eq!(float_to_hex_string(f32::from_bits(0x800000)), "0x1.0p-126");
+        assert_eq!(float_to_hex_string(f32::from_bits(0x3f800000)), "0x1.0p0");
+        assert_eq!(
+            float_to_hex_string(f32::from_bits(0x3f7fffff)),
+            "0x1.fffffep-1"
+        );
+        assert_eq!(
+            float_to_hex_string(f32::from_bits(0x7f7fffff)),
+            "0x1.fffffep127"
+        );
+        assert_eq!(float_to_hex_string(f32::from_bits(0x7f000000)), "0x1.0p127");
+        assert_eq!(
+            float_to_hex_string(f32::from_bits(0x5b91a2b4)),
+            "0x1.234568p56"
+        );
+        assert_eq!(float_to_hex_string(f32::from_bits(0x41000000)), "0x1.0p3");
+        assert_eq!(float_to_hex_string(0.0f32), "0x0.0p0");
+        assert_eq!(float_to_hex_string(-0.0f32), "-0x0.0p0");
+        assert_eq!(float_to_hex_string(f32::NAN), "NaN");
+        assert_eq!(float_to_hex_string(f32::INFINITY), "Infinity");
+        assert_eq!(float_to_hex_string(f32::NEG_INFINITY), "-Infinity");
     }
 }

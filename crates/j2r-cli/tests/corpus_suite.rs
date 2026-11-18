@@ -60,6 +60,12 @@ fn corpus_entries_match_jvm() {
         // Entry 4 (stringsim wave, 2026-11-07): the same library an
         // external regex-shaped converter mangled into 309 rustc errors.
         "StringsSimCorpus.java".to_string(),
+        // Entry 5 (scanaislop round-3 wave, 2026-11-18): HexFloatProbe —
+        // the 76-row Float/Double.toHexString Temurin matrix, gated here
+        // permanently once its natives landed (the probe's round-3 main
+        // split surfaced the missing Float.toHexString(F)/
+        // Double.toHexString(D) builtins; they are in now).
+        "HexFloatProbe.java".to_string(),
     ];
     let mut failures = Vec::new();
     for entry in &entries {
