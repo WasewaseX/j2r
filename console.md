@@ -4591,3 +4591,47 @@ roadmap" on the A-graded tree.
   the corpus's value (verified-correct DEFLATE vs Temurin) outranks
   the advisory. The empty-catch ERRORS — the only blocking-grade family
   in the paste — are gone on every surface. PR HOLD unchanged.
+
+## Session cont. — 2026-11-18: the queue-head order — T15.1 (the raw-class-transport) LANDED
+
+- PROBE FIRST: the resolver (`ClassFile::parse`) interprets attributes
+  and DROPS what it does not need (LineNumberTable, StackMapTable
+  bodies, unknown attributes, attribute order) — a parse→serialize
+  round trip through the RESOLVED model can never be byte-exact, so the
+  remap stage needed the opposite contract: a raw reader + byte-exact
+  writer. New module `crates/j2r-classfile/src/remap.rs`; the proven
+  resolver path untouched (`decode_modified_utf8` → `pub(crate)` re-use
+  only).
+- THE SLICE: RawCpEntry (tag + raw payload; Utf8 keeps the raw
+  modified-UTF-8), RawPool (1-based slots, `append_utf8` grows the pool
+  without disturbing any index), RawAttribute/RawMember/RawClassFile
+  (everything the reader saw, nothing interpreted), `serialize()`
+  byte-exact, and `retarget_this_class` — the T15 remap primitive shape
+  (a): one Utf8 appends, one Class name_index moves, no other byte
+  shifts. Vectors: 8 committed javac-21.0.13 class files (primitives +
+  concat indy / generics + inner classes + exception table +
+  StackMapTable / record + lambda indy + enum switch + a C0-80 NUL and
+  a supplementary scalar in the pool), sources alongside, laws use
+  `include_bytes!` — no JDK at test time.
+- THE LAWS (4): byte-exact round-trip on all 8 vectors; raw↔resolver
+  agreement (names, descriptors, census, and the resolver's Code bytes
+  are a slice of the raw Code payload); retarget isolation (exactly one
+  slot appended, exactly one Class entry changed, member lists
+  byte-identical, the output re-verifies on the resolver); modified-
+  UTF-8 preservation (a lone surrogate rides verbatim as ED A0 B4 while
+  the resolver stays lossy; `encode_modified_utf8` spells paired
+  surrogates ED A0 B4 ED B5 8E + C0 80).
+- LAW-CAUGHT RED (never shipped): the writer length-prefixed EVERY tag;
+  the format gives the u16 length only to Utf8 (JVMS §4.4) — law 1
+  caught it on the first run, fixed, GREEN.
+- GREEN: battery **545/0** lib (52+172+15+306; classfile 48→52); fmt +
+  clippy -D warnings clean FRESH; gate-11 in sync (fixtures=130,
+  tests=617; README 613→617 + the T15.1 roster entry). Evidence:
+  scripts/evidence/t15_remap/T15_1_2026-11-18.md.
+- NEXT (queue head advances inside T15): T15.2 — the remap pass over
+  NameAndType/FieldRef/MethodRef/InterfaceMethodRef via j2r-mappings'
+  MappingSet + the non-Code attributes that carry class/name references
+  (Exceptions, InnerClasses, NestHost/NestMembers, EnclosingMethod,
+  Signature text, StackMapTable Object_variable_info, Record
+  components); then T15.3 the CLI `remap` stage; then T16 (real
+  intermediary load + remapped jar differential). PR HOLD unchanged.

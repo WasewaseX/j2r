@@ -26,7 +26,12 @@ CLEAN, lib battery 541/0, diff_suite 130 fixtures three-channel ZERO
 (384.18s + 387.63s sharded), cfg_equiv zero (447.14s), fmt + clippy -D
 warnings clean FRESH, gate-11 in sync (fixtures=130, tests=613); the
 vendored-algorithm complexity advisories stay exempt-by-design
-(scripts/evidence/slop_audit/ROUND2_2026-11-18.md). PR HOLD unchanged:
+(scripts/evidence/slop_audit/ROUND2_2026-11-18.md). THEN the queue
+head opened: T15.1 (the raw-class-transport, crates/j2r-classfile/src/
+remap.rs) LANDED the same day — the remap stage's byte-exact transport
+(4 law tests over 8 committed javac vectors; battery 545/0, gate-11
+130/617, evidence scripts/evidence/t15_remap/T15_1_2026-11-18.md).
+PR HOLD unchanged:
 the three dependabot branches stay unmerged.).
 Previous: 2026-11-18 (the master-ci v2.9.1 wave —
 **THE UPDATED ENGINE RE-SCANNED THE TREE AND EVERYTHING FIXABLE GOT
@@ -199,10 +204,15 @@ has no surface, the field/method protected instance-context nuance),
    driver main split, the build script re-owning the amalgam — the
    entry above) WITHOUT moving the queue head. NEW HEAD OF QUEUE: T15
    (the remap stage, the
-   j2r-classfile write path), then T16 (real intermediary load +
-   remapped jar differential), then the run-5 registered follow-ons
-   (Method.invoke's caller-law arm, the user-Map-source copy-ctor
-   residual); the M4 review belongs to the owner. (The 5-run cycle is COMPLETE: runs 1-5 all recorded; the
+   j2r-classfile write path) — its T15.1 transport slice LANDED (the
+   raw reader + byte-exact writer + retarget_this_class, 4 laws, 8
+   javac vectors); NEXT: T15.2 (the MappingSet-driven remap pass over
+   NameAndType/member-refs + the non-Code attributes that carry
+   class/name references), T15.3 (the CLI `remap` stage), T16 (real
+   intermediary load + remapped jar differential), then the run-5
+   registered follow-ons (Method.invoke's caller-law arm, the
+   user-Map-source copy-ctor residual); the M4 review belongs to the
+   owner. (The 5-run cycle is COMPLETE: runs 1-5 all recorded; the
    cycle-complete session continued the queue head per the standing
    discipline.)
 (Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
