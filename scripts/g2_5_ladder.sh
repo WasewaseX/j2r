@@ -91,7 +91,7 @@ stageP)
   java -cp classes farm.Main > "$WORK/java.out" 2> "$WORK/java.err"
   echo $? > "$WORK/java.exit"
   say "JVM captured: exit=$(cat "$WORK/java.exit") out=$(stat -c%s "$WORK/java.out")B err=$(stat -c%s "$WORK/java.err")B"
-  # headroom for the cargo peak: sources+classes+jar no longer needed
+  # headroom for the cargo peak: drop the sources+classes+jar once captured
   rm -rf "$SRC" "$JAR"
   say "farm_src + jar deleted after capture (parity diffs against the captured channels)"
   df -h / | tail -1

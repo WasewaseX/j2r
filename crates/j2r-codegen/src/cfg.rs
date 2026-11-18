@@ -36,6 +36,12 @@ use crate::ir::Instr;
 use crate::MethodPlan;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+/// The cfg-debug gate: the diagnostic dump behind `J2R_CFG_DEBUG` —
+/// off in production, one env read per dump site.
+fn cfg_debug() -> bool {
+    std::env::var_os("J2R_CFG_DEBUG").is_some()
+}
+
 /// Why a method cannot be lifted (recorded in the lift report).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unsupported {
@@ -700,7 +706,7 @@ impl<'a> Builder<'a> {
                 eprintln!("cfg-debug: {:>4}: {}", i, line);
             }
         }
-        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+        if cfg_debug() {
             eprintln!(
                 "cfg-debug: refuse[{}] {}{} block={} emitted={} stops={:?} active={:?}",
                 site,
@@ -829,7 +835,7 @@ impl<'a> Builder<'a> {
                 .map(|x| self.emitted.contains(&x))
                 .unwrap_or(false)
         {
-            if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+            if cfg_debug() {
                 eprintln!(
                     "cfg-debug: refuse[emit_loop:exit_emitted-header] {}{} header={} hb_emitted={}",
                     self.m.name,
@@ -841,7 +847,7 @@ impl<'a> Builder<'a> {
             self.dbg_refuse("emit_loop:exit_emitted", exit_block.unwrap());
             return Err(Unsupported::BranchIntoEmittedCode);
         }
-        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+        if cfg_debug() {
             eprintln!(
                 "cfg-debug: emit_loop {}{} header={} active={:?}",
                 self.m.name,
@@ -961,7 +967,7 @@ impl<'a> Builder<'a> {
                 self.dbg_refuse("region:emitted", cur);
                 return Err(Unsupported::BranchIntoEmittedCode);
             }
-            if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+            if cfg_debug() {
                 eprintln!(
                     "cfg-debug: emit block {}{} block={} out.len={}",
                     self.m.name,
@@ -1549,7 +1555,7 @@ impl<'a> Builder<'a> {
                             ),
                         }
                     };
-                    if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+                    if cfg_debug() {
                         eprintln!(
                             "cfg-debug: divergent defer check {}{} ci={} root={} \
                              t_b={} f_b={} m1={:?} m2={:?} t_out={} f_out={} t_def={} f_def={} \
@@ -1587,7 +1593,7 @@ impl<'a> Builder<'a> {
                         self.btrace("}");
                         return Ok(());
                     }
-                    if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+                    if cfg_debug() {
                         eprintln!(
                             "cfg-debug: divergent joins unresolved {}{} ci={} (block {}) \
                              t_b={} f_b={} m1={:?} m2={:?}",
@@ -1736,7 +1742,7 @@ impl<'a> Builder<'a> {
                             // label stays open until its drain point
                             return Ok(true);
                         }
-                        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+                        if cfg_debug() {
                             eprintln!(
                                 "cfg-debug: join purity refused {}{} meet={} root={} \
                                  outside_pred={} meet_loop={:?}",
@@ -1787,7 +1793,7 @@ impl<'a> Builder<'a> {
     /// records it for the drain.
     fn register_deferred(&mut self, meet: usize) {
         let lbl = self.fresh_label("djoin", meet);
-        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+        if cfg_debug() {
             eprintln!(
                 "cfg-debug: deferred join registered {}{} meet={} label={lbl}",
                 self.m.name, self.m.desc, meet
@@ -1853,7 +1859,7 @@ impl<'a> Builder<'a> {
             self.out.push("}".to_string());
             self.btrace("}");
             self.stops.retain(|e| e.sid != d.sid);
-            if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+            if cfg_debug() {
                 eprintln!(
                     "cfg-debug: deferred join drained {}{} meet={} label={}",
                     self.m.name, self.m.desc, d.meet, d.label
@@ -1981,7 +1987,7 @@ pub fn lift(
         .enumerate()
         .any(|(i, _)| !tramp.contains_key(&i) && !b.emitted.contains(&i))
     {
-        if std::env::var_os("J2R_CFG_DEBUG").is_some() {
+        if cfg_debug() {
             let missing: Vec<usize> = cfg
                 .blocks
                 .iter()

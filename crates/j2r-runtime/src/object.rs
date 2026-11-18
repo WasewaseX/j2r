@@ -13,6 +13,7 @@
 //! never escape the lock guard (M2_PLAN §4.7; heap lock law L1–L3).
 
 use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
+use crate::internal_error;
 use crate::Value;
 use crate::{throw_new, Throw};
 use std::collections::HashMap;
@@ -66,7 +67,7 @@ pub fn new_obj(class: &str, slots: usize) -> Result<JRef, Throw> {
 pub fn new_builtin(class: &str) -> Result<JRef, Throw> {
     match crate::builtin::builtin_total_slots(class) {
         Some(n) => new_obj(class, n),
-        None => Err(crate::internal_error(&format!(
+        None => Err(internal_error(&format!(
             "cannot instantiate builtin class {class}"
         ))),
     }
@@ -299,7 +300,7 @@ mod tests {
 
     #[test]
     fn intern_returns_same_object() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let a = intern_string("hello-intern");
         let b = intern_string("hello-intern");
         assert!(JRef::ptr_eq(&a, &b));
@@ -309,7 +310,7 @@ mod tests {
 
     #[test]
     fn string_roundtrip() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_string("héllo ✓");
         assert!(is_string(&r));
         assert_eq!(&*string_value(&r), "héllo ✓");
@@ -317,7 +318,7 @@ mod tests {
 
     #[test]
     fn string_array_layout() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let arr = new_string_array(&["a".into(), "b".into()]);
         let cls = with_obj(arr, |o| o.jclass.to_string());
         assert_eq!(cls, "[Ljava/lang/String;");
@@ -326,7 +327,7 @@ mod tests {
 
     #[test]
     fn obj_mut_writes_are_visible() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_obj("test/M", 2).unwrap();
         obj_set(&r, 0, Value::Int(7));
         with_obj_mut(r, |o| o.slots[1] = Value::Int(9));
@@ -338,7 +339,7 @@ mod tests {
     fn object_class_reads_the_jclass_field() {
         // R5 slice 2: the vtable match reads the same field the dispatch
         // walk starts from — exactly, including array and string objects.
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_obj("probe/Impl", 1).unwrap();
         assert_eq!(&*object_class(&r), "probe/Impl");
         let s = new_string("vtable");

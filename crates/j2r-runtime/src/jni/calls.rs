@@ -25,9 +25,17 @@
 //!   pends `NoSuchMethodError` and returns null (v1 gap, T12 owns the
 //!   native-binding story).
 
+#[cfg(test)]
+use super::bridge::delete_local;
 use crate::desc::{parse_method_desc, TypeDesc};
+use crate::internal_error;
 use crate::jni::classes::{resolve_method_id, MethodId};
 use crate::{Throw, Value};
+
+/// The CallBase fixture class the reflective-call tables repeat row
+/// after row.
+#[cfg(test)]
+const CALL_BASE: &str = "j2r/test/CallBase";
 
 /// Decodes one 8-byte `jvalue` word per the parameter descriptor.
 /// Integral sub-word kinds ride the LOW bytes (little-endian) of the
@@ -250,7 +258,7 @@ fn dispatch(
     }
     pend_and_zero(
         ret,
-        crate::internal_error(&format!(
+        internal_error(&format!(
             "{} dispatch target {}.{}{} not in dispatch table",
             family.describe(),
             start,
@@ -385,10 +393,7 @@ fn invoke_v(
             Err(msg) => {
                 return pend_and_zero(
                     &ret,
-                    crate::internal_error(&format!(
-                        "Call*MethodV for {}::{}: {msg}",
-                        m.owner, m.name
-                    )),
+                    internal_error(&format!("Call*MethodV for {}::{}: {msg}", m.owner, m.name)),
                 );
             }
         }
@@ -933,7 +938,6 @@ pub fn slot_call_nonvirtual_void_method_v(mid: u64, obj_tag: u64, clazz_tag: u64
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::runtime;
 
     #[test]
     fn jvalue_words_decode_per_descriptor() {
@@ -961,7 +965,7 @@ mod tests {
             decode_jvalue(&[0; 8], &TypeDesc::Object("x".into())),
             Value::Ref(None)
         );
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let tag = super::super::bridge::new_local(crate::object::new_string("hi"));
         let mut ptr_word = [0u8; 8];
         ptr_word.copy_from_slice(&tag.to_le_bytes());
@@ -973,7 +977,7 @@ mod tests {
             ),
             other => panic!("expected ref, got {other:?}"),
         }
-        super::super::bridge::delete_local(tag);
+        delete_local(tag);
     }
 
     #[test]
@@ -988,7 +992,7 @@ mod tests {
 
     #[test]
     fn method_ids_are_deduplicated_marked_and_disjoint_from_field_ids() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let id1 = super::super::classes::mint_for_test("a/B", "foo", "(I)V", false);
         let id2 = super::super::classes::mint_for_test("a/B", "foo", "(I)V", false);
         assert_eq!(id1, id2, "the same triple mints the same ID forever");
@@ -1010,7 +1014,7 @@ mod tests {
 
     #[test]
     fn pending_exception_cell_roundtrips_per_thread() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         assert!(!super::super::bridge::has_pending_exception());
         assert_eq!(super::super::bridge::pending_exception_local(), None);
         let t = crate::throw_new("java/lang/RuntimeException", Some("boom"));
@@ -1030,8 +1034,8 @@ mod tests {
         );
         assert!(!super::super::bridge::has_pending_exception());
         assert!(super::super::bridge::take_pending_exception().is_none());
-        super::super::bridge::delete_local(l1);
-        super::super::bridge::delete_local(l2);
+        delete_local(l1);
+        delete_local(l2);
     }
 
     // -- the mock-dispatch fixture (M5_JNI_CALLS.md §4/§5) --------------
@@ -1355,10 +1359,10 @@ mod tests {
 
     #[test]
     fn virtual_calls_dispatch_by_the_runtime_class_and_walk_ancestors() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
         let recv = derived_receiver();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let derived_cls = class_tag("j2r/test/CallDerived");
         // The override: mark()I minted on Derived runs Derived's body.
         let m_derived =
@@ -1406,17 +1410,17 @@ mod tests {
             "the runtime-class walk reaches the inherited body"
         );
         clear_pending();
-        super::super::bridge::delete_local(recv);
-        super::super::bridge::delete_local(base_cls);
-        super::super::bridge::delete_local(derived_cls);
+        delete_local(recv);
+        delete_local(base_cls);
+        delete_local(derived_cls);
     }
 
     #[test]
     fn nonvirtual_calls_dispatch_by_the_declared_class() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
         let recv = derived_receiver(); // a Derived INSTANCE that overrides mark
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let derived_cls = class_tag("j2r/test/CallDerived");
         let m_base = super::super::classes::slot_get_method_id(base_cls, "mark", "()I", false)
             .expect("Base declares mark");
@@ -1452,16 +1456,16 @@ mod tests {
             "the declared-class walk covers the ancestors"
         );
         clear_pending();
-        super::super::bridge::delete_local(recv);
-        super::super::bridge::delete_local(base_cls);
-        super::super::bridge::delete_local(derived_cls);
+        delete_local(recv);
+        delete_local(base_cls);
+        delete_local(derived_cls);
     }
 
     #[test]
     fn static_calls_resolve_on_the_declared_class_no_receiver() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let derived_cls = class_tag("j2r/test/CallDerived");
         let m_sm = super::super::classes::slot_get_method_id(base_cls, "sm", "()I", true)
             .expect("Base declares static sm");
@@ -1496,17 +1500,17 @@ mod tests {
         assert_ne!(tag, 0, "a non-null answer is a live local-ref tag");
         let r = super::super::bridge::resolve(tag);
         assert_eq!(&*crate::object::string_value(&r), "from static");
-        super::super::bridge::delete_local(tag);
+        delete_local(tag);
         clear_pending();
-        super::super::bridge::delete_local(base_cls);
-        super::super::bridge::delete_local(derived_cls);
+        delete_local(base_cls);
+        delete_local(derived_cls);
     }
 
     #[test]
     fn family_staticness_mismatches_are_loud() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let instance_id = super::super::classes::slot_get_method_id(base_cls, "mark", "()I", false)
             .expect("instance mark");
         let static_id = super::super::classes::slot_get_method_id(base_cls, "sm", "()I", true)
@@ -1533,14 +1537,14 @@ mod tests {
             "a static ID in the nonvirtual family must be loud"
         );
         clear_pending();
-        super::super::bridge::delete_local(base_cls);
+        delete_local(base_cls);
     }
 
     #[test]
     fn null_receiver_null_class_null_args_pend_npe_and_answer_zero() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let m_mark = super::super::classes::slot_get_method_id(base_cls, "mark", "()I", false)
             .expect("instance mark");
         let m_twice = super::super::classes::slot_get_method_id(base_cls, "twice", "(I)I", false)
@@ -1557,7 +1561,7 @@ mod tests {
             crate::heap::with_obj(r, |o| o.jclass.to_string()),
             "java/lang/NullPointerException"
         );
-        super::super::bridge::delete_local(l);
+        delete_local(l);
         clear_pending();
         // null receiver, nonvirtual family → same law
         assert_eq!(slot_call_nonvirtual_int_method_a(m_mark, 0, base_cls, 0), 0);
@@ -1582,15 +1586,15 @@ mod tests {
             10,
             "a valid static call is unaffected"
         );
-        super::super::bridge::delete_local(recv);
-        super::super::bridge::delete_local(base_cls);
+        delete_local(recv);
+        delete_local(base_cls);
     }
 
     #[test]
     fn a_thrown_callee_pends_and_answers_the_zero_value() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let recv = super::super::bridge::new_local(crate::heap::alloc(crate::object::JObj {
             jclass: std::sync::Arc::from("j2r/test/CallBase"),
             slots: vec![],
@@ -1621,17 +1625,17 @@ mod tests {
             crate::heap::with_obj(t.obj, |o| o.jclass.to_string()),
             "java/lang/RuntimeException"
         );
-        super::super::bridge::delete_local(recv);
-        super::super::bridge::delete_local(base_cls);
+        delete_local(recv);
+        delete_local(base_cls);
     }
 
     // -- the V-form save-area walk (11c) --------------------------------
 
     #[test]
     fn vform_walk_reads_integer_save_areas() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let m_sum3 = super::super::classes::slot_get_method_id(base_cls, "sum3", "(III)I", true)
             .expect("static sum3");
         // A realistic static-V record: a 3-word payload needs all three
@@ -1654,16 +1658,16 @@ mod tests {
         assert_ne!(tag, 0, "a zero-arg V-call needs no walk at all");
         let r = super::super::bridge::resolve(tag);
         assert_eq!(&*crate::object::string_value(&r), "from static");
-        super::super::bridge::delete_local(tag);
+        delete_local(tag);
         clear_pending();
-        super::super::bridge::delete_local(base_cls);
+        delete_local(base_cls);
     }
 
     #[test]
     fn vform_walk_reads_fp_and_mixed_save_areas() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let recv = base_receiver();
         // FP-only: addD(DD)D — two SSE-class words at fp_offset 48 and 64
         // (a static V-call burns ZERO fp slots for its named args: they
@@ -1689,15 +1693,15 @@ mod tests {
             "the GP and FP cursors advance independently"
         );
         clear_pending();
-        super::super::bridge::delete_local(recv);
-        super::super::bridge::delete_local(base_cls);
+        delete_local(recv);
+        delete_local(base_cls);
     }
 
     #[test]
     fn vform_walk_falls_back_to_the_overflow_area() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let m_sum3 = super::super::classes::slot_get_method_id(base_cls, "sum3", "(III)I", true)
             .expect("static sum3");
         // gp_offset exhausted (48 = 6 GP slots burned): every word now
@@ -1710,14 +1714,14 @@ mod tests {
             "exhausted registers read from the overflow area"
         );
         clear_pending();
-        super::super::bridge::delete_local(base_cls);
+        delete_local(base_cls);
     }
 
     #[test]
     fn vform_record_is_left_untouched() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let m_sum3 = super::super::classes::slot_get_method_id(base_cls, "sum3", "(III)I", true)
             .expect("static sum3");
         let area = build_save_area(4, 0, &[3, 4, 5], &[], &[]);
@@ -1730,14 +1734,14 @@ mod tests {
             record is consumed into our cursor, never written back"
         );
         clear_pending();
-        super::super::bridge::delete_local(base_cls);
+        delete_local(base_cls);
     }
 
     #[test]
     fn vform_null_ap_and_unreadable_record_are_loud_not_silent() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_dispatch_fixture();
-        let base_cls = class_tag("j2r/test/CallBase");
+        let base_cls = class_tag(CALL_BASE);
         let m_sum3 = super::super::classes::slot_get_method_id(base_cls, "sum3", "(III)I", true)
             .expect("static sum3");
         // null ap with a demanding descriptor → NPE pend + zero (the
@@ -1760,6 +1764,6 @@ mod tests {
             "java/lang/Error",
             "an unreadable record is OUR loud internal error, not NPE"
         );
-        super::super::bridge::delete_local(base_cls);
+        delete_local(base_cls);
     }
 }

@@ -44,7 +44,7 @@ fn check_array(r: &JRef) -> Result<(i32, Arc<str>), Throw> {
 fn bounds_ok(len: i32, idx: i32) -> Result<(), Throw> {
     if idx < 0 || idx >= len {
         return Err(throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!("Index {idx} out of bounds for length {len}")),
         ));
     }
@@ -271,11 +271,11 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
         ) => (src, *sp, dst, *dp, *l),
         // null src/dst or malformed arg shape → NPE with message `null`,
         // exactly like Temurin
-        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(crate::npe()),
     };
     if len < 0 {
         return Err(throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!("arraycopy: length {len} is negative")),
         ));
     }
@@ -283,7 +283,7 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let (dst_len, dst_cls) = check_array(dst)?;
     if src_pos < 0 {
         return Err(throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!(
                 "arraycopy: source index {src_pos} out of bounds for {}[{src_len}]",
                 java_array_name(&src_cls)
@@ -292,7 +292,7 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     }
     if src_pos.checked_add(len).is_none_or(|last| last > src_len) {
         return Err(throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!(
                 "arraycopy: last source index {} out of bounds for {}[{src_len}]",
                 src_pos + len,
@@ -302,7 +302,7 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     }
     if dst_pos < 0 {
         return Err(throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!(
                 "arraycopy: destination index {dst_pos} out of bounds for {}[{dst_len}]",
                 java_array_name(&dst_cls)
@@ -311,7 +311,7 @@ pub fn system_arraycopy(args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     }
     if dst_pos.checked_add(len).is_none_or(|last| last > dst_len) {
         return Err(throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!(
                 "arraycopy: last destination index {} out of bounds for {}[{dst_len}]",
                 dst_pos + len,
@@ -683,7 +683,7 @@ mod tests {
 
     #[test]
     fn prim_array_roundtrip() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let a = array_new_prim(INT, 3).unwrap();
         assert_eq!(array_length(&a).unwrap(), 3);
         array_store(&a, 1, Value::Int(42), Dispatch::default()).unwrap();
@@ -693,7 +693,7 @@ mod tests {
 
     #[test]
     fn bounds_message_matches_jdk() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let a = array_new_prim(INT, 3).unwrap();
         let err = array_load(&a, 5).unwrap_err();
         let msg = crate::heap::with_obj(err.obj, |o| o.slots[0].clone())
@@ -704,14 +704,14 @@ mod tests {
 
     #[test]
     fn negative_size() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let err = array_new_prim(INT, -1).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/NegativeArraySizeException");
     }
 
     #[test]
     fn ref_array_of_array_descriptor_is_canonical() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // `anewarray [I` (javac's lowering of `new int[3][]`) must produce
         // the array class `[[I`, not `[L[I;`.
         let a = array_new_ref("[I", 3).unwrap();
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn multi_fully_allocated() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let grid = array_new_multi("[[I", &[2, 3]).unwrap();
         assert_eq!(&*with_obj(grid, |o| o.jclass.clone()), "[[I");
         let row0 = match array_load(&grid, 0).unwrap() {
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn multi_partially_allocated_rows_are_null() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let grid = array_new_multi("[[I", &[2]).unwrap();
         assert_eq!(&*with_obj(grid, |o| o.jclass.clone()), "[[I");
         assert!(matches!(array_load(&grid, 0).unwrap(), Value::Ref(None)));
@@ -743,14 +743,14 @@ mod tests {
 
     #[test]
     fn multi_negative_dim_raises() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let err = array_new_multi("[[I", &[2, -5]).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/NegativeArraySizeException");
     }
 
     #[test]
     fn multi_ref_bottom() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = array_new_multi("[[Ljava/lang/String;", &[1, 2]).unwrap();
         assert_eq!(&*with_obj(m, |o| o.jclass.clone()), "[[Ljava/lang/String;");
         let row = match array_load(&m, 0).unwrap() {
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn store_into_nested_prim_array_rejects_wrong_ref() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = array_new_multi("[[I", &[1, 1]).unwrap();
         let alien = crate::object::new_builtin("java/lang/StringBuilder").unwrap();
         let err = array_store(&m, 0, Value::Ref(Some(alien)), Dispatch::default()).unwrap_err();
@@ -773,7 +773,7 @@ mod tests {
 
     #[test]
     fn store_type_check() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let a = array_new_ref("java/lang/StringBuilder", 1).unwrap();
         let s = crate::object::new_string("str");
         let err = array_store(&a, 0, Value::Ref(Some(s)), Dispatch::default()).unwrap_err();

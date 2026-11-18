@@ -17,6 +17,7 @@
 //!   returns the same ID forever) and permanent — the JNI law: field IDs
 //!   do not move, and v1 never frees them.
 
+use crate::internal_error;
 use crate::jni::bridge;
 use crate::Value;
 use std::collections::HashMap;
@@ -286,7 +287,7 @@ fn shape_guard(desc: &str, v: &Value) {
         _ => false,
     };
     if !ok {
-        crate::internal_error(&format!(
+        internal_error(&format!(
             "j2r internal: a field accessor wrapper cooked {v:?} for a \"{desc}\" field"
         ));
     }
@@ -608,7 +609,7 @@ mod tests {
 
     #[test]
     fn find_class_validates_existence_and_interns() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_fixture();
         // compiled + builtin + structural + array + primitive-descriptor
         assert!(slot_find_class("j2r/test/JniBase").is_some());
@@ -633,7 +634,7 @@ mod tests {
 
     #[test]
     fn get_object_class_reads_the_runtime_class_including_arrays() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_fixture();
         let obj = bridge::new_local(crate::heap::alloc(crate::object::JObj {
             jclass: std::sync::Arc::from("j2r/test/JniDerived"),
@@ -654,7 +655,7 @@ mod tests {
 
     #[test]
     fn field_id_walks_superclasses_and_dedups() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_fixture();
         let derived = class_tag("j2r/test/JniDerived");
         let base = class_tag("j2r/test/JniBase");
@@ -686,7 +687,7 @@ mod tests {
 
     #[test]
     fn foreign_field_id_is_loud() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // an unmarked tag is rejected before the registry lookup
         let result = std::panic::catch_unwind(|| resolve_field_id(0x1234));
         assert!(result.is_err(), "unmarked tag must panic");
@@ -697,7 +698,7 @@ mod tests {
 
     #[test]
     fn instance_accessors_read_and_write_through_slots() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_fixture();
         let derived = class_tag("j2r/test/JniDerived");
         let s_id = slot_get_field_id(derived, "s", "Ljava/lang/String;", false).unwrap();
@@ -734,7 +735,7 @@ mod tests {
 
     #[test]
     fn static_accessors_use_the_pool_slots() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_fixture();
         let base = class_tag("j2r/test/JniBase");
         let counter = slot_get_field_id(base, "counter", "I", true).unwrap();
@@ -749,7 +750,7 @@ mod tests {
 
     #[test]
     fn wrong_kind_and_wrong_receiver_are_loud() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_fixture();
         let base = class_tag("j2r/test/JniBase");
         let static_id = slot_get_field_id(base, "counter", "I", true).unwrap();
@@ -788,7 +789,7 @@ mod tests {
 
     #[test]
     fn class_name_from_tag_is_loud_on_non_class() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install_fixture();
         let str_obj = bridge::new_local(crate::object::new_string("not a class"));
         let r = std::panic::catch_unwind(|| {

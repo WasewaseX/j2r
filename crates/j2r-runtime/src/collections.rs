@@ -58,12 +58,23 @@
 //! mutable. Every helper runs flat, sequential heap accesses, and error
 //! objects are built after the guard ends (M2_PLAN §4.7 as amended).
 
+use crate::first_arg_ref;
 use crate::heap::{alloc, with_obj, with_obj_mut, JRef};
 use crate::object::{new_obj, string_value};
 use crate::subtype::is_subtype;
 use crate::Value;
 use crate::{internal_error, invoke_virtual, throw_new, Dispatch, Throw, UserParents};
 use std::sync::Arc;
+
+/// The CME class path the law tests assert against.
+#[cfg(test)]
+const CME_CLASS: &str = "java/util/ConcurrentModificationException";
+
+/// The null-default argument law: a missing or null argument reads as the
+/// null reference (the collections surface treats absent == null).
+pub(crate) fn arg_or_null(args: &[Value]) -> Value {
+    args.first().cloned().unwrap_or(Value::Ref(None))
+}
 
 // ---------------------------------------------------------------- helpers
 
@@ -301,11 +312,9 @@ pub fn n_al_init_from_collection(
     let r = recv.expect("j2r internal: ArrayList.<init> without receiver");
     let coll = match args.first() {
         Some(Value::Ref(Some(c))) => *c,
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         other => {
-            return Err(crate::internal_error(&format!(
+            return Err(internal_error(&format!(
                 "j2r internal: ArrayList.<init>(Collection) arg {other:?}"
             )))
         }
@@ -329,7 +338,7 @@ pub fn n_al_init_from_collection(
     let it = match it {
         Value::Ref(Some(i)) => i,
         other => {
-            return Err(crate::internal_error(&format!(
+            return Err(internal_error(&format!(
                 "j2r internal: Collection.iterator returned {other:?}"
             )))
         }
@@ -354,7 +363,7 @@ pub fn n_al_init_from_collection(
 
 pub fn n_al_add(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: ArrayList.add without receiver");
-    let e = args.first().cloned().unwrap_or(Value::Ref(None));
+    let e = arg_or_null(args);
     let (size, mc, mut elems) = al_state(r);
     elems = al_grow(r, elems, size);
     al_set_elem(&elems, size, e);
@@ -372,7 +381,7 @@ pub fn n_al_hash_code(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
     let _ = args;
     let r = match recv {
         Some(r) => r,
-        None => return Err(throw_new("java/lang/NullPointerException", None)),
+        None => return Err(crate::npe()),
     };
     let (size, _mc, elems) = al_state(r);
     let mut h: i32 = 1;
@@ -384,7 +393,7 @@ pub fn n_al_hash_code(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
                 out.expect_int()
             }
             other => {
-                return Err(crate::internal_error(&format!(
+                return Err(internal_error(&format!(
                     "j2r internal: list element {other:?}"
                 )))
             }
@@ -399,13 +408,13 @@ pub fn n_al_hash_code(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
 pub fn n_al_equals(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = match recv {
         Some(r) => r,
-        None => return Err(throw_new("java/lang/NullPointerException", None)),
+        None => return Err(crate::npe()),
     };
     let other = match args.first() {
         Some(Value::Ref(Some(o))) => *o,
         Some(Value::Ref(None)) | None => return Ok(Value::Int(0)),
         other => {
-            return Err(crate::internal_error(&format!(
+            return Err(internal_error(&format!(
                 "j2r internal: List.equals arg {other:?}"
             )))
         }
@@ -437,7 +446,7 @@ pub fn n_al_equals(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result
             (Value::Ref(None), _) | (_, Value::Ref(None)) => false,
             (Value::Ref(Some(x)), _) => dispatch_equals(x, &b, ctx)?,
             (other_a, _) => {
-                return Err(crate::internal_error(&format!(
+                return Err(internal_error(&format!(
                     "j2r internal: list element {other_a:?}"
                 )))
             }
@@ -457,9 +466,9 @@ pub fn n_al_last_index_of(
 ) -> Result<Value, Throw> {
     let r = match recv {
         Some(r) => r,
-        None => return Err(throw_new("java/lang/NullPointerException", None)),
+        None => return Err(crate::npe()),
     };
-    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    let target = arg_or_null(args);
     let (size, _mc, elems) = al_state(r);
     for i in (0..size).rev() {
         let e = al_get_elem(&elems, i);
@@ -468,7 +477,7 @@ pub fn n_al_last_index_of(
             (Value::Ref(None), _) | (_, Value::Ref(None)) => false,
             (Value::Ref(Some(x)), _) => dispatch_equals(x, &target, ctx)?,
             (other_e, _) => {
-                return Err(crate::internal_error(&format!(
+                return Err(internal_error(&format!(
                     "j2r internal: list element {other_e:?}"
                 )))
             }
@@ -543,7 +552,7 @@ pub fn n_al_remove_at(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Re
 
 pub fn n_al_remove_obj(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: ArrayList.remove without receiver");
-    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    let target = arg_or_null(args);
     let (size, mc, elems) = al_state(r);
     let mut found_at: i32 = -1;
     for i in 0..size {
@@ -589,7 +598,7 @@ pub fn n_al_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Re
 
 pub fn n_al_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: ArrayList.contains without receiver");
-    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    let target = arg_or_null(args);
     let (size, _, elems) = al_state(r);
     for i in 0..size {
         let v = al_get_elem(&elems, i);
@@ -607,7 +616,7 @@ pub fn n_al_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
 
 pub fn n_al_index_of(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: ArrayList.indexOf without receiver");
-    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    let target = arg_or_null(args);
     let (size, _, elems) = al_state(r);
     for i in 0..size {
         let v = al_get_elem(&elems, i);
@@ -657,7 +666,7 @@ fn invoke_sam(
 ) -> Result<Value, Throw> {
     let r = match target {
         Value::Ref(Some(r)) => *r,
-        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(crate::npe()),
     };
     crate::invoke_virtual(&r, iface, name, desc, args, ctx)
 }
@@ -667,7 +676,7 @@ fn invoke_sam(
 /// structural modification through the action throws CME.
 pub fn n_al_for_each(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: ArrayList.forEach without receiver");
-    let action = args.first().cloned().unwrap_or(Value::Ref(None));
+    let action = arg_or_null(args);
     let (size, mc, elems) = al_state(r);
     for i in 0..size {
         let v = al_get_elem(&elems, i);
@@ -680,7 +689,7 @@ pub fn n_al_for_each(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
             ctx,
         )?;
         if with_obj(*r, |o| o.slots[AL_MODCOUNT].expect_int()) != mc {
-            return Err(throw_new("java/util/ConcurrentModificationException", None));
+            return Err(crate::cme());
         }
     }
     Ok(Value::Void)
@@ -692,7 +701,7 @@ pub fn n_al_for_each(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
 /// whether any element was removed.
 pub fn n_al_remove_if(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: ArrayList.removeIf without receiver");
-    let filter = args.first().cloned().unwrap_or(Value::Ref(None));
+    let filter = arg_or_null(args);
     let (size, mc, elems) = al_state(r);
     let mut remove: Vec<bool> = Vec::with_capacity(size.max(0) as usize);
     let mut any = false;
@@ -710,7 +719,7 @@ pub fn n_al_remove_if(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
         remove.push(drop_it);
         any |= drop_it;
         if with_obj(*r, |o| o.slots[AL_MODCOUNT].expect_int()) != mc {
-            return Err(throw_new("java/util/ConcurrentModificationException", None));
+            return Err(crate::cme());
         }
     }
     if any {
@@ -772,7 +781,7 @@ fn al_check_comodification(it: &JRef, list: &JRef) -> Result<(), Throw> {
     let expected = with_obj(*it, |o| o.slots[2].expect_int());
     let mc = with_obj(*list, |o| o.slots[AL_MODCOUNT].expect_int());
     if expected != mc {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     Ok(())
 }
@@ -1318,7 +1327,7 @@ fn hm_ctor_presize(r: &JRef, s: usize) -> Result<(), Throw> {
 
 pub fn n_hm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.put without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     let value = args.get(1).cloned().unwrap_or(Value::Ref(None));
     let (old, _) = hm_put(r, key, value, ctx, None, NodeKind::HashNode)?;
     Ok(old)
@@ -1326,7 +1335,7 @@ pub fn n_hm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
 
 pub fn n_hm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.get without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     match hm_find(r, &key, ctx)? {
         Some(node) => node_value_materialized(&node),
         None => Ok(Value::Ref(None)),
@@ -1598,7 +1607,7 @@ pub fn n_hm_get_or_default(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.getOrDefault without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     let default = args.get(1).cloned().unwrap_or(Value::Ref(None));
     match hm_find(r, &key, ctx)? {
         Some(node) => node_value_materialized(&node),
@@ -1612,7 +1621,7 @@ pub fn n_hm_contains_key(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.containsKey without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     Ok(Value::Int(hm_find(r, &key, ctx)?.is_some() as i32))
 }
 
@@ -1622,7 +1631,7 @@ pub fn n_hm_contains_value(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.containsValue without receiver");
-    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    let target = arg_or_null(args);
     for (_, v) in hm_all_entries(r)? {
         let eq = match (&v, &target) {
             (Value::Ref(Some(a)), Value::Ref(Some(_))) => dispatch_equals(a, &target, ctx)?,
@@ -1638,7 +1647,7 @@ pub fn n_hm_contains_value(
 
 pub fn n_hm_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: HashMap.remove without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     hm_remove(r, &key, ctx)
 }
 
@@ -1721,7 +1730,7 @@ pub fn n_ks_is_empty(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Re
 
 pub fn n_ks_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = view_map(recv, "KeySet.contains");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     Ok(Value::Int(hm_find(&map, &key, ctx)?.is_some() as i32))
 }
 
@@ -1860,7 +1869,7 @@ fn hm_hash_next_node(recv: Option<&JRef>, who: &str) -> Result<(JRef, JRef), Thr
     });
     let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
     if expected != mc {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     let Some(node) = pending else {
         return Err(throw_new("java/util/NoSuchElementException", None));
@@ -1905,7 +1914,7 @@ pub fn n_hi_remove(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Resul
     };
     let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
     if expected != mc {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     let key = node_parts(&node).1;
     n_hm_remove(Some(&map), std::slice::from_ref(&key), ctx)?;
@@ -2123,14 +2132,14 @@ fn lhm_put_entry(map: &JRef, key: Value, value: Value, ctx: Dispatch) -> Result<
 
 pub fn n_lhm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: LinkedHashMap.put without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     let value = args.get(1).cloned().unwrap_or(Value::Ref(None));
     lhm_put_entry(r, key, value, ctx)
 }
 
 pub fn n_lhm_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: LinkedHashMap.remove without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     let node = hm_find(r, &key, ctx)?;
     match node {
         Some(n) => {
@@ -2226,7 +2235,7 @@ pub fn n_lks_is_empty(
 
 pub fn n_lks_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = view_map(recv, "LinkedKeySet.contains");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     Ok(Value::Int(hm_find(&map, &key, ctx)?.is_some() as i32))
 }
 
@@ -2358,7 +2367,7 @@ fn lhm_link_next_node(recv: Option<&JRef>, who: &str) -> Result<(JRef, JRef), Th
     });
     let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
     if expected != mc {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     let Some(node) = pending else {
         return Err(throw_new("java/util/NoSuchElementException", None));
@@ -2455,7 +2464,7 @@ pub fn n_lhm_itr_remove(
     };
     let mc = with_obj(map, |o| o.slots[HM_MODCOUNT].expect_int());
     if expected != mc {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     let key = node_parts(&node).1;
     n_lhm_remove(Some(&map), std::slice::from_ref(&key), ctx)?;
@@ -2619,7 +2628,7 @@ fn tm_compare(map: &JRef, a: &Value, b: &Value, ctx: Dispatch) -> Result<i32, Th
     }
     let ra = match a {
         Value::Ref(Some(r)) => *r,
-        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", None)),
+        Value::Ref(None) => return Err(crate::npe()),
         other => {
             return Err(internal_error(&format!(
                 "j2r internal: TreeMap natural key {other:?}"
@@ -3038,7 +3047,7 @@ fn tm_navigate(map: &JRef, key: &Value, mode: TmNav, ctx: Dispatch) -> Result<Op
 /// inserts RED and rebalances.
 pub fn n_tm_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.put without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     let value = args.get(1).cloned().unwrap_or(Value::Ref(None));
     tm_put_impl(r, key, value, ctx, None).map(|old| old.unwrap_or(Value::Ref(None)))
 }
@@ -3125,7 +3134,7 @@ fn tm_put_impl(
 
 pub fn n_tm_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.get without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     match tm_find(r, &key, ctx)? {
         Some(n) => tm_entry_value_materialized(&n),
         None => Ok(Value::Ref(None)),
@@ -3138,7 +3147,7 @@ pub fn n_tm_contains_key(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.containsKey without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     let found = tm_find(r, &key, ctx)?.is_some();
     Ok(Value::Int(found as i32))
 }
@@ -3149,7 +3158,7 @@ pub fn n_tm_contains_value(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.containsValue without receiver");
-    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    let target = arg_or_null(args);
     for (_, v) in tm_all_entries(r)? {
         let eq = match (&v, &target) {
             (Value::Ref(Some(a)), Value::Ref(Some(_))) => dispatch_equals(a, &target, ctx)?,
@@ -3169,7 +3178,7 @@ pub fn n_tm_get_or_default(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.getOrDefault without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     let dflt = args.get(1).cloned().unwrap_or(Value::Ref(None));
     match tm_find(r, &key, ctx)? {
         Some(n) => tm_entry_value_materialized(&n),
@@ -3179,7 +3188,7 @@ pub fn n_tm_get_or_default(
 
 pub fn n_tm_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.remove without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     match tm_find(r, &key, ctx)? {
         Some(n) => {
             let old = node_value_materialized_at(&n, TME_VALUE, TME_TAG)?;
@@ -3255,7 +3264,7 @@ fn tm_nav_key(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.navigable query without receiver");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     match tm_navigate(r, &key, mode, ctx)? {
         Some(n) => Ok(tm_entry_key(&n)),
         None => Ok(Value::Ref(None)),
@@ -3313,11 +3322,7 @@ pub fn n_tm_init_cmp(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Res
 pub fn n_tm_init_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: TreeMap.<init> without receiver");
     n_tm_init(Some(r), &[], ctx)?;
-    let src = match args.first() {
-        Some(Value::Ref(Some(s))) => *s,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Ok(Value::Void),
-    };
+    let src = first_arg_ref!(args, Ok(Value::Void));
     let src_class = with_obj(src, |o| o.jclass.to_string());
     let entries = match src_class.as_str() {
         "java/util/LinkedHashMap" => lhm_all_entries(&src)?,
@@ -3408,7 +3413,7 @@ pub fn n_tes_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Resul
 
 pub fn n_tks_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = tm_view_map(recv, "KeySet.contains");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     let found = tm_find(&map, &key, ctx)?.is_some();
     Ok(Value::Int(found as i32))
 }
@@ -3535,7 +3540,7 @@ fn tm_iter_next_node(recv: Option<&JRef>, who: &str) -> Result<(JRef, JRef), Thr
         )
     });
     if expected != tm_modcount(&map) {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     let Some(node) = next else {
         return Err(throw_new("java/util/NoSuchElementException", None));
@@ -3604,7 +3609,7 @@ pub fn n_tm_i_remove(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Re
         return Err(throw_new("java/lang/IllegalStateException", None));
     };
     if expected != tm_modcount(&map) {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     tm_delete(&map, node);
     let mc = tm_modcount(&map);
@@ -3839,7 +3844,7 @@ fn sms_iae(msg: &str) -> Throw {
 
 pub fn n_tm_sub_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = sms_view(recv, "subMap");
-    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let f = arg_or_null(args);
     let t = args.get(1).cloned().unwrap_or(Value::Ref(None));
     if tm_compare(&r, &f, &t, ctx)? > 0 {
         return Err(sms_iae("fromKey > toKey"));
@@ -3849,7 +3854,7 @@ pub fn n_tm_sub_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resul
 
 pub fn n_tm_sub_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = sms_view(recv, "subMap4");
-    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let f = arg_or_null(args);
     let t = args.get(2).cloned().unwrap_or(Value::Ref(None));
     if tm_compare(&r, &f, &t, ctx)? > 0 {
         return Err(sms_iae("fromKey > toKey"));
@@ -3859,28 +3864,28 @@ pub fn n_tm_sub_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
 
 pub fn n_tm_head_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = sms_view(recv, "headMap");
-    let t = args.first().cloned().unwrap_or(Value::Ref(None));
+    let t = arg_or_null(args);
     let _ = tm_compare(&r, &t, &t, ctx)?;
     sms_new(&r, Value::Ref(None), false, t, false)
 }
 
 pub fn n_tm_head_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = sms_view(recv, "headMap4");
-    let t = args.first().cloned().unwrap_or(Value::Ref(None));
+    let t = arg_or_null(args);
     let _ = tm_compare(&r, &t, &t, ctx)?;
     sms_new(&r, Value::Ref(None), false, t, arg_bool(args, 1))
 }
 
 pub fn n_tm_tail_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = sms_view(recv, "tailMap");
-    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let f = arg_or_null(args);
     let _ = tm_compare(&r, &f, &f, ctx)?;
     sms_new(&r, f, true, Value::Ref(None), false)
 }
 
 pub fn n_tm_tail_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = sms_view(recv, "tailMap4");
-    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let f = arg_or_null(args);
     let _ = tm_compare(&r, &f, &f, ctx)?;
     sms_new(&r, f, arg_bool(args, 1), Value::Ref(None), false)
 }
@@ -3910,7 +3915,7 @@ pub fn n_sms_comparator(
 
 pub fn n_sms_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "put");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     if !sms_in_range(&view, &key, ctx)? {
         return Err(sms_iae("key out of range"));
     }
@@ -3920,7 +3925,7 @@ pub fn n_sms_put(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<V
 
 pub fn n_sms_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "get");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     if !sms_in_range(&view, &key, ctx)? {
         return Ok(Value::Ref(None));
     }
@@ -3934,7 +3939,7 @@ pub fn n_sms_contains_key(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let view = sms_view(recv, "containsKey");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     if !sms_in_range(&view, &key, ctx)? {
         return Ok(Value::Int(0));
     }
@@ -3948,7 +3953,7 @@ pub fn n_sms_get_or_default(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let view = sms_view(recv, "getOrDefault");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     if !sms_in_range(&view, &key, ctx)? {
         return Ok(args.get(1).cloned().unwrap_or(Value::Ref(None)));
     }
@@ -3958,7 +3963,7 @@ pub fn n_sms_get_or_default(
 
 pub fn n_sms_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "remove");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     if !sms_in_range(&view, &key, ctx)? {
         return Ok(Value::Ref(None));
     }
@@ -3972,7 +3977,7 @@ pub fn n_sms_contains_value(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let view = sms_view(recv, "containsValue");
-    let target = args.first().cloned().unwrap_or(Value::Ref(None));
+    let target = arg_or_null(args);
     for (_, v) in sms_all_entries(&view, ctx)? {
         let eq = match (&v, &target) {
             (Value::Ref(Some(a)), Value::Ref(Some(_))) => dispatch_equals(a, &target, ctx)?,
@@ -4058,7 +4063,7 @@ pub fn n_sms_last_key(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Re
 pub fn n_sms_sub_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "subMap");
     let backing = sms_backing(&view);
-    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let f = arg_or_null(args);
     let t = args.get(1).cloned().unwrap_or(Value::Ref(None));
     if !sms_in_range(&view, &f, ctx)? {
         return Err(sms_iae("fromKey out of range"));
@@ -4075,7 +4080,7 @@ pub fn n_sms_sub_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resu
 pub fn n_sms_sub_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "subMap4");
     let backing = sms_backing(&view);
-    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let f = arg_or_null(args);
     let t = args.get(2).cloned().unwrap_or(Value::Ref(None));
     if !sms_in_range(&view, &f, ctx)? {
         return Err(sms_iae("fromKey out of range"));
@@ -4092,7 +4097,7 @@ pub fn n_sms_sub_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
 pub fn n_sms_head_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "headMap");
     let backing = sms_backing(&view);
-    let t = args.first().cloned().unwrap_or(Value::Ref(None));
+    let t = arg_or_null(args);
     if !sms_in_range_for_to(&view, &t, ctx)? {
         return Err(sms_iae("toKey out of range"));
     }
@@ -4106,7 +4111,7 @@ pub fn n_sms_head_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
 pub fn n_sms_head_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "headMap4");
     let backing = sms_backing(&view);
-    let t = args.first().cloned().unwrap_or(Value::Ref(None));
+    let t = arg_or_null(args);
     if !sms_in_range_for_to(&view, &t, ctx)? {
         return Err(sms_iae("toKey out of range"));
     }
@@ -4120,7 +4125,7 @@ pub fn n_sms_head_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Re
 pub fn n_sms_tail_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "tailMap");
     let backing = sms_backing(&view);
-    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let f = arg_or_null(args);
     if !sms_in_range(&view, &f, ctx)? {
         return Err(sms_iae("fromKey out of range"));
     }
@@ -4134,7 +4139,7 @@ pub fn n_sms_tail_map(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
 pub fn n_sms_tail_map4(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let view = sms_view(recv, "tailMap4");
     let backing = sms_backing(&view);
-    let f = args.first().cloned().unwrap_or(Value::Ref(None));
+    let f = arg_or_null(args);
     if !sms_in_range(&view, &f, ctx)? {
         return Err(sms_iae("fromKey out of range"));
     }
@@ -4226,7 +4231,7 @@ pub fn n_smsks_contains(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let view = sms_view_view(recv, "KeySet.contains");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     if !sms_in_range(&view, &key, ctx)? {
         return Ok(Value::Int(0));
     }
@@ -4372,7 +4377,7 @@ fn sms_iter_next_node(
     });
     let backing = sms_backing(&view);
     if expected != tm_modcount(&backing) {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     let node = match next {
         None => return Err(throw_new("java/util/NoSuchElementException", None)),
@@ -4431,7 +4436,7 @@ fn hs_map(recv: Option<&JRef>, who: &str) -> JRef {
 
 pub fn n_hs_add(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = hs_map(recv, "add");
-    let e = args.first().cloned().unwrap_or(Value::Ref(None));
+    let e = arg_or_null(args);
     // Java: map.put(e, PRESENT) == null — PRESENT is a shared dummy whose
     // only requirement is being a live heap object (roots scan it through
     // the map's node slots).
@@ -4449,7 +4454,7 @@ pub fn n_hs_add(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Va
 
 pub fn n_hs_remove(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = hs_map(recv, "remove");
-    let e = args.first().cloned().unwrap_or(Value::Ref(None));
+    let e = arg_or_null(args);
     let old = hm_remove(&map, &e, ctx)?;
     Ok(Value::Int((!old.is_null()) as i32))
 }
@@ -4460,9 +4465,7 @@ pub fn n_hs_add_all(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resul
     let set = recv.expect("j2r internal: Set.addAll without receiver");
     let coll = match args.first() {
         Some(Value::Ref(Some(c))) => *c,
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         _ => return Err(internal_error("Set.addAll needs a Collection")),
     };
     // Lock law L3: no heap access nests inside a heap guard — read the
@@ -4512,7 +4515,7 @@ pub fn n_hs_add_all(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Resul
 
 pub fn n_hs_contains(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = hs_map(recv, "contains");
-    let e = args.first().cloned().unwrap_or(Value::Ref(None));
+    let e = arg_or_null(args);
     Ok(Value::Int(hm_find(&map, &e, ctx)?.is_some() as i32))
 }
 
@@ -4647,7 +4650,7 @@ pub fn n_um_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<
     let r = recv.expect("j2r internal: UnmodifiableMap.<init> without receiver");
     let delegate = match args.first() {
         Some(Value::Ref(Some(m))) => *m,
-        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(crate::npe()),
     };
     with_obj_mut(*r, |o| o.slots[0] = Value::Ref(Some(delegate)));
     Ok(Value::Void)
@@ -4663,7 +4666,7 @@ fn um_delegate(recv: Option<&JRef>, who: &str) -> JRef {
 
 pub fn n_um_get(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let map = um_delegate(recv, "get");
-    let key = args.first().cloned().unwrap_or(Value::Ref(None));
+    let key = arg_or_null(args);
     match hm_find(&map, &key, ctx)? {
         Some(node) => Ok(with_obj(node, |o| o.slots[2].clone())),
         None => Ok(Value::Ref(None)),
@@ -4792,7 +4795,7 @@ pub fn n_ll_size(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result
 
 pub fn n_ll_add(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let r = recv.expect("j2r internal: LinkedList.add without receiver");
-    let v = args.first().cloned().unwrap_or(Value::Ref(None));
+    let v = arg_or_null(args);
     let size = with_obj(*r, |o| o.slots[LL_SIZE].expect_int());
     ll_ensure_capacity(r, size as usize + 1, ctx)?;
     let arr = ll_elems_ref(r);
@@ -4848,7 +4851,7 @@ pub fn n_objects_equals(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let a = args.first().cloned().unwrap_or(Value::Ref(None));
+    let a = arg_or_null(args);
     let b = args.get(1).cloned().unwrap_or(Value::Ref(None));
     let eq = match (&a, &b) {
         (Value::Ref(Some(x)), Value::Ref(Some(y))) if JRef::ptr_eq(x, y) => true,
@@ -4865,7 +4868,7 @@ pub fn n_objects_hash_code(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let a = args.first().cloned().unwrap_or(Value::Ref(None));
+    let a = arg_or_null(args);
     Ok(Value::Int(dispatch_hash_code(&a, ctx)?))
 }
 
@@ -4875,9 +4878,9 @@ pub fn n_objects_require_non_null(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let a = args.first().cloned().unwrap_or(Value::Ref(None));
+    let a = arg_or_null(args);
     if a.is_null() {
-        return Err(throw_new("java/lang/NullPointerException", None));
+        return Err(crate::npe());
     }
     Ok(a)
 }
@@ -4888,7 +4891,7 @@ pub fn n_objects_require_non_null_msg(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let a = args.first().cloned().unwrap_or(Value::Ref(None));
+    let a = arg_or_null(args);
     if a.is_null() {
         let msg = args.get(1).cloned().unwrap_or(Value::Ref(None));
         let text = match &msg {
@@ -4906,7 +4909,7 @@ pub fn n_objects_require_non_null_supplier(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let a = args.first().cloned().unwrap_or(Value::Ref(None));
+    let a = arg_or_null(args);
     if a.is_null() {
         // dispatch the supplier's compiled get()
         match args.get(1) {
@@ -4922,7 +4925,7 @@ pub fn n_objects_require_non_null_supplier(
                 let text = msg.expect_ref().map(|r| string_value(&r).to_string());
                 return Err(throw_new("java/lang/NullPointerException", text.as_deref()));
             }
-            _ => return Err(throw_new("java/lang/NullPointerException", None)),
+            _ => return Err(crate::npe()),
         }
     }
     Ok(a)
@@ -4934,7 +4937,7 @@ pub fn n_objects_to_string(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let a = args.first().cloned().unwrap_or(Value::Ref(None));
+    let a = arg_or_null(args);
     let s = dispatch_to_string(&a, ctx)?;
     Ok(Value::Ref(Some(crate::object::new_string(&s))))
 }
@@ -4945,7 +4948,7 @@ pub fn n_objects_is_null(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let a = args.first().cloned().unwrap_or(Value::Ref(None));
+    let a = arg_or_null(args);
     Ok(Value::Int(a.is_null() as i32))
 }
 
@@ -4955,7 +4958,7 @@ pub fn n_objects_non_null(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let _ = recv;
-    let a = args.first().cloned().unwrap_or(Value::Ref(None));
+    let a = arg_or_null(args);
     Ok(Value::Int((!a.is_null()) as i32))
 }
 
@@ -5036,7 +5039,7 @@ mod tests {
 
     #[test]
     fn table_size_for_matches_openjdk() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(table_size_for(0), 1);
         assert_eq!(table_size_for(1), 1);
         assert_eq!(table_size_for(2), 2);
@@ -5056,7 +5059,7 @@ mod tests {
 
     #[test]
     fn hash_spreading_matches_java() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // pinned by hand: 0x12345678 ^ (0x12345678 >>> 16) = 0x1234444C
         assert_eq!(
             map_hash(&boxed_i32(0x12345678u32 as i32), ctx()).unwrap(),
@@ -5074,7 +5077,7 @@ mod tests {
 
     #[test]
     fn arraylist_add_get_set_remove_tostring() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let l = list_new();
         for k in 0..3 {
             list_add(&l, Value::Ref(Some(new_string(&format!("e{k}")))));
@@ -5106,7 +5109,7 @@ mod tests {
 
     #[test]
     fn arraylist_bounds_messages_are_java_exact() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let l = list_new();
         list_add(&l, Value::Ref(Some(new_string("a"))));
         // get(-1) / get(size): Objects.checkIndex message
@@ -5128,7 +5131,7 @@ mod tests {
 
     #[test]
     fn arraylist_iterator_cme_and_exhaustion() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let l = list_new();
         list_add(&l, Value::Ref(Some(new_string("a"))));
         list_add(&l, Value::Ref(Some(new_string("b"))));
@@ -5144,10 +5147,7 @@ mod tests {
         // structural modification through the list -> next() throws CME
         list_add(&l, Value::Ref(Some(new_string("c"))));
         let err = n_itr_next(Some(&it), &[], ctx()).unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/util/ConcurrentModificationException"
-        );
+        assert_eq!(err.java_class(), CME_CLASS);
         // fresh iterator, exhaust it -> NoSuchElementException
         let it2 = match n_al_iterator(Some(&l), &[], ctx()).unwrap() {
             Value::Ref(Some(i)) => i,
@@ -5190,7 +5190,7 @@ mod tests {
 
     #[test]
     fn arraylist_copy_constructor_copies_then_diverges() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // source [a, b] -> copy; copy equals source; later source mutation
         // must not touch the copy (real copy semantics, corpus wave 1)
         let src = list_new();
@@ -5223,7 +5223,7 @@ mod tests {
 
     #[test]
     fn arraylist_copy_constructor_reads_through_unmodifiable_view() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // the copy-ctor must iterate through ANY collection impl — here the
         // Collections$UnmodifiableList view over an ArrayList — and the view
         // itself must reject writes with UnsupportedOperationException
@@ -5253,7 +5253,7 @@ mod tests {
 
     #[test]
     fn arraylist_clear_and_null_elements() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let l = list_new();
         list_add(&l, Value::Ref(None));
         list_add(&l, Value::Ref(Some(new_string("z"))));
@@ -5270,7 +5270,7 @@ mod tests {
 
     #[test]
     fn hashmap_order_is_table_order_with_tail_bins() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // Integer keys (hash = value). 14 distinct keys inserted in the
         // order 1, 17, 0, 2..=12: keys 1 and 17 collide in bin 1 of the
         // cap-16 table (17 tail-inserted after 1); the 13th put resizes to
@@ -5287,7 +5287,7 @@ mod tests {
 
     #[test]
     fn hashmap_put_replaces_and_returns_old_without_cme() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         let old = n_hm_put(Some(&m), &[boxed_i32(7), boxed_i32(1)], ctx()).unwrap();
         assert!(old.is_null(), "fresh put returns null");
@@ -5311,7 +5311,7 @@ mod tests {
 
     #[test]
     fn hashmap_remove_and_views() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         for k in 0..5 {
             n_hm_put(Some(&m), &[boxed_i32(k), boxed_i32(k + 100)], ctx()).unwrap();
@@ -5349,7 +5349,7 @@ mod tests {
 
     #[test]
     fn hashmap_iterator_cme_hasnext_no_check_next_checks() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         for k in 0..3 {
             n_hm_put(Some(&m), &[boxed_i32(k), boxed_i32(k)], ctx()).unwrap();
@@ -5374,15 +5374,12 @@ mod tests {
             1
         );
         let err = n_ki_next(Some(&it), &[], ctx()).unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/util/ConcurrentModificationException"
-        );
+        assert_eq!(err.java_class(), CME_CLASS);
     }
 
     #[test]
     fn hashmap_null_key_and_value() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         n_hm_put(Some(&m), &[Value::Ref(None), Value::Ref(None)], ctx()).unwrap();
         assert_eq!(n_hm_size(Some(&m), &[], ctx()).unwrap().expect_int(), 1);
@@ -5397,7 +5394,7 @@ mod tests {
 
     #[test]
     fn hashmap_initial_capacity_negative_is_java_exact() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = new_obj("java/util/HashMap", 4).unwrap();
         let err = n_hm_init(Some(&m), &[Value::Int(-3)], ctx()).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/IllegalArgumentException");
@@ -5415,7 +5412,7 @@ mod tests {
 
     #[test]
     fn lhm_order_laws_insertion_refixture_remove_tail() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = lhm_new();
         for (k, v) in [("a", 1), ("b", 2), ("c", 3)] {
             n_lhm_put(
@@ -5467,7 +5464,7 @@ mod tests {
 
     #[test]
     fn lhm_views_iterate_in_link_order() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = lhm_new();
         for (k, v) in [("a", 1), ("b", 2), ("c", 3)] {
             n_lhm_put(
@@ -5533,7 +5530,7 @@ mod tests {
 
     #[test]
     fn lhm_iterator_remove_order_and_modcount_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = lhm_new();
         for (k, v) in [("a", 1), ("b", 2), ("c", 3)] {
             n_lhm_put(
@@ -5579,15 +5576,12 @@ mod tests {
         )
         .unwrap();
         let err = n_lei_next(Some(&it), &[], ctx()).unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/util/ConcurrentModificationException"
-        );
+        assert_eq!(err.java_class(), CME_CLASS);
     }
 
     #[test]
     fn hash_iter_remove_order_and_modcount_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         for k in 0..3 {
             n_hm_put(Some(&m), &[boxed_i32(k), boxed_i32(k + 10)], ctx()).unwrap();
@@ -5627,10 +5621,7 @@ mod tests {
         // foreign modification behind the iterator's back, then next → CME
         n_hm_put(Some(&m), &[boxed_i32(9), boxed_i32(90)], ctx()).unwrap();
         let err = n_ki_next(Some(&it), &[], ctx()).unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/util/ConcurrentModificationException"
-        );
+        assert_eq!(err.java_class(), CME_CLASS);
         // THE PROBED COMBINED LAW (Temurin case 1): a fresh iterator over a
         // foreign-modified map, remove() without ANY next() → ISE, NOT CME
         // (the ISE check precedes the CME check in HashIterator.remove)
@@ -5660,15 +5651,12 @@ mod tests {
         n_ki_next(Some(&it4), &[], ctx()).unwrap();
         n_hm_remove(Some(&m4), &[boxed_i32(0)], ctx()).unwrap();
         let err = n_hi_remove(Some(&it4), &[], ctx()).unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/util/ConcurrentModificationException"
-        );
+        assert_eq!(err.java_class(), CME_CLASS);
     }
 
     #[test]
     fn hash_iter_remove_value_and_entry_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         for k in 0..3 {
             n_hm_put(Some(&m), &[boxed_i32(k), boxed_i32(k + 10)], ctx()).unwrap();
@@ -5722,7 +5710,7 @@ mod tests {
 
     #[test]
     fn lhm_itr_remove_ise_before_cme_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // the probed LinkedHashMap combined law (Temurin case 5): a fresh
         // link iterator over a foreign-modified map, remove() without any
         // next() → ISE, NOT CME — the original CME-first order diverged
@@ -5756,15 +5744,12 @@ mod tests {
         n_lei_next(Some(&it2), &[], ctx()).unwrap();
         n_lhm_remove(Some(&m), &[Value::Ref(Some(new_string("b")))], ctx()).unwrap();
         let err = n_lhm_itr_remove(Some(&it2), &[], ctx()).unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/util/ConcurrentModificationException"
-        );
+        assert_eq!(err.java_class(), CME_CLASS);
     }
 
     #[test]
     fn treemap_sorted_order_laws() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = tm_new();
         for (k, v) in [(42, "a"), (-7, "b"), (0, "c"), (100, "d"), (13, "e")] {
             n_tm_put(
@@ -5823,7 +5808,7 @@ mod tests {
 
     #[test]
     fn treemap_navigable_laws() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = tm_new();
         for (k, v) in [(42, "a"), (-7, "b"), (0, "c"), (100, "d"), (13, "e")] {
             n_tm_put(
@@ -5859,7 +5844,7 @@ mod tests {
 
     #[test]
     fn treemap_comparator_and_exceptions_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // T6: the Comparator surface reorders everything (the probed
         // lambda `(x, y) -> y - x` — the unit test rides the builtin
         // Comparator.reverseOrder() singleton, the same Comparator walk)
@@ -5908,7 +5893,7 @@ mod tests {
 
     #[test]
     fn treemap_ctor_from_map_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // T9: the copy ctor sorts regardless of the source's iteration order
         let src = map_new();
         for (k, v) in [(5, "v5"), (-3, "v-3"), (27, "v27")] {
@@ -5929,7 +5914,7 @@ mod tests {
 
     #[test]
     fn treemap_iterator_remove_and_cme_laws() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = tm_new();
         for k in 1..=4 {
             n_tm_put(
@@ -6004,10 +5989,7 @@ mod tests {
         )
         .unwrap();
         let err = n_tm_i_remove(Some(&it3), &[], ctx()).unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/util/ConcurrentModificationException"
-        );
+        assert_eq!(err.java_class(), CME_CLASS);
         // next after a foreign modification -> CME (probed case 10)
         let it4 = match n_tks_iterator(Some(&ks), &[], ctx()).unwrap() {
             Value::Ref(Some(i)) => i,
@@ -6021,10 +6003,7 @@ mod tests {
         )
         .unwrap();
         let err = n_tki_next(Some(&it4), &[], ctx()).unwrap_err();
-        assert_eq!(
-            err.java_class(),
-            "java/util/ConcurrentModificationException"
-        );
+        assert_eq!(err.java_class(), CME_CLASS);
     }
 
     /// The red-black integrity check: BST bounds, no red parent with a red
@@ -6064,7 +6043,7 @@ mod tests {
 
     #[test]
     fn treemap_red_black_integrity_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // the ascending 1..=64 rung: the worst case for the right spine,
         // every rotation + recolor shape exercised
         let m = tm_new();
@@ -6137,7 +6116,7 @@ mod tests {
 
     #[test]
     fn submap_range_surface_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // V1/V2: contents (from-inclusive, to-EXCLUSIVE), computed size,
         // toString; the 4-arg inclusive variants; empty views
         let (m, sub) = tm_views_fixture();
@@ -6220,7 +6199,7 @@ mod tests {
 
     #[test]
     fn submap_range_gated_map_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // V4: reads silently miss out-of-range keys; put throws the exact
         // IAE; null keys NPE and non-Comparable keys CCE through the range
         // check
@@ -6283,7 +6262,7 @@ mod tests {
 
     #[test]
     fn submap_narrowing_matrix_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // V7: the probed narrowing matrix — full inRange on the fromKey
         // side, inclusivity-blind strictly-above-hi on the toKey side, the
         // crossed check last; the absolute builders never range-check
@@ -6460,7 +6439,7 @@ mod tests {
 
     #[test]
     fn submap_live_and_slice_clear_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // V5: live both ways; V6: slice-only clear
         let (m, sub) = tm_views_fixture();
         // put through the view at an interior key: visible in both
@@ -6538,7 +6517,7 @@ mod tests {
 
     #[test]
     fn submap_views_and_iterators_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // V9: the view-of-view objects + the bounded iterators (order,
         // mid-walk remove, the hi fence)
         let (m, sub) = tm_views_fixture();
@@ -6660,7 +6639,7 @@ mod tests {
 
     #[test]
     fn submap_iterator_exception_laws() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // V8: ISE-first remove, double-remove ISE, exhausted NSEE, and the
         // probed c27 law — a foreign OUT-of-range put still comodifies
         let (m, sub) = tm_views_fixture();
@@ -6689,7 +6668,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             n_smki_next(Some(&it), &[], ctx()).unwrap_err().java_class(),
-            "java/util/ConcurrentModificationException"
+            CME_CLASS
         );
         n_tm_remove(Some(&m), &[boxed_i32(6)], ctx()).unwrap();
         // c27: a foreign put OUTSIDE the range STILL comodifies (the
@@ -6709,7 +6688,7 @@ mod tests {
             n_smki_next(Some(&it2), &[], ctx())
                 .unwrap_err()
                 .java_class(),
-            "java/util/ConcurrentModificationException"
+            CME_CLASS
         );
         n_tm_remove(Some(&m), &[boxed_i32(99)], ctx()).unwrap();
         // double remove -> ISE; the exhausted walk -> NSEE
@@ -6742,7 +6721,7 @@ mod tests {
 
     #[test]
     fn lhm_ctor_from_map_copies_source_order() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // LHM source: link order
         let src = lhm_new();
         for (k, v) in [("a", 1), ("b", 2), ("c", 3)] {
@@ -6810,7 +6789,7 @@ mod tests {
     /// 13 entries -> 32; the table stays lazy until the first put.
     #[test]
     fn hm_ctor_from_map_presize_boundary_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let src11 = lhm_new();
         for i in 0..10 {
             n_lhm_put(Some(&src11), &[boxed_i32(i), boxed_i32(i)], ctx()).unwrap();
@@ -6843,7 +6822,7 @@ mod tests {
     /// capacity; the LHM source inserts 16, 0, 32).
     #[test]
     fn hm_ctor_from_map_source_order_chain_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let src = lhm_new();
         for k in [16, 0, 32] {
             n_lhm_put(Some(&src), &[boxed_i32(k), boxed_i32(k * 10)], ctx()).unwrap();
@@ -6858,7 +6837,7 @@ mod tests {
     /// table order is Temurin's exactly (0 18 3 21 6 24 9 27 12 15).
     #[test]
     fn hm_ctor_from_tree_source_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let src = tm_new();
         for i in (0..10).rev() {
             n_tm_put(Some(&src), &[boxed_i32(i * 3), boxed_i32(i)], ctx()).unwrap();
@@ -6872,7 +6851,7 @@ mod tests {
     /// L6: the null map NPE (putMapEntries reads m.size() first).
     #[test]
     fn hm_ctor_null_source_npe_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = new_obj("java/util/HashMap", 4).unwrap();
         let err = n_hm_init(Some(&m), &[Value::Ref(None)], ctx()).unwrap_err();
         assert_eq!(err.java_class(), "java/lang/NullPointerException");
@@ -6883,7 +6862,7 @@ mod tests {
     /// the chain order = insertion order).
     #[test]
     fn hm_ctor_empty_source_lazy_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let empty = map_new();
         let cp = new_obj("java/util/HashMap", 4).unwrap();
         n_hm_init(Some(&cp), &[Value::Ref(Some(empty))], ctx()).unwrap();
@@ -6901,7 +6880,7 @@ mod tests {
     /// (the old `_` arm walked hash slots on a red-black object).
     #[test]
     fn lhm_ctor_from_tree_source_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let src = tm_new();
         for i in (0..10).rev() {
             n_tm_put(Some(&src), &[boxed_i32(i * 3), boxed_i32(i)], ctx()).unwrap();
@@ -6923,7 +6902,7 @@ mod tests {
     /// high bucket and preserves the [4, 100] chain order).
     #[test]
     fn hm_ctor_post_copy_growth_timing_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let src = lhm_new();
         for i in 0..10 {
             n_lhm_put(Some(&src), &[boxed_i32(i), boxed_i32(i)], ctx()).unwrap();
@@ -6945,7 +6924,7 @@ mod tests {
 
     #[test]
     fn lhm_null_key_value_and_clear() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = lhm_new();
         n_lhm_put(
             Some(&m),
@@ -7010,7 +6989,7 @@ mod tests {
 
     #[test]
     fn lhm_get_default_and_contains_value_laws() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = lhm_new();
         for (k, v) in [("a", 1), ("b", 2)] {
             n_lhm_put(
@@ -7053,7 +7032,7 @@ mod tests {
 
     #[test]
     fn hashset_add_contains_remove_tostring() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let st = set_new();
         assert_eq!(
             n_hs_add(Some(&st), &[boxed_i32(4)], ctx())
@@ -7104,7 +7083,7 @@ mod tests {
 
     #[test]
     fn objects_require_non_null_overloads() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let v = Value::Ref(Some(new_string("ok")));
         assert!(matches!(
             n_objects_require_non_null(None, std::slice::from_ref(&v), ctx()).unwrap(),
@@ -7127,7 +7106,7 @@ mod tests {
 
     #[test]
     fn objects_to_string_is_null_and_hash() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let out = n_objects_to_string(None, &[Value::Ref(None)], ctx()).unwrap();
         assert_eq!(s(&out), "null");
         let out = n_objects_to_string(None, &[Value::Ref(Some(new_string("x")))], ctx()).unwrap();
@@ -7156,7 +7135,7 @@ mod tests {
 
     #[test]
     fn rooted_collection_keeps_elements_alive_across_gc() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         crate::heap::set_forced_gc_every(Some(1));
         let l = list_new();
         let elem = new_string("kept-by-list");
@@ -7180,7 +7159,7 @@ mod tests {
 
     #[test]
     fn dropped_collection_lets_elements_be_collected() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         crate::heap::set_forced_gc_every(Some(1));
         let before = crate::heap::live_count();
         {
@@ -7216,7 +7195,7 @@ mod tests {
 
     #[test]
     fn prim_slot_materializes_with_identity_and_jls_cache() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         // The specialized put stores the RAW prim; the node is stamped 'I'.
         hm_put_prim(&m, key("n"), Value::Int(5), ctx()).unwrap();
@@ -7244,7 +7223,7 @@ mod tests {
 
     #[test]
     fn double_slot_materializes_with_slot_identity() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         hm_put_prim(&m, key("a"), Value::Double(0.5), ctx()).unwrap();
         let v = n_hm_get(Some(&m), &[key("a")], ctx()).unwrap();
@@ -7264,7 +7243,7 @@ mod tests {
 
     #[test]
     fn faithful_put_over_prim_node_returns_materialized_old_value() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         hm_put_prim(&m, key("n"), Value::Int(7), ctx()).unwrap();
         // A faithful put over the prim node: Map.put returns the OLD
@@ -7283,7 +7262,7 @@ mod tests {
 
     #[test]
     fn remove_and_to_string_materialize() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         hm_put_prim(&m, key("a"), Value::Double(0.5), ctx()).unwrap();
         hm_put_prim(&m, key("b"), Value::Double(1.5), ctx()).unwrap();
@@ -7301,7 +7280,7 @@ mod tests {
 
     #[test]
     fn entry_get_value_materializes() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         hm_put_prim(&m, key("a"), Value::Int(5), ctx()).unwrap();
         // entrySet().iterator().next().getValue() — the registered
@@ -7330,7 +7309,7 @@ mod tests {
 
     #[test]
     fn tm_put_prim_stores_raw_and_the_readers_materialize() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = tm_new();
         // The specialized put: the CLRS walk runs (size/modCount move),
         // the value slot holds the RAW prim, the node is stamped 'I'.
@@ -7375,7 +7354,7 @@ mod tests {
 
     #[test]
     fn tm_put_overwrite_and_remove_returns_materialize() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = tm_new();
         tm_put_prim(&m, key("k"), Value::Long(7), ctx()).unwrap();
         // A FAITHFUL overwrite returns the OLD value — materialized out
@@ -7404,7 +7383,7 @@ mod tests {
 
     #[test]
     fn tm_get_prim_failure_modes_are_the_fused_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = tm_new();
         // Missing key: the bare NPE (the null box reaching xValue()).
         let err = tm_get_prim(&m, key("no"), "java/lang/Integer", ctx()).unwrap_err();
@@ -7440,7 +7419,7 @@ mod tests {
 
     #[test]
     fn tm_delete_transplant_moves_the_tag_with_the_value() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = tm_new();
         // Three raw-prim entries: the root ("b") has two children, so
         // the delete walks the transplant-by-copy (the successor's kv
@@ -7465,7 +7444,7 @@ mod tests {
 
     #[test]
     fn tm_view_readers_ride_the_raw_slots() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = tm_new();
         tm_put_prim(&m, key("a"), Value::Int(1), ctx()).unwrap();
         tm_put_prim(&m, key("b"), Value::Int(2), ctx()).unwrap();
@@ -7502,7 +7481,7 @@ mod tests {
 
     #[test]
     fn lhm_put_prim_links_the_tail_and_materializes() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = lhm_new();
         // The specialized put on the LINK-CHAIN storage: the node kind
         // follows the map's runtime class (LinkedHashMap$Entry), the
@@ -7556,7 +7535,7 @@ mod tests {
 
     #[test]
     fn fused_get_throws_faithful_cce_on_tag_mismatch() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         hm_put_prim(&m, key("a"), Value::Double(0.5), ctx()).unwrap();
         // A get core compiled against Integer on a Double-prim slot: the
@@ -7574,7 +7553,7 @@ mod tests {
 
     #[test]
     fn fused_get_throws_faithful_cce_on_foreign_box() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         hm_put_prim(&m, key("a"), Value::Double(0.5), ctx()).unwrap();
         // A non-core put (unchecked generics) wrote an Integer BOX over
@@ -7594,7 +7573,7 @@ mod tests {
 
     #[test]
     fn fused_get_throws_bare_npe_on_null_value() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let m = map_new();
         // A non-core put stored a null VALUE (javac: aconst_null; put).
         n_hm_put(Some(&m), &[key("a"), Value::Ref(None)], ctx()).unwrap();

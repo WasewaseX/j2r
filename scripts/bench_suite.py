@@ -84,11 +84,15 @@ def cpu_model() -> str:
     # OSError (missing /proc, permissions) — narrowed per the ai-slop
     # audit so a programming error here can no longer be swallowed.
     try:
-        for line in Path("/proc/cpuinfo").read_text().splitlines():
-            if line.startswith("model name"):
-                return line.split(":", 1)[1].strip()
+        lines = Path("/proc/cpuinfo").read_text().splitlines()
     except OSError:
-        pass
+        # /proc/cpuinfo unavailable (non-Linux host, restricted sandbox):
+        # fall through to the platform fallback; metadata only, never a
+        # benchmark failure.
+        lines = []
+    for line in lines:
+        if line.startswith("model name"):
+            return line.split(":", 1)[1].strip()
     return platform.processor() or "unknown"
 
 

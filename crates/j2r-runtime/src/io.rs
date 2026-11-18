@@ -55,6 +55,7 @@
 //! writes is ASCII. Supplementary-plane slicing by UTF-16 index is a
 //! documented limit until the string model can hold lone units.
 
+use crate::first_arg_ref;
 use crate::heap::{with_obj, with_obj_mut, JRef};
 use crate::{internal_error, throw_new, Dispatch, Throw, Value};
 use std::sync::Arc;
@@ -138,9 +139,7 @@ pub fn n_sw_write_str(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Re
         Some(Value::Ref(Some(o))) if crate::object::is_string(o) => {
             crate::object::string_value(o).to_string()
         }
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         _ => return Err(missing("StringWriter.write")),
     };
     sw_append(recv, "StringWriter.write", &s_arg)
@@ -157,9 +156,7 @@ pub fn n_sw_write_str_range(
             i.expect_int(),
             l.expect_int(),
         ),
-        (Some(Value::Ref(None)), _, _) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        (Some(Value::Ref(None)), _, _) => return Err(crate::npe()),
         _ => return Err(missing("StringWriter.write")),
     };
     // Scalar-value slice (see module limit note).
@@ -188,9 +185,7 @@ pub fn n_sw_write_chars(
     // bounds and class checks stay in one place.
     let (cbuf, off, len) = match (args.first(), args.get(1), args.get(2)) {
         (Some(Value::Ref(Some(a))), Some(o), Some(l)) => (*a, o.expect_int(), l.expect_int()),
-        (Some(Value::Ref(None)), _, _) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        (Some(Value::Ref(None)), _, _) => return Err(crate::npe()),
         _ => return Err(missing("StringWriter.write")),
     };
     let mut buf = String::with_capacity(len as usize);
@@ -215,11 +210,7 @@ pub fn n_sw_write_chars_all(
     args: &[Value],
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
-    let cbuf = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("StringWriter.write")),
-    };
+    let cbuf = first_arg_ref!(args, Err(missing("StringWriter.write")));
     let len = crate::array::array_length(&cbuf)?;
     let mut buf = String::with_capacity(len as usize);
     for i in 0..len {
@@ -316,7 +307,7 @@ pub fn n_sr_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<
         Some(Value::Ref(Some(o))) if crate::object::is_string(o) => {
             crate::object::string_value(o).to_string()
         }
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        Some(Value::Ref(None)) => return Err(crate::npe()),
         _ => return Err(missing("StringReader.<init>")),
     };
     with_obj_mut(r, |o| {
@@ -355,9 +346,7 @@ pub fn n_sr_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
     sr_ensure_open(&r)?;
     let (cbuf, off, len) = match (args.first(), args.get(1), args.get(2)) {
         (Some(Value::Ref(Some(a))), Some(o), Some(l)) => (*a, o.expect_int(), l.expect_int()),
-        (Some(Value::Ref(None)), _, _) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        (Some(Value::Ref(None)), _, _) => return Err(crate::npe()),
         _ => return Err(missing("StringReader.read")),
     };
     // JDK: plain IndexOutOfBoundsException carrying the modern
@@ -540,11 +529,7 @@ pub fn n_writer_write_chars_all(
         Some(r) => *r,
         None => return Err(missing("Writer.write")),
     };
-    let cbuf = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("Writer.write")),
-    };
+    let cbuf = first_arg_ref!(args, Err(missing("Writer.write")));
     let len = crate::array::array_length(&cbuf)?;
     crate::invoke_virtual(
         &r,
@@ -570,9 +555,7 @@ pub fn n_writer_write_str(
     };
     let sobj = match args.first() {
         Some(Value::Ref(Some(o))) if crate::object::is_string(o) => *o,
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         _ => return Err(missing("Writer.write")),
     };
     let len = crate::object::string_value(&sobj).encode_utf16().count() as i32;
@@ -606,7 +589,7 @@ fn stream_field(recv: Option<&JRef>, op: &str) -> Result<(JRef, JRef), Throw> {
     };
     let inner = match with_obj(r, |o| o.slots[0].clone()) {
         Value::Ref(Some(o)) => o,
-        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", None)),
+        Value::Ref(None) => return Err(crate::npe()),
         _ => return Err(internal_error(&format!("j2r internal: {op} field slot"))),
     };
     Ok((r, inner))
@@ -641,9 +624,7 @@ fn stream_field_pair(recv: Option<&JRef>, args: &[Value], op: &str) -> Result<(J
     };
     let inner = match args.first() {
         Some(Value::Ref(Some(o))) => *o,
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         _ => return Err(missing(op)),
     };
     Ok((r, inner))
@@ -663,11 +644,7 @@ pub fn n_fos_write_bulk(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let (r, _) = stream_field(recv, "FilterOutputStream.write")?;
-    let b = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("FilterOutputStream.write")),
-    };
+    let b = first_arg_ref!(args, Err(missing("FilterOutputStream.write")));
     let len = crate::array::array_length(&b)?;
     crate::invoke_virtual(
         &r,
@@ -689,11 +666,7 @@ pub fn n_fos_write_range(
     ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let (_, out) = stream_field(recv, "FilterOutputStream.write")?;
-    let b = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("FilterOutputStream.write")),
-    };
+    let b = first_arg_ref!(args, Err(missing("FilterOutputStream.write")));
     let off = match args.get(1) {
         Some(Value::Int(v)) => *v,
         _ => return Err(missing("FilterOutputStream.write")),
@@ -746,11 +719,7 @@ pub fn n_os_write_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Re
         Some(r) => *r,
         None => return Err(missing("OutputStream.write")),
     };
-    let b = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("OutputStream.write")),
-    };
+    let b = first_arg_ref!(args, Err(missing("OutputStream.write")));
     let len = crate::array::array_length(&b)?;
     crate::invoke_virtual(
         &r,
@@ -774,11 +743,7 @@ pub fn n_os_write_range(
         Some(r) => *r,
         None => return Err(missing("OutputStream.write")),
     };
-    let b = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("OutputStream.write")),
-    };
+    let b = first_arg_ref!(args, Err(missing("OutputStream.write")));
     let off = match args.get(1) {
         Some(Value::Int(v)) => *v,
         _ => return Err(missing("OutputStream.write")),
@@ -819,11 +784,7 @@ pub fn n_fis_read(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Result
 /// JDK: `read(b, 0, b.length)` on SELF.
 pub fn n_fis_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
     let (r, _) = stream_field(recv, "FilterInputStream.read")?;
-    let b = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("FilterInputStream.read")),
-    };
+    let b = first_arg_ref!(args, Err(missing("FilterInputStream.read")));
     let len = crate::array::array_length(&b)?;
     crate::invoke_virtual(
         &r,
@@ -878,11 +839,7 @@ pub fn n_is_read_bulk(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
         Some(r) => *r,
         None => return Err(missing("InputStream.read")),
     };
-    let b = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("InputStream.read")),
-    };
+    let b = first_arg_ref!(args, Err(missing("InputStream.read")));
     let len = crate::array::array_length(&b)?;
     crate::invoke_virtual(
         &r,
@@ -909,9 +866,7 @@ pub fn n_is_read_range(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Re
         }
         (Some(Value::Ref(None)), ..)
         | (_, Some(Value::Ref(None)), _)
-        | (_, _, Some(Value::Ref(None))) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        | (_, _, Some(Value::Ref(None))) => return Err(crate::npe()),
         _ => return Err(missing("InputStream.read")),
     };
     let blen = crate::array::array_length(&b)?;
@@ -1107,9 +1062,7 @@ pub fn n_baos_write_bulk(
     };
     let b = match args.first() {
         Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         _ => return Err(missing("ByteArrayOutputStream.write")),
     };
     let len = crate::array::array_length(&b)?;
@@ -1135,9 +1088,7 @@ pub fn n_baos_write_range(
     };
     let b = match args.first() {
         Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         _ => return Err(missing("ByteArrayOutputStream.write")),
     };
     let off = match args.get(1) {
@@ -1225,9 +1176,7 @@ pub fn n_baos_write_to(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Re
     };
     let out = match args.first() {
         Some(Value::Ref(Some(o))) => *o,
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         _ => return Err(missing("ByteArrayOutputStream.writeTo")),
     };
     let (buf, count) = baos_parts(&r, "ByteArrayOutputStream.writeTo")?;
@@ -1277,11 +1226,7 @@ pub fn n_bis_init(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result
         Some(r) => *r,
         None => return Err(missing("ByteArrayInputStream.<init>")),
     };
-    let buf = match args.first() {
-        Some(Value::Ref(Some(b))) => *b,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("ByteArrayInputStream.<init>")),
-    };
+    let buf = first_arg_ref!(args, Err(missing("ByteArrayInputStream.<init>")));
     let len = crate::array::array_length(&buf)?;
     with_obj_mut(r, |o| {
         o.slots[0] = Value::Ref(Some(buf));
@@ -1307,9 +1252,7 @@ pub fn n_bis_init_range(
         }
         (Some(Value::Ref(None)), ..)
         | (_, Some(Value::Ref(None)), _)
-        | (_, _, Some(Value::Ref(None))) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        | (_, _, Some(Value::Ref(None))) => return Err(crate::npe()),
         _ => return Err(missing("ByteArrayInputStream.<init>")),
     };
     let total = crate::array::array_length(&buf)?;
@@ -1359,9 +1302,7 @@ pub fn n_bis_read_range(
         }
         (Some(Value::Ref(None)), ..)
         | (_, Some(Value::Ref(None)), _)
-        | (_, _, Some(Value::Ref(None))) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        | (_, _, Some(Value::Ref(None))) => return Err(crate::npe()),
         _ => return Err(missing("ByteArrayInputStream.read")),
     };
     let blen = crate::array::array_length(&b)?;
@@ -1769,9 +1710,7 @@ pub fn n_buf_read_range(
         }
         (Some(Value::Ref(None)), ..)
         | (_, Some(Value::Ref(None)), _)
-        | (_, _, Some(Value::Ref(None))) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        | (_, _, Some(Value::Ref(None))) => return Err(crate::npe()),
         _ => return Err(missing("BufferedInputStream.read")),
     };
     let blen = crate::array::array_length(&b)?;
@@ -2027,9 +1966,7 @@ pub fn n_pb_read_range(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Re
         }
         (Some(Value::Ref(None)), ..)
         | (_, Some(Value::Ref(None)), _)
-        | (_, _, Some(Value::Ref(None))) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        | (_, _, Some(Value::Ref(None))) => return Err(crate::npe()),
         _ => return Err(missing("PushbackInputStream.read")),
     };
     let blen_out = crate::array::array_length(&b)?;
@@ -2117,11 +2054,7 @@ pub fn n_pb_unread_bulk(
         Some(r) => *r,
         None => return Err(missing("PushbackInputStream.unread")),
     };
-    let b = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(missing("PushbackInputStream.unread")),
-    };
+    let b = first_arg_ref!(args, Err(missing("PushbackInputStream.unread")));
     let len = crate::array::array_length(&b)?;
     let wide = [args[0].clone(), Value::Int(0), Value::Int(len)];
     n_pb_unread_range(Some(&r), &wide, crate::Dispatch::default())

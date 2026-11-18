@@ -35,6 +35,7 @@
 //! (IllegalFormatConversionException), `Format specifier '%d'`
 //! (MissingFormatArgumentException).
 
+use crate::internal_error;
 use crate::object::is_string;
 use crate::{heap, object, throw_new, Dispatch, JRef, Throw, Value};
 
@@ -53,7 +54,7 @@ fn to_display(v: &Value, ctx: Dispatch) -> Result<String, Throw> {
         Value::Double(d) => Ok(crate::javafmt::double_to_string(*d)),
         Value::Str(s) => Ok(s.to_string()),
         Value::Ref(r) => crate::concat::format_ref(r.as_ref(), ctx),
-        Value::Void => Err(crate::internal_error("void value in format")),
+        Value::Void => Err(internal_error("void value in format")),
     }
 }
 
@@ -950,7 +951,7 @@ pub fn n_string_format(
         Some(Value::Ref(None)) => {
             return Err(err("java/lang/NullPointerException", "format == null"))
         }
-        _ => return Err(crate::internal_error("j2r internal: String.format spec")),
+        _ => return Err(internal_error("j2r internal: String.format spec")),
     };
     // javac packs the varargs into ONE Object[] argument — unpack its
     // elements as the format arguments (the JDK's receive-variargs law).
@@ -964,7 +965,7 @@ pub fn n_string_format(
         }
         Some(Value::Ref(None)) => {}
         None => {}
-        _ => return Err(crate::internal_error("j2r internal: String.format varargs")),
+        _ => return Err(internal_error("j2r internal: String.format varargs")),
     }
     let s = format(&spec, &rest, ctx)?;
     Ok(Value::Ref(Some(object::new_string(&s))))
@@ -979,11 +980,7 @@ pub fn n_print_stream_printf(
 ) -> Result<Value, Throw> {
     let r = match recv {
         Some(r) => *r,
-        None => {
-            return Err(crate::internal_error(
-                "j2r internal: PrintStream.printf recv",
-            ))
-        }
+        None => return Err(internal_error("j2r internal: PrintStream.printf recv")),
     };
     let formatted = n_string_format(None, args, ctx)?;
     crate::invoke_virtual(
@@ -1004,7 +1001,7 @@ mod tests {
 
     #[test]
     fn shortest_repr_shapes() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         println!("2.675  => {}", crate::javafmt::double_to_string(2.675));
         println!("3.14159=> {}", crate::javafmt::double_to_string(3.14159));
         println!(
@@ -1021,7 +1018,7 @@ mod tests {
 
     #[test]
     fn render_f_pins() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(render_f(3.14, 6), "3.140000");
         assert_eq!(render_f(3.14159, 2), "3.14");
         assert_eq!(render_f(2.675, 2), "2.68");
@@ -1049,7 +1046,7 @@ mod tests {
 
     #[test]
     fn render_e_pins() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(render_e(12345.6789, 6), "1.234568e+04");
         assert_eq!(render_e(12345.6789, 1), "1.2e+04");
         // -0.0 keeps its sign (FmtResidualProbe U9: %E of -0.0 is
@@ -1061,7 +1058,7 @@ mod tests {
 
     #[test]
     fn render_g_pins() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // FmtResidualProbe B-rows — LOWER-ENGINE level: the renderer emits
         // lowercase; %G's uppercase comes from the unified tail in render()
         // (the format-level law test pins the uppercase shapes)
@@ -1092,7 +1089,7 @@ mod tests {
 
     #[test]
     fn render_a_pins() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // FmtResidualProbe C-rows (Temurin 21.0.13, 2026-11-05)
         assert_eq!(render_a(1.0, None), "0x1.0p0");
         assert_eq!(render_a(3.14, None), "0x1.91eb851eb851fp1");
@@ -1148,7 +1145,7 @@ mod tests {
         // ONE guard for the whole test — every fmt()/law() call below needs
         // the heap; dropping the lock between calls deadlocks the STW
         // handshake under libtest's parallel test threads
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // the uppercase-variant family (A/C/W rows on Temurin 21.0.13):
         // the WHOLE piece uppercases — INFINITY/NAN included
         assert_eq!(

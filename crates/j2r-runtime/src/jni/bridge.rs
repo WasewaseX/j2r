@@ -483,7 +483,7 @@ mod tests {
 
     #[test]
     fn tag_roundtrip_and_abi_boundary() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = obj(7);
         let tag = new_local(r);
         assert_ne!(tag, 0, "a non-null tag is never 0 — JNI null is reserved");
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn global_ref_is_resolvable_and_deletable() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let tag = new_global(obj(9));
         assert_eq!(payload(tag), 9);
         delete_global(tag);
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn deleted_tag_is_loud_never_aliased() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let a = new_local(obj(1));
         delete_local(a);
         // slot reuse must hand out a DIFFERENT tag (generation bumped)
@@ -523,7 +523,7 @@ mod tests {
 
     #[test]
     fn wrong_kind_delete_is_loud() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let local = new_local(obj(3));
         let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             delete_global(local);
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn push_pop_frame_promotes_the_result() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let outer = new_local(obj(11));
         assert_eq!(push_local_frame(16), JNI_OK);
         let inner = new_local(obj(12));
@@ -563,7 +563,7 @@ mod tests {
 
     #[test]
     fn pop_frees_non_result_locals_of_the_popped_frame() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(push_local_frame(0), JNI_OK);
         let discarded = new_local(obj(14));
         let kept = pop_local_frame(0);
@@ -585,7 +585,7 @@ mod tests {
 
     #[test]
     fn local_refs_survive_gc_then_die_with_the_frame() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let tag = new_local(obj(15));
         crate::heap::force_collect_for_test();
         assert_eq!(payload(tag), 15, "a live local ref is a GC root");
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn global_refs_survive_gc() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let tag = new_global(obj(16));
         crate::heap::force_collect_for_test();
         assert_eq!(payload(tag), 16, "a global ref is a GC root");
@@ -612,7 +612,7 @@ mod tests {
 
     #[test]
     fn only_rooted_objects_survive_when_the_ref_dies() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // The object exists ONLY behind the local ref: collect with the
         // ref live, then delete and collect again.
         let tag = new_local(obj(17));
@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn critical_registry_roundtrip_and_loud_miss() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = obj(18);
         let addr = 0x1234_5600usize; // bookkeeping key; no memory behind it in this test
         critical_register(addr, r);
@@ -637,7 +637,7 @@ mod tests {
 
     #[test]
     fn scan_roots_covers_locals_globals_and_criticals() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = obj(19);
         let l = new_local(r);
         let g = new_global(r);
@@ -662,7 +662,7 @@ mod tests {
         // tag — HotSpot's own debug builds only assert). What IS pinned:
         // delete_local refuses a foreign owner. Registered as the T13
         // attach-lifecycle check item.
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let tag = new_local(obj(20));
         delete_local(tag); // same thread: fine
     }

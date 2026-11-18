@@ -1428,6 +1428,14 @@ mod tests {
     use super::*;
     use testclass::Builder;
 
+    /// The Object class path the fixture builders repeat.
+    const OBJ_NAME: &str = "java/lang/Object";
+
+    /// Parse-or-panic: a fixture that doesn't parse is a bug.
+    fn parse_ok(bytes: &[u8]) -> ClassFile {
+        ClassFile::parse(bytes).unwrap()
+    }
+
     #[test]
     fn rejects_bad_magic() {
         let err = ClassFile::parse(&[1, 2, 3, 4]).unwrap_err();
@@ -1439,7 +1447,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[], &[]);
         let mut bad = bytes.clone();
@@ -1447,7 +1455,7 @@ mod tests {
         let err = ClassFile::parse(&bad).unwrap_err();
         assert!(err.message.contains("trailing"));
         // and the clean version parses
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         assert_eq!(cf.this_class, "T");
         assert_eq!(cf.super_class.as_deref(), Some("java/lang/Object"));
     }
@@ -1457,7 +1465,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let field_name = b.utf8("BIG");
         let field_desc = b.utf8("J");
@@ -1471,7 +1479,7 @@ mod tests {
             cv_name,
         );
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[&field], &[], &[]);
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         let f = cf.field("BIG").unwrap();
         assert_eq!(f.descriptor, "J");
         assert!(f.is_static());
@@ -1490,7 +1498,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let m_name = b.utf8("run");
         let m_desc = b.utf8("()V");
@@ -1508,7 +1516,7 @@ mod tests {
             code_name,
         );
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         let m = cf.method("run", "()V").unwrap();
         let code = m.code().unwrap();
         assert_eq!(code.code, vec![0xB1]);
@@ -1530,10 +1538,10 @@ mod tests {
         let idx = b.idx;
         b.idx += 1;
         let cls = b.class(idx);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[], &[]);
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         assert_eq!(cf.this_class, "a\u{0}");
     }
 
@@ -1545,7 +1553,7 @@ mod tests {
             let mut b = Builder::new();
             let name = b.utf8("T");
             let cls = b.class(name);
-            let obj_name = b.utf8("java/lang/Object");
+            let obj_name = b.utf8(OBJ_NAME);
             let obj_cls = b.class(obj_name);
             let f_name = b.utf8("K");
             let f_desc = b.utf8("I");
@@ -1576,7 +1584,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let f_name = b.utf8("K");
         let f_desc = b.utf8("I");
@@ -1591,7 +1599,7 @@ mod tests {
             cv_name,
         );
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[&field], &[], &[]);
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         assert_eq!(
             cf.field("K").unwrap().constant_value,
             Some(ConstantValue::Int(42))
@@ -1603,7 +1611,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let m_name = b.utf8("run");
         let m_desc = b.utf8("()V");
@@ -1628,7 +1636,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let m_name = b.utf8("run");
         let m_desc = b.utf8("()V");
@@ -1663,7 +1671,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let m_name = b.utf8("run");
         let m_desc = b.utf8("()V");
@@ -1696,7 +1704,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let m_name = b.utf8("run");
         let m_desc = b.utf8("()V");
@@ -1755,7 +1763,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let f_name = b.utf8("m");
         let f_desc = b.utf8("Ljava/util/Map;");
@@ -1768,7 +1776,7 @@ mod tests {
             &[&attr(sig_name, &sig_str.to_be_bytes())],
         );
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[&field], &[], &[]);
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         assert_eq!(
             cf.field("m").unwrap().signature.as_deref(),
             Some("Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;")
@@ -1780,7 +1788,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let m_name = b.utf8("run");
         let m_desc = b.utf8("()V");
@@ -1804,7 +1812,7 @@ mod tests {
         m.extend_from_slice(&attr(code_name, &body));
         m.extend_from_slice(&attr(sig_name, &sig_str.to_be_bytes()));
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         assert_eq!(
             cf.method("run", "()V").unwrap().signature.as_deref(),
             Some("(Ljava/util/Map<Ljava/lang/String;Ljava/lang/Double;>;)V")
@@ -1816,7 +1824,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let sig_str =
             b.utf8("<K:Ljava/lang/Object;V:Ljava/lang/Object;>Ljava/util/AbstractMap<TK;TV;>;");
@@ -1830,7 +1838,7 @@ mod tests {
             &[],
             &[&attr(sig_name, &sig_str.to_be_bytes())],
         );
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         assert_eq!(
             cf.signature.as_deref(),
             Some("<K:Ljava/lang/Object;V:Ljava/lang/Object;>Ljava/util/AbstractMap<TK;TV;>;")
@@ -1842,7 +1850,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let f_name = b.utf8("m");
         let f_desc = b.utf8("Ljava/util/Map;");
@@ -1874,7 +1882,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let m_name = b.utf8("run");
         let m_desc = b.utf8("()V");
@@ -1900,7 +1908,7 @@ mod tests {
             code_name,
         );
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[&m], &[]);
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         let code = cf.method("run", "()V").unwrap().code().unwrap();
         assert_eq!(code.lvtt.len(), 1);
         let e = &code.lvtt[0];
@@ -1919,7 +1927,7 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let m_name = b.utf8("run");
         let m_desc = b.utf8("()V");
@@ -1954,10 +1962,10 @@ mod tests {
         let mut b = Builder::new();
         let name = b.utf8("T");
         let cls = b.class(name);
-        let obj_name = b.utf8("java/lang/Object");
+        let obj_name = b.utf8(OBJ_NAME);
         let obj_cls = b.class(obj_name);
         let bytes = b.finish(flags::ACC_PUBLIC, cls, obj_cls, &[], &[], &[], &[]);
-        let cf = ClassFile::parse(&bytes).unwrap();
+        let cf = parse_ok(&bytes);
         assert_eq!(cf.signature, None);
         assert!(cf.fields.iter().all(|f| f.signature.is_none()));
         assert!(cf.methods.iter().all(|m| m.signature.is_none()));

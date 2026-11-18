@@ -17,6 +17,7 @@
 use crate::collections as c;
 use crate::concat;
 use crate::fdlibm as fd;
+use crate::first_arg_ref;
 use crate::formatter;
 use crate::heap::with_obj;
 use crate::heap::JRef;
@@ -31,6 +32,12 @@ use crate::Value;
 use crate::{internal_error, javafmt, throw_new, Dispatch, NativeFn, Throw};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+
+/// The JNI descriptors and class paths the natives table repeats row
+/// after row — one spelling each, named at the use site.
+const SIG_OBJECT: &str = "(Ljava/lang/Object;)Ljava/lang/Object;";
+const SIG_OBJECT_OBJECT: &str = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+const UNMOD_LIST: &str = "java/util/Collections$UnmodifiableList";
 
 fn this<'a>(recv: Option<&'a JRef>, who: &str) -> &'a JRef {
     recv.unwrap_or_else(|| panic!("j2r internal: {who} called without receiver"))
@@ -500,12 +507,10 @@ fn n_enum_get_declaring_class(
 /// IAE(`No enum constant <binary name>.<name>`) — the binary (dotted) name,
 /// so a nested enum prints `EnumProbe.Color.red`.
 fn n_enum_value_of(_recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value, Throw> {
-    let cls = match args.first() {
-        Some(Value::Ref(Some(r))) => *r,
-        // Temurin dereferences the class argument without a message NPE.
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(internal_error("j2r internal: Enum.valueOf class argument")),
-    };
+    let cls = first_arg_ref!(
+        args,
+        Err(internal_error("j2r internal: Enum.valueOf class argument"))
+    );
     let name: Option<String> = match args.get(1) {
         Some(Value::Str(s)) => Some(s.to_string()),
         Some(Value::Ref(Some(o))) if object::is_string(o) => {
@@ -859,9 +864,7 @@ fn n_string_init(recv: Option<&JRef>, _args: &[Value], _ctx: Dispatch) -> Result
 fn string_from_char_range(args: &[Value], op: &str) -> Result<String, Throw> {
     let (cbuf, off, len) = match (args.first(), args.get(1), args.get(2)) {
         (Some(Value::Ref(Some(a))), Some(o), Some(l)) => (*a, o.expect_int(), l.expect_int()),
-        (Some(Value::Ref(None)), _, _) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        (Some(Value::Ref(None)), _, _) => return Err(crate::npe()),
         _ => return Err(internal_error(&format!("j2r internal: {op} args"))),
     };
     let clen = crate::array::array_length(&cbuf)?;
@@ -891,11 +894,10 @@ fn n_string_init_chars(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "String.<init>");
-    let cbuf = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(internal_error("String.<init>([C) needs a char array")),
-    };
+    let cbuf = first_arg_ref!(
+        args,
+        Err(internal_error("String.<init>([C) needs a char array"))
+    );
     let len = crate::array::array_length(&cbuf)?;
     let text = string_from_char_range(
         &[Value::Ref(Some(cbuf)), Value::Int(0), Value::Int(len)],
@@ -987,7 +989,7 @@ fn n_string_get_chars(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
             Some(Value::Int(db)),
         ) => (*b, *e, *d, *db),
         (Some(Value::Ref(None)), _, _, _) | (_, _, Some(Value::Ref(None)), _) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
+            return Err(crate::npe())
         }
         _ => return Err(internal_error("j2r internal: String.getChars args")),
     };
@@ -1244,15 +1246,12 @@ fn n_string_init_bytes_named(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "String.<init>");
-    let buf = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => {
-            return Err(internal_error(
-                "String.<init>([B,String) needs a byte array",
-            ))
-        }
-    };
+    let buf = first_arg_ref!(
+        args,
+        Err(internal_error(
+            "String.<init>([B,String) needs a byte array"
+        ))
+    );
     let name = args
         .get(1)
         .ok_or_else(|| internal_error("j2r internal: String.<init> missing charset name"))?;
@@ -1269,15 +1268,12 @@ fn n_string_init_bytes_named_range(
     _ctx: Dispatch,
 ) -> Result<Value, Throw> {
     let r = this(recv, "String.<init>");
-    let buf = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => {
-            return Err(internal_error(
-                "String.<init>([BII,String) needs a byte array",
-            ))
-        }
-    };
+    let buf = first_arg_ref!(
+        args,
+        Err(internal_error(
+            "String.<init>([BII,String) needs a byte array"
+        ))
+    );
     let (off, len) = match (args.get(1), args.get(2)) {
         (Some(Value::Int(o)), Some(Value::Int(l))) => (*o, *l),
         _ => {
@@ -1439,9 +1435,7 @@ fn sb_append_char_range(
     let r = this(recv, "StringBuilder.append");
     let (cbuf, off, len) = match (args.first(), args.get(1), args.get(2)) {
         (Some(Value::Ref(Some(a))), Some(o), Some(l)) => (*a, o.expect_int(), l.expect_int()),
-        (Some(Value::Ref(None)), _, _) => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        (Some(Value::Ref(None)), _, _) => return Err(crate::npe()),
         _ => return Err(internal_error("j2r internal: StringBuilder.append args")),
     };
     let clen = crate::array::array_length(&cbuf)?;
@@ -1467,11 +1461,10 @@ fn sb_append_char_range(
 }
 
 fn sb_append_char_all(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Result<Value, Throw> {
-    let cbuf = match args.first() {
-        Some(Value::Ref(Some(a))) => *a,
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
-        _ => return Err(internal_error("j2r internal: StringBuilder.append args")),
-    };
+    let cbuf = first_arg_ref!(
+        args,
+        Err(internal_error("j2r internal: StringBuilder.append args"))
+    );
     let len = crate::array::array_length(&cbuf)?;
     sb_append_char_range(
         recv,
@@ -2531,7 +2524,7 @@ fn n_random_next_bytes(
     let r = this(recv, "Random.nextBytes");
     let arr = match arg(args, "Random.nextBytes") {
         Value::Ref(Some(a)) => *a,
-        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", None)),
+        Value::Ref(None) => return Err(crate::npe()),
         other => return Err(internal_error(&format!("Random.nextBytes arg {other:?}"))),
     };
     let len = crate::array::array_length(&arr)?;
@@ -2570,11 +2563,7 @@ fn n_integer_to_string_radix(
     let i = arg(args, "Integer.toString").expect_int();
     let radix = match args.get(1) {
         Some(v) => v.expect_int(),
-        None => {
-            return Err(crate::internal_error(
-                "j2r internal: Integer.toString radix",
-            ))
-        }
+        None => return Err(internal_error("j2r internal: Integer.toString radix")),
     };
     let radix = if (2..=36).contains(&radix) { radix } else { 10 };
     Ok(Value::Ref(Some(object::new_string(&int_to_radix(
@@ -2622,7 +2611,7 @@ fn n_long_to_string_radix(
     let l = arg(args, "Long.toString").expect_long();
     let radix = match args.get(1) {
         Some(v) => v.expect_int(),
-        None => return Err(crate::internal_error("j2r internal: Long.toString radix")),
+        None => return Err(internal_error("j2r internal: Long.toString radix")),
     };
     let radix = if (2..=36).contains(&radix) { radix } else { 10 };
     if l == 0 {
@@ -3153,7 +3142,7 @@ fn n_class_is_assignable_from(
     let argref = match &arg(args, "Class.isAssignableFrom") {
         Value::Ref(Some(o)) => o,
         // Temurin: isAssignableFrom(null) is a plain NPE.
-        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", None)),
+        Value::Ref(None) => return Err(crate::npe()),
         _ => return Err(internal_error("Class.isAssignableFrom needs a Class")),
     };
     if &*crate::heap::with_obj(*argref, |o| o.jclass.clone()) != "java/lang/Class" {
@@ -5490,22 +5479,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/util/Map;)V",
         c::n_hm_init,
     ),
-    (
-        "java/util/HashMap",
-        "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_hm_put,
-    ),
-    (
-        "java/util/HashMap",
-        "get",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_hm_get,
-    ),
+    ("java/util/HashMap", "put", SIG_OBJECT_OBJECT, c::n_hm_put),
+    ("java/util/HashMap", "get", SIG_OBJECT, c::n_hm_get),
     (
         "java/util/HashMap",
         "getOrDefault",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_hm_get_or_default,
     ),
     (
@@ -5520,12 +5499,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/Object;)Z",
         c::n_hm_contains_value,
     ),
-    (
-        "java/util/HashMap",
-        "remove",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_hm_remove,
-    ),
+    ("java/util/HashMap", "remove", SIG_OBJECT, c::n_hm_remove),
     ("java/util/HashMap", "size", "()I", c::n_hm_size),
     ("java/util/HashMap", "isEmpty", "()Z", c::n_hm_is_empty),
     ("java/util/HashMap", "clear", "()V", c::n_hm_clear),
@@ -5613,7 +5587,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/Collections$UnmodifiableMap",
         "get",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_um_get,
     ),
     (
@@ -5649,7 +5623,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/Collections$UnmodifiableMap",
         "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_um_put,
     ),
     ("java/util/LinkedList", "<init>", "()V", c::n_ll_init),
@@ -5706,22 +5680,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         c::n_hm_to_string,
     ),
     // java/util/Map interface declarations
-    (
-        "java/util/Map",
-        "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_hm_put,
-    ),
-    (
-        "java/util/Map",
-        "get",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_hm_get,
-    ),
+    ("java/util/Map", "put", SIG_OBJECT_OBJECT, c::n_hm_put),
+    ("java/util/Map", "get", SIG_OBJECT, c::n_hm_get),
     (
         "java/util/Map",
         "getOrDefault",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_hm_get_or_default,
     ),
     (
@@ -5736,12 +5700,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/Object;)Z",
         c::n_hm_contains_value,
     ),
-    (
-        "java/util/Map",
-        "remove",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_hm_remove,
-    ),
+    ("java/util/Map", "remove", SIG_OBJECT, c::n_hm_remove),
     ("java/util/Map", "size", "()I", c::n_hm_size),
     ("java/util/Map", "isEmpty", "()Z", c::n_hm_is_empty),
     ("java/util/Map", "clear", "()V", c::n_hm_clear),
@@ -5868,13 +5827,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/LinkedHashMap",
         "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_lhm_put,
     ),
     (
         "java/util/LinkedHashMap",
         "remove",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_lhm_remove,
     ),
     ("java/util/LinkedHashMap", "clear", "()V", c::n_lhm_clear),
@@ -6059,22 +6018,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/util/Map;)V",
         c::n_tm_init_map,
     ),
-    (
-        "java/util/TreeMap",
-        "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_tm_put,
-    ),
-    (
-        "java/util/TreeMap",
-        "get",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_tm_get,
-    ),
+    ("java/util/TreeMap", "put", SIG_OBJECT_OBJECT, c::n_tm_put),
+    ("java/util/TreeMap", "get", SIG_OBJECT, c::n_tm_get),
     (
         "java/util/TreeMap",
         "getOrDefault",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_tm_get_or_default,
     ),
     (
@@ -6089,12 +6038,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/Object;)Z",
         c::n_tm_contains_value,
     ),
-    (
-        "java/util/TreeMap",
-        "remove",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_tm_remove,
-    ),
+    ("java/util/TreeMap", "remove", SIG_OBJECT, c::n_tm_remove),
     ("java/util/TreeMap", "size", "()I", c::n_tm_size),
     ("java/util/TreeMap", "isEmpty", "()Z", c::n_tm_is_empty),
     ("java/util/TreeMap", "clear", "()V", c::n_tm_clear),
@@ -6119,25 +6063,25 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/TreeMap",
         "ceilingKey",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_ceiling_key,
     ),
     (
         "java/util/TreeMap",
         "floorKey",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_floor_key,
     ),
     (
         "java/util/TreeMap",
         "higherKey",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_higher_key,
     ),
     (
         "java/util/TreeMap",
         "lowerKey",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_lower_key,
     ),
     (
@@ -6330,19 +6274,14 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/TreeMap$SubMap",
         "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_sms_put,
     ),
-    (
-        "java/util/TreeMap$SubMap",
-        "get",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_sms_get,
-    ),
+    ("java/util/TreeMap$SubMap", "get", SIG_OBJECT, c::n_sms_get),
     (
         "java/util/TreeMap$SubMap",
         "getOrDefault",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_sms_get_or_default,
     ),
     (
@@ -6360,7 +6299,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/TreeMap$SubMap",
         "remove",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_sms_remove,
     ),
     ("java/util/TreeMap$SubMap", "size", "()I", c::n_sms_size),
@@ -6579,22 +6518,12 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     // implementing class. The runtime dispatch walk starts at the
     // receiver's runtime class, so these rows are validation-only mirrors
     // (the same law as the java/util/Map and java/util/Set rows above).
-    (
-        "java/util/SortedMap",
-        "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_tm_put,
-    ),
-    (
-        "java/util/SortedMap",
-        "get",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_tm_get,
-    ),
+    ("java/util/SortedMap", "put", SIG_OBJECT_OBJECT, c::n_tm_put),
+    ("java/util/SortedMap", "get", SIG_OBJECT, c::n_tm_get),
     (
         "java/util/SortedMap",
         "getOrDefault",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_tm_get_or_default,
     ),
     (
@@ -6609,12 +6538,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/Object;)Z",
         c::n_tm_contains_value,
     ),
-    (
-        "java/util/SortedMap",
-        "remove",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_tm_remove,
-    ),
+    ("java/util/SortedMap", "remove", SIG_OBJECT, c::n_tm_remove),
     ("java/util/SortedMap", "size", "()I", c::n_tm_size),
     ("java/util/SortedMap", "isEmpty", "()Z", c::n_tm_is_empty),
     ("java/util/SortedMap", "clear", "()V", c::n_tm_clear),
@@ -6675,19 +6599,14 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/NavigableMap",
         "put",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_tm_put,
     ),
-    (
-        "java/util/NavigableMap",
-        "get",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        c::n_tm_get,
-    ),
+    ("java/util/NavigableMap", "get", SIG_OBJECT, c::n_tm_get),
     (
         "java/util/NavigableMap",
         "getOrDefault",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         c::n_tm_get_or_default,
     ),
     (
@@ -6705,7 +6624,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/NavigableMap",
         "remove",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_remove,
     ),
     ("java/util/NavigableMap", "size", "()I", c::n_tm_size),
@@ -6732,25 +6651,25 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/NavigableMap",
         "ceilingKey",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_ceiling_key,
     ),
     (
         "java/util/NavigableMap",
         "floorKey",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_floor_key,
     ),
     (
         "java/util/NavigableMap",
         "higherKey",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_higher_key,
     ),
     (
         "java/util/NavigableMap",
         "lowerKey",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_tm_lower_key,
     ),
     (
@@ -6975,7 +6894,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/Objects",
         "requireNonNull",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         c::n_objects_require_non_null,
     ),
     (
@@ -7913,98 +7832,68 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/util/List;)Ljava/util/List;",
         ju::n_unmod_list,
     ),
+    (UNMOD_LIST, "get", "(I)Ljava/lang/Object;", ju::n_unmod_get),
     (
-        "java/util/Collections$UnmodifiableList",
-        "get",
-        "(I)Ljava/lang/Object;",
-        ju::n_unmod_get,
-    ),
-    (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "set",
         "(ILjava/lang/Object;)Ljava/lang/Object;",
         ju::n_unmod_set,
     ),
+    (UNMOD_LIST, "add", "(Ljava/lang/Object;)Z", ju::n_unmod_add),
     (
-        "java/util/Collections$UnmodifiableList",
-        "add",
-        "(Ljava/lang/Object;)Z",
-        ju::n_unmod_add,
-    ),
-    (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "add",
         "(ILjava/lang/Object;)V",
         ju::n_unmod_add_at,
     ),
     (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "remove",
         "(I)Ljava/lang/Object;",
         ju::n_unmod_remove_at,
     ),
     (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "remove",
         "(Ljava/lang/Object;)Z",
         ju::n_unmod_remove_obj,
     ),
+    (UNMOD_LIST, "clear", "()V", ju::n_unmod_clear),
+    (UNMOD_LIST, "size", "()I", ju::n_unmod_size),
+    (UNMOD_LIST, "isEmpty", "()Z", ju::n_unmod_is_empty),
     (
-        "java/util/Collections$UnmodifiableList",
-        "clear",
-        "()V",
-        ju::n_unmod_clear,
-    ),
-    (
-        "java/util/Collections$UnmodifiableList",
-        "size",
-        "()I",
-        ju::n_unmod_size,
-    ),
-    (
-        "java/util/Collections$UnmodifiableList",
-        "isEmpty",
-        "()Z",
-        ju::n_unmod_is_empty,
-    ),
-    (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "contains",
         "(Ljava/lang/Object;)Z",
         ju::n_unmod_contains,
     ),
     (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "indexOf",
         "(Ljava/lang/Object;)I",
         ju::n_unmod_index_of,
     ),
     (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "iterator",
         "()Ljava/util/Iterator;",
         ju::n_unmod_iterator,
     ),
     (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "toString",
         "()Ljava/lang/String;",
         ju::n_unmod_to_string,
     ),
+    (UNMOD_LIST, "hashCode", "()I", ju::n_unmod_hash_code),
     (
-        "java/util/Collections$UnmodifiableList",
-        "hashCode",
-        "()I",
-        ju::n_unmod_hash_code,
-    ),
-    (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "equals",
         "(Ljava/lang/Object;)Z",
         ju::n_unmod_equals,
     ),
     (
-        "java/util/Collections$UnmodifiableList",
+        UNMOD_LIST,
         "lastIndexOf",
         "(Ljava/lang/Object;)I",
         ju::n_unmod_last_index_of,
@@ -8041,13 +7930,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/function/Function",
         "apply",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         lambda::n_sam,
     ),
     (
         "java/util/function/BiFunction",
         "apply",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         lambda::n_sam,
     ),
     (
@@ -8083,13 +7972,13 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
     (
         "java/util/function/UnaryOperator",
         "apply",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT,
         lambda::n_sam,
     ),
     (
         "java/util/function/BinaryOperator",
         "apply",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        SIG_OBJECT_OBJECT,
         lambda::n_sam,
     ),
     // F2 probe wave: java.lang.Runnable.run — the LAST supported SAM
@@ -8411,12 +8300,7 @@ pub static NATIVES: &[(&str, &str, &str, NativeFn)] = &[
         "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;",
         n_class_get_declared_method,
     ),
-    (
-        "java/lang/reflect/Field",
-        "get",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        n_field_get,
-    ),
+    ("java/lang/reflect/Field", "get", SIG_OBJECT, n_field_get),
     (
         "java/lang/reflect/Field",
         "set",
@@ -8538,7 +8422,7 @@ fn n_integer_compare_to_bridge(
     let a = box_payload_int(recv, "Integer.compareTo");
     let b = match args.first() {
         Some(Value::Ref(Some(r))) => box_payload_int(Some(r), "Integer.compareTo arg"),
-        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(crate::npe()),
     };
     Ok(Value::Int(a.cmp(&b) as i32))
 }
@@ -8551,7 +8435,7 @@ fn n_long_compare_to_bridge(
     let a = box_payload_long(recv, "Long.compareTo");
     let b = match args.first() {
         Some(Value::Ref(Some(r))) => box_payload_long(Some(r), "Long.compareTo arg"),
-        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(crate::npe()),
     };
     Ok(Value::Int(a.cmp(&b) as i32))
 }
@@ -8564,7 +8448,7 @@ fn n_double_compare_to_bridge(
     let a = box_payload_double(recv, "Double.compareTo");
     let b = match args.first() {
         Some(Value::Ref(Some(r))) => box_payload_double(Some(r), "Double.compareTo arg"),
-        _ => return Err(throw_new("java/lang/NullPointerException", None)),
+        _ => return Err(crate::npe()),
     };
     Ok(Value::Int(double_total_cmp(a, b)))
 }
@@ -8633,7 +8517,7 @@ mod tests {
 
     #[test]
     fn integer_value_of_caches_minus128_to_127() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let f = |args: &[Value]| match n_integer_value_of(None, args, no_ctx()).unwrap() {
             Value::Ref(Some(r)) => r,
             other => panic!("expected a reference, got {other:?}"),
@@ -8654,7 +8538,7 @@ mod tests {
 
     #[test]
     fn boxed_equals_compares_payload_and_type() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let i1 = boxed("java/lang/Integer", Value::Int(1000));
         let i2 = boxed("java/lang/Integer", Value::Int(1000));
         let r = n_integer_equals(Some(&i1), &[Value::Ref(Some(i2))], no_ctx()).unwrap();
@@ -8670,7 +8554,7 @@ mod tests {
 
     #[test]
     fn float_equals_uses_bits_nan_is_nan() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let nan: f32 = f32::NAN;
         let a = boxed("java/lang/Float", Value::Float(nan));
         let b = boxed("java/lang/Float", Value::Float(nan));
@@ -8686,7 +8570,7 @@ mod tests {
 
     #[test]
     fn boxed_hash_codes_match_jdk_contract() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let i = boxed("java/lang/Integer", Value::Int(42));
         assert_eq!(
             n_integer_hash_code(Some(&i), &[], no_ctx())
@@ -8721,7 +8605,7 @@ mod tests {
 
     #[test]
     fn lookup_finds_exact_entries() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert!(lookup_exact("java/lang/Math", "max", "(II)I").is_some());
         assert!(lookup_exact("java/lang/Math", "max", "(IJ)I").is_none());
         assert!(lookup_exact("java/io/PrintStream", "println", "(Ljava/lang/String;)V").is_some());
@@ -8729,7 +8613,7 @@ mod tests {
 
     #[test]
     fn string_hash_code_matches_java() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let s = object::new_string("hello");
         let r = n_string_hash_code(Some(&s), &[], no_ctx()).unwrap();
         assert_eq!(r.expect_int(), 99162322);
@@ -8744,7 +8628,7 @@ mod tests {
 
     #[test]
     fn utf16_length_semantics() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // U+1F600 is one code point, two UTF-16 units — Java length() == 2
         let s = object::new_string("\u{1F600}");
         assert_eq!(
@@ -8757,7 +8641,7 @@ mod tests {
 
     #[test]
     fn parse_int_java_semantics() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let s = object::new_string("42");
         assert_eq!(
             n_integer_parse_int(None, &[Value::Ref(Some(s))], no_ctx())
@@ -8788,7 +8672,7 @@ mod tests {
 
     #[test]
     fn math_max_nan_and_zero_signs() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let nan = f64::NAN;
         assert!(java_max_d(nan, 1.0).is_nan());
         assert_eq!(java_max_d(0.0, -0.0), 0.0f64.copysign(1.0));
@@ -8797,7 +8681,7 @@ mod tests {
 
     #[test]
     fn boxed_roundtrip() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let b = n_integer_value_of(None, &[Value::Int(5)], no_ctx()).unwrap();
         let r = b.expect_ref().unwrap();
         assert_eq!(
@@ -8814,7 +8698,7 @@ mod tests {
 
     #[test]
     fn sb_append_and_to_string() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let sb = object::new_builtin("java/lang/StringBuilder").unwrap();
         n_sb_init(Some(&sb), &[], no_ctx()).unwrap();
         n_sb_append_i(Some(&sb), &[Value::Int(12)], no_ctx()).unwrap();
@@ -8830,7 +8714,7 @@ mod tests {
 
     #[test]
     fn println_writes_to_stdout() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let ps = object::system_out_ref();
         n_ps_println_s(
             Some(&ps),
@@ -8844,7 +8728,7 @@ mod tests {
 
     #[test]
     fn throwable_to_string_format() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let t = throw_new("pkg/MyError", Some("boom"));
         let out = n_throwable_to_string(Some(&t.obj), &[], no_ctx()).unwrap();
         assert_eq!(

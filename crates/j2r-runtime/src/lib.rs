@@ -330,6 +330,39 @@ pub fn throw_new(class: &str, msg: Option<&str>) -> Throw {
     Throw { obj }
 }
 
+/// The §5 no-message NPE law: `java/lang/NullPointerException` with no
+/// detail message — the exact shape the Helpful-NPE work pins. One
+/// constructor so a message change can never drift across the native
+/// dereference sites.
+pub(crate) fn npe() -> Throw {
+    throw_new("java/lang/NullPointerException", None)
+}
+
+/// The CME law: `java/util/ConcurrentModificationException` with no
+/// detail message, thrown at every comod-detection site.
+pub(crate) fn cme() -> Throw {
+    throw_new("java/util/ConcurrentModificationException", None)
+}
+
+/// The AIOOBE class path: the bounds-check law's exception class, thrown
+/// by the array primitives and asserted by the law tests.
+pub(crate) const AIOOBE_CLASS: &str = "java/lang/ArrayIndexOutOfBoundsException";
+
+/// The §5 first-argument law: the first argument's JRef, the no-message
+/// NPE on a null reference, or the caller's arity fallback. `$fallback`
+/// is the caller's early-return value for a missing argument
+/// (`Err(missing(..))`, `Ok(Value::Void)`).
+#[macro_export]
+macro_rules! first_arg_ref {
+    ($args:expr, $fallback:expr) => {
+        match $args.first() {
+            Some(Value::Ref(Some(s))) => *s,
+            Some(Value::Ref(None)) => return Err($crate::npe()),
+            _ => return $fallback,
+        }
+    };
+}
+
 /// Internal-only marker error for invariant violations (a codegen or native
 /// bug, never a Java program error).
 pub fn internal_error(msg: &str) -> Throw {
@@ -716,7 +749,7 @@ mod tests {
 
     #[test]
     fn cat2_flags() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert!(Value::Long(0).cat2());
         assert!(Value::Double(0.0).cat2());
         assert!(!Value::Int(0).cat2());
@@ -725,7 +758,7 @@ mod tests {
 
     #[test]
     fn throw_new_sets_message_slot() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let t = throw_new("java/lang/RuntimeException", Some("boom"));
         assert_eq!(t.java_class(), "java/lang/RuntimeException");
         let msg = crate::heap::with_obj(t.obj, |o| o.slots[0].clone());
@@ -746,7 +779,7 @@ mod m4_wave1 {
     /// per-thread-by-design seam. A future unannotated seam fails CI here.
     #[test]
     fn thread_local_seams_are_annotated() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut seams = Vec::new();
         for entry in std::fs::read_dir(&src).expect("runtime src dir") {
@@ -783,7 +816,7 @@ mod m4_wave1 {
     /// Send+Sync is what the Rc→Arc groundwork (W1a) bought.
     #[test]
     fn shared_containers_are_send_sync() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<crate::Value>();
         assert_send_sync::<crate::object::JObj>();
@@ -842,6 +875,11 @@ pub(crate) mod test_support {
         RuntimeGuard { inner }
     }
 }
+
+/// Test-only re-export: the shared-runtime lock helper reaches every test
+/// module as `crate::runtime()` without the fully-qualified path.
+#[cfg(test)]
+pub(crate) use test_support::runtime;
 
 /// The interface-default dispatch laws (the registered Probe5 residual,
 /// standing run 3, 2026-11-16): the maximally-specific default among the
@@ -956,7 +994,7 @@ mod default_dispatch {
 
     #[test]
     fn single_default_dispatches() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let recv = recv_of("P5$Impl");
         let ctx = p5_dispatch();
         let v = invoke_virtual(&recv, "P5$WithDefault", "twice", "()I", &[], ctx)
@@ -974,7 +1012,7 @@ mod default_dispatch {
 
     #[test]
     fn most_specific_default_wins() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // Mid extends Top; BOTH declare the default; Impl implements Mid;
         // the site is declared on Top (the L2 probe shape). Mid is the
         // strict subtype candidate and dominates Top.
@@ -1066,7 +1104,7 @@ mod default_dispatch {
 
     #[test]
     fn superinterface_default_reached_through_non_redeclaring_sub() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // Mid2 extends Top2 but does NOT redeclare; Impl implements Mid2;
         // the site is declared on Mid2 (the L4 probe shape).
         fn parents(class: &str) -> Option<&'static [&'static str]> {
@@ -1152,7 +1190,7 @@ mod default_dispatch {
 
     #[test]
     fn diamond_conflict_is_loud_icerror() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // Two UNRELATED defaults — javac refuses this at compile time, so
         // the shape only arrives in a hand-crafted classfile; the law is
         // the loud IncompatibleClassChangeError, never a silent pick.
@@ -1251,7 +1289,7 @@ mod default_dispatch {
 
     #[test]
     fn no_law_change_when_nothing_matches() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // No interface declares the method: the loud internal Error stays
         // the fallthrough (never a silent null).
         let ctx = p5_dispatch();

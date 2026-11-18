@@ -29,6 +29,10 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
+/// The §4.4 frame-snapshot line emitted before any dispatch that may
+/// re-enter user code (GC points, ensures, exception edges).
+const FRAME_REFRESH: &str = "__frame.refresh(&locals, &stack, &thrown);";
+
 const RT: &str = "::j2r_runtime";
 
 pub fn emit_crate(prog: &Program, opts: &Options) -> crate::Result<EmitStats> {
@@ -2036,7 +2040,7 @@ fn emit_instr(
                 // `ensure` may dispatch into user code (<clinit>): refresh
                 // the frame snapshot first (M2_PLAN §4.4).
                 if !ensures.is_empty() {
-                    out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+                    out.push(FRAME_REFRESH.into());
                 }
                 for (id, expr) in ensures {
                     // CLINIT-THROW: a throwing clinit surfaces HERE as an
@@ -2058,7 +2062,7 @@ fn emit_instr(
             }
             // ensure → possible <clinit> dispatch; refresh while the value
             // is still on the stack so the snapshot holds it.
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             out.push("let __v = ::j2r_runtime::stack::stack_pop(&mut stack);".into());
             for (id, expr) in ensure_calls(prog, class) {
                 // CLINIT-THROW: the putstatic's clinit throw propagates.
@@ -2104,7 +2108,7 @@ fn emit_instr(
             // Call boundary: refresh the root snapshot before popping args
             // so the receiver and arguments stay rooted during the call
             // (M2_PLAN §4.4).
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             // JEP 358: the receiver's null law carries the site's static
@@ -2198,7 +2202,7 @@ fn emit_instr(
             }
         }
         Instr::InvokeStatic { class, name, desc } => {
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             match crate::resolve_call_pub(prog, class, name, desc).expect("validated call") {
@@ -2225,7 +2229,7 @@ fn emit_instr(
             }
         }
         Instr::InvokeSpecial { class, name, desc } => {
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             let n = arg_count(desc);
             out.push(format!("let __a = {RT}::stack::pop_n(&mut stack, {n}usize);"));
             // JEP 358: the same law on the invokespecial receiver.
@@ -2247,7 +2251,7 @@ fn emit_instr(
             }
         }
         Instr::InvokeDynamic { index } => {
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             if let Some(plan) = c.lambdas.get(index) {
                 // Closure construction (M3_PLAN §6.1): the captures are the
                 // indy site's dynamic arguments; the refresh above rooted
@@ -2298,7 +2302,7 @@ fn emit_instr(
             // The one collection point shape (M2_PLAN §4.3): refresh the
             // frame snapshot, then gc_point — before the allocation and
             // before the <clinit> ensure dispatch.
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             out.push(format!("{RT}::heap::gc_point();"));
             new_obj_lines(prog, class, &fault, out);
             out.push(format!(
@@ -2306,7 +2310,7 @@ fn emit_instr(
             ));
         }
         Instr::NewArray(prim) => {
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             out.push(format!("{RT}::heap::gc_point();"));
             let desc = prim.array_desc();
             out.push("let __len = ::j2r_runtime::pop_int(&mut stack);".into());
@@ -2323,7 +2327,7 @@ fn emit_instr(
             // newarray semantics as the uncollapsed form. The runtime
             // constructor applies the same per-prim narrowing as
             // array_store_i_raw, so the payload is byte-identical.
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             out.push(format!("{RT}::heap::gc_point();"));
             let sname = format!("__J2R_AFILL_{pc}");
             let lit = vals
@@ -2342,7 +2346,7 @@ fn emit_instr(
             ));
         }
         Instr::ANewArray { elem } => {
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             out.push(format!("{RT}::heap::gc_point();"));
             out.push("let __len = ::j2r_runtime::pop_int(&mut stack);".into());
             out.push(format!(
@@ -2355,7 +2359,7 @@ fn emit_instr(
         // core's own Pop and the get's result replaces the map operand
         // exactly like the invoke-result law.
         Instr::MapPutPrim { kind, .. } => {
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             out.push(format!(
                 "let __val = {RT}::stack::stack_pop(&mut stack);"
             ));
@@ -2382,7 +2386,7 @@ fn emit_instr(
             ));
         }
         Instr::MapGetPrim { kind, prim } => {
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             out.push(format!(
                 "let __key = {RT}::stack::stack_pop(&mut stack);"
             ));
@@ -2409,7 +2413,7 @@ fn emit_instr(
             out.push("stack.push(__v);".into());
         }
         Instr::MultiNewArray { desc, dims } => {
-            out.push("__frame.refresh(&locals, &stack, &thrown);".into());
+            out.push(FRAME_REFRESH.into());
             out.push(format!("{RT}::heap::gc_point();"));
             // The dimension sizes were pushed outermost-first, so pop them
             // back-to-front into __dim0..__dim(n-1).

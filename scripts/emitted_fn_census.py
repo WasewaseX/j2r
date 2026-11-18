@@ -11,7 +11,6 @@ Usage: emitted_fn_census.py SRC_ROOT [--top N]
 import argparse
 import os
 import re
-import sys
 
 FN_RE = re.compile(r"^    (?:pub )?(?:unsafe )?(?:extern \"[^\"]*\" )?fn (\w+)", re.M)
 TOP_FN_RE = re.compile(r"^(?:pub )?(?:unsafe )?fn (\w+)", re.M)

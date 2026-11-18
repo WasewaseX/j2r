@@ -1788,7 +1788,7 @@ mod char_array_rep_tests {
     /// contract) on the first caload over a toCharArray result.
     #[test]
     fn to_char_array_is_payload_shaped() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let recv = string_recv("ab");
         let v = n_str_to_char_array(Some(&recv), &[], Dispatch::default()).unwrap();
         let r = v.expect_ref().unwrap();
@@ -1816,7 +1816,7 @@ mod char_array_rep_tests {
     /// point = two UTF-16 units).
     #[test]
     fn to_char_array_reads_agree_on_both_families() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let recv = string_recv("\u{1F600}x");
         let v = n_str_to_char_array(Some(&recv), &[], Dispatch::default()).unwrap();
         let r = v.expect_ref().unwrap();
@@ -1834,7 +1834,7 @@ mod char_array_rep_tests {
     /// array_store_i_raw's CHAR arm) and the Value path reads it back.
     #[test]
     fn to_char_array_raw_store_narrows_by_descriptor() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let recv = string_recv("ab");
         let v = n_str_to_char_array(Some(&recv), &[], Dispatch::default()).unwrap();
         let r = v.expect_ref().unwrap();

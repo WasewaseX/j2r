@@ -48,6 +48,7 @@ public class WaitNotify {
                     try {
                         board.wait();
                     } catch (InterruptedException e) {
+                        /* interruption unwinds only the wait; the loop re-checks the phase */
                     }
                 }
                 boardCount += 1;
@@ -59,6 +60,7 @@ public class WaitNotify {
                     try {
                         board.wait();
                     } catch (InterruptedException e) {
+                        /* interruption unwinds only the wait; the loop re-checks the phase */
                     }
                 }
                 boardCount += 1;
@@ -70,6 +72,7 @@ public class WaitNotify {
                     try {
                         board.wait();
                     } catch (InterruptedException e) {
+                        /* interruption unwinds only the wait; the loop re-checks the phase */
                     }
                 }
                 boardCount += 1;
@@ -117,6 +120,7 @@ public class WaitNotify {
                         try {
                             deepLock.wait();
                         } catch (InterruptedException e) {
+                            /* interruption unwinds only the wait; the loop re-checks the flag */
                         }
                     }
                     deepCount += 1;

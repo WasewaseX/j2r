@@ -482,7 +482,7 @@ mod tests {
     /// property Wave 2's real threads depend on (M4_PLAN §3 Wave 1).
     #[test]
     fn shared_heap_container_is_send_sync() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Mutex<Heap>>();
         assert_send_sync::<std::sync::Mutex<Option<StaticsScanner>>>();
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn alloc_and_access_roundtrip() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_obj("test/A", 3).unwrap();
         obj_set(&r, 1, Value::Int(42));
         assert_eq!(obj_get(&r, 1).expect_int(), 42);
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn unreachable_object_is_collected() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         // M4 Wave 1: the heap is shared across the test binary, so a
         // collection also sweeps unrooted residue from other tests —
@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn rooted_object_survives_forced_collections() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let keep = new_string("kept-alive");
         let gen_before = keep.gen;
@@ -558,7 +558,7 @@ mod tests {
 
     #[test]
     fn simple_cycle_is_collected() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         // M4 Wave 1: asserted on handle staleness (see
         // unreachable_object_is_collected) — shared-heap residue makes
@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn reachable_cycle_is_kept() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let a = obj("test/Node", vec![Value::Ref(None)]);
         let b = obj("test/Node", vec![Value::Ref(None)]);
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn array_children_are_marked() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let child = new_string("array-child");
         let arr = obj("test/Arr", vec![Value::Int(2), Value::Ref(Some(child))]);
@@ -612,7 +612,7 @@ mod tests {
 
     #[test]
     fn interned_strings_are_roots() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let s = crate::object::intern_string("gc-intern-test-literal");
         for _ in 0..50 {
@@ -630,7 +630,7 @@ mod tests {
 
     #[test]
     fn boxed_cache_objects_are_roots() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let b = crate::natives::boxed_cached_for_test(127i64).expect("boxed cache");
         for _ in 0..50 {
@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn stale_handle_use_panics_loudly() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let victim = new_string("dies-soon");
         let idx = victim.index();
@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn stale_handle_never_aliases_the_replacement() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let victim = new_string("victim");
         obj_set(
@@ -702,7 +702,7 @@ mod tests {
 
     #[test]
     fn suspended_frame_snapshot_keeps_handle_alive() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let payload = new_string("suspended-frame-payload");
         // Simulate a suspended caller: a frame slot that names the handle
@@ -719,7 +719,7 @@ mod tests {
 
     #[test]
     fn one_million_node_worklist_does_not_overflow() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         // A singly linked list 1_000_000 nodes long, rooted at the head.
         let mut head: Option<JRef> = None;
@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn gc_point_reentrancy_is_a_bug() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // The debug assertion in gc_point/alloc fires when collection
         // re-enters; verify the flag mechanism exists by checking that
         // ordinary interleaving works and total_collections advances.
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn threshold_policy_collects_when_grown() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(None);
         {
             let mut heap = heap().lock().unwrap_or_else(|e| e.into_inner());
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn identity_hash_is_the_index_and_stable_across_gc() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_forced_gc_every(Some(1));
         let a = new_obj("test/H", 1).unwrap();
         let b = new_obj("test/H", 1).unwrap();
@@ -808,7 +808,7 @@ mod tests {
 
     #[test]
     fn cycle_churn_two_hundred_k_high_water_under_64() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // T17 acceptance (M2_PLAN §4.8b): 200_000 build-and-drop cycle
         // allocations with 10 live objects — the R1 leak is gone,
         // numerically.
@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn monitor_enter_exit_counts() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
         assert_eq!(crate::monitor::monitor_count(&r), 0);
         crate::monitor::monitor_enter(&r).unwrap();
@@ -880,7 +880,7 @@ mod tests {
 
     #[test]
     fn monitor_exit_without_ownership_is_imse() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
         let err = crate::monitor::monitor_exit(&r).unwrap_err();
         let cls = with_obj(err.obj, |o| o.jclass.to_string());
@@ -897,7 +897,7 @@ mod tests {
 
     #[test]
     fn frame_guard_releases_monitors_on_drop() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = crate::object::new_obj("java/lang/Object", 0).unwrap();
         {
             let g = crate::frame::FrameGuard::enter().unwrap();
@@ -910,7 +910,7 @@ mod tests {
 
     #[test]
     fn frame_monitor_unrecord_pops_last_matching() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let a = crate::object::new_obj("java/lang/Object", 0).unwrap();
         let b = crate::object::new_obj("java/lang/Object", 0).unwrap();
         let g = crate::frame::FrameGuard::enter().unwrap();

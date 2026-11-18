@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn const_math_pins_the_ceiling() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(MAX_FRAMES_ABS, 131_072);
         assert_eq!(DEFAULT_FRAMES, 8_192);
         const { assert!(DEFAULT_FRAMES * FRAME_FOOTPRINT * 8 <= WORKER_STACK_BYTES) };
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn parse_limit_accepts_default_min_max() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(parse_limit(None).unwrap(), DEFAULT_FRAMES);
         assert_eq!(parse_limit(Some("1")).unwrap(), 1);
         assert_eq!(parse_limit(Some("8192")).unwrap(), 8192);
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn parse_limit_rejects_zero_over_and_non_numeric() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert!(parse_limit(Some("0")).is_err());
         assert!(parse_limit(Some("131073")).is_err());
         assert!(parse_limit(Some("abc")).is_err());
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn depth_accounting_across_nested_guards() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let before = FrameGuard::current_depth();
         {
             let _a = FrameGuard::enter().unwrap();
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn depth_restored_on_panic_unwind() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let before = FrameGuard::current_depth();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _g = FrameGuard::enter().unwrap();
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn soe_object_shape() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let t = crate::throw_new("java/lang/StackOverflowError", None);
         assert_eq!(t.java_class(), "java/lang/StackOverflowError");
         // No message (like the JVM's no-arg StackOverflowError constructor).
@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn enter_returns_err_at_the_limit() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // Drive the counter straight to the limit with a fake deep chain,
         // then prove `enter` refuses and the refused frame did not register.
         let before = FrameGuard::current_depth();
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn slots_are_lifo_and_reused() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let before = FrameGuard::current_depth();
         let h = crate::heap::alloc(crate::object::JObj {
             jclass: std::sync::Arc::from("test/S"),

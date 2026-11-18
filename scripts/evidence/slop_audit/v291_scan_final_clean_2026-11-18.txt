@@ -1,0 +1,279 @@
+
+Scanned `.`: 1 blocking / 219 advisory finding(s).
+Blocking score **4**, advisory score 289 (advisory findings never fail a build).
+
+**Slop score 54/100 - grade D - INFLATED** (0.6x worst file + 0.4x mean file deficit).
+
+
+### Quality dimensions
+
+Scored independently - AI integrity is the only dimension under the slop-score gate; the others are reported so code quality and AI slop never blur into one number.
+
+| Dimension | Blocking | Advisory | Score | Grade |
+|---|---|---|---|---|
+| Architecture | 0 | 0 | 0/100 | A |
+| Code health | 4 | 181 | 55/100 | D |
+| Maintainability | 0 | 2 | 4/100 | A |
+| Security | 0 | 0 | 0/100 | A |
+| Test assurance | 0 | 0 | 0/100 | A |
+| Dependency health | 0 | 0 | 0/100 | A |
+| AI integrity | 0 | 106 | 9/100 | A |
+
+| Rule | Findings | Severity |
+|---|---|---|
+| god-function | 107 | advisory |
+| bloat-long-file | 41 | advisory |
+| em-dash-density | 34 | advisory |
+| unwrap-density | 17 | advisory |
+| deep-nesting | 14 | advisory |
+| bloat-param-count | 2 | advisory |
+| rhetorical-questions | 2 | advisory |
+| bloat-comment-ratio | 1 | advisory |
+| bloat-banner-comments | 1 | advisory |
+| boilerplate-duplication | 1 | blocking |
+
+### Fix these first
+
+1. `crates/j2r-runtime/src/jni/tables.rs:3304` [boilerplate-duplication] identical line repeated 60x: crate::jni::classes::method_id_from_ptr(mid),... -> Extract the repeated lines into a shared helper
+
+### Blocking findings
+
+| Check | Where | Detail | Weight | Fix |
+|---|---|---|---|---|
+| boilerplate-duplication | `crates/j2r-runtime/src/jni/tables.rs:3304` | identical line repeated 60x: crate::jni::classes::method_id_from_ptr(mid),... | 4 | Extract the repeated lines into a shared helper |
+
+### Advisory signals (never fail a build)
+
+| Check | Where | Detail | Weight |
+|---|---|---|---|---|
+| bloat-long-file | `crates/j2r-classfile/src/inflate.rs:1` | file spans 696 non-blank lines (budget 400) | 1 |
+| bloat-long-file | `crates/j2r-classfile/src/lib.rs:1` | file spans 1862 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-classfile/src/lib.rs:536` | function block spans 92 lines | 1 |
+| god-function | `crates/j2r-classfile/src/lib.rs:695` | function block spans 110 lines | 1 |
+| god-function | `crates/j2r-classfile/src/lib.rs:1144` | function block spans 281 lines | 1 |
+| unwrap-density | `crates/j2r-classfile/src/lib.rs:1` | 15 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-classfile/src/zip.rs:1` | file spans 788 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-classfile/src/zip.rs:695` | function block spans 92 lines | 1 |
+| bloat-long-file | `crates/j2r-cli/src/main.rs:1` | file spans 818 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-cli/src/main.rs:177` | function block spans 86 lines | 1 |
+| god-function | `crates/j2r-cli/src/main.rs:526` | function block spans 116 lines | 1 |
+| god-function | `crates/j2r-cli/tests/cfg_equiv.rs:163` | function block spans 111 lines | 1 |
+| bloat-comment-ratio | `crates/j2r-cli/tests/diff_suite.rs:1` | 315/581 lines are comments (54% - budget 50%) | 1 |
+| god-function | `crates/j2r-cli/tests/diff_suite.rs:40` | function block spans 410 lines | 1 |
+| god-function | `crates/j2r-cli/tests/jar_suite.rs:132` | function block spans 181 lines | 1 |
+| god-function | `crates/j2r-cli/tests/jni_parity.rs:95` | function block spans 130 lines | 1 |
+| unwrap-density | `crates/j2r-cli/tests/jni_parity.rs:1` | 12 unwrap() calls; panics on None/Err | 1 |
+| god-function | `crates/j2r-cli/tests/native_e2e.rs:84` | function block spans 90 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/ArraysSurface.java:18` | function block spans 182 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/ArraysSurface.java:68` | function block spans 132 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/ArraysSurface.java:69` | function block spans 131 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/ArraysSurface.java:70` | function block spans 130 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/BigCache.java:245` | function block spans 93 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/BigGradebook.java:41` | function block spans 138 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/BigJson.java:496` | function block spans 83 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/BigLang.java:702` | function block spans 104 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/Buffered.java:22` | function block spans 87 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/CharArrayRepProbe.java:14` | function block spans 115 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/DeepArrays.java:10` | function block spans 162 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/EnumFixture.java:31` | function block spans 81 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/Externals.java:76` | function block spans 243 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/Fmt.java:11` | function block spans 251 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/HexFloat.java:21` | function block spans 114 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/InterruptWait.java:28` | function block spans 82 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/NpeShapeProbe2.java:18` | function block spans 81 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/ReflectMethod.java:21` | function block spans 82 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/StringIoSemantics.java:34` | function block spans 109 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/TreeMapLhmPrimProbe.java:9` | function block spans 183 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/TreeMapProbe.java:7` | function block spans 92 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/TreeMapViewsProbe.java:8` | function block spans 312 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/WaitNotify.java:14` | function block spans 130 lines | 1 |
+| god-function | `crates/j2r-cli/tests/suite/WaitTimeout.java:5` | function block spans 82 lines | 1 |
+| god-function | `crates/j2r-cli/tests/surface_report.rs:53` | function block spans 97 lines | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/cfg.rs:1` | file spans 2448 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/cfg.rs:76` | function block spans 106 lines | 1 |
+| god-function | `crates/j2r-codegen/src/cfg.rs:377` | function block spans 151 lines | 1 |
+| god-function | `crates/j2r-codegen/src/cfg.rs:386` | function block spans 142 lines | 1 |
+| god-function | `crates/j2r-codegen/src/cfg.rs:815` | function block spans 97 lines | 1 |
+| god-function | `crates/j2r-codegen/src/cfg.rs:916` | function block spans 122 lines | 1 |
+| god-function | `crates/j2r-codegen/src/cfg.rs:1042` | function block spans 95 lines | 1 |
+| deep-nesting | `crates/j2r-codegen/src/cfg.rs:1042` | nests more than 5 levels | 1 |
+| deep-nesting | `crates/j2r-codegen/src/cfg.rs:1059` | nests more than 5 levels | 1 |
+| deep-nesting | `crates/j2r-codegen/src/cfg.rs:1151` | nests more than 5 levels | 1 |
+| unwrap-density | `crates/j2r-codegen/src/cfg.rs:1` | 17 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/emit.rs:1` | file spans 3198 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/emit.rs:38` | function block spans 548 lines | 1 |
+| god-function | `crates/j2r-codegen/src/emit.rs:662` | function block spans 138 lines | 1 |
+| god-function | `crates/j2r-codegen/src/emit.rs:1206` | function block spans 184 lines | 1 |
+| deep-nesting | `crates/j2r-codegen/src/emit.rs:38` | nests more than 5 levels | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/ir.rs:1` | file spans 924 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/ir.rs:427` | function block spans 258 lines | 1 |
+| deep-nesting | `crates/j2r-codegen/src/ir.rs:427` | nests more than 5 levels | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/lambda.rs:1` | file spans 416 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/lambda.rs:109` | function block spans 213 lines | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/lib.rs:1` | file spans 2480 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/lib.rs:463` | function block spans 109 lines | 1 |
+| god-function | `crates/j2r-codegen/src/lib.rs:771` | function block spans 203 lines | 1 |
+| god-function | `crates/j2r-codegen/src/lib.rs:975` | function block spans 110 lines | 1 |
+| god-function | `crates/j2r-codegen/src/lib.rs:1088` | function block spans 128 lines | 1 |
+| deep-nesting | `crates/j2r-codegen/src/lib.rs:975` | nests more than 5 levels | 1 |
+| unwrap-density | `crates/j2r-codegen/src/lib.rs:1` | 28 unwrap() calls; panics on None/Err | 1 |
+| god-function | `crates/j2r-codegen/src/manifest.rs:147` | function block spans 89 lines | 1 |
+| deep-nesting | `crates/j2r-codegen/src/manifest.rs:147` | nests more than 5 levels | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/partition.rs:1` | file spans 1108 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/partition.rs:46` | function block spans 171 lines | 1 |
+| god-function | `crates/j2r-codegen/src/partition.rs:364` | function block spans 122 lines | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/peephole.rs:1` | file spans 1625 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/peephole.rs:1392` | function block spans 98 lines | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/readiness.rs:1` | file spans 905 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/readiness.rs:117` | function block spans 88 lines | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/signature.rs:1` | file spans 726 non-blank lines (budget 400) | 1 |
+| unwrap-density | `crates/j2r-codegen/src/signature.rs:1` | 14 unwrap() calls; panics on None/Err | 1 |
+| god-function | `crates/j2r-codegen/src/specialize.rs:92` | function block spans 82 lines | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/typed.rs:1` | file spans 2556 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/typed.rs:317` | function block spans 87 lines | 1 |
+| god-function | `crates/j2r-codegen/src/typed.rs:947` | function block spans 238 lines | 1 |
+| god-function | `crates/j2r-codegen/src/typed.rs:957` | function block spans 228 lines | 1 |
+| god-function | `crates/j2r-codegen/src/typed.rs:1238` | function block spans 774 lines | 1 |
+| deep-nesting | `crates/j2r-codegen/src/typed.rs:242` | nests more than 5 levels | 1 |
+| bloat-long-file | `crates/j2r-codegen/src/verify.rs:1` | file spans 2328 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-codegen/src/verify.rs:638` | function block spans 139 lines | 1 |
+| god-function | `crates/j2r-codegen/src/verify.rs:799` | function block spans 406 lines | 1 |
+| god-function | `crates/j2r-codegen/tests/e2e.rs:11` | function block spans 187 lines | 1 |
+| god-function | `crates/j2r-codegen/tests/jmm_boundary.rs:37` | function block spans 223 lines | 1 |
+| unwrap-density | `crates/j2r-codegen/tests/manifest.rs:1` | 24 unwrap() calls; panics on None/Err | 1 |
+| god-function | `crates/j2r-codegen/tests/signature_probe.rs:23` | function block spans 125 lines | 1 |
+| god-function | `crates/j2r-codegen/tests/wide_ids.rs:23` | function block spans 103 lines | 1 |
+| god-function | `crates/j2r-codegen/tests/wide_ids.rs:128` | function block spans 89 lines | 1 |
+| bloat-long-file | `crates/j2r-jni-ffi/src/ffi.rs:1` | file spans 679 non-blank lines (budget 400) | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/array.rs:1` | file spans 740 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/array.rs:257` | function block spans 116 lines | 1 |
+| unwrap-density | `crates/j2r-runtime/src/array.rs:1` | 24 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/builtin.rs:1` | file spans 757 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/builtin.rs:7` | function block spans 290 lines | 1 |
+| god-function | `crates/j2r-runtime/src/builtin.rs:313` | function block spans 113 lines | 1 |
+| god-function | `crates/j2r-runtime/src/builtin.rs:467` | function block spans 166 lines | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/clinit.rs:1` | file spans 447 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/clinit.rs:183` | function block spans 113 lines | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/collections.rs:1` | file spans 7150 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/collections.rs:974` | function block spans 84 lines | 1 |
+| god-function | `crates/j2r-runtime/src/collections.rs:5916` | function block spans 92 lines | 1 |
+| god-function | `crates/j2r-runtime/src/collections.rs:6118` | function block spans 81 lines | 1 |
+| god-function | `crates/j2r-runtime/src/collections.rs:6264` | function block spans 175 lines | 1 |
+| god-function | `crates/j2r-runtime/src/collections.rs:6519` | function block spans 120 lines | 1 |
+| unwrap-density | `crates/j2r-runtime/src/collections.rs:1` | 462 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/fdlibm.rs:1` | file spans 726 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/fdlibm.rs:141` | function block spans 90 lines | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/formatter.rs:1` | file spans 1199 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/formatter.rs:610` | function block spans 120 lines | 1 |
+| god-function | `crates/j2r-runtime/src/formatter.rs:781` | function block spans 160 lines | 1 |
+| god-function | `crates/j2r-runtime/src/formatter.rs:1144` | function block spans 89 lines | 1 |
+| deep-nesting | `crates/j2r-runtime/src/formatter.rs:781` | nests more than 5 levels | 1 |
+| unwrap-density | `crates/j2r-runtime/src/formatter.rs:1` | 17 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/frame.rs:1` | file spans 462 non-blank lines (budget 400) | 1 |
+| unwrap-density | `crates/j2r-runtime/src/frame.rs:1` | 10 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/heap.rs:1` | file spans 872 non-blank lines (budget 400) | 1 |
+| unwrap-density | `crates/j2r-runtime/src/heap.rs:1` | 20 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/hexfloat.rs:1` | file spans 430 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/hexfloat.rs:28` | function block spans 217 lines | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/io.rs:1` | file spans 2045 non-blank lines (budget 400) | 1 |
+| bloat-banner-comments | `crates/j2r-runtime/src/io.rs:1194` | 6 decorative banner blocks pad the file; structure should carry the sections | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/javafmt.rs:1` | file spans 433 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/javafmt.rs:231` | function block spans 84 lines | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/jdkutil.rs:1` | file spans 1483 non-blank lines (budget 400) | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/jni/arrays.rs:1` | file spans 921 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/jni/arrays.rs:279` | function block spans 83 lines | 1 |
+| unwrap-density | `crates/j2r-runtime/src/jni/arrays.rs:1` | 12 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/jni/bridge.rs:1` | file spans 610 non-blank lines (budget 400) | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/jni/calls.rs:1` | file spans 1644 non-blank lines (budget 400) | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/jni/classes.rs:1` | file spans 744 non-blank lines (budget 400) | 1 |
+| unwrap-density | `crates/j2r-runtime/src/jni/classes.rs:1` | 15 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/jni/mod.rs:1` | file spans 517 non-blank lines (budget 400) | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/jni/natives.rs:1` | file spans 742 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/jni/natives.rs:323` | function block spans 101 lines | 1 |
+| bloat-param-count | `crates/j2r-runtime/src/lambda.rs:68` | 7 parameters (budget 6) | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/langext.rs:1` | file spans 1717 non-blank lines (budget 400) | 1 |
+| unwrap-density | `crates/j2r-runtime/src/langext.rs:1` | 15 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/lib.rs:1` | file spans 1231 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/lib.rs:1014` | function block spans 90 lines | 1 |
+| god-function | `crates/j2r-runtime/src/lib.rs:1106` | function block spans 84 lines | 1 |
+| god-function | `crates/j2r-runtime/src/lib.rs:1192` | function block spans 97 lines | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/monitor.rs:1` | file spans 647 non-blank lines (budget 400) | 1 |
+| unwrap-density | `crates/j2r-runtime/src/monitor.rs:1` | 36 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/natives.rs:1` | file spans 8430 non-blank lines (budget 400) | 1 |
+| deep-nesting | `crates/j2r-runtime/src/natives.rs:509` | nests more than 5 levels | 1 |
+| unwrap-density | `crates/j2r-runtime/src/natives.rs:1` | 31 unwrap() calls; panics on None/Err | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/reflect.rs:1` | file spans 1581 non-blank lines (budget 400) | 1 |
+| bloat-long-file | `crates/j2r-runtime/src/thread.rs:1` | file spans 2244 non-blank lines (budget 400) | 1 |
+| god-function | `crates/j2r-runtime/src/thread.rs:927` | function block spans 149 lines | 1 |
+| god-function | `crates/j2r-runtime/src/thread.rs:1078` | function block spans 95 lines | 1 |
+| unwrap-density | `crates/j2r-runtime/src/thread.rs:1` | 67 unwrap() calls; panics on None/Err | 1 |
+| god-function | `scripts/bench_suite.py:113` | function 'main' spans 195 lines | 1 |
+| god-function | `scripts/build_corpus_jama.sh:53` | function block spans 180 lines | 1 |
+| god-function | `scripts/build_corpus_stringsim.sh:63` | function block spans 102 lines | 1 |
+| deep-nesting | `scripts/check_jmm_boundary.py:45` | function 'parse_constant_pool' nests more than 5 levels | 1 |
+| deep-nesting | `scripts/emitted_fn_census.py:19` | function 'extract_fns' nests more than 5 levels | 1 |
+| god-function | `scripts/evidence/char_array_rep/CharArrayRepProbe.java:14` | function block spans 115 lines | 1 |
+| em-dash-density | `scripts/evidence/char_array_rep/GREEN_PROOF_2026-11-16.txt:1` | em-dash density 19.9/1k words | 3 |
+| em-dash-density | `scripts/evidence/char_array_rep/RED_PROOF_2026-11-16.txt:1` | em-dash density 18.1/1k words | 3 |
+| em-dash-density | `scripts/evidence/default_dispatch/DEFAULT_DISPATCH_2026-11-16.txt:1` | em-dash density 18.0/1k words | 3 |
+| em-dash-density | `scripts/evidence/default_dispatch/NPE_SHAPE2_2026-11-16.txt:1` | em-dash density 11.4/1k words | 3 |
+| god-function | `scripts/evidence/default_dispatch/NpeShapeProbe2.java:18` | function block spans 81 lines | 1 |
+| em-dash-density | `scripts/evidence/depth5_closure/recursive_descriptor_2026-11-12.txt:1` | em-dash density 16.1/1k words | 3 |
+| em-dash-density | `scripts/evidence/external_b1/render_f_band_fix_2026-11-13.txt:1` | em-dash density 10.9/1k words | 3 |
+| em-dash-density | `scripts/evidence/external_b2/registry_hook_fix_2026-11-13.txt:1` | em-dash density 22.5/1k words | 3 |
+| em-dash-density | `scripts/evidence/external_b3_b12/natives_surface_2026-11-13.txt:1` | em-dash density 14.0/1k words | 3 |
+| em-dash-density | `scripts/evidence/external_harness/harness_items_2026-11-13.txt:1` | em-dash density 21.4/1k words | 3 |
+| em-dash-density | `scripts/evidence/external_harness/surface_diagnostics.txt:1` | em-dash density 21.7/1k words | 3 |
+| rhetorical-questions | `scripts/evidence/external_harness/surface_diagnostics.txt:1` | 1 question marks in prose | 2 |
+| em-dash-density | `scripts/evidence/g2_3/stage_profile_20k_fullrender.txt:1` | em-dash density 15.4/1k words | 3 |
+| em-dash-density | `scripts/evidence/g2_3/stage_profile_20k_noop.txt:1` | em-dash density 13.7/1k words | 3 |
+| em-dash-density | `scripts/evidence/g2_3/stage_profile_5k_cold.txt:1` | em-dash density 30.3/1k words | 3 |
+| em-dash-density | `scripts/evidence/g2_5_70000/SCOPE.txt:1` | em-dash density 24.2/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_2/argvec_stack_array_2026-11-12.txt:1` | em-dash density 19.4/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_2/refonly_refresh_projection_2026-11-12.txt:1` | em-dash density 12.0/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_2/typed_payload_remeasure_2026-11-12.txt:1` | em-dash density 7.3/1k words | 3 |
+| god-function | `scripts/evidence/g3_3/TreeMapLhmPrimProbe.java:9` | function block spans 183 lines | 1 |
+| em-dash-density | `scripts/evidence/g3_3/field_layer_2026-11-14.txt:1` | em-dash density 8.2/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_3/forname_init_2026-11-14.txt:1` | em-dash density 21.1/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_3/new_instance_2026-11-14.txt:1` | em-dash density 25.4/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_3/npe_residual_2026-11-14.txt:1` | em-dash density 16.4/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_3/opening_census_2026-11-12.txt:1` | em-dash density 14.8/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_3/put_get_rewrites_2026-11-14.txt:1` | em-dash density 14.7/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_3/signature_pin_2026-11-13.txt:1` | em-dash density 9.2/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_3/treemap_lhm_prim_2026-11-16.txt:1` | em-dash density 13.8/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_4_pairs/PAIRS_2026-11-16.txt:1` | em-dash density 9.7/1k words | 3 |
+| em-dash-density | `scripts/evidence/g3_4_pairs/PAIRS_run5_2026-11-16.txt:1` | em-dash density 10.3/1k words | 3 |
+| em-dash-density | `scripts/evidence/helpful_npe/HELPFUL_NPE_2026-11-16.txt:1` | em-dash density 21.5/1k words | 3 |
+| rhetorical-questions | `scripts/evidence/hm_copy_ctor/red_capture_2026-11-17.txt:1` | 1 question marks in prose | 2 |
+| em-dash-density | `scripts/evidence/private_ctor/PRIVATE_CTOR_2026-11-16.txt:1` | em-dash density 16.9/1k words | 3 |
+| em-dash-density | `scripts/evidence/r2_opening/forname_slice1_2026-11-12.txt:1` | em-dash density 24.0/1k words | 3 |
+| em-dash-density | `scripts/evidence/r2_slice2/static_field_modifiers_2026-11-13.txt:1` | em-dash density 15.8/1k words | 3 |
+| em-dash-density | `scripts/evidence/r5/virtual_resolution_2026-11-15.txt:1` | em-dash density 22.8/1k words | 3 |
+| em-dash-density | `scripts/evidence/r5/vtable_2026-11-15.txt:1` | em-dash density 16.4/1k words | 3 |
+| em-dash-density | `scripts/evidence/r7/dispatch_table_2026-11-15.txt:1` | em-dash density 15.7/1k words | 3 |
+| god-function | `scripts/evidence/r7/gen_main.rs:40` | function block spans 112 lines | 1 |
+| deep-nesting | `scripts/evidence/r7/gen_main.rs:40` | nests more than 5 levels | 1 |
+| god-function | `scripts/evidence/treemap/TreeMapProbe.java:7` | function block spans 95 lines | 1 |
+| god-function | `scripts/evidence/treemap_views/TreeMapViewsProbe.java:8` | function block spans 312 lines | 1 |
+| bloat-long-file | `scripts/gen_jni_env_table.py:1` | file spans 1635 non-blank lines (budget 400) | 1 |
+| deep-nesting | `scripts/proc_peak_sampler.py:24` | function 'snapshot' nests more than 5 levels | 1 |
+| god-function | `tests/jni_harness/HarnessDriver.java:26` | function block spans 101 lines | 1 |
+| god-function | `tests/jni_harness/HarnessDriver.java:27` | function block spans 100 lines | 1 |
+| god-function | `tests/jni_harness/HarnessDriver.java:28` | function block spans 99 lines | 1 |
+| god-function | `tests/jni_harness/HarnessDriver.java:29` | function block spans 98 lines | 1 |
+| god-function | `tests/jni_harness/HarnessDriver.java:30` | function block spans 97 lines | 1 |
+| god-function | `tests/jni_harness/HarnessDriver.java:31` | function block spans 96 lines | 1 |
+| god-function | `tests/jni_harness/HarnessDriver.java:33` | function block spans 94 lines | 1 |
+| bloat-param-count | `tests/jni_harness/HarnessDriver.java:34` | 8 parameters (budget 6) | 1 |
+
+### Highest-deficit files
+
+| File | Deficit |
+|---|---|
+| `crates/j2r-runtime/src/jni/tables.rs` | 86 |
+| `crates/j2r-codegen/src/cfg.rs` | 18 |
+| `tests/jni_harness/HarnessDriver.java` | 16 |
+| `crates/j2r-codegen/src/lib.rs` | 15 |
+| `crates/j2r-runtime/src/collections.rs` | 15 |
+
+Opt out per path or check via `.ai-integrity-ignore` (glob lines, or `check:<id>` to disable one rule); accept existing findings with `--write-baseline` + `--baseline`.

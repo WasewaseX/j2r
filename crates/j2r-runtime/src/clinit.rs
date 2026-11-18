@@ -321,7 +321,7 @@ mod tests {
     /// without running it again (recursion path).
     #[test]
     fn clinit_runs_once_and_reentry_is_free() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         RUNS.store(0, Ordering::SeqCst);
         let c = next_class();
         ensure(c, Some(fake_clinit)).expect("ok");
@@ -333,7 +333,7 @@ mod tests {
     /// clinit instead of reading defaults (the MonitorContention bug).
     #[test]
     fn concurrent_first_touchers_block_until_done() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         RUNS.store(0, Ordering::SeqCst);
         GATE.store(false, Ordering::SeqCst);
         let c = next_class();
@@ -375,7 +375,7 @@ mod tests {
     /// object — the JDK's EIIE(Throwable) ctor shape).
     #[test]
     fn non_error_is_wrapped_in_eiie() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let c = next_class();
         fn thrower(
             _r: Option<&crate::JRef>,
@@ -398,7 +398,7 @@ mod tests {
     /// same message — Temurin/ClinitProbe err-1).
     #[test]
     fn error_is_rethrown_as_is() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let c = next_class();
         fn thrower(
             _r: Option<&crate::JRef>,
@@ -420,7 +420,7 @@ mod tests {
     /// NO further cause (Temurin/ClinitProbe rt-2/rt-3).
     #[test]
     fn errant_access_throws_ncdfe_with_eiie_cause() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let c = next_class();
         register_class_names_named(c, "probe/Errant");
         fn thrower(
@@ -458,7 +458,7 @@ mod tests {
     /// form: dots for packages, `$` kept).
     #[test]
     fn binary_name_form() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let c = next_class();
         register_class_names_named(c, "a/b/C$Inner");
         assert_eq!(binary_name(c), "a.b.C$Inner");

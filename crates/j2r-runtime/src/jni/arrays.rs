@@ -468,7 +468,7 @@ fn region_bounds_ok(slot: &str, r: &JRef, start: i32, len: i32) {
     };
     if start < 0 || len < 0 || start > alen - len {
         let t = crate::throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!(
                 "region [{start}, {start}+{len}) out of bounds for length {alen}"
             )),
@@ -516,7 +516,6 @@ pub fn slot_release_primitive_array_critical(addr: usize, _mode: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::runtime;
 
     fn int_array(vals: &[i32]) -> (u64, JRef) {
         let tag = slot_new_prim_array(PrimKind::I, vals.len() as i32);
@@ -531,7 +530,7 @@ mod tests {
 
     #[test]
     fn get_array_length_roundtrips() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let (tag, _) = int_array(&[1, 2, 3, 4]);
         assert_eq!(slot_get_array_length(tag), 4);
         super::super::bridge::delete_local(tag);
@@ -541,7 +540,7 @@ mod tests {
     fn get_array_length_through_the_generated_table() {
         // Wrapper-level: the full jobject→tag→slot plumbing through the
         // static table, the positional-ABI way a foreign lib calls it.
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let (tag, _) = int_array(&[7]);
         let obj = super::super::bridge::tag_to_jobject(tag);
         let f: extern "system" fn(
@@ -561,7 +560,7 @@ mod tests {
 
     #[test]
     fn new_object_array_fills_init_and_roundtrips() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let class_tag =
             super::super::bridge::new_local(crate::reflect::class_ref("java/lang/String"));
         let s = crate::object::new_string("elem");
@@ -594,7 +593,7 @@ mod tests {
 
     #[test]
     fn object_array_set_get_roundtrip_including_null() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let class_tag =
             super::super::bridge::new_local(crate::reflect::class_ref("java/lang/String"));
         let tag = slot_new_object_array(2, class_tag, 0); // no init → nulls
@@ -615,7 +614,7 @@ mod tests {
 
     #[test]
     fn object_array_element_bounds_and_store_violation_are_loud() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let class_tag =
             super::super::bridge::new_local(crate::reflect::class_ref("java/lang/String"));
         let tag = slot_new_object_array(1, class_tag, 0);
@@ -640,7 +639,7 @@ mod tests {
 
     #[test]
     fn new_prim_array_all_eight_families() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let kinds = [
             (PrimKind::Z, "[Z"),
             (PrimKind::B, "[B"),
@@ -662,7 +661,7 @@ mod tests {
 
     #[test]
     fn new_prim_array_negative_length_is_loud() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let panicked = std::panic::catch_unwind(|| slot_new_prim_array(PrimKind::I, -1)).is_err();
         assert!(panicked, "NegativeArraySizeException must be loud");
         // the loud message names the exception (the design §5 law)
@@ -685,7 +684,7 @@ mod tests {
 
     #[test]
     fn elements_roundtrip_all_eight_families() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         // Per family: build the array through the slot API, simulate the
         // foreign caller editing the handed buffer (the registry's
         // Box<[u8]> IS that memory — safe to touch through the lock),
@@ -756,7 +755,7 @@ mod tests {
     fn elements_is_copy_written_true_by_wrapper_and_registry_pinned() {
         // isCopy is the WRAPPER's job (write_u8_out); at slot level the
         // registry entry is the proof of pinning.
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let (tag, _) = int_array(&[9, 9, 9]);
         let addr = slot_get_prim_array_elements(PrimKind::I, tag);
         assert!(
@@ -772,7 +771,7 @@ mod tests {
 
     #[test]
     fn release_modes_commit_abort_and_free() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         // ABORT (2): caller edits are DISCARDED
         let (tag, r) = int_array(&[1, 2, 3]);
         let addr = slot_get_prim_array_elements(PrimKind::I, tag);
@@ -818,7 +817,7 @@ mod tests {
 
     #[test]
     fn foreign_release_and_wrong_family_are_loud() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let (tag, _) = int_array(&[1]);
         let addr = slot_get_prim_array_elements(PrimKind::I, tag);
         // wrong family: releasing an Int hand-out through the Long slot
@@ -847,7 +846,7 @@ mod tests {
 
     #[test]
     fn regions_roundtrip_all_eight_families() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         // Two caller-encoded elements per family: -1 and 42 (floats: -1.5
         // and 42.5; char: 0x263A and 'A'; boolean: 1 and 0).
         let cases: &[(PrimKind, usize, Vec<u8>)] = &[
@@ -906,7 +905,7 @@ mod tests {
 
     #[test]
     fn region_bounds_violations_are_loud() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let (tag, _) = int_array(&[1, 2, 3]);
         let mut buf = [0u8; 4];
         for (start, len) in [(-1, 1), (0, -1), (2, 2), (4, 0)] {
@@ -939,7 +938,7 @@ mod tests {
 
     #[test]
     fn critical_region_registers_and_releases_loudly() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let (tag, r) = int_array(&[5, 6, 7]);
         let addr = slot_get_primitive_array_critical(tag);
         assert_ne!(addr, 0);
@@ -957,7 +956,7 @@ mod tests {
 
     #[test]
     fn critical_on_a_non_primitive_array_is_loud() {
-        let _rt = runtime();
+        let _rt = crate::runtime();
         let class_tag =
             super::super::bridge::new_local(crate::reflect::class_ref("java/lang/String"));
         let tag = slot_new_object_array(1, class_tag, 0);

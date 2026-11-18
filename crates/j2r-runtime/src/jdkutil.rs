@@ -23,6 +23,7 @@
 
 use crate::array;
 use crate::heap::{with_obj, with_obj_mut, JRef};
+use crate::internal_error;
 use crate::natives;
 use crate::object;
 use crate::{collections, invoke_virtual, throw_new, Dispatch, Throw, Value};
@@ -54,19 +55,19 @@ fn string_of_value(v: &Value, meth: &str) -> Result<Arc<String>, Throw> {
             if cls == "java/lang/String" {
                 Ok(object::string_value(r))
             } else {
-                Err(crate::internal_error(&format!(
+                Err(internal_error(&format!(
                     "j2r internal: {meth} returned a {cls}, not a String"
                 )))
             }
         }
-        other => Err(crate::internal_error(&format!(
+        other => Err(internal_error(&format!(
             "j2r internal: {meth} returned {other:?}, not a String"
         ))),
     }
 }
 
 fn null_arg(meth: &str) -> Throw {
-    crate::internal_error(&format!("j2r internal: {meth} missing argument"))
+    internal_error(&format!("j2r internal: {meth} missing argument"))
 }
 
 /// Stable merge sort over a `Vec<Value>` with a comparison closure.
@@ -151,7 +152,7 @@ fn v_to_string(v: &Value, ctx: Dispatch) -> Result<String, Throw> {
             )?;
             Ok(string_of_value(&out, "Object.toString")?.to_string())
         }
-        other => Err(crate::internal_error(&format!(
+        other => Err(internal_error(&format!(
             "j2r internal: unexpected element {other:?}"
         ))),
     }
@@ -701,10 +702,10 @@ fn compare_to_dispatch(a: &Value, b: &Value, ctx: Dispatch) -> Result<bool, Thro
     let (ra, _rb) = match (a, b) {
         (Value::Ref(Some(x)), Value::Ref(Some(y))) => (x, y),
         (Value::Ref(None), _) | (_, Value::Ref(None)) => {
-            return Err(throw_new("java/lang/NullPointerException", None));
+            return Err(crate::npe());
         }
         other => {
-            return Err(crate::internal_error(&format!(
+            return Err(internal_error(&format!(
                 "j2r internal: compareTo on {other:?}"
             )))
         }
@@ -785,7 +786,7 @@ pub fn n_collections_sort_cmp(
     let (list, cmp) = match (args.first(), args.get(1)) {
         (Some(Value::Ref(Some(l))), Some(Value::Ref(Some(c)))) => (l, c),
         (Some(Value::Ref(None)), _) => {
-            return Err(throw_new("java/lang/NullPointerException", None));
+            return Err(crate::npe());
         }
         _ => return Err(null_arg("Collections.sort")),
     };
@@ -806,7 +807,7 @@ pub fn n_collections_sort_natural(
     let list = match args.first() {
         Some(Value::Ref(Some(l))) => l,
         Some(Value::Ref(None)) => {
-            return Err(throw_new("java/lang/NullPointerException", None));
+            return Err(crate::npe());
         }
         _ => return Err(null_arg("Collections.sort")),
     };
@@ -853,7 +854,7 @@ pub fn n_collections_add_all(
     let (coll, arr) = match (args.first(), args.get(1)) {
         (Some(Value::Ref(Some(c))), Some(Value::Ref(Some(a)))) => (c, a),
         (Some(Value::Ref(None)), _) | (_, Some(Value::Ref(None))) => {
-            return Err(throw_new("java/lang/NullPointerException", None));
+            return Err(crate::npe());
         }
         _ => return Err(null_arg("Collections.addAll")),
     };
@@ -934,7 +935,7 @@ pub fn n_al_sub_list(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Res
     // yet — refuse loudly instead of misreading the SubList layout.
     let jclass = with_obj(*list, |o| o.jclass.to_string());
     if jclass != "java/util/ArrayList" {
-        return Err(crate::internal_error(&format!(
+        return Err(internal_error(&format!(
             "subList on {jclass} is outside the supported surface (chained views are a documented loud error)"
         )));
     }
@@ -978,7 +979,7 @@ fn sl_state(view: &JRef) -> (JRef, i32, i32, i32) {
 fn sl_check_comod(parent: &JRef, expected: i32) -> Result<(), Throw> {
     let (_, mod_count, _) = collections::al_state(parent);
     if mod_count != expected {
-        return Err(throw_new("java/util/ConcurrentModificationException", None));
+        return Err(crate::cme());
     }
     Ok(())
 }
@@ -1157,7 +1158,7 @@ pub fn n_sl_to_string(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Res
                 sb.push_str(&s);
             }
             other => {
-                return Err(crate::internal_error(&format!(
+                return Err(internal_error(&format!(
                     "j2r internal: SubList element {other:?}"
                 )))
             }
@@ -1401,11 +1402,9 @@ pub fn n_al_to_array_typed(
     let a = match args.first() {
         Some(Value::Ref(Some(r))) => *r,
         // JDK: `a` null is an ordinary NPE at the first dereference
-        Some(Value::Ref(None)) | None => {
-            return Err(throw_new("java/lang/NullPointerException", None))
-        }
+        Some(Value::Ref(None)) | None => return Err(crate::npe()),
         other => {
-            return Err(crate::internal_error(&format!(
+            return Err(internal_error(&format!(
                 "j2r internal: ArrayList.toArray arg {other:?}"
             )))
         }
@@ -1451,13 +1450,13 @@ fn arrays_range_check(len: i32, from: i32, to: i32) -> Result<(), Throw> {
     }
     if from < 0 {
         return Err(throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!("Array index out of range: {from}")),
         ));
     }
     if to > len {
         return Err(throw_new(
-            "java/lang/ArrayIndexOutOfBoundsException",
+            crate::AIOOBE_CLASS,
             Some(&format!("Array index out of range: {to}")),
         ));
     }
@@ -1568,13 +1567,13 @@ pub fn n_reverse_comparator_compare(
     };
     // b.compareTo(a): dispatch compareTo on b with a as the argument
     if let (Value::Ref(None), _) | (_, Value::Ref(None)) = (b, a) {
-        return Err(throw_new("java/lang/NullPointerException", None));
+        return Err(crate::npe());
     }
     let out = invoke_virtual(
         match b {
             Value::Ref(Some(x)) => x,
             other => {
-                return Err(crate::internal_error(&format!(
+                return Err(internal_error(&format!(
                     "j2r internal: ReverseComparator on {other:?}"
                 )))
             }

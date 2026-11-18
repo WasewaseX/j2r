@@ -105,7 +105,7 @@ impl<'a> Jar<'a> {
     ///
     /// The EOCD is located by scanning backwards for its signature (the
     /// archive may carry a prepended payload or a comment, both of which
-    /// shift the offsets). Maximum comment length is 65 535 per the spec,
+    /// shift the offsets). The spec caps the comment length at 65 535,
     /// so the scan window is bounded.
     pub fn parse(data: &'a [u8]) -> Result<Jar<'a>, ZipError> {
         if data.len() < 22 {

@@ -62,6 +62,7 @@ public class WaitTimeout {
             try {
                 Thread.sleep(2);
             } catch (InterruptedException e) {
+                /* interruption changes nothing: the latch is set either way */
             }
             synchronized (tap) {
                 tapped = true;

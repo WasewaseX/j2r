@@ -21,6 +21,9 @@
 //! go through the audited `j2r-jni-ffi` primitives and the registry
 //! pattern from the T09 bridge.
 
+#[cfg(test)]
+use super::bridge::delete_local;
+
 /// Decodes modified UTF-8 (JVMS §4.4.7) with the classfile loader's
 /// pinned semantics: `None` on malformed sequences, U+FFFD normalization
 /// for unpaired surrogates, `C0 80` → U+0000.
@@ -220,37 +223,37 @@ mod tests {
 
     #[test]
     fn utf_length_excludes_the_terminator() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let tag = super::super::bridge::new_local(crate::object::new_string("ab\u{0}c"));
         // a(1) + C0 80(2) + b(1) + c(1) = 5 bytes, +1 NUL in the handed buffer
         assert_eq!(slot_get_string_utf_length(tag), 5);
-        super::super::bridge::delete_local(tag);
+        delete_local(tag);
     }
 
     #[test]
     fn new_string_utf_slot_roundtrip_through_the_bridge() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let tag = slot_new_string_utf(b"hello").expect("valid mUTF-8");
         let r = super::super::bridge::resolve(tag);
         assert_eq!(&*crate::object::string_value(&r), "hello");
-        super::super::bridge::delete_local(tag);
+        delete_local(tag);
         // malformed mUTF-8 → None (slot returns JNI null)
         assert_eq!(slot_new_string_utf(&[0xF0, 0x80, 0x80, 0x80]), None);
     }
 
     #[test]
     fn new_string_slot_from_utf16_units() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let units: Vec<u16> = "a\u{1D530}b".encode_utf16().collect();
         let tag = slot_new_string(&units);
         let r = super::super::bridge::resolve(tag);
         assert_eq!(&*crate::object::string_value(&r), "a\u{1D530}b");
-        super::super::bridge::delete_local(tag);
+        delete_local(tag);
     }
 
     #[test]
     fn utf_chars_registry_roundtrip_and_loud_miss() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let tag = super::super::bridge::new_local(crate::object::new_string("ABC"));
         let mut is_copy: u8 = 0;
         let addr = slot_get_string_utf_chars(tag, Some(&mut is_copy));
@@ -270,6 +273,6 @@ mod tests {
         assert!(panicked, "double release must be loud");
         let panicked = std::panic::catch_unwind(|| slot_release_string_utf_chars(0xDEAD)).is_err();
         assert!(panicked, "foreign pointer release must be loud");
-        super::super::bridge::delete_local(tag);
+        delete_local(tag);
     }
 }

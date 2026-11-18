@@ -22,6 +22,7 @@
 
 use crate::desc::{parse_method_desc, TypeDesc};
 use crate::heap::{with_obj, JRef};
+use crate::internal_error;
 use crate::{natives, Dispatch, Throw, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -320,9 +321,7 @@ fn str_arg(args: &[Value], who: &str) -> Result<Arc<String>, Throw> {
     match args.first() {
         Some(Value::Ref(Some(r))) => Ok(crate::object::string_value(r)),
         Some(Value::Ref(None)) => Err(crate::throw_new("java/lang/NullPointerException", None)),
-        _ => Err(crate::internal_error(&format!(
-            "{who}: expected string arg"
-        ))),
+        _ => Err(internal_error(&format!("{who}: expected string arg"))),
     }
 }
 
@@ -331,7 +330,7 @@ fn str_arg(args: &[Value], who: &str) -> Result<Arc<String>, Throw> {
 pub fn get_declared_field(ctx: Dispatch, owner: &str, args: &[Value]) -> Result<Value, Throw> {
     let name = str_arg(args, "getDeclaredField")?;
     let Some(info) = ctx.class_info(owner) else {
-        return Err(crate::internal_error(
+        return Err(internal_error(
             "reflection on builtin classes is outside the M3 subset (getDeclaredField)",
         ));
     };
@@ -413,7 +412,7 @@ pub fn field_get_typed(
     let (owner, name, desc, is_static, islot, sslot, _modifiers) = field_slots(f);
     let raw = if is_static {
         let Some(get) = ctx.static_get else {
-            return Err(crate::internal_error("Field.get: no static pool access"));
+            return Err(internal_error("Field.get: no static pool access"));
         };
         get(sslot)
     } else {
@@ -578,7 +577,7 @@ pub(crate) fn class_array(items: Vec<Value>, ctx: Dispatch) -> Result<Value, Thr
 /// [pubChild, privChild, pubBase] in source order. Compiled classes only.
 pub fn get_declared_fields(ctx: Dispatch, owner: &str) -> Result<Value, Throw> {
     let Some(info) = ctx.class_info(owner) else {
-        return Err(crate::internal_error(
+        return Err(internal_error(
             "reflection on builtin classes is outside the R2 subset (getDeclaredFields)",
         ));
     };
@@ -641,7 +640,7 @@ fn get_fields_walk(ctx: Dispatch, owner: &str, out: &mut Vec<Value>) {
 /// Compiled classes only.
 pub fn get_declared_constructors(ctx: Dispatch, owner: &str) -> Result<Value, Throw> {
     let Some(info) = ctx.class_info(owner) else {
-        return Err(crate::internal_error(
+        return Err(internal_error(
             "reflection on builtin classes is outside the R2 subset (getDeclaredConstructors)",
         ));
     };
@@ -658,7 +657,7 @@ pub fn get_declared_constructors(ctx: Dispatch, owner: &str) -> Result<Value, Th
 /// (same reversal; oracle: only `public Ctorz()` listed).
 pub fn get_constructors(ctx: Dispatch, owner: &str) -> Result<Value, Throw> {
     let Some(info) = ctx.class_info(owner) else {
-        return Err(crate::internal_error(
+        return Err(internal_error(
             "reflection on builtin classes is outside the R2 subset (getConstructors)",
         ));
     };
@@ -714,15 +713,11 @@ fn ctor_lookup(
                 .expect("j2r internal: null param class in getDeclaredConstructor")
         }),
         Some(Value::Ref(None)) | None => Vec::new(),
-        _ => {
-            return Err(crate::internal_error(
-                "getDeclaredConstructor: bad param array",
-            ))
-        }
+        _ => return Err(internal_error("getDeclaredConstructor: bad param array")),
     };
     let params: Vec<Arc<String>> = param_refs.iter().map(class_name_of).collect();
     let Some(info) = ctx.class_info(owner) else {
-        return Err(crate::internal_error(
+        return Err(internal_error(
             "reflection on builtin classes is outside the R2 subset (getDeclaredConstructor)",
         ));
     };
@@ -826,11 +821,11 @@ pub fn get_declared_method(ctx: Dispatch, owner: &str, args: &[Value]) -> Result
                 .expect("j2r internal: null param class in getDeclaredMethod")
         }),
         Some(Value::Ref(None)) | None => Vec::new(),
-        _ => return Err(crate::internal_error("getDeclaredMethod: bad param array")),
+        _ => return Err(internal_error("getDeclaredMethod: bad param array")),
     };
     let params: Vec<Arc<String>> = param_refs.iter().map(class_name_of).collect();
     let Some(info) = ctx.class_info(owner) else {
-        return Err(crate::internal_error(
+        return Err(internal_error(
             "reflection on builtin classes is outside the M3 subset (getDeclaredMethod)",
         ));
     };
@@ -892,7 +887,7 @@ pub(crate) fn box_by_desc(v: Value, desc: &str) -> Result<Value, Throw> {
         "Z" => natives::n_boolean_value_of(None, &[v], noop_ctx),
         "C" => natives::n_character_value_of(None, &[v], noop_ctx),
         d if d.starts_with('L') || d.starts_with('[') => Ok(v),
-        _ => Err(crate::internal_error(&format!("bad field desc {desc:?}"))),
+        _ => Err(internal_error(&format!("bad field desc {desc:?}"))),
     }
 }
 
@@ -928,7 +923,7 @@ pub(crate) fn unbox_by_desc(v: &Value, desc: &str) -> Result<Value, Throw> {
         prim @ (Value::Int(_) | Value::Long(_) | Value::Float(_) | Value::Double(_)) => {
             Ok(prim.clone())
         }
-        other => Err(crate::internal_error(&format!("bad unbox arg {other:?}"))),
+        other => Err(internal_error(&format!("bad unbox arg {other:?}"))),
     }
 }
 
@@ -958,7 +953,7 @@ pub fn field_get(ctx: Dispatch, f: &JRef, obj: Option<&JRef>) -> Result<Value, T
     let (owner, name, desc, is_static, islot, sslot, _modifiers) = field_slots(f);
     if is_static {
         let Some(get) = ctx.static_get else {
-            return Err(crate::internal_error("Field.get: no static pool access"));
+            return Err(internal_error("Field.get: no static pool access"));
         };
         return box_by_desc(get(sslot), &desc);
     }
@@ -1009,7 +1004,7 @@ pub fn field_set(ctx: Dispatch, f: &JRef, obj: Option<&JRef>, v: &Value) -> Resu
             prim_cook(v, &desc, &set_to)?
         };
         let Some(set) = ctx.static_set else {
-            return Err(crate::internal_error("Field.set: no static pool access"));
+            return Err(internal_error("Field.set: no static pool access"));
         };
         set(sslot, &cooked);
         return Ok(());
@@ -1032,7 +1027,7 @@ pub fn field_set(ctx: Dispatch, f: &JRef, obj: Option<&JRef>, v: &Value) -> Resu
                 }
                 v.clone()
             }
-            other => return Err(crate::internal_error(&format!("bad field value {other:?}"))),
+            other => return Err(internal_error(&format!("bad field value {other:?}"))),
         }
     } else {
         prim_cook(v, &desc, &set_to)?
@@ -1056,7 +1051,7 @@ fn prim_cook(v: &Value, desc: &str, set_to: &dyn Fn(String) -> Throw) -> Result<
             }
             Ok(with_obj(*r, |o| o.slots[0].clone()))
         }
-        other => Err(crate::internal_error(&format!("bad field value {other:?}"))),
+        other => Err(internal_error(&format!("bad field value {other:?}"))),
     }
 }
 
@@ -1075,12 +1070,12 @@ pub fn method_invoke(
 ) -> Result<Value, Throw> {
     let (owner, name, desc, is_static, _modifiers) = method_slots(m);
     if ctx.class_info(&owner).is_none() {
-        return Err(crate::internal_error(
+        return Err(internal_error(
             "reflection on builtin classes is outside the M3 subset (Method.invoke)",
         ));
     }
     let Some(f) = ctx.find_method(&owner, &name, &desc) else {
-        return Err(crate::internal_error(&format!(
+        return Err(internal_error(&format!(
             "reflective target {owner}.{name}{desc} not in dispatch table"
         )));
     };
@@ -1090,7 +1085,7 @@ pub fn method_invoke(
         Some(arr) => with_obj(*arr, |o| o.slots.iter().skip(1).cloned().collect()),
     };
     let Some((params, ret)) = parse_method_desc(&desc) else {
-        return Err(crate::internal_error(&format!("bad method desc {desc:?}")));
+        return Err(internal_error(&format!("bad method desc {desc:?}")));
     };
     if actual.len() != params.len() {
         return Err(throw_ill_arg(&format!(
@@ -1189,7 +1184,7 @@ fn unmarshal_args(
 pub fn ctor_new_instance(ctx: Dispatch, ctor: &JRef, args: Option<&JRef>) -> Result<Value, Throw> {
     let (owner, desc, _modifiers) = ctor_slots(ctor);
     let Some(info) = ctx.class_info(&owner) else {
-        return Err(crate::internal_error(
+        return Err(internal_error(
             "reflection on builtin classes is outside the R2 subset (Constructor.newInstance)",
         ));
     };
@@ -1201,7 +1196,7 @@ pub fn ctor_new_instance(ctx: Dispatch, ctor: &JRef, args: Option<&JRef>) -> Res
         return Err(crate::throw_new("java/lang/InstantiationException", None));
     }
     let Some(f) = ctx.find_method(&owner, "<init>", &desc) else {
-        return Err(crate::internal_error(&format!(
+        return Err(internal_error(&format!(
             "reflective target {owner}.<init>{desc} not in dispatch table"
         )));
     };
@@ -1211,7 +1206,7 @@ pub fn ctor_new_instance(ctx: Dispatch, ctor: &JRef, args: Option<&JRef>) -> Res
         Some(arr) => with_obj(*arr, |o| o.slots.iter().skip(1).cloned().collect()),
     };
     let Some((params, _ret)) = parse_method_desc(&desc) else {
-        return Err(crate::internal_error(&format!("bad ctor desc {desc:?}")));
+        return Err(internal_error(&format!("bad ctor desc {desc:?}")));
     };
     if actual.len() != params.len() {
         return Err(throw_ill_arg(&format!(
@@ -1294,7 +1289,7 @@ pub fn ctor_new_instance_caller(
     let argv = match args.first() {
         Some(Value::Ref(r)) => r.as_ref(),
         _ => {
-            return Err(crate::internal_error(
+            return Err(internal_error(
                 "Constructor.newInstance needs the args array",
             ))
         }
@@ -1414,7 +1409,7 @@ mod tests {
 
     #[test]
     fn binary_names_match_temurin() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(binary_name("java/lang/String"), "java.lang.String");
         assert_eq!(binary_name("O$Nested"), "O$Nested");
         assert_eq!(binary_name("I"), "int");
@@ -1426,7 +1421,7 @@ mod tests {
 
     #[test]
     fn canonical_names_dots_nesting() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // Enum.valueOf's miss message: nested enums print dotted all the way
         // down (Temurin: `No enum constant EnumProbe.Color.red`).
         assert_eq!(canonical_name("EnumProbe$Color"), "EnumProbe.Color");
@@ -1436,7 +1431,7 @@ mod tests {
 
     #[test]
     fn simple_names_derive_and_override() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(simple_name("java/lang/String", ctx()), "String");
         assert_eq!(simple_name("java/util/HashMap$Itr", ctx()), "Itr");
         assert_eq!(simple_name("I", ctx()), "int");
@@ -1447,7 +1442,7 @@ mod tests {
 
     #[test]
     fn to_string_shapes() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert_eq!(
             to_string_of("java/lang/String", ctx()),
             "class java.lang.String"
@@ -1465,7 +1460,7 @@ mod tests {
 
     #[test]
     fn class_objects_are_interned_and_rooted() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let a = class_ref("j2r/test/ReflIntern");
         let b = class_ref("j2r/test/ReflIntern");
         assert!(JRef::ptr_eq(&a, &b));
@@ -1477,7 +1472,7 @@ mod tests {
 
     #[test]
     fn superclass_edges() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         assert!(superclass_of("I", ctx()).is_none());
         assert_eq!(
             superclass_of("[I", ctx()).as_deref(),
@@ -1492,7 +1487,7 @@ mod tests {
 
     #[test]
     fn component_types() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // Component types come back as *intern keys* (internal names /
         // primitive descriptors), never raw field descriptors — the caller
         // feeds them straight into `class_ref` for identity equality with
@@ -1639,7 +1634,7 @@ mod caller_law_tests {
 
     #[test]
     fn refusal_message_laws() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // The message reads OUTSIDE the with_obj closure — a nested
         // heap read on the same object deadlocks the heap lock (the
         // registered never-repeat rule).

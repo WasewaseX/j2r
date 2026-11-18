@@ -4,6 +4,7 @@
 //! The recipe embeds dynamic argument positions as `\u0001` and
 //! bootstrap constants as `\u0002`; everything else is literal text.
 
+use crate::internal_error;
 use crate::object::{self, is_string};
 use crate::Value;
 use crate::{Dispatch, Throw};
@@ -31,7 +32,7 @@ pub fn format_value(v: &Value, kind: char, ctx: Dispatch) -> Result<String, Thro
             format_ref(r.as_ref(), ctx)?
         }
         (k, other) => {
-            return Err(crate::internal_error(&format!(
+            return Err(internal_error(&format!(
                 "concat formatting {other:?} as {k:?}"
             )))
         }
@@ -65,9 +66,7 @@ pub fn format_ref(r: Option<&crate::heap::JRef>, ctx: Dispatch) -> Result<String
                 ) {
                     Ok(Value::Ref(Some(s))) => Ok(object::string_value(&s).to_string()),
                     Ok(Value::Ref(None)) => Ok("null".to_string()),
-                    Ok(other) => Err(crate::internal_error(&format!(
-                        "toString returned {other:?}"
-                    ))),
+                    Ok(other) => Err(internal_error(&format!("toString returned {other:?}"))),
                     Err(t) => Err(t),
                 }
             }
@@ -85,7 +84,7 @@ fn format_constant(v: &Value, ctx: Dispatch) -> Result<String, Throw> {
         Value::Double(d) => Ok(crate::javafmt::double_to_string(*d)),
         Value::Str(s) => Ok(s.to_string()),
         Value::Ref(r) => format_ref(r.as_ref(), ctx),
-        Value::Void => Err(crate::internal_error("void constant in concat recipe")),
+        Value::Void => Err(internal_error("void constant in concat recipe")),
     }
 }
 
@@ -110,7 +109,7 @@ pub fn string_concat(
             '\u{1}' => {
                 let v = args
                     .get(arg_i)
-                    .ok_or_else(|| crate::internal_error("concat recipe has more slots than args"))?
+                    .ok_or_else(|| internal_error("concat recipe has more slots than args"))?
                     .clone();
                 let kind = arg_kinds.chars().nth(arg_i).unwrap_or('L');
                 out.push_str(&format_value(&v, kind, ctx)?);
@@ -119,9 +118,7 @@ pub fn string_concat(
             '\u{2}' => {
                 let v = constants
                     .get(const_i)
-                    .ok_or_else(|| {
-                        crate::internal_error("concat recipe has more slots than constants")
-                    })?
+                    .ok_or_else(|| internal_error("concat recipe has more slots than constants"))?
                     .clone();
                 out.push_str(&format_constant(&v, ctx)?);
                 const_i += 1;
@@ -142,7 +139,7 @@ mod tests {
 
     #[test]
     fn plain_recipe() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = string_concat("hello world", &[], &[], "", no_dispatch()).unwrap();
         assert_eq!(
             &*object::string_value(&r.expect_ref().unwrap()),
@@ -152,7 +149,7 @@ mod tests {
 
     #[test]
     fn mixed_args_and_constants() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // javac for "x=" + 5 + 1.0d + 'c' + true + s, roughly:
         // recipe "x=\u0001=\u0002 \u0001..." — here a synthetic mix
         let r = string_concat(
@@ -171,7 +168,7 @@ mod tests {
 
     #[test]
     fn null_and_boolean() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = string_concat(
             "\u{1}/\u{1}",
             &[],
@@ -188,7 +185,7 @@ mod tests {
 
     #[test]
     fn char_kind() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = string_concat("[\u{1}]", &[], &[Value::Int(65)], "C", no_dispatch()).unwrap();
         assert_eq!(&*object::string_value(&r.expect_ref().unwrap()), "[A]");
     }

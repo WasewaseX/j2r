@@ -15,7 +15,6 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 cd "$REPO"
-# shellcheck disable=SC1091
 source /home/z/my-project/env.sh
 
 echo "== G3.3 slice 1: the signature-pin evidence run =="

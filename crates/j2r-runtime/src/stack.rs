@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn pop2_handles_both_categories() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let mut s = vec![i(1), l(7)];
         stack_pop2(&mut s);
         assert_eq!(s.len(), 1);
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn dup2_both_forms() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // F2: single cat2 value
         let mut s = vec![i(1), l(7)];
         stack_dup2(&mut s);
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn dup_x1_works() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let mut s = vec![i(2), i(1)];
         stack_dup_x1(&mut s);
         assert_eq!(s, vec![i(1), i(2), i(1)]);
@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn dup_x2_both_forms() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // F1: three cat-1 values
         let mut s = vec![i(3), i(2), i(1)];
         stack_dup_x2(&mut s);
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn dup2_x1_both_forms() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // F1: all cat1
         let mut s = vec![i(3), i(2), i(1)];
         stack_dup2_x1(&mut s);
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn dup2_x2_all_four_forms() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // F1: all cat1
         let mut s = vec![i(4), i(3), i(2), i(1)];
         stack_dup2_x2(&mut s);
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn swap_works() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let mut s = vec![i(2), i(1)];
         stack_swap(&mut s);
         assert_eq!(s, vec![i(1), i(2)]);
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn pop_n_returns_original_order() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let mut s = vec![i(1), i(2), i(3)];
         assert_eq!(pop_n(&mut s, 2), vec![i(2), i(3)]);
         assert_eq!(s, vec![i(1)]);
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn pop_ref_msg_carries_the_message_on_null() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let mut s = vec![Value::Ref(None)];
         let t = pop_ref_msg(
             &mut s,
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn pop_ref_msg_none_is_the_bare_npe_law() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // None == the pre-existing pop_ref law: the slot holds a null
         // ref and getMessage() reads it back as null.
         let mut s = vec![Value::Ref(None)];
@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn pop_ref_msg_success_law_unchanged() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // A non-null receiver pops identically with and without a
         // message — the message never touches the success path.
         let obj = crate::object::new_string("s");

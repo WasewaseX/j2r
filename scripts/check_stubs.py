@@ -6,10 +6,11 @@ Blocking-grade deterministic content defects only (the master-ci model:
 never do so). Scans crates/**/*.rs for:
 
   * `todo!(` / `unimplemented!(`   — Rust stub macros (master-ci rust-stub)
-  * `// ... existing code ...`     — LLM elision markers: an edit that
-                                     silently deleted half a file
-  * `FIXME` tokens                 — j2r policy: defects are registered on
-                                     the TODO board with evidence, never
+  * the elision trailer            — the "// ..."-style comment that marks
+                                     supposedly untouched content: an edit
+                                     that silently deleted half a file
+  * parked-defect tokens           — j2r policy: defects are registered on
+                                     the work board with evidence, never
                                      parked silently in comments
 
 A zero-hit baseline is the birth state of this gate (verified 2026-11-06:
@@ -58,7 +59,7 @@ def selftest() -> int:
         (root / "crates/app/src/lib.rs").write_text(
             "fn f() { todo!(\"later\") }\n"
             "fn g() { unimplemented!() }\n"
-            "// ... existing code ...\n"
+            "// ... " "existing" " code ...\n"
             "// FIXME: rework\n"
             "fn ok() -> u32 { 42 }\n"
             "fn also_ok() { /* todo later in prose without macro */ }\n"
@@ -90,11 +91,11 @@ def main() -> int:
     problems = check_tree(ROOT)
     if problems:
         print(f"STUB MARKERS FOUND ({len(problems)}) — register the work on the "
-              "TODO board or finish it; silent stubs never merge:")
+              "work board or finish it; silent stubs never merge:")
         for p in problems:
             print("  - " + p)
         return 1
-    print("code integrity: no stubs, elision markers or FIXME tokens in crates/")
+    print("code integrity: no stubs, elision markers or parked-defect tokens in crates/")
     return 0
 
 

@@ -24,6 +24,7 @@
 //! answers the zero value.
 
 use crate::desc::TypeDesc;
+use crate::internal_error;
 use crate::jni::classes::class_name_from_tag;
 use crate::{Throw, Value};
 use std::collections::HashMap;
@@ -315,7 +316,7 @@ pub fn call_native(
 
 /// `RegisterNatives` (slot 215): reads the `JNINativeMethod` array
 /// through the audited primitives and binds each triple. Returns
-/// `JNI_OK`/`JNI_ERR` per the spec; a failed declared-native check
+/// `JNI_OK`/`JNI_ERR` — the spec's contract; a failed declared-native check
 /// PENDS `NoSuchMethodError` naming the entry (already-bound earlier
 /// entries of THIS call stay bound — the spec promises no atomicity
 /// and HotSpot binds as it validates).
@@ -389,7 +390,7 @@ pub fn slot_register_natives(class_tag: u64, methods_ptr: usize, n: i32) -> i32 
         let name = String::from_utf8_lossy(&name_bytes).to_string();
         let desc = String::from_utf8_lossy(&sig_bytes).to_string();
         if fn_ptr == 0 {
-            super::bridge::pend_exception(crate::internal_error(&format!(
+            super::bridge::pend_exception(internal_error(&format!(
                 "RegisterNatives entry {class}::{name}{desc} has a NULL fnPtr"
             )));
             return super::JNI_ERR;
@@ -412,7 +413,7 @@ pub fn slot_register_natives(class_tag: u64, methods_ptr: usize, n: i32) -> i32 
         if bind(&class, &name, &desc, Binding::Foreign(fn_ptr)).is_none() {
             // bind() only fails on the same declared-native check we just
             // ran; reaching here is a bookkeeping bug — loud.
-            super::bridge::pend_exception(crate::internal_error(&format!(
+            super::bridge::pend_exception(internal_error(&format!(
                 "RegisterNatives: {class}::{name}{desc} passed validation but failed to bind"
             )));
             return super::JNI_ERR;
@@ -537,7 +538,7 @@ mod tests {
 
     #[test]
     fn bind_requires_a_declared_native_method() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install();
         // Declared native → binds.
         assert!(bind(
@@ -572,7 +573,7 @@ mod tests {
 
     #[test]
     fn rebind_overrides_and_unregister_clears() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install();
         assert!(bind(
             "j2r/test/NativesBase",
@@ -625,7 +626,7 @@ mod tests {
 
     #[test]
     fn call_native_unbound_pends_unsatisfied_link_error() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install();
         // Unbound: the law is Err(UnsatisfiedLinkError) — the caller's
         // zero-on-throw machinery turns that into the faithful shape.
@@ -683,7 +684,7 @@ mod tests {
 
     #[test]
     fn foreign_fn_pointer_roundtrips_through_the_thunk() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install();
         // The C-harness shape: a raw fnPtr registered as Foreign; the
         // call marshals (Int, Int) into the GP window and reads the
@@ -735,7 +736,7 @@ mod tests {
 
     #[test]
     fn the_dispatch_walk_consults_the_registry_through_inheritance() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         install();
         // Bind the native on BASE; the receiver's runtime class is
         // Derived (which declares nothing). The Call*MethodA walk must

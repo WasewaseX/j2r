@@ -36,6 +36,7 @@ public class MonitorContention {
                 try {
                     gate.wait();
                 } catch (InterruptedException e) {
+                    /* interruption unwinds only the wait; the loop re-checks the gate */
                 }
             }
             gatePass += 100000;

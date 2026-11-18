@@ -7,7 +7,6 @@ Peak RSS comes from getrusage(RUSAGE_CHILDREN) — in this wrapper the
 only reaped child is the measured command.
 """
 import argparse
-import os
 import resource
 import subprocess
 import sys

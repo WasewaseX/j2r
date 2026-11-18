@@ -356,7 +356,7 @@ mod tests {
         // child process, with a REAL array handle so the miss is the
         // registry's, not the stale-handle path.
         if std::env::var("J2R_JNI_ARRAY_RELEASE_ABORT_CHILD").is_ok() {
-            let _rt = crate::test_support::runtime();
+            let _rt = crate::runtime();
             let tag = crate::jni::arrays::slot_new_prim_array(crate::jni::arrays::PrimKind::I, 4);
             let obj = crate::jni::bridge::tag_to_jobject(tag);
             let release: extern "system" fn(JNIEnv, tables::jobject, *mut i32, i32) =

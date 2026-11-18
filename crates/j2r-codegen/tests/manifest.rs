@@ -27,6 +27,12 @@ fn temp_dir(name: &str) -> PathBuf {
     d
 }
 
+/// The Util.iadd fixture row (static, no fields, `iadd;ireturn` payload)
+/// that the manifest-lifecycle tests reuse.
+fn util_iadd_row() -> Vec<u8> {
+    static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac])
+}
+
 /// A static `inc(I)I` class; `add` selects the method body (bodies with the
 /// same signature but different bytecode drive the body-edit scenario).
 fn static_method_class(name: &str, extra_method: bool, body: &[u8]) -> Vec<u8> {
@@ -155,11 +161,7 @@ fn compile(inputs: Vec<PathBuf>, out: &Path) -> j2r_codegen::manifest::EmitStats
 fn stat_fast_path_trusts_then_falls_back_to_hash() {
     let dir = temp_dir("statfp");
     let out = dir.join("out");
-    let util = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util = write_class(&dir, "Util", &util_iadd_row());
     let app = write_class(&dir, "App", &app_class());
     let inputs = || vec![util.clone(), app.clone()];
     compile(inputs(), &out);
@@ -247,11 +249,7 @@ fn mtime(p: &Path) -> SystemTime {
 fn reuse_on_identical_inputs() {
     let dir = temp_dir("reuse");
     let out = dir.join("out");
-    let util = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util = write_class(&dir, "Util", &util_iadd_row());
     let app = write_class(&dir, "App", &app_class());
 
     let s1 = compile(vec![util.clone(), app.clone()], &out);
@@ -335,11 +333,7 @@ fn body_edit_reemits_only_edited_class() {
     let dir = temp_dir("body");
     let out = dir.join("out");
     let app = write_class(&dir, "App", &app_class());
-    let util_v1 = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util_v1 = write_class(&dir, "Util", &util_iadd_row());
 
     compile(vec![util_v1.clone(), app.clone()], &out);
     let app_rs = out.join("src/classes/App.rs");
@@ -372,11 +366,7 @@ fn surface_change_reemits_all() {
     let dir = temp_dir("surface");
     let out = dir.join("out");
     let app = write_class(&dir, "App", &app_class());
-    let util_v1 = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util_v1 = write_class(&dir, "Util", &util_iadd_row());
     compile(vec![util_v1.clone(), app.clone()], &out);
 
     // signature change: Util gains a static method `id`
@@ -395,11 +385,7 @@ fn surface_change_reemits_all() {
 fn removed_class_orphan_deleted() {
     let dir = temp_dir("orphan");
     let out = dir.join("out");
-    let util = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util = write_class(&dir, "Util", &util_iadd_row());
     let app = write_class(&dir, "App", &app_class());
     let extra = write_class(
         &dir,
@@ -433,11 +419,7 @@ fn removed_class_orphan_deleted() {
 fn corrupt_manifest_falls_back_to_full_reemit() {
     let dir = temp_dir("corrupt");
     let out = dir.join("out");
-    let util = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util = write_class(&dir, "Util", &util_iadd_row());
     let app = write_class(&dir, "App", &app_class());
     compile(vec![util.clone(), app.clone()], &out);
 
@@ -462,11 +444,7 @@ fn partitioned_reuse_and_body_edit_isolation() {
     let dir = temp_dir("part");
     let out = dir.join("out");
     let app = write_class(&dir, "App", &app_class());
-    let util_v1 = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util_v1 = write_class(&dir, "Util", &util_iadd_row());
 
     // k=1: two classes -> two part crates; App calls Util cross-partition
     // (through the link table), so this exercises the seam path too
@@ -521,11 +499,7 @@ fn partition_budget_change_invalidates_gate() {
     let dir = temp_dir("partk");
     let out = dir.join("out");
     let _app = write_class(&dir, "App", &app_class());
-    let _util = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let _util = write_class(&dir, "Util", &util_iadd_row());
     let _extra = write_class(
         &dir,
         "Extra",
@@ -555,11 +529,7 @@ fn partition_budget_change_invalidates_gate() {
 fn emit_cfg_change_invalidates_gate() {
     let dir = temp_dir("emitcfg");
     let out = dir.join("out");
-    let util = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util = write_class(&dir, "Util", &util_iadd_row());
     let app = write_class(&dir, "App", &app_class());
     compile(vec![util.clone(), app.clone()], &out);
 
@@ -598,11 +568,7 @@ fn emit_cfg_change_invalidates_gate() {
 fn hand_edited_emitted_file_is_not_reused() {
     let dir = temp_dir("handedit");
     let out = dir.join("out");
-    let util = write_class(
-        &dir,
-        "Util",
-        &static_method_class("Util", false, &[0x1a, 0x04, 0x60, 0xac]),
-    );
+    let util = write_class(&dir, "Util", &util_iadd_row());
     let app = write_class(&dir, "App", &app_class());
     compile(vec![util.clone(), app.clone()], &out);
 

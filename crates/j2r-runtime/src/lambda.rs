@@ -16,8 +16,10 @@
 //!   capture-by-value; a later mutation of the original local is not
 //!   observed, pinned differentially by `LambdaCapture`).
 
+use crate::collections::arg_or_null;
 use crate::desc::{parse_method_desc, TypeDesc};
 use crate::heap::{self, JRef};
+use crate::internal_error;
 use crate::natives;
 use crate::object::{new_obj, JObj};
 use crate::{throw_new, Dispatch, Throw, Value};
@@ -82,7 +84,7 @@ pub fn n_sam(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value
     let (impl_params, impl_ret) = match parse_method_desc(&tdesc) {
         Some(pair) => pair,
         None => {
-            return Err(crate::internal_error(&format!(
+            return Err(internal_error(&format!(
                 "j2r internal: bad closure target descriptor {tdesc:?}"
             )))
         }
@@ -108,7 +110,7 @@ pub fn n_sam(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value
             adapt_result(out, &iface, &impl_ret, ctx)
         }
         SHAPE_UNBOUND => {
-            let first = args.first().cloned().unwrap_or(Value::Ref(None));
+            let first = arg_or_null(args);
             let recv_ref = receiver_ref(&first)?;
             let mut full = args[1..].to_vec();
             // impl params beyond the receiver align 1:1 with the remaining
@@ -132,7 +134,7 @@ pub fn n_sam(recv: Option<&JRef>, args: &[Value], ctx: Dispatch) -> Result<Value
             call_target(ctx, &tcls, "<init>", &tdesc, Some(&obj), &full)?;
             Ok(Value::Ref(Some(obj)))
         }
-        other => Err(crate::internal_error(&format!(
+        other => Err(internal_error(&format!(
             "j2r internal: unknown closure shape {other}"
         ))),
     }
@@ -210,9 +212,9 @@ fn adapt_result(
 fn unbox(v: &Value, prim: char, ctx: Dispatch) -> Result<Value, Throw> {
     let r = match v {
         Value::Ref(Some(r)) => *r,
-        Value::Ref(None) => return Err(throw_new("java/lang/NullPointerException", None)),
+        Value::Ref(None) => return Err(crate::npe()),
         other => {
-            return Err(crate::internal_error(&format!(
+            return Err(internal_error(&format!(
                 "j2r internal: unboxing non-reference {other:?} as {prim}"
             )))
         }

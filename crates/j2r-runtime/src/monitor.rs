@@ -483,6 +483,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
+    use std::thread;
 
     fn new_object() -> JRef {
         crate::object::new_obj("java/lang/Object", 0).unwrap()
@@ -507,7 +508,7 @@ mod tests {
     /// T10: re-entrant acquisition on the real state machine.
     #[test]
     fn monitor_enter_is_reentrant() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         assert_eq!(monitor_owner(&r), None);
         monitor_enter(&r).unwrap();
@@ -523,7 +524,7 @@ mod tests {
     /// (Temurin 21 monitorexit carries no message).
     #[test]
     fn monitor_exit_without_ownership_is_imse() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         let err = monitor_exit(&r).unwrap_err();
         assert_eq!(class_of(&err), "java/lang/IllegalMonitorStateException");
@@ -535,7 +536,7 @@ mod tests {
     /// non-owner with a negative timeout gets the IAE, not the IMSE.
     #[test]
     fn wait_notify_without_ownership_is_imse() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         // Ranges run before the ownership check (Java-level wrapper).
         let err = object_wait(&r, -1, 0).unwrap_err();
@@ -560,7 +561,7 @@ mod tests {
     /// these to reach the range checks).
     #[test]
     fn wait_argument_validation_is_jdk_exact() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         monitor_enter(&r).unwrap();
         let err = object_wait(&r, -1, 0).unwrap_err();
@@ -578,13 +579,13 @@ mod tests {
     /// ownership while the waiter reacquires with the saved count.
     #[test]
     fn wait_releases_and_restores_full_count() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         monitor_enter(&r).unwrap();
         monitor_enter(&r).unwrap();
         assert_eq!(monitor_count(&r), 2);
         let r2 = r;
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             // Acquire (the waiter released everything), notify, exit.
             monitor_enter(&r2).unwrap();
             object_notify(&r2, false).unwrap();
@@ -603,7 +604,7 @@ mod tests {
     /// T11: notify with an empty wait set is a no-op.
     #[test]
     fn notify_with_empty_wait_set_is_noop() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         monitor_enter(&r).unwrap();
         object_notify(&r, false).unwrap();
@@ -616,11 +617,11 @@ mod tests {
     /// previous owner can reacquire afterwards. Cross-thread, real park.
     #[test]
     fn contended_enter_parks_and_changes_hands() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         monitor_enter(&r).unwrap();
         let r2 = r;
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             // Blocks here until the parent exits below (T10 park path).
             monitor_enter(&r2).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(20));
@@ -638,7 +639,7 @@ mod tests {
     /// deadline, with the monitor reacquired (nanos >= 500000 rounds up).
     #[test]
     fn timed_wait_returns_after_deadline() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         monitor_enter(&r).unwrap();
         let start = std::time::Instant::now();
@@ -658,12 +659,12 @@ mod tests {
     /// when notify returns).
     #[test]
     fn notify_wakes_the_waiter() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let r = new_object();
         let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let s2 = started.clone();
         let r2 = r;
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             monitor_enter(&r2).unwrap();
             s2.store(true, Ordering::Release);
             object_wait(&r2, 0, 0).unwrap();

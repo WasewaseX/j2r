@@ -72,6 +72,7 @@
 //!   registry without holding any other lock.
 
 use crate::heap::JRef;
+use crate::internal_error;
 use crate::{throw_new, Throw, Value};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -163,6 +164,12 @@ pub struct ThreadRecord {
 }
 
 impl ThreadRecord {
+    /// The RUNNING transition the scheduler hand-offs make (Wave 3): one
+    /// spelling for the state store, never a bare atomic at the call site.
+    fn set_running(&self) {
+        self.state.store(STATE_RUNNING, Ordering::Release);
+    }
+
     fn new(reg_index: usize, name: &str, running: bool, in_ring: bool) -> Self {
         ThreadRecord {
             reg_index,
@@ -330,7 +337,7 @@ pub fn begin_main_java_thread() {
     *rec.name.lock().unwrap_or_else(|e| e.into_inner()) = "main".to_string();
     rec.daemon.store(false, Ordering::Release);
     rec.alive.store(true, Ordering::Release);
-    rec.state.store(STATE_RUNNING, Ordering::Release);
+    rec.set_running();
     rec.in_ring.store(true, Ordering::Release);
     apply_coop_seed_if_needed();
 }
@@ -466,7 +473,7 @@ pub(crate) fn yield_point() {
         me.state.store(STATE_PARKED, Ordering::Release);
         g = SCHED_CV.wait(g).unwrap_or_else(|e| e.into_inner());
     }
-    me.state.store(STATE_RUNNING, Ordering::Release);
+    me.set_running();
 }
 
 // ------------------------------------------------- monitor park (Wave 3)
@@ -516,7 +523,7 @@ pub(crate) fn monitor_wake_prep(rec: &Arc<ThreadRecord>) {
     rec.in_monitor_wait.store(false, Ordering::Release);
     safepoint_poll();
     yield_point();
-    rec.state.store(STATE_RUNNING, Ordering::Release);
+    rec.set_running();
 }
 
 // ------------------------------------------------------- STW (T08)
@@ -540,7 +547,7 @@ pub(crate) fn safepoint_poll() {
         g = SCHED_CV.wait(g).unwrap_or_else(|e| e.into_inner());
     }
     stw_trace("sfp-exit", me.reg_index);
-    me.state.store(STATE_RUNNING, Ordering::Release);
+    me.set_running();
 }
 
 /// RAII stop-the-world token (T08). `begin` publishes the GC request and
@@ -649,7 +656,7 @@ impl Drop for StwGuard {
 /// exactly once: alive=false, state=Exited, coop turn granted onward,
 /// everyone notified (joiners, the ring, a waiting collector or shutdown).
 fn run_body(rec: &Arc<ThreadRecord>, body: impl FnOnce() -> Result<(), Throw>) {
-    rec.state.store(STATE_RUNNING, Ordering::Release);
+    rec.set_running();
     rec.alive.store(true, Ordering::Release);
     // First yield point: acquire the turn granted by the starting thread's
     // handoff (coop); no-op in free mode.
@@ -881,7 +888,7 @@ fn dispatch_runnable(run: &JRef, ctx: crate::Dispatch) -> Result<(), Throw> {
         }
     }
     // A `Runnable` with no resolvable run(): a builtin shape gap — loud.
-    Err(crate::internal_error(&format!(
+    Err(internal_error(&format!(
         "j2r internal: no run()V found on runnable class {cls}"
     )))
 }
@@ -961,7 +968,7 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
             notify_all(&g);
             loop {
                 if interrupted_now(&me) {
-                    me.state.store(STATE_RUNNING, Ordering::Release);
+                    me.set_running();
                     // L7: no SCHED guard across the heap lock (slot 5).
                     drop(g);
                     clear_interrupt(&me);
@@ -976,7 +983,7 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
                     .unwrap_or_else(|e| e.into_inner())
                     .0;
             }
-            me.state.store(STATE_RUNNING, Ordering::Release);
+            me.set_running();
             return Ok(Value::Void);
         }
         if coop_mode() {
@@ -997,7 +1004,7 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
         }
         loop {
             if interrupted_now(&me) {
-                me.state.store(STATE_RUNNING, Ordering::Release);
+                me.set_running();
                 clear_interrupt(&me);
                 return Err(throw_new("java/lang/InterruptedException", None));
             }
@@ -1044,7 +1051,7 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
         // this condvar). Delivery clears the flag and throws the
         // message-less InterruptedException the probes pinned.
         if interrupted_now(&me) {
-            me.state.store(STATE_RUNNING, Ordering::Release);
+            me.set_running();
             // L7: drop the SCHED guard before the heap lock (slot 5).
             drop(g);
             clear_interrupt(&me);
@@ -1063,7 +1070,7 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
             g = SCHED_CV.wait(g).unwrap_or_else(|e| e.into_inner());
         }
     }
-    me.state.store(STATE_RUNNING, Ordering::Release);
+    me.set_running();
     Ok(Value::Void)
 }
 
@@ -1137,7 +1144,7 @@ pub fn n_thread_sleep(args: &[Value]) -> Result<Value, Throw> {
         notify_all(&g);
         loop {
             if interrupted_now(&me) {
-                me.state.store(STATE_RUNNING, Ordering::Release);
+                me.set_running();
                 // L7: the SCHED guard must be gone before clear_interrupt
                 // touches the heap (slot 5) — heap paths take the SCHED
                 // lock, so SCHED-then-heap would close a cycle.
@@ -1157,7 +1164,7 @@ pub fn n_thread_sleep(args: &[Value]) -> Result<Value, Throw> {
                 .unwrap_or_else(|e| e.into_inner())
                 .0;
         }
-        me.state.store(STATE_RUNNING, Ordering::Release);
+        me.set_running();
         return Ok(Value::Void);
     }
     std::thread::yield_now();
@@ -1475,7 +1482,7 @@ fn join_record(t: &Arc<ThreadRecord>) {
     while t.state.load(Ordering::Acquire) != STATE_EXITED {
         g = SCHED_CV.wait(g).unwrap_or_else(|e| e.into_inner());
     }
-    me.state.store(STATE_RUNNING, Ordering::Release);
+    me.set_running();
 }
 
 /// Collector hook (T08): the registry's own roots — every record's Java
@@ -1553,6 +1560,7 @@ pub(crate) mod frame_slots {
 mod tests {
     use super::*;
     use std::sync::Barrier;
+    use std::thread;
 
     /// Test-only RAII: marks the thread's record `Exited` on scope end so
     /// a raw `std::thread::spawn` in a test never leaves a zombie
@@ -1599,7 +1607,7 @@ mod tests {
     /// thread; different objects across two threads (M4_PLAN §1).
     #[test]
     fn current_thread_identity_holds() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let a1 = current_thread_object();
         let a2 = current_thread_object();
         assert!(JRef::ptr_eq(&a1, &a2), "identity must hold within a thread");
@@ -1625,10 +1633,10 @@ mod tests {
     /// fails instead of hanging CI.
     #[test]
     fn stw_handshake_allocator_and_collector() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let barrier = Arc::new(Barrier::new(2));
         let b2 = barrier.clone();
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             let _d = TestDeath(current_record());
             b2.wait();
             for _ in 0..200 {
@@ -1658,13 +1666,13 @@ mod tests {
     /// frame's exact situation); the collector scans it there.
     #[test]
     fn cross_thread_frame_rooting_survives_collection() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let obj = crate::object::new_obj("test/CrossRoot", 1).unwrap();
         let barrier = Arc::new(Barrier::new(2));
         let b2 = barrier.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = stop.clone();
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             let _d = TestDeath(current_record());
             // Root it in the CHILD thread's frame registry (a NativeRoots
             // scope is the same slot machinery a suspended frame uses) and
@@ -1701,7 +1709,7 @@ mod tests {
     /// the child is in.
     #[test]
     fn coop_round_robin_is_deterministic() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_coop_for_test(true);
         let parent = current_record();
         parent.in_ring.store(true, Ordering::Release);
@@ -1715,7 +1723,7 @@ mod tests {
         let d2 = done.clone();
         let barrier = Arc::new(Barrier::new(2));
         let b2 = barrier.clone();
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             let _d = TestDeath(current_record());
             let rec = current_record();
             rec.in_ring.store(true, Ordering::Release);
@@ -1775,7 +1783,7 @@ mod tests {
     /// so the rotation order of the real participants is unchanged.
     #[test]
     fn coop_ignores_non_ring_threads() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_coop_for_test(true);
         let parent = current_record();
         parent.in_ring.store(true, Ordering::Release);
@@ -1849,11 +1857,11 @@ mod tests {
     /// join returns (the JDK start/join memory-model edge).
     #[test]
     fn join_happens_before_edge() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         static SEEN: AtomicI64 = AtomicI64::new(0);
         let flag = Arc::new(AtomicBool::new(false));
         let f2 = flag.clone();
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             let _d = TestDeath(current_record());
             SEEN.store(42, Ordering::Release);
             f2.store(true, Ordering::Release);
@@ -1866,7 +1874,7 @@ mod tests {
     /// T06: sleep exception messages are Temurin-exact.
     #[test]
     fn sleep_rejects_bad_arguments() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let t = n_thread_sleep(&[Value::Long(-1)]).unwrap_err();
         assert_eq!(t.java_class(), "java/lang/IllegalArgumentException");
         let msg = crate::heap::with_obj(t.obj, |o| o.slots[0].clone());
@@ -1881,7 +1889,7 @@ mod tests {
     /// T06: start-before-setDaemon is JDK-exact (IllegalThreadStateException).
     #[test]
     fn set_daemon_after_start_is_rejected_by_flag() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         // Direct slot check (the full path runs in the ThreadHello fixture):
         // started = slot 3 non-zero → setDaemon must refuse.
         let r = crate::heap::alloc(crate::object::JObj {
@@ -1906,7 +1914,7 @@ mod tests {
     /// still-present properties are stable under cargo's parallel runner.
     #[test]
     fn registry_records_are_stable() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let rec = std::thread::spawn(|| {
             let d = TestDeath(current_record());
             d.0.clone()
@@ -1957,7 +1965,7 @@ mod tests {
     /// reads AND clears (probe: true/true/true/false).
     #[test]
     fn interrupt_flag_semantics_are_jdk_exact() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let me = current_record();
         let obj = thread_obj_for(me.reg_index as i64);
         n_thread_interrupt(Some(&obj)).unwrap();
@@ -1973,7 +1981,7 @@ mod tests {
     /// (EdgeProbe before-sleep + C).
     #[test]
     fn pre_interrupted_sleep_throws_and_clears() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let me = current_record();
         let obj = thread_obj_for(me.reg_index as i64);
         n_thread_interrupt(Some(&obj)).unwrap();
@@ -1989,9 +1997,9 @@ mod tests {
     /// (the scheduler-condvar wake channel; no 60-second hang).
     #[test]
     fn interrupt_wakes_a_sleeping_thread() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let (tx, rx) = std::sync::mpsc::channel::<JRef>();
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             let rec = current_record();
             let _d = TestDeath(rec);
             tx.send(current_thread_object()).unwrap();
@@ -2017,7 +2025,7 @@ mod tests {
     /// (JoinInterruptProbe: msg=null).
     #[test]
     fn pre_interrupted_self_join_throws_message_less() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let me = current_record();
         let obj = thread_obj_for(me.reg_index as i64);
         n_thread_interrupt(Some(&obj)).unwrap();
@@ -2031,7 +2039,7 @@ mod tests {
     /// proven here by a clean exit afterwards and an IMSE on the second.
     #[test]
     fn pre_interrupted_wait_keeps_the_monitor() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let obj = crate::object::new_obj("test/WaitPreInt", 0).unwrap();
         let me = current_record();
         let tobj = thread_obj_for(me.reg_index as i64);
@@ -2050,11 +2058,11 @@ mod tests {
     /// catch handler owns the monitor.
     #[test]
     fn interrupt_wakes_a_monitor_waiter() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let obj = crate::object::new_obj("test/WaitInt", 0).unwrap();
         let (tx, rx) = std::sync::mpsc::channel::<usize>();
         let o2 = obj;
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             let rec = current_record();
             let _d = TestDeath(rec);
             crate::monitor::monitor_enter(&o2).unwrap();
@@ -2082,7 +2090,7 @@ mod tests {
     /// set through the enter).
     #[test]
     fn monitor_enter_ignores_the_interrupt_flag() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let obj = crate::object::new_obj("test/EnterInt", 0).unwrap();
         let (tx, rx) = std::sync::mpsc::channel::<JRef>();
         let holder = std::thread::spawn(move || {
@@ -2117,7 +2125,7 @@ mod tests {
     /// flag (dead-probe: isInterrupted reads true afterwards).
     #[test]
     fn interrupt_after_death_sets_the_flag() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let tid = std::thread::spawn(|| current_record().reg_index)
             .join()
             .unwrap();
@@ -2131,7 +2139,7 @@ mod tests {
     /// (D-probe).
     #[test]
     fn interrupt_before_start_is_observable() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let obj = thread_obj_for(-1);
         n_thread_interrupt(Some(&obj)).unwrap();
         assert_eq!(n_thread_is_interrupted(Some(&obj)).unwrap(), Value::Int(1));
@@ -2142,7 +2150,7 @@ mod tests {
     /// await_non_daemons must not wait on a live daemon record.
     #[test]
     fn main_exits_with_live_daemons() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let daemon = register_named_record("daemon", false, false);
         daemon.daemon.store(true, Ordering::Release);
         daemon.state.store(STATE_RUNNING, Ordering::Release);
@@ -2162,9 +2170,9 @@ mod tests {
     /// by main_exits_with_live_daemons' counterpart).
     #[test]
     fn main_waits_for_non_daemon() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let (tx, rx) = std::sync::mpsc::channel::<()>();
-        let child = std::thread::spawn(move || {
+        let child = thread::spawn(move || {
             let rec = current_record();
             rec.in_ring.store(true, Ordering::Release);
             let _d = TestDeath(rec);
@@ -2189,7 +2197,7 @@ mod tests {
     /// instead of hanging CI.
     #[test]
     fn daemon_death_releases_the_stw_handshake() {
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         let dying = register_named_record("dying-daemon", false, true);
         dying.daemon.store(true, Ordering::Release);
         dying.state.store(STATE_RUNNING, Ordering::Release);
@@ -2303,7 +2311,7 @@ mod tests {
     #[test]
     fn stress_coop_producer_consumer_rounds() {
         let _serial = STRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         set_coop_for_test(true);
         let seeds: [usize; 5] = [0, 1, 3, 7, 11];
         for seed in seeds {
@@ -2363,7 +2371,7 @@ mod tests {
     #[test]
     fn stress_free_running_producer_consumer_chaos() {
         let _serial = STRESS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _rt = crate::test_support::runtime();
+        let _rt = crate::runtime();
         for us in [0u32, 300, 800, 1500] {
             chaos_set(us);
             stress_round(4, 30, Instant::now() + std::time::Duration::from_secs(60));

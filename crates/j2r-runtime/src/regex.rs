@@ -73,7 +73,7 @@ pub fn n_pattern_matcher(
     let p = recv.expect("j2r internal: Pattern.matcher without receiver");
     let input = match args.first() {
         Some(Value::Ref(Some(o))) => crate::object::string_value(o).to_string(),
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        Some(Value::Ref(None)) => return Err(crate::npe()),
         _ => return Err(internal_error("Pattern.matcher needs a CharSequence")),
     };
     let m = new_obj("java/util/regex/Matcher", 2)?;
@@ -98,7 +98,7 @@ pub fn n_matcher_replace_all(
     let m = recv.expect("j2r internal: Matcher.replaceAll without receiver");
     let replacement = match args.first() {
         Some(Value::Ref(Some(o))) => crate::object::string_value(o).to_string(),
-        Some(Value::Ref(None)) => return Err(throw_new("java/lang/NullPointerException", None)),
+        Some(Value::Ref(None)) => return Err(crate::npe()),
         _ => return Err(internal_error("Matcher.replaceAll needs a replacement")),
     };
     let (input, pat) = with_obj(*m, |o| {
