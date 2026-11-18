@@ -35,8 +35,16 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 
-final class Inflate{
-  
+/**
+ * The JZlib 1.1.0 inflate state machine core: constants, fields,
+ * lifecycle, and the inflate() dispatcher refactored from the 377-line
+ * upstream case-switch into try{while{switch{case: state-method}}}
+ * dispatch (the upstream switch fallthrough is equivalent to
+ * set-mode-then-redispatch because the loop body is the switch) -
+ * round-3 reshaping, behavior byte-identical.
+ */
+final class Inflate implements InflateC {
+
   static final private int MAX_WBITS=15; // 32K LZ77 window
 
   // preset dictionary flag in zlib header
@@ -111,12 +119,14 @@ final class Inflate{
 
   InfBlocks blocks;     // current inflate_blocks state
 
-  private final ZStream z;
+  final ZStream z;
 
-  private int flags; 
+  int flags;
 
-  private int need_bytes = -1;
-  private byte[] crcbuf=new byte[4];
+  int need_bytes = -1;
+  byte[] crcbuf=new byte[4];
+
+  java.io.ByteArrayOutputStream tmp_string = null;
 
   GZIPHeader gheader = null;
 
@@ -188,10 +198,7 @@ final class Inflate{
   }
 
   int inflate(int f){
-    int hold = 0;
-
     int r;
-    int b;
 
     if(z == null || z.next_in == null){
       if(f == Z_FINISH && this.mode==HEAD)
@@ -201,17 +208,48 @@ final class Inflate{
 
     f = f == Z_FINISH ? Z_BUF_ERROR : Z_OK;
     r = Z_BUF_ERROR;
-    while (true){
+    try {
+      while (true){
 
-      switch (this.mode){
-      case HEAD:
+        switch (this.mode){
+        case HEAD: r = inflate_head(r, f); break;
+        case DICT4: r = InflateHeader.inflate_dict4(this, r, f); break;
+        case DICT3: r = InflateHeader.inflate_dict3(this, r, f); break;
+        case DICT2: r = InflateHeader.inflate_dict2(this, r, f); break;
+        case DICT1: r = InflateHeader.inflate_dict1(this, r, f); break;
+        case DICT0: r = InflateHeader.inflate_dict0(this, r, f); break;
+        case BLOCKS: r = inflate_blocks(r, f); break;
+        case CHECK4: r = InflateHeader.inflate_check4(this, r, f); break;
+        case CHECK3: r = InflateHeader.inflate_check3(this, r, f); break;
+        case CHECK2: r = InflateHeader.inflate_check2(this, r, f); break;
+        case CHECK1: r = InflateHeader.inflate_check1(this, r, f); break;
+        case LENGTH: r = InflateHeader.inflate_length(this, r, f); break;
+        case DONE: r = inflate_done(r, f); break;
+        case BAD: r = inflate_bad(r, f); break;
+        case FLAGS: r = InflateHeader.flags(this, r, f); break;
+        case TIME: r = InflateHeader.time(this, r, f); break;
+        case OS: r = InflateHeader.os(this, r, f); break;
+        case EXLEN: r = InflateHeader.exlen(this, r, f); break;
+        case EXTRA: r = InflateHeader.extra(this, r, f); break;
+        case NAME: r = InflateHeader.name(this, r, f); break;
+        case COMMENT: r = InflateHeader.comment(this, r, f); break;
+        case HCRC: r = InflateHeader.hcrc(this, r, f); break;
+        default: r = inflate_default(r, f); break;
+        }
+      }
+    }
+    catch(Return e){ return e.r; }
+  }
+
+  // HEAD: wrapper detection (upstream case HEAD body, first half)
+  private int inflate_head(int r, int f) throws Return{
         if(wrap==0){
           this.mode = BLOCKS;
-          break;
+          return r;
         } 
 
         try { r=readBytes(2, r, f); }
-        catch(Return e){ return e.r; }
+        catch(Return e){ throw e; }
 
         if((wrap == 4 || (wrap&2)!=0) &&
            this.need == 0x8b1fL) {   // gzip header
@@ -225,15 +263,22 @@ final class Inflate{
             gheader=new GZIPHeader();
 
           this.mode = FLAGS;
-          break;
+          return r;
         }
 
         if((wrap&2) != 0){
           this.mode = BAD;
           z.msg = "incorrect header check";
-          break;
+          return r;
         }
+    return inflate_head_zlib(r, f);
+  }
 
+  // HEAD: the zlib/gzip header validation (upstream case HEAD body,
+  // second half; the upstream shared local `b` moves here - it is only
+  // read and written inside this state)
+  private int inflate_head_zlib(int r, int f) throws Return{
+    int b;
         flags = 0;
 
         this.method = ((int)this.need)&0xff;
@@ -248,7 +293,7 @@ final class Inflate{
             z.total_in -= 2;
             wrap = 0;
             this.mode = BLOCKS;
-            break;
+            return r;
           }  
           this.mode = BAD;
           z.msg = "incorrect header check";
@@ -256,7 +301,7 @@ final class Inflate{
           /*
           this.marker = 5;       // can't try inflateSync
           */
-          break;
+          return r;
         }
 
         if((this.method&0xf)!=Z_DEFLATED){
@@ -266,7 +311,7 @@ final class Inflate{
           /*
           this.marker = 5;       // can't try inflateSync
           */
-          break;
+          return r;
         }
   
         if(wrap == 4){
@@ -280,449 +325,82 @@ final class Inflate{
           /*
           this.marker = 5;       // can't try inflateSync
           */
-          break;
+          return r;
         }
 
         z.adler=new Adler32();
 
         if((b&PRESET_DICT)==0){
           this.mode = BLOCKS;
-          break;
+          return r;
         }
         this.mode = DICT4;
-      case DICT4:
+    return r;
+  }
 
-        if(z.avail_in==0)return r;r=f;
-
-        z.avail_in--; z.total_in++;
-        this.need=((z.next_in[z.next_in_index++]&0xff)<<24)&0xff000000L;
-        this.mode=DICT3;
-      case DICT3:
-
-        if(z.avail_in==0)return r;r=f;
-
-        z.avail_in--; z.total_in++;
-        this.need+=((z.next_in[z.next_in_index++]&0xff)<<16)&0xff0000L;
-        this.mode=DICT2;
-      case DICT2:
-
-        if(z.avail_in==0)return r;r=f;
-
-        z.avail_in--; z.total_in++;
-        this.need+=((z.next_in[z.next_in_index++]&0xff)<<8)&0xff00L;
-        this.mode=DICT1;
-      case DICT1:
-
-        if(z.avail_in==0)return r;r=f;
-
-        z.avail_in--; z.total_in++;
-        this.need += (z.next_in[z.next_in_index++]&0xffL);
-        z.adler.reset(this.need);
-        this.mode = DICT0;
-        return Z_NEED_DICT;
-      case DICT0:
-        this.mode = BAD;
-        z.msg = "need dictionary";
-        this.marker = 0;       // can try inflateSync
-        return Z_STREAM_ERROR;
-      case BLOCKS:
+  // BLOCKS: the decompression loop state (upstream case BLOCKS body)
+  private int inflate_blocks(int r, int f) throws Return{
         r = this.blocks.proc(r);
         if(r == Z_DATA_ERROR){
           this.mode = BAD;
           this.marker = 0;     // can try inflateSync
-          break;
+          return r;
         }
         if(r == Z_OK){
           r = f;
         }
         if(r != Z_STREAM_END){
-          return r;
+          throw new Return(r);
         }
         r = f;
         this.was=z.adler.getValue();
         this.blocks.reset();
         if(this.wrap==0){
           this.mode=DONE;
-          break;
+          return r;
         }
         this.mode=CHECK4;
-      case CHECK4:
+    return r;
+  }
 
-        if(z.avail_in==0)return r;r=f;
+  private int inflate_done(int r, int f) throws Return{
+    throw new Return(Z_STREAM_END);
+  }
 
-        z.avail_in--; z.total_in++;
-        this.need=((z.next_in[z.next_in_index++]&0xff)<<24)&0xff000000L;
-        this.mode=CHECK3;
-      case CHECK3:
+  private int inflate_bad(int r, int f) throws Return{
+    throw new Return(Z_DATA_ERROR);
+  }
 
-        if(z.avail_in==0)return r;r=f;
-
-        z.avail_in--; z.total_in++;
-        this.need+=((z.next_in[z.next_in_index++]&0xff)<<16)&0xff0000L;
-        this.mode = CHECK2;
-      case CHECK2:
-
-        if(z.avail_in==0)return r;r=f;
-
-        z.avail_in--; z.total_in++;
-        this.need+=((z.next_in[z.next_in_index++]&0xff)<<8)&0xff00L;
-        this.mode = CHECK1;
-      case CHECK1:
-
-        if(z.avail_in==0)return r;r=f;
-
-        z.avail_in--; z.total_in++;
-        this.need+=(z.next_in[z.next_in_index++]&0xffL);
-
-        if(flags!=0){  // gzip
-          this.need = ((this.need&0xff000000)>>24 | 
-                          (this.need&0x00ff0000)>>8 | 
-                          (this.need&0x0000ff00)<<8 | 
-                          (this.need&0x0000ffff)<<24)&0xffffffffL;
-        }
-
-        if(((int)(this.was)) != ((int)(this.need))){
-          z.msg = "incorrect data check";
-          // chack is delayed
-          /*
-          this.mode = BAD;
-          this.marker = 5;       // can't try inflateSync
-          break;
-          */
-        }
-        else if(flags!=0 && gheader!=null){
-          gheader.crc = this.need; 
-        }
-
-        this.mode = LENGTH;
-      case LENGTH:
-        if (wrap!=0 && flags!=0) {
-
-          try { r=readBytes(4, r, f); }
-          catch(Return e){ return e.r; }
-
-          if(z.msg!=null && z.msg.equals("incorrect data check")){
-            this.mode = BAD;
-            this.marker = 5;       // can't try inflateSync
-            break;
-          }
-
-          if (this.need != (z.total_out & 0xffffffffL)) {
-            z.msg = "incorrect length check";
-            this.mode = BAD;
-            break;
-          }
-          z.msg = null;
-        }
-        else {
-          if(z.msg!=null && z.msg.equals("incorrect data check")){
-            this.mode = BAD;
-            this.marker = 5;       // can't try inflateSync
-            break;
-          }
-        }
-
-        this.mode = DONE;
-      case DONE:
-        return Z_STREAM_END;
-      case BAD:
-        return Z_DATA_ERROR;
-
-      case FLAGS:
-
-        try { r=readBytes(2, r, f); }
-        catch(Return e){ return e.r; }
-
-        flags = ((int)this.need)&0xffff;
-
-        if ((flags & 0xff) != Z_DEFLATED) {
-          z.msg = "unknown compression method";
-          this.mode = BAD; 
-          break;
-        }
-        if ((flags & 0xe000)!=0) {
-          z.msg = "unknown header flags set";
-          this.mode = BAD; 
-          break;
-        }
-
-        if ((flags & 0x0200)!=0){
-          checksum(2, this.need);
-        } 
-
-        this.mode = TIME;
-
-      case TIME:
-        try { r=readBytes(4, r, f); }
-        catch(Return e){ return e.r; }
-        if(gheader!=null)
-          gheader.time = this.need;
-        if ((flags & 0x0200)!=0){
-          checksum(4, this.need);
-        }
-        this.mode = OS;
-      case OS:
-        try { r=readBytes(2, r, f); }
-        catch(Return e){ return e.r; }
-        if(gheader!=null){
-          gheader.xflags = ((int)this.need)&0xff;
-          gheader.os = (((int)this.need)>>8)&0xff;
-        }
-        if ((flags & 0x0200)!=0){
-          checksum(2, this.need);
-        }
-        this.mode = EXLEN;
-      case EXLEN:
-        if ((flags & 0x0400)!=0) {
-          try { r=readBytes(2, r, f); }
-          catch(Return e){ return e.r; }
-          if(gheader!=null){
-            gheader.extra = new byte[((int)this.need)&0xffff];
-          }
-          if ((flags & 0x0200)!=0){
-            checksum(2, this.need);
-          }
-        }
-        else if(gheader!=null){
-          gheader.extra=null;
-        }
-        this.mode = EXTRA;
-
-      case EXTRA:
-        if ((flags & 0x0400)!=0) {
-          try { 
-            r=readBytes(r, f);
-            if(gheader!=null){
-              byte[] foo = tmp_string.toByteArray();
-              tmp_string=null;
-              if(foo.length == gheader.extra.length){
-                System.arraycopy(foo, 0, gheader.extra, 0, foo.length);
-              }
-              else{
-                z.msg = "bad extra field length";
-                this.mode = BAD; 
-                break;
-              }
-            }
-          }
-          catch(Return e){ return e.r; }
-        }
-        else if(gheader!=null){
-          gheader.extra=null;
-        }
-        this.mode = NAME;
-      case NAME:
-        if ((flags & 0x0800)!=0) {
-          try { 
-            r=readString(r, f);
-            if(gheader!=null){
-              gheader.name=tmp_string.toByteArray();
-            }
-            tmp_string=null;
-          }
-          catch(Return e){ return e.r; }
-        }
-        else if(gheader!=null){
-          gheader.name=null;
-        }
-        this.mode = COMMENT;
-      case COMMENT:
-        if ((flags & 0x1000)!=0) {
-          try { 
-            r=readString(r, f);
-            if(gheader!=null){
-              gheader.comment=tmp_string.toByteArray();
-            }
-            tmp_string=null;
-          }
-          catch(Return e){ return e.r; }
-        }
-        else if(gheader!=null){
-          gheader.comment=null;
-        }
-        this.mode = HCRC;
-      case HCRC:
-        if ((flags & 0x0200)!=0) {
-          try { r=readBytes(2, r, f); }
-          catch(Return e){ return e.r; }
-          if(gheader!=null){
-            gheader.hcrc=(int)(this.need&0xffff);
-          }
-          if(this.need != (z.adler.getValue()&0xffffL)){
-            this.mode = BAD;
-            z.msg = "header crc mismatch";
-            this.marker = 5;       // can't try inflateSync
-            break;
-          }
-        }
-        z.adler = new CRC32();
-
-        this.mode = BLOCKS;
-        break;
-      default:
-        return Z_STREAM_ERROR;
-      }
-    }
+  private int inflate_default(int r, int f) throws Return{
+    throw new Return(Z_STREAM_ERROR);
   }
 
   int inflateSetDictionary(byte[] dictionary, int dictLength){
-    if(z==null || (this.mode != DICT0 && this.wrap != 0)){
-      return Z_STREAM_ERROR;
-    }
-
-    int index=0;
-    int length = dictLength;
-
-    if(this.mode==DICT0){
-      long adler_need=z.adler.getValue();
-      z.adler.reset();
-      z.adler.update(dictionary, 0, dictLength);
-      if(z.adler.getValue()!=adler_need){
-        return Z_DATA_ERROR;
-      }
-    }
-
-    z.adler.reset();
-
-    if(length >= (1<<this.wbits)){
-      length = (1<<this.wbits)-1;
-      index=dictLength - length;
-    }
-    this.blocks.set_dictionary(dictionary, index, length);
-    this.mode = BLOCKS;
-    return Z_OK;
+    return InflateSync.inflateSetDictionary(this, dictionary, dictLength);
   }
-
-  static private byte[] mark = {(byte)0, (byte)0, (byte)0xff, (byte)0xff};
 
   int inflateSync(){
-    int n;       // number of bytes to look at
-    int p;       // pointer to bytes
-    int m;       // number of marker bytes found in a row
-    long r, w;   // temporaries to save total_in and total_out
-
-    // set up
-    if(z == null)
-      return Z_STREAM_ERROR;
-    if(this.mode != BAD){
-      this.mode = BAD;
-      this.marker = 0;
-    }
-    if((n=z.avail_in)==0)
-      return Z_BUF_ERROR;
-
-    p=z.next_in_index;
-    m=this.marker;
-    // search
-    while (n!=0 && m < 4){
-      if(z.next_in[p] == mark[m]){
-        m++;
-      }
-      else if(z.next_in[p]!=0){
-        m = 0;
-      }
-      else{
-        m = 4 - m;
-      }
-      p++; n--;
-    }
-
-    // restore
-    z.total_in += p-z.next_in_index;
-    z.next_in_index = p;
-    z.avail_in = n;
-    this.marker = m;
-
-    // return no joy or set up to restart on a new block
-    if(m != 4){
-      return Z_DATA_ERROR;
-    }
-    r=z.total_in;  w=z.total_out;
-    inflateReset();
-    z.total_in=r;  z.total_out = w;
-    this.mode = BLOCKS;
-
-    return Z_OK;
+    return InflateSync.inflateSync(this);
   }
 
-  // Returns true if inflate is currently at the end of a block generated
-  // by Z_SYNC_FLUSH or Z_FULL_FLUSH. This function is used by one PPP
-  // implementation to provide an additional safety check. PPP uses Z_SYNC_FLUSH
-  // but removes the length bytes of the resulting empty stored block. When
-  // decompressing, PPP checks that at the end of input packet, inflate is
-  // waiting for these length bytes.
   int inflateSyncPoint(){
-    if(z == null || this.blocks == null)
-      return Z_STREAM_ERROR;
-    return this.blocks.sync_point();
+    return InflateSync.inflateSyncPoint(this);
   }
 
-  private int readBytes(int n, int r, int f) throws Return{
-    if(need_bytes == -1){
-      need_bytes=n;
-      this.need=0;
-    }
-    while(need_bytes>0){
-      if(z.avail_in==0){ throw new Return(r); }; r=f;
-      z.avail_in--; z.total_in++;
-      this.need = this.need | 
-        ((z.next_in[z.next_in_index++]&0xff)<<((n-need_bytes)*8));
-      need_bytes--;
-    }
-    if(n==2){
-      this.need&=0xffffL;
-    }
-    else if(n==4) {
-      this.need&=0xffffffffL;
-    }
-    need_bytes=-1;
-    return r;
-  }
-  class Return extends Exception{
-    int r;
-    Return(int r){this.r=r; }
+  int readBytes(int n, int r, int f) throws Return{
+    return InflateHeader.read_bytes(this, n, r, f);
   }
 
-  private java.io.ByteArrayOutputStream tmp_string = null;
-  private int readString(int r, int f) throws Return{
-    if(tmp_string == null){
-      tmp_string=new java.io.ByteArrayOutputStream();
-    }
-    int b=0; 
-    do {
-      if(z.avail_in==0){ throw new Return(r); }; r=f;
-      z.avail_in--; z.total_in++;
-      b = z.next_in[z.next_in_index];
-      if(b!=0) tmp_string.write(z.next_in, z.next_in_index, 1);
-      z.adler.update(z.next_in, z.next_in_index, 1);
-      z.next_in_index++;
-    }while(b!=0);
-    return r;
+  int readString(int r, int f) throws Return{
+    return InflateHeader.read_string(this, r, f);
   }
 
-  private int readBytes(int r, int f) throws Return{
-    if(tmp_string == null){
-      tmp_string=new java.io.ByteArrayOutputStream();
-    }
-    int b=0; 
-    while(this.need>0){
-      if(z.avail_in==0){ throw new Return(r); }; r=f;
-      z.avail_in--; z.total_in++;
-      b = z.next_in[z.next_in_index];
-      tmp_string.write(z.next_in, z.next_in_index, 1);
-      z.adler.update(z.next_in, z.next_in_index, 1);
-      z.next_in_index++;
-      this.need--;
-    }
-    return r;
+  int readBytes(int r, int f) throws Return{
+    return InflateHeader.read_bytes2(this, r, f);
   }
 
-  private void checksum(int n, long v){
-    for(int i=0; i<n; i++){
-      crcbuf[i]=(byte)(v&0xff);
-      v>>=8;
-    }
-    z.adler.update(crcbuf, 0, n);
+  void checksum(int n, long v){
+    InflateHeader.checksum(this, n, v);
   }
 
   public GZIPHeader getGZIPHeader(){
