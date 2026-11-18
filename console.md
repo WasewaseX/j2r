@@ -4972,3 +4972,22 @@ roadmap" on the A-graded tree.
   tests=619).
 - THE REPO NOW CARRIES NO VENDORED .JAVA TREE AND NO AMALGAM: every
   corpus entry is driver + entry-package, every file <=441 lines.
+
+## 2026-11-19 — round-4 slice-n (the full-repo sweep + the wave record)
+
+- The calibrated hosted-rules replica over corpus/ + tests/ + examples/:
+  ZERO findings outside the one documented divergence
+  (corpus/FmtResidualProbe.java:17 — the 187-line main the hosted
+  surface has never flagged across three scans; the file's unbalanced
+  string-paren `"%,(d"` most likely aborts the hosted parser's function
+  analysis; NOT churned, the hosted surface is the authority).
+- The file-size sweep: every .java under corpus/ is <=441 lines (max
+  InfBlocksProc 440 / Deflate 439 / Matrix 439); no amalgam remains —
+  all five former-amalgam drivers carry their entry-package imports.
+- The empty-catch class re-verified closed: zero swallowed-exception
+  findings anywhere (the round-2 fixes hold).
+- The wave record: scripts/evidence/slop_audit/ROUND4_2026-11-19.md
+  (the paste shape + the truncation analysis + the calibration + the
+  per-finding resolution table + the four archives + the PR hold).
+- THE ROUND-4 ORDER IS FULLY RESOLVED. Queue head: T15.2 (the
+  MappingSet-driven remap pass).

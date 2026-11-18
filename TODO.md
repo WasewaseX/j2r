@@ -25,16 +25,25 @@ over the same entry. PROOF (slice-j): javac+java stdout BYTE-IDENTICAL
 to the pre-edit baselines (SSC 580 B sha 2781d680…, SSB 140 B sha
 cb155cfa…, stderr 0, exit 0), j2r test --release three-channel PASS on
 both drivers, corpus_suite 6/6, fmt + clippy -D warnings clean,
-gate-11 in sync (fixtures=130 tests=619). REMAINING under the same
-order: slice-k (minimal-json: vendor archived, minimaljsonentry with
-the JsonObject 934/JsonParser 511/JsonArray 511/JsonValue 495 HAND
-reshape families), slice-l (JAMA: vendor archived, JamaCorpus driver
-imports the already-proven jamaentry.* — the API-gap audit re-gates
-BOTH drivers), slice-m (jzlib vendor archived, build_corpus_jzlib.sh
-extracts from the archive, REGEN-BYTE-IDENTICAL), slice-n (full-repo
-hosted-rules sweep). THEN the queue head T15.2 (the MappingSet-driven
-remap pass). PR HOLD unchanged: the four dependabot branches stay
-unmerged.).
+gate-11 in sync (fixtures=130 tests=619). THE ROUND-4 LIST IS FULLY
+RESOLVED (slices j-m + the sweep): slice-k minimal-json (vendor archived,
+minimaljsonentry 11 verbatim + 10 HAND — JsonObject/JsonParser/JsonArray/
+JsonValue split families, the nested-Member self-import restored, the
+package-private JsonNumber widened across the import boundary),
+slice-l JAMA (vendor archived, JamaCorpus driver imports the proven
+jamaentry.* — the API-gap audit added 14 delegators + MatrixNorms
+rebalanced Matrix to 439; the SVD core tightened: selectKase/
+uRotationApply/vRotationApply extracted, the >88-line function and both
+nest-6 shapes gone), slice-m JZlib (vendor archived, build_corpus_jzlib.sh
+extracts from the archive, REGEN-BYTE-IDENTICAL byte-exact), slice-n the
+full-repo sweep (ZERO findings outside the one documented hosted
+divergence, scripts/evidence/slop_audit/ROUND4_2026-11-19.md). The repo
+carries NO vendored .java tree and NO amalgam: every corpus entry is
+driver + entry-package, every file <=441, every function <=80, nesting
+<=5; the byte-identity proof is gated by BOTH JAMA drivers (JamaBench
+73 B sha e830385d..., JamaCorpus 5015 B sha 6fdd2b23...). THEN the queue
+head T15.2 (the MappingSet-driven remap pass). PR HOLD unchanged: the
+four dependabot branches stay unmerged.).
 Previous: 2026-11-18 (the scanaislop round-3 corpus
 wave, slices a-f — **THE AMALGAM SHAPE RETIRES AND THE
 VENDORED-EXEMPTION RETIRES WITH IT**: the owner re-pasted the
