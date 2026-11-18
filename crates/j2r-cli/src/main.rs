@@ -548,10 +548,20 @@ fn cmd_test(file: &Path, release: bool, partition: Option<usize>, args: &[String
     let selected_main = std::cell::RefCell::new(None::<String>);
 
     let run_java = || -> Result<RunResult, String> {
-        // 1. javac
-        let status = Command::new(&javac)
-            .arg("-d")
-            .arg(&classes_dir)
+        // 1. javac. Multi-file entries (a driver plus sibling library
+        // sources in the same directory — the split corpus entries) are
+        // resolved through -sourcepath: a default-package sibling cannot
+        // be reached from the ambient classpath. Self-contained files
+        // never consult the sourcepath (no unresolved types, nothing to
+        // look up), so existing single-file behavior is unchanged.
+        let mut javac_cmd = Command::new(&javac);
+        javac_cmd.arg("-d").arg(&classes_dir);
+        if let Some(parent) = file.parent() {
+            if !parent.as_os_str().is_empty() {
+                javac_cmd.arg("-sourcepath").arg(parent);
+            }
+        }
+        let status = javac_cmd
             .arg(file)
             .status()
             .map_err(|e| format!("failed to run javac: {e}"))?;
