@@ -4702,3 +4702,38 @@ roadmap" on the A-graded tree.
 - NEXT: the jamaentry reshape slices (Matrix, EigenvalueDecomposition,
   SingularValueDecomposition), then the queue head T15.2 (the
   MappingSet-driven remap pass). PR HOLD unchanged.
+
+### slice-g addendum (same day): Matrix reshaped — the 1046-line Matrix is four files, javac+java stdout byte-identical
+
+- THE MECHANICS: javadoc-anchored blocks move byte-faithfully; instance
+  methods become statics with the explicit receiver `mx` (bare A/m/n →
+  mx.A/mx.m/mx.n, `this` → mx, checkMatrixDimensions threads mx); the
+  fields go package-visible; Matrix keeps one-line delegators for the
+  moved-and-referenced methods (getMatrix x4, plus/minus, times x2,
+  solve/inverse/det/rank/cond, print x4, and the statics
+  constructWithCopy/random/identity) so the public API is unchanged;
+  the dead upstream API (setMatrix x4, the array family, packed
+  copies, read, norm1 callers...) moves without delegators — the
+  bench program's API is the driver's call graph, pinned by the
+  byte-identity gate. The split script lives at
+  scripts/split_matrix.py (outside the repo — the repo's build script
+  flips the family to HAND-maintained and never overwrites it).
+- THE FILES: Matrix 421 (fields/ctors/copy/dims/get/set/transpose/
+  norms/the five decomposition factories + delegators), MatrixOps 434
+  (block getMatrix/setMatrix + plus/minus/array/times families +
+  checkMatrixDimensions), MatrixSolve 82 (solve/solveTranspose/
+  inverse/det/rank/cond/trace), MatrixIo 243 (constructWithCopy/
+  random/identity/read/print + packed copies). All <=441, no function
+  over the 80-line limit (upstream Matrix never had one — this was a
+  file-size fix).
+- THE CAUGHT BUGS (compile-gated, none shipped): the empty-param
+  signature insertion needed a no-arg branch (det/rank/cond/...);
+  `private` checkMatrixDimensions needed its own static rewrite; the
+  svUID tail was missing from the assembly; bare self-calls
+  (print(new PrintWriter..., transpose(), solve(identity(...))) needed
+  receiver/cross-file qualification.
+- GATES: javac+java stdout BYTE-IDENTICAL (85 bytes, sha256
+  e830385d..., stderr 0, exit 0), j2r test --release three-channel
+  PASS (5m31s), corpus_suite 5/5, fmt + clippy -D warnings clean,
+  REGEN-BYTE-IDENTICAL over the generated set with the HAND list in
+  force.

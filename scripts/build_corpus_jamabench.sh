@@ -6,18 +6,16 @@
 # Round-3 (2026-11-18): the hosted scanaislop surface's complexity rules
 # (file flagged above 441 lines, function above 88 lines, nesting max 5)
 # apply to the single-file amalgam shape too, so the entry is now a
-# driver plus a directory of per-class sources. The seven classes are
+# driver plus a directory of per-class sources. The small classes are
 # GENERATED here from the vendored upstream tree (corpus/jama/ and
 # corpus/jama/util/, package Jama — NIST public-domain JAMA 1.0.3, kept
-# untouched as the provenance record) and the script reproduces the
-# committed bytes byte-for-byte (REGEN-BYTE-IDENTICAL). The three files
-# that still carry the owner's round-3 complexity findings (Matrix
-# 1046 lines; EigenvalueDecomposition 956 lines with tred2/tql2/orthes/
-# hqr2 flagged function-too-long/deep-nesting; SingularValueDecomposition
-# 548 lines with the flagged SVD constructor) are reshaped in the
-# following round-3 slices and then flip to HAND-maintained (verified
-# for existence here, never overwritten) exactly like the JZlib entry's
-# five state machines.
+# untouched as the provenance record) and the script reproduces their
+# committed bytes byte-for-byte (REGEN-BYTE-IDENTICAL). The Matrix
+# family (Matrix + MatrixOps + MatrixSolve + MatrixIo, reshaped in
+# slice-g) is HAND-MAINTAINED: verified for existence, never
+# overwritten. EigenvalueDecomposition and SingularValueDecomposition
+# still carry the owner's round-3 complexity findings and reshape in
+# the following slices, then join the HAND list.
 #
 # The old single-file amalgam (driver + 7 classes, 3363 lines) is
 # retired: corpus/JamaBench.java is the driver only and imports
@@ -110,17 +108,40 @@ DRIVER
 # cannot see package-private types across the package boundary. The
 # Jama vendored files are space-indented already — no tab expansion
 # needed (unlike the JZlib ones).
+#
+# Slice-g (2026-11-18): the Matrix family is HAND-MAINTAINED — Matrix
+# (421 lines) + the three helper classes the reshape extracted
+# (MatrixOps 434: the block get/set family + the element algebra;
+# MatrixSolve 82: the decomposition-backed solvers; MatrixIo 243:
+# constructWithCopy/random/identity/read/print + the packed-copy
+# exporters) — the script never overwrites them and verifies their
+# existence, exactly like the JZlib entry's five state machines. The
+# remaining generated files (EigenvalueDecomposition and
+# SingularValueDecomposition) reshape in the following slices and then
+# join the HAND list.
+HAND="Matrix MatrixOps MatrixSolve MatrixIo"
 mkdir -p "$ENTRY"
 for f in corpus/jama/Matrix.java corpus/jama/CholeskyDecomposition.java \
          corpus/jama/EigenvalueDecomposition.java \
          corpus/jama/LUDecomposition.java corpus/jama/QRDecomposition.java \
          corpus/jama/SingularValueDecomposition.java corpus/jama/util/Maths.java; do
   cls=$(basename "$f" .java)
-  {
-    echo "package jamaentry;"
-    echo
-    grep -v '^package ' "$f" | grep -v '^import Jama\.'
-  } > "$ENTRY/$cls.java"
+  skip=""
+  for h in $HAND; do [ "$cls" = "$h" ] && skip=1; done
+  if [ -z "$skip" ]; then
+    {
+      echo "package jamaentry;"
+      echo
+      grep -v '^package ' "$f" | grep -v '^import Jama\.'
+    } > "$ENTRY/$cls.java"
+  fi
+done
+
+for h in $HAND; do
+  if [ ! -f "$ENTRY/$h.java" ]; then
+    echo "missing hand-maintained entry class $ENTRY/$h.java" >&2
+    exit 1
+  fi
 done
 
 {

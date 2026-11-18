@@ -33,9 +33,12 @@ BYTE-IDENTICAL to the pre-edit baseline (85 bytes, sha256 e830385d…,
 stderr 0, exit 0), j2r test --release three-channel PASS (5m35s),
 corpus_suite 5/5, fmt + clippy -D warnings clean, REGEN-BYTE-IDENTICAL.
 REMAINING under the same order: the jamaentry reshape slices (Matrix
-1046, EigenvalueDecomposition 956 with tred2/tql2/orthes/hqr2,
-SingularValueDecomposition 548) — every flagged function/file to the
-limits, then flip to HAND-maintained in the script; the per-commit
+1046 → DONE in slice-g as Matrix 421 + MatrixOps 434 + MatrixSolve 82 +
+MatrixIo 243, all ≤441 with the receiver-mx mechanics and one-line
+delegators; EigenvalueDecomposition 956 with tred2/tql2/orthes/hqr2,
+SingularValueDecomposition 548 still to go) — every flagged
+function/file to the limits, then flip to HAND-maintained in the
+script; the per-commit
 detail lives in the commit messages, the board record for the wave is
 written with slice-f (slices a-e2 landed without a same-commit boards
 entry). THEN the queue head T15.2 (the MappingSet-driven remap pass).
