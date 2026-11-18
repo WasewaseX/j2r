@@ -764,6 +764,179 @@ pub fn compile(opts: &Options) -> Result<Program> {
     Ok(prog)
 }
 
+/// The classpath closure phase (verbatim from `compile_unchecked` section
+/// 1b, round-5 reshaping): seed the walk from --main-class, then the
+/// transitive CONSTANT_Class closure (M3 Wave 1, M3_PLAN §4.2).
+#[allow(clippy::type_complexity)]
+fn classpath_closure(
+    opts: &Options,
+    classes: &mut Vec<ClassPlan>,
+    user_index: &mut BTreeMap<String, usize>,
+    static_slots: &mut u32,
+    referer_of: &mut BTreeMap<String, String>,
+    module_index: &mut BTreeMap<String, usize>,
+) -> Result<()> {
+    if opts.classpath.is_empty() {
+        return Ok(());
+    }
+    let cp = classpath::Classpath::new(&opts.classpath).map_err(|e| CodegenError::Semantic {
+        class: "-".to_string(),
+        message: e.message,
+    })?;
+
+    // Seed: with no explicit inputs the main class starts the walk.
+    if opts.inputs.is_empty() {
+        let main = opts
+            .main_class
+            .as_deref()
+            .ok_or_else(|| CodegenError::Semantic {
+                class: "-".to_string(),
+                message: "compiling from a classpath requires --main-class (nothing else seeds the closure)"
+                    .to_string(),
+            })?;
+        let main = to_internal(main);
+        let src = cp.find(&main).ok_or_else(|| CodegenError::Semantic {
+            class: main.clone(),
+            message: format!("main class {main} not found on the classpath"),
+        })?;
+        let bytes = cp.read(&src).map_err(|e| CodegenError::Semantic {
+            class: main.clone(),
+            message: e.message,
+        })?;
+        parse_and_add(
+            &bytes,
+            classes,
+            user_index,
+            static_slots,
+            referer_of,
+            module_index,
+            &format!("classpath source {src}"),
+        )?;
+    }
+
+    // Transitive closure over CONSTANT_Class references.
+    let mut processed = 0usize;
+    loop {
+        let mut wanted: BTreeSet<String> = BTreeSet::new();
+        for c in classes.iter() {
+            // T03: cached at parse time — no constant-pool re-walk here.
+            for name in &c.refs {
+                if !user_index.contains_key(name) {
+                    wanted.insert(name.clone());
+                }
+            }
+        }
+        if wanted.is_empty() {
+            break;
+        }
+        for name in wanted {
+            // G2.3 (F1): the referer map (built at parse time) replaces
+            // the old linear `classes.iter().find(...)` scan — the
+            // measured super-linear term at 20k. Same semantics: the
+            // FIRST referer in class order, diagnostics-only.
+            let referer = referer_of
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| "<unknown>".to_string());
+            let src = cp.find(&name).ok_or_else(|| CodegenError::Semantic {
+                class: referer.clone(),
+                message: format!(
+                    "class {name} is referenced but not found on the classpath (referenced by {referer})"
+                ),
+            })?;
+            let bytes = cp.read(&src).map_err(|e| CodegenError::Semantic {
+                class: referer.clone(),
+                message: e.message,
+            })?;
+            parse_and_add(
+                &bytes,
+                classes,
+                user_index,
+                static_slots,
+                referer_of,
+                module_index,
+                &format!("classpath source {src}"),
+            )?;
+        }
+        processed += 1;
+        if processed > 100_000 {
+            return Err(CodegenError::Semantic {
+                class: "-".to_string(),
+                message: "classpath closure did not converge (internal bug)".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Superclass/interface validation (verbatim from `compile_unchecked`
+/// section 2, round-5 reshaping).
+fn validate_superclasses(prog: &Program) -> Result<()> {
+    for c in &prog.classes {
+        if let Some(sup) = &c.super_name {
+            if !prog.is_user(sup)
+                && sup != "java/lang/Object"
+                && builtin::builtin_parent_of(sup).is_none()
+            {
+                return Err(CodegenError::Semantic {
+                    class: c.name.clone(),
+                    message: format!("unknown superclass {sup}: add its .class file to the inputs"),
+                });
+            }
+            let sup_plan = prog.class(sup);
+            let sup_is_interface = sup_plan.map(|s| s.is_interface).unwrap_or(false);
+            if !c.is_interface && sup_is_interface {
+                return Err(CodegenError::Semantic {
+                    class: c.name.clone(),
+                    message: format!("class cannot extend interface {sup}"),
+                });
+            }
+        }
+        for itf in &c.interfaces {
+            if !prog.is_user(itf) {
+                // builtin interfaces are tolerated (Object/Comparable/...)
+                continue;
+            }
+            if !prog.class(itf).map(|x| x.is_interface).unwrap_or(false) {
+                return Err(CodegenError::Semantic {
+                    class: c.name.clone(),
+                    message: format!("interface {itf} is not an interface"),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Decode + synthesize clinit + the G2.6 array-literal collapse (verbatim
+/// from `compile_unchecked` section 4, round-5 reshaping).
+fn plan_all_methods(prog: &mut Program) -> Result<()> {
+    let mut static_monitor_count: u32 = 0;
+    for ci in 0..prog.classes.len() {
+        let (methods, clinit_fn, concats, lambdas) = plan_methods(prog, ci)?;
+        let plan = &mut prog.classes[ci];
+        plan.methods = methods;
+        plan.clinit_fn = clinit_fn;
+        plan.concats = concats;
+        plan.lambdas = lambdas;
+        // G2.6 (console.md F6, REVIEW_CHECKLIST §G2.6 arm a): collapse
+        // javac's array-literal clinit fill runs into ONE literal-array
+        // instruction BEFORE verify/emit, so the emitted clinit is one
+        // constructor call over a const-evaluated static instead of 4N
+        // interpreter statements (the measured MIR/borrow-check wall:
+        // InfTree <clinit> was 12,354 emitted lines). Byte-identical by
+        // construction; every refused shape keeps the old form.
+        for m in &mut plan.methods {
+            crate::peephole::collapse_array_fill_runs(&mut m.instrs);
+        }
+        if plan.methods.iter().any(|m| m.is_sync && m.is_static) {
+            plan.static_monitor = Some(static_monitor_count);
+            static_monitor_count += 1;
+        }
+    }
+    Ok(())
+}
+
 /// The parse/plan pipeline WITHOUT the verify+validate hard gate — the
 /// surface report's entry point (EXTERNAL-HARNESS H-1/H-2): the whole
 /// question is "what WOULD fail", so the walk must see past the first
@@ -800,96 +973,14 @@ pub fn compile_unchecked(opts: &Options) -> Result<Program> {
     }
 
     // 1b. classpath closure (M3 Wave 1, M3_PLAN §4.2) ------------------
-    if !opts.classpath.is_empty() {
-        let cp =
-            classpath::Classpath::new(&opts.classpath).map_err(|e| CodegenError::Semantic {
-                class: "-".to_string(),
-                message: e.message,
-            })?;
-
-        // Seed: with no explicit inputs the main class starts the walk.
-        if opts.inputs.is_empty() {
-            let main = opts
-                .main_class
-                .as_deref()
-                .ok_or_else(|| CodegenError::Semantic {
-                    class: "-".to_string(),
-                    message: "compiling from a classpath requires --main-class (nothing else seeds the closure)"
-                        .to_string(),
-                })?;
-            let main = to_internal(main);
-            let src = cp.find(&main).ok_or_else(|| CodegenError::Semantic {
-                class: main.clone(),
-                message: format!("main class {main} not found on the classpath"),
-            })?;
-            let bytes = cp.read(&src).map_err(|e| CodegenError::Semantic {
-                class: main.clone(),
-                message: e.message,
-            })?;
-            parse_and_add(
-                &bytes,
-                &mut classes,
-                &mut user_index,
-                &mut static_slots,
-                &mut referer_of,
-                &mut module_index,
-                &format!("classpath source {src}"),
-            )?;
-        }
-
-        // Transitive closure over CONSTANT_Class references.
-        let mut processed = 0usize;
-        loop {
-            let mut wanted: BTreeSet<String> = BTreeSet::new();
-            for c in &classes {
-                // T03: cached at parse time — no constant-pool re-walk here.
-                for name in &c.refs {
-                    if !user_index.contains_key(name) {
-                        wanted.insert(name.clone());
-                    }
-                }
-            }
-            if wanted.is_empty() {
-                break;
-            }
-            for name in wanted {
-                // G2.3 (F1): the referer map (built at parse time) replaces
-                // the old linear `classes.iter().find(...)` scan — the
-                // measured super-linear term at 20k. Same semantics: the
-                // FIRST referer in class order, diagnostics-only.
-                let referer = referer_of
-                    .get(&name)
-                    .cloned()
-                    .unwrap_or_else(|| "<unknown>".to_string());
-                let src = cp.find(&name).ok_or_else(|| CodegenError::Semantic {
-                    class: referer.clone(),
-                    message: format!(
-                        "class {name} is referenced but not found on the classpath (referenced by {referer})"
-                    ),
-                })?;
-                let bytes = cp.read(&src).map_err(|e| CodegenError::Semantic {
-                    class: referer.clone(),
-                    message: e.message,
-                })?;
-                parse_and_add(
-                    &bytes,
-                    &mut classes,
-                    &mut user_index,
-                    &mut static_slots,
-                    &mut referer_of,
-                    &mut module_index,
-                    &format!("classpath source {src}"),
-                )?;
-            }
-            processed += 1;
-            if processed > 100_000 {
-                return Err(CodegenError::Semantic {
-                    class: "-".to_string(),
-                    message: "classpath closure did not converge (internal bug)".to_string(),
-                });
-            }
-        }
-    }
+    classpath_closure(
+        opts,
+        &mut classes,
+        &mut user_index,
+        &mut static_slots,
+        &mut referer_of,
+        &mut module_index,
+    )?;
     drop(_sp_load);
 
     let mut prog = Program {
@@ -900,69 +991,14 @@ pub fn compile_unchecked(opts: &Options) -> Result<Program> {
     };
 
     // 2. superclass validation -------------------------------------------
-    for c in &prog.classes {
-        if let Some(sup) = &c.super_name {
-            if !prog.is_user(sup)
-                && sup != "java/lang/Object"
-                && builtin::builtin_parent_of(sup).is_none()
-            {
-                return Err(CodegenError::Semantic {
-                    class: c.name.clone(),
-                    message: format!("unknown superclass {sup}: add its .class file to the inputs"),
-                });
-            }
-            let sup_plan = prog.class(sup);
-            let sup_is_interface = sup_plan.map(|s| s.is_interface).unwrap_or(false);
-            if !c.is_interface && sup_is_interface {
-                return Err(CodegenError::Semantic {
-                    class: c.name.clone(),
-                    message: format!("class cannot extend interface {sup}"),
-                });
-            }
-        }
-        for itf in &c.interfaces {
-            if !prog.is_user(itf) {
-                // builtin interfaces are tolerated (Object/Comparable/...)
-                continue;
-            }
-            if !prog.class(itf).map(|x| x.is_interface).unwrap_or(false) {
-                return Err(CodegenError::Semantic {
-                    class: c.name.clone(),
-                    message: format!("interface {itf} is not an interface"),
-                });
-            }
-        }
-    }
+    validate_superclasses(&prog)?;
 
     // 3. slot layouts ------------------------------------------------------
     compute_layouts(&mut prog)?;
 
-    let mut static_monitor_count: u32 = 0;
-
     // 4. decode + synthesize clinit ----------------------------------------
     let _sp_plan = crate::StageGuard::enter("stage3_plan_methods_peephole");
-    for ci in 0..prog.classes.len() {
-        let (methods, clinit_fn, concats, lambdas) = plan_methods(&prog, ci)?;
-        let plan = &mut prog.classes[ci];
-        plan.methods = methods;
-        plan.clinit_fn = clinit_fn;
-        plan.concats = concats;
-        plan.lambdas = lambdas;
-        // G2.6 (console.md F6, REVIEW_CHECKLIST §G2.6 arm a): collapse
-        // javac's array-literal clinit fill runs into ONE literal-array
-        // instruction BEFORE verify/emit, so the emitted clinit is one
-        // constructor call over a const-evaluated static instead of 4N
-        // interpreter statements (the measured MIR/borrow-check wall:
-        // InfTree <clinit> was 12,354 emitted lines). Byte-identical by
-        // construction; every refused shape keeps the old form.
-        for m in &mut plan.methods {
-            crate::peephole::collapse_array_fill_runs(&mut m.instrs);
-        }
-        if plan.methods.iter().any(|m| m.is_sync && m.is_static) {
-            plan.static_monitor = Some(static_monitor_count);
-            static_monitor_count += 1;
-        }
-    }
+    plan_all_methods(&mut prog)?;
     drop(_sp_plan);
 
     // 5. verify every method body (before emitting any code) ---------------

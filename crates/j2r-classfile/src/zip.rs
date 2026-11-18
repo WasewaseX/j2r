@@ -107,7 +107,7 @@ impl<'a> Jar<'a> {
     /// archive may carry a prepended payload or a comment, both of which
     /// shift the offsets). The spec caps the comment length at 65 535,
     /// so the scan window is bounded.
-    pub fn parse(data: &'a [u8]) -> Result<Jar<'a>, ZipError> {
+    pub fn parse(data: &[u8]) -> Result<Jar<'_>, ZipError> {
         if data.len() < 22 {
             return Err(ZipError::new("archive too small to contain an EOCD"));
         }
@@ -168,83 +168,96 @@ impl<'a> Jar<'a> {
         let mut entries = Vec::with_capacity(total_entries.min(4096));
         let mut p = cd_offset;
         for i in 0..total_entries {
-            let at = p;
-            if at + 46 > cd_end {
-                return Err(ZipError::new(format!(
-                    "central directory entry {i} truncated"
-                )));
-            }
-            let sig = read_u32(data, at);
-            if sig != CD_SIG {
-                return Err(ZipError::new(format!(
-                    "central directory entry {i} has bad signature 0x{sig:08x}"
-                )));
-            }
-            let flags = read_u16(data, at + 8);
-            let method = read_u16(data, at + 10);
-            let crc = read_u32(data, at + 16);
-            let mut csize = read_u32(data, at + 20) as usize;
-            let mut usize_ = read_u32(data, at + 24) as usize;
-            let name_len = read_u16(data, at + 28) as usize;
-            let extra_len = read_u16(data, at + 30) as usize;
-            let comment_len = read_u16(data, at + 32) as usize;
-            let mut local_offset = read_u32(data, at + 42) as usize;
-
-            let name_start = at + 46;
-            let name_end = name_start
-                .checked_add(name_len)
-                .ok_or_else(|| ZipError::new("entry name length overflow"))?;
-            let extra_start = name_end;
-            let extra_end = extra_start
-                .checked_add(extra_len)
-                .ok_or_else(|| ZipError::new("entry extra length overflow"))?;
-            if extra_end > cd_end {
-                return Err(ZipError::new(format!(
-                    "central directory entry {i} name/extra runs past the directory"
-                )));
-            }
-            if name_end > cd_end {
-                return Err(ZipError::new(format!(
-                    "central directory entry {i} name runs past the directory"
-                )));
-            }
-            let name = String::from_utf8(data[name_start..name_end].to_vec())
-                .map_err(|_| ZipError::new("entry name is not valid UTF-8"))?;
-
-            // ZIP64 per-entry extras: when a classic field carries its
-            // sentinel, the real 64-bit value lives in the 0x0001 extra,
-            // in the fixed order uncompressed, compressed, local-offset
-            // (disk-start never occurs in single-disk archives).
-            if usize_ == U32_SENTINEL || csize == U32_SENTINEL || local_offset == U32_SENTINEL {
-                let z = zip64_extra(data, extra_start, extra_end, &name)?;
-                let mut q = 0usize;
-                if usize_ == U32_SENTINEL {
-                    usize_ = take_u64(z, &mut q, &name)? as usize;
-                }
-                if csize == U32_SENTINEL {
-                    csize = take_u64(z, &mut q, &name)? as usize;
-                }
-                if local_offset == U32_SENTINEL {
-                    local_offset = take_u64(z, &mut q, &name)? as usize;
-                }
-            }
-
-            entries.push(Entry {
-                name,
-                method,
-                crc,
-                compressed_size: csize,
-                uncompressed_size: usize_,
-                local_offset,
-                flags,
-            });
-
-            p = extra_end
-                .checked_add(comment_len)
-                .ok_or_else(|| ZipError::new("entry trailing-length overflow"))?;
+            let (entry, next) = Self::parse_cd_entry(data, p, i, cd_end)?;
+            entries.push(entry);
+            p = next;
         }
 
         Ok(Jar { data, entries })
+    }
+
+    /// One central-directory record at byte offset `at` — verbatim from
+    /// `parse`'s loop body (round-5 reshaping): returns the entry and the
+    /// offset of the next record.
+    fn parse_cd_entry(
+        data: &[u8],
+        at: usize,
+        idx: usize,
+        cd_end: usize,
+    ) -> Result<(Entry, usize), ZipError> {
+        if at + 46 > cd_end {
+            return Err(ZipError::new(format!(
+                "central directory entry {idx} truncated"
+            )));
+        }
+        let sig = read_u32(data, at);
+        if sig != CD_SIG {
+            return Err(ZipError::new(format!(
+                "central directory entry {idx} has bad signature 0x{sig:08x}"
+            )));
+        }
+        let flags = read_u16(data, at + 8);
+        let method = read_u16(data, at + 10);
+        let crc = read_u32(data, at + 16);
+        let mut csize = read_u32(data, at + 20) as usize;
+        let mut usize_ = read_u32(data, at + 24) as usize;
+        let name_len = read_u16(data, at + 28) as usize;
+        let extra_len = read_u16(data, at + 30) as usize;
+        let comment_len = read_u16(data, at + 32) as usize;
+        let mut local_offset = read_u32(data, at + 42) as usize;
+
+        let name_start = at + 46;
+        let name_end = name_start
+            .checked_add(name_len)
+            .ok_or_else(|| ZipError::new("entry name length overflow"))?;
+        let extra_start = name_end;
+        let extra_end = extra_start
+            .checked_add(extra_len)
+            .ok_or_else(|| ZipError::new("entry extra length overflow"))?;
+        if extra_end > cd_end {
+            return Err(ZipError::new(format!(
+                "central directory entry {idx} name/extra runs past the directory"
+            )));
+        }
+        if name_end > cd_end {
+            return Err(ZipError::new(format!(
+                "central directory entry {idx} name runs past the directory"
+            )));
+        }
+        let name = String::from_utf8(data[name_start..name_end].to_vec())
+            .map_err(|_| ZipError::new("entry name is not valid UTF-8"))?;
+
+        // ZIP64 per-entry extras: when a classic field carries its
+        // sentinel, the real 64-bit value lives in the 0x0001 extra,
+        // in the fixed order uncompressed, compressed, local-offset
+        // (disk-start never occurs in single-disk archives).
+        if usize_ == U32_SENTINEL || csize == U32_SENTINEL || local_offset == U32_SENTINEL {
+            let z = zip64_extra(data, extra_start, extra_end, &name)?;
+            let mut q = 0usize;
+            if usize_ == U32_SENTINEL {
+                usize_ = take_u64(z, &mut q, &name)? as usize;
+            }
+            if csize == U32_SENTINEL {
+                csize = take_u64(z, &mut q, &name)? as usize;
+            }
+            if local_offset == U32_SENTINEL {
+                local_offset = take_u64(z, &mut q, &name)? as usize;
+            }
+        }
+
+        let entry = Entry {
+            name,
+            method,
+            crc,
+            compressed_size: csize,
+            uncompressed_size: usize_,
+            local_offset,
+            flags,
+        };
+        let next = extra_end
+            .checked_add(comment_len)
+            .ok_or_else(|| ZipError::new("entry trailing-length overflow"))?;
+        Ok((entry, next))
     }
 
     /// All entry names, in central-directory order.

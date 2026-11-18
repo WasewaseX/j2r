@@ -422,6 +422,269 @@ impl<'a> Decoder<'a> {
 /// alongside (standing run 4; factored out for clippy type_complexity).
 pub type DecodedMethod = (Vec<(u32, Instr)>, std::collections::BTreeMap<u32, u8>);
 
+/// Opcode groups 0x00..=0x93: consts, loads/stores, stack ops, arithmetic,
+/// conversions (verbatim arms from `decode`, round-5 reshaping).
+fn decode_op_low(d: &mut Decoder, op: u8, cp: &ConstantPool, _at: u32) -> DecodeResult<Instr> {
+    let instr = match op {
+        0x00 => Instr::Nop,
+        0x01 => Instr::AConstNull,
+        0x02 => Instr::IConst(-1),
+        0x03..=0x08 => Instr::IConst((op - 0x03) as i32),
+        0x09 => Instr::LConst(0),
+        0x0a => Instr::LConst(1),
+        0x0b..=0x0d => Instr::FConst((op - 0x0b) as f32),
+        0x0e => Instr::DConst(0.0),
+        0x0f => Instr::DConst(1.0),
+        0x10 => Instr::IConst(d.u1()? as i8 as i32),
+        0x11 => Instr::IConst(d.s2()? as i32),
+        0x12 => {
+            let idx = d.u1()?;
+            decode_ldc(cp, idx as u16)?
+        }
+        0x13 => {
+            let idx = d.u2()?;
+            decode_ldc(cp, idx)?
+        }
+        0x14 => {
+            let idx = d.u2()?;
+            decode_ldc2(cp, idx)?
+        }
+        0x15..=0x19 => Instr::Load(d.u1()? as u16),
+        0x1a..=0x2d => Instr::Load(((op - 0x1a) % 4) as u16),
+        0x2e..=0x35 => Instr::ALoad(elem_kind(op - 0x2e)?),
+        0x36..=0x3a => Instr::Store(d.u1()? as u16),
+        0x3b..=0x4e => Instr::Store(((op - 0x3b) % 4) as u16),
+        0x4f..=0x56 => Instr::AStore(elem_kind(op - 0x4f)?),
+        0x57 => Instr::Pop,
+        0x58 => Instr::Pop2,
+        0x59 => Instr::Dup,
+        0x5a => Instr::DupX1,
+        0x5b => Instr::DupX2,
+        0x5c => Instr::Dup2,
+        0x5d => Instr::Dup2X1,
+        0x5e => Instr::Dup2X2,
+        0x5f => Instr::Swap,
+        0x60..=0x83 => explicit_arith(op)?,
+        0x84 => {
+            let idx = d.u1()? as u16;
+            let c = d.u1()? as i8 as i32;
+            Instr::IInc { idx, c }
+        }
+        0x85..=0x93 => explicit_convert(op)?,
+        _ => unreachable!("opcode outside the 0x00..=0x93 group"),
+    };
+    Ok(instr)
+}
+
+/// Opcode groups 0x94..=0xb1: comparisons, branches, switches, returns
+/// (verbatim arms from `decode`, round-5 reshaping).
+fn decode_op_flow(d: &mut Decoder, op: u8, at: u32) -> DecodeResult<Instr> {
+    let instr = match op {
+        0x94 => Instr::Cmp(CmpKind::LCmp),
+        0x95 => Instr::Cmp(CmpKind::FCmpL),
+        0x96 => Instr::Cmp(CmpKind::FCmpG),
+        0x97 => Instr::Cmp(CmpKind::DCmpL),
+        0x98 => Instr::Cmp(CmpKind::DCmpG),
+        0x99..=0x9e => {
+            let t = branch_s2(d, at)?;
+            Instr::IfZero(cmp_op(op - 0x99)?, t)
+        }
+        0x9f..=0xa4 => {
+            let t = branch_s2(d, at)?;
+            Instr::IfICmp(cmp_op(op - 0x9f)?, t)
+        }
+        0xa5 => {
+            let t = branch_s2(d, at)?;
+            Instr::IfRefCmp {
+                eq: true,
+                target: t,
+            }
+        }
+        0xa6 => {
+            let t = branch_s2(d, at)?;
+            Instr::IfRefCmp {
+                eq: false,
+                target: t,
+            }
+        }
+        0xa7 => {
+            let t = branch_s2(d, at)?;
+            Instr::Goto(t)
+        }
+        0xa8 | 0xa9 => {
+            return Err(DecodeError {
+                pc: at,
+                message: "jsr/ret are not supported (pre-Java-6 bytecode)".to_string(),
+            });
+        }
+        0xaa => {
+            let pad = (4 - (d.pos % 4)) % 4;
+            d.pos += pad;
+            let default = (at as i64 + d.s4()? as i64) as u32;
+            let low = d.s4()?;
+            let high = d.s4()?;
+            if high < low {
+                return Err(DecodeError {
+                    pc: at,
+                    message: "tableswitch with high < low".to_string(),
+                });
+            }
+            let count = (high - low + 1) as usize;
+            let mut targets = Vec::with_capacity(count);
+            for _ in 0..count {
+                targets.push((at as i64 + d.s4()? as i64) as u32);
+            }
+            Instr::TableSwitch {
+                default,
+                low,
+                targets,
+            }
+        }
+        0xab => {
+            let pad = (4 - (d.pos % 4)) % 4;
+            d.pos += pad;
+            let default = (at as i64 + d.s4()? as i64) as u32;
+            let npairs = d.s4()? as usize;
+            let mut pairs = Vec::with_capacity(npairs);
+            for _ in 0..npairs {
+                let m = d.s4()?;
+                let t = (at as i64 + d.s4()? as i64) as u32;
+                pairs.push((m, t));
+            }
+            Instr::LookupSwitch { default, pairs }
+        }
+        0xac => Instr::Return(TypeDesc::Int),
+        0xad => Instr::Return(TypeDesc::Long),
+        0xae => Instr::Return(TypeDesc::Float),
+        0xaf => Instr::Return(TypeDesc::Double),
+        0xb0 => Instr::Return(TypeDesc::Object(String::new())),
+        0xb1 => Instr::Return(TypeDesc::Void),
+        _ => unreachable!("opcode outside the 0x94..=0xb1 group"),
+    };
+    Ok(instr)
+}
+
+/// Opcode groups 0xb2..=0xc9: fields, invokes, allocation, wide, the
+/// far branches (verbatim arms from `decode`, round-5 reshaping).
+fn decode_op_ref(d: &mut Decoder, op: u8, at: u32, _cp: &ConstantPool) -> DecodeResult<Instr> {
+    let instr = match op {
+        0xb2..=0xb5 => {
+            let (class, field, desc) = d.member_ref()?;
+            match op {
+                0xb2 => Instr::GetStatic { class, field, desc },
+                0xb3 => Instr::PutStatic { class, field, desc },
+                0xb4 => Instr::GetField { class, field, desc },
+                _ => Instr::PutField { class, field, desc },
+            }
+        }
+        0xb6..=0xb8 => {
+            let (class, name, desc) = d.member_ref()?;
+            match op {
+                0xb6 => Instr::InvokeVirtual { class, name, desc },
+                0xb7 => Instr::InvokeSpecial { class, name, desc },
+                _ => Instr::InvokeStatic { class, name, desc },
+            }
+        }
+        0xb9 => {
+            let (class, name, desc) = d.member_ref()?;
+            let _count = d.u1()?;
+            let _zero = d.u1()?;
+            Instr::InvokeInterface { class, name, desc }
+        }
+        0xba => {
+            let idx = d.u2()?;
+            let _z1 = d.u1()?;
+            let _z2 = d.u1()?;
+            Instr::InvokeDynamic { index: idx }
+        }
+        0xbb => Instr::New {
+            class: d.class_at(at)?,
+        },
+        0xbc => {
+            let atype = d.u1()?;
+            let prim = match atype {
+                4 => PrimType::Boolean,
+                5 => PrimType::Char,
+                6 => PrimType::Float,
+                7 => PrimType::Double,
+                8 => PrimType::Byte,
+                9 => PrimType::Short,
+                10 => PrimType::Int,
+                11 => PrimType::Long,
+                other => {
+                    return Err(DecodeError {
+                        pc: at,
+                        message: format!("bad newarray atype {other}"),
+                    })
+                }
+            };
+            Instr::NewArray(prim)
+        }
+        0xbd => Instr::ANewArray {
+            elem: d.class_at(at)?,
+        },
+        0xbe => Instr::ArrayLength,
+        0xbf => Instr::AThrow,
+        0xc0 => Instr::CheckCast {
+            class: d.class_at(at)?,
+        },
+        0xc1 => Instr::InstanceOf {
+            class: d.class_at(at)?,
+        },
+        0xc2 => Instr::MonitorEnter,
+        0xc3 => Instr::MonitorExit,
+        0xc4 => {
+            let wop = d.u1()?;
+            match wop {
+                0x15..=0x19 => Instr::Load(d.u2()?),
+                0x36..=0x3a => Instr::Store(d.u2()?),
+                0x84 => {
+                    let idx = d.u2()?;
+                    let c = d.s2()? as i32;
+                    Instr::IInc { idx, c }
+                }
+                0xa9 => {
+                    return Err(DecodeError {
+                        pc: at,
+                        message: "wide ret is not supported".to_string(),
+                    })
+                }
+                other => {
+                    return Err(DecodeError {
+                        pc: at,
+                        message: format!("bad wide opcode {other:#x}"),
+                    })
+                }
+            }
+        }
+        0xc5 => {
+            let desc = d.class_at(at)?;
+            let dims = d.u1()?;
+            Instr::MultiNewArray { desc, dims }
+        }
+        0xc6 => {
+            let t = branch_s2(d, at)?;
+            Instr::IfNull(t)
+        }
+        0xc7 => {
+            let t = branch_s2(d, at)?;
+            Instr::IfNonNull(t)
+        }
+        0xc8 => {
+            let off = d.s4()?;
+            Instr::Goto((at as i64 + off as i64) as u32)
+        }
+        0xc9 => {
+            return Err(DecodeError {
+                pc: at,
+                message: "jsr_w is not supported".to_string(),
+            });
+        }
+        _ => unreachable!("opcode outside the 0xb2..=0xc9 group"),
+    };
+    Ok(instr)
+}
+
 /// Decodes a method body into `(pc, instruction)` pairs, in code order,
 /// plus the array-op side-map (see [`DecodedMethod`]).
 pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<DecodedMethod> {
@@ -435,242 +698,9 @@ pub fn decode(code: &[u8], cp: &ConstantPool) -> DecodeResult<DecodedMethod> {
             array_ops.insert(at, op);
         }
         let instr = match op {
-            0x00 => Instr::Nop,
-            0x01 => Instr::AConstNull,
-            0x02 => Instr::IConst(-1),
-            0x03..=0x08 => Instr::IConst((op - 0x03) as i32),
-            0x09 => Instr::LConst(0),
-            0x0a => Instr::LConst(1),
-            0x0b..=0x0d => Instr::FConst((op - 0x0b) as f32),
-            0x0e => Instr::DConst(0.0),
-            0x0f => Instr::DConst(1.0),
-            0x10 => Instr::IConst(d.u1()? as i8 as i32),
-            0x11 => Instr::IConst(d.s2()? as i32),
-            0x12 => {
-                let idx = d.u1()?;
-                decode_ldc(cp, idx as u16)?
-            }
-            0x13 => {
-                let idx = d.u2()?;
-                decode_ldc(cp, idx)?
-            }
-            0x14 => {
-                let idx = d.u2()?;
-                decode_ldc2(cp, idx)?
-            }
-            0x15..=0x19 => Instr::Load(d.u1()? as u16),
-            0x1a..=0x2d => Instr::Load(((op - 0x1a) % 4) as u16),
-            0x2e..=0x35 => Instr::ALoad(elem_kind(op - 0x2e)?),
-            0x36..=0x3a => Instr::Store(d.u1()? as u16),
-            0x3b..=0x4e => Instr::Store(((op - 0x3b) % 4) as u16),
-            0x4f..=0x56 => Instr::AStore(elem_kind(op - 0x4f)?),
-            0x57 => Instr::Pop,
-            0x58 => Instr::Pop2,
-            0x59 => Instr::Dup,
-            0x5a => Instr::DupX1,
-            0x5b => Instr::DupX2,
-            0x5c => Instr::Dup2,
-            0x5d => Instr::Dup2X1,
-            0x5e => Instr::Dup2X2,
-            0x5f => Instr::Swap,
-            0x60..=0x83 => explicit_arith(op)?,
-            0x84 => {
-                let idx = d.u1()? as u16;
-                let c = d.u1()? as i8 as i32;
-                Instr::IInc { idx, c }
-            }
-            0x85..=0x93 => explicit_convert(op)?,
-            0x94 => Instr::Cmp(CmpKind::LCmp),
-            0x95 => Instr::Cmp(CmpKind::FCmpL),
-            0x96 => Instr::Cmp(CmpKind::FCmpG),
-            0x97 => Instr::Cmp(CmpKind::DCmpL),
-            0x98 => Instr::Cmp(CmpKind::DCmpG),
-            0x99..=0x9e => {
-                let t = branch_s2(&mut d, at)?;
-                Instr::IfZero(cmp_op(op - 0x99)?, t)
-            }
-            0x9f..=0xa4 => {
-                let t = branch_s2(&mut d, at)?;
-                Instr::IfICmp(cmp_op(op - 0x9f)?, t)
-            }
-            0xa5 => {
-                let t = branch_s2(&mut d, at)?;
-                Instr::IfRefCmp {
-                    eq: true,
-                    target: t,
-                }
-            }
-            0xa6 => {
-                let t = branch_s2(&mut d, at)?;
-                Instr::IfRefCmp {
-                    eq: false,
-                    target: t,
-                }
-            }
-            0xa7 => {
-                let t = branch_s2(&mut d, at)?;
-                Instr::Goto(t)
-            }
-            0xa8 | 0xa9 => {
-                return Err(DecodeError {
-                    pc: at,
-                    message: "jsr/ret are not supported (pre-Java-6 bytecode)".to_string(),
-                });
-            }
-            0xaa => {
-                let pad = (4 - (d.pos % 4)) % 4;
-                d.pos += pad;
-                let default = (at as i64 + d.s4()? as i64) as u32;
-                let low = d.s4()?;
-                let high = d.s4()?;
-                if high < low {
-                    return Err(DecodeError {
-                        pc: at,
-                        message: "tableswitch with high < low".to_string(),
-                    });
-                }
-                let count = (high - low + 1) as usize;
-                let mut targets = Vec::with_capacity(count);
-                for _ in 0..count {
-                    targets.push((at as i64 + d.s4()? as i64) as u32);
-                }
-                Instr::TableSwitch {
-                    default,
-                    low,
-                    targets,
-                }
-            }
-            0xab => {
-                let pad = (4 - (d.pos % 4)) % 4;
-                d.pos += pad;
-                let default = (at as i64 + d.s4()? as i64) as u32;
-                let npairs = d.s4()? as usize;
-                let mut pairs = Vec::with_capacity(npairs);
-                for _ in 0..npairs {
-                    let m = d.s4()?;
-                    let t = (at as i64 + d.s4()? as i64) as u32;
-                    pairs.push((m, t));
-                }
-                Instr::LookupSwitch { default, pairs }
-            }
-            0xac => Instr::Return(TypeDesc::Int),
-            0xad => Instr::Return(TypeDesc::Long),
-            0xae => Instr::Return(TypeDesc::Float),
-            0xaf => Instr::Return(TypeDesc::Double),
-            0xb0 => Instr::Return(TypeDesc::Object(String::new())),
-            0xb1 => Instr::Return(TypeDesc::Void),
-            0xb2..=0xb5 => {
-                let (class, field, desc) = d.member_ref()?;
-                match op {
-                    0xb2 => Instr::GetStatic { class, field, desc },
-                    0xb3 => Instr::PutStatic { class, field, desc },
-                    0xb4 => Instr::GetField { class, field, desc },
-                    _ => Instr::PutField { class, field, desc },
-                }
-            }
-            0xb6..=0xb8 => {
-                let (class, name, desc) = d.member_ref()?;
-                match op {
-                    0xb6 => Instr::InvokeVirtual { class, name, desc },
-                    0xb7 => Instr::InvokeSpecial { class, name, desc },
-                    _ => Instr::InvokeStatic { class, name, desc },
-                }
-            }
-            0xb9 => {
-                let (class, name, desc) = d.member_ref()?;
-                let _count = d.u1()?;
-                let _zero = d.u1()?;
-                Instr::InvokeInterface { class, name, desc }
-            }
-            0xba => {
-                let idx = d.u2()?;
-                let _z1 = d.u1()?;
-                let _z2 = d.u1()?;
-                Instr::InvokeDynamic { index: idx }
-            }
-            0xbb => Instr::New {
-                class: d.class_at(at)?,
-            },
-            0xbc => {
-                let atype = d.u1()?;
-                let prim = match atype {
-                    4 => PrimType::Boolean,
-                    5 => PrimType::Char,
-                    6 => PrimType::Float,
-                    7 => PrimType::Double,
-                    8 => PrimType::Byte,
-                    9 => PrimType::Short,
-                    10 => PrimType::Int,
-                    11 => PrimType::Long,
-                    other => {
-                        return Err(DecodeError {
-                            pc: at,
-                            message: format!("bad newarray atype {other}"),
-                        })
-                    }
-                };
-                Instr::NewArray(prim)
-            }
-            0xbd => Instr::ANewArray {
-                elem: d.class_at(at)?,
-            },
-            0xbe => Instr::ArrayLength,
-            0xbf => Instr::AThrow,
-            0xc0 => Instr::CheckCast {
-                class: d.class_at(at)?,
-            },
-            0xc1 => Instr::InstanceOf {
-                class: d.class_at(at)?,
-            },
-            0xc2 => Instr::MonitorEnter,
-            0xc3 => Instr::MonitorExit,
-            0xc4 => {
-                let wop = d.u1()?;
-                match wop {
-                    0x15..=0x19 => Instr::Load(d.u2()?),
-                    0x36..=0x3a => Instr::Store(d.u2()?),
-                    0x84 => {
-                        let idx = d.u2()?;
-                        let c = d.s2()? as i32;
-                        Instr::IInc { idx, c }
-                    }
-                    0xa9 => {
-                        return Err(DecodeError {
-                            pc: at,
-                            message: "wide ret is not supported".to_string(),
-                        })
-                    }
-                    other => {
-                        return Err(DecodeError {
-                            pc: at,
-                            message: format!("bad wide opcode {other:#x}"),
-                        })
-                    }
-                }
-            }
-            0xc5 => {
-                let desc = d.class_at(at)?;
-                let dims = d.u1()?;
-                Instr::MultiNewArray { desc, dims }
-            }
-            0xc6 => {
-                let t = branch_s2(&mut d, at)?;
-                Instr::IfNull(t)
-            }
-            0xc7 => {
-                let t = branch_s2(&mut d, at)?;
-                Instr::IfNonNull(t)
-            }
-            0xc8 => {
-                let off = d.s4()?;
-                Instr::Goto((at as i64 + off as i64) as u32)
-            }
-            0xc9 => {
-                return Err(DecodeError {
-                    pc: at,
-                    message: "jsr_w is not supported".to_string(),
-                });
-            }
+            0x00..=0x93 => decode_op_low(&mut d, op, cp, at)?,
+            0x94..=0xb1 => decode_op_flow(&mut d, op, at)?,
+            0xb2..=0xc9 => decode_op_ref(&mut d, op, at, cp)?,
             other => {
                 return Err(DecodeError {
                     pc: at,

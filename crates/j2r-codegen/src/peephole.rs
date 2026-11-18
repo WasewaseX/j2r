@@ -462,31 +462,19 @@ fn is_creation_putstatic(
 }
 
 /// Rewrites the specialized-map cores. Returns the number of cores
-/// replaced. `shapes` must be the method's verified per-pc shapes (the
-/// caller re-verifies after the rewrite; the synthetic instructions have
-/// verifier arms). `proven` is the class-level proven static-field set
-/// (slice 3) — the getstatic receivers this method's cores may use.
-pub fn map_prim_rewrites(
-    instrs: &mut Vec<(u32, Instr)>,
-    exception_table: &[(u32, u32, u32, Option<String>)],
-    shapes: &crate::verify::MethodShapes,
-    proven: &std::collections::BTreeMap<(String, String), (PrimType, crate::ir::MapKind)>,
-) -> usize {
-    // Branch targets, for the span guards.
-    let mut targets = Vec::new();
-    targets_of(instrs, &mut targets);
-    targets.sort_unstable();
-    targets.dedup();
-
-    // Phase A — map-fresh locals. A creation run is
-    // `New <map>; Dup; (const pushes); Invokespecial <map>.<init>;
-    //  Store(n)` with no branch target inside, where <map> is one of
-    // the three storages (G3.3 slice 4). Every OTHER Store(n) kills the
-    // local's freshness. The LinkedHashMap 3-const-arg run (the
-    // access-order ctor `(int,float,boolean)`) is REFUSED — the rewrite
-    // must not fire where the faithful get's law could differ (j2r's
-    // LHM is insertion-ordered; the conservative default keeps the
-    // faithful path everywhere it is used).
+/// Phase A (verbatim from `map_prim_rewrites`, round-5 reshaping): the
+/// map-fresh local scan. A creation run is `New <map>; Dup; (const
+/// pushes); Invokespecial <map>.<init>; Store(n)` with no branch target
+/// inside, where <map> is one of the three storages (G3.3 slice 4). Every
+/// OTHER Store(n) kills the local's freshness. The LinkedHashMap
+/// 3-const-arg run (the access-order ctor `(int,float,boolean)`) is
+/// REFUSED — the rewrite must not fire where the faithful get's law could
+/// differ (j2r's LHM is insertion-ordered; the conservative default keeps
+/// the faithful path everywhere it is used).
+fn fresh_map_locals(
+    instrs: &[(u32, Instr)],
+    targets: &[u32],
+) -> std::collections::BTreeMap<u16, crate::ir::MapKind> {
     let mut fresh: std::collections::BTreeMap<u16, crate::ir::MapKind> = Default::default();
     let mut creation_stores: Vec<u32> = Vec::new();
     for i in 0..instrs.len() {
@@ -539,25 +527,20 @@ pub fn map_prim_rewrites(
             }
         }
     }
-    // (No early-out on empty `fresh`: slice 3's field-fed cores rewrite
-    // in methods that never touch a map local.)
+    fresh
+}
 
-    // Phase B — recognize the cores (the adjacency window itself).
-    let recognized = recognize_cores(instrs);
-
-    // Phase C — resolve each core's receiver by the backward shape walk:
-    // a HashMap-fresh local (slice 2) or a proven static field (slice 3).
-    let mut cores: Vec<MapCore> = recognized
-        .into_iter()
-        .filter_map(|(i, put, prim)| resolve_core(instrs, shapes, i, put, prim, &fresh, proven))
-        .collect();
-
-    // Phase D — the span guards (branch targets + handler overlap). A
-    // refused core keeps the faithful path, which then OBSERVES the prim
-    // slots its sibling rewrites wrote — so a refusal must remove every
-    // core of the same receiver local. The closure check below does
-    // exactly that: after the guards, the refused core's receiver Load
-    // is no longer covered.
+/// Phase D (verbatim from `map_prim_rewrites`, round-5 reshaping): the
+/// span guards (branch targets + handler overlap). A refused core keeps
+/// the faithful path, which then OBSERVES the prim slots its sibling
+/// rewrites wrote — so a refusal must remove every core of the same
+/// receiver local. The closure check below does exactly that: after the
+/// guards, the refused core's receiver Load is no longer covered.
+fn span_guard_pass(
+    cores: &mut Vec<MapCore>,
+    targets: &[u32],
+    exception_table: &[(u32, u32, u32, Option<String>)],
+) {
     cores.retain(|c| {
         let inside = |t: u32| t > c.recv_pc && t < c.end_pc;
         if targets.iter().any(|t| inside(*t)) {
@@ -569,16 +552,20 @@ pub fn map_prim_rewrites(
             !overlaps || contains
         })
     });
-    if cores.is_empty() {
-        return 0;
-    }
+}
 
-    // Phase E — consumption closure for the LOCAL receivers: every
-    // Load(n) of a fresh local must be some surviving core's receiver.
-    // Any other load (an argument pass, a field store, a return,
-    // `keySet()`, a non-core put/get) can observe the map or a value
-    // where a BOX is expected. Field receivers are exempt here: their
-    // closure was proven class-wide by the proven-field scan.
+/// Phase E (verbatim from `map_prim_rewrites`, round-5 reshaping): the
+/// consumption closure for the LOCAL receivers — every Load(n) of a fresh
+/// local must be some surviving core's receiver. Any other load (an
+/// argument pass, a field store, a return, `keySet()`, a non-core
+/// put/get) can observe the map or a value where a BOX is expected. Field
+/// receivers are exempt here: their closure was proven class-wide by the
+/// proven-field scan.
+fn consumption_closure(
+    instrs: &[(u32, Instr)],
+    cores: &mut Vec<MapCore>,
+    fresh: &std::collections::BTreeMap<u16, crate::ir::MapKind>,
+) {
     let recv_pcs: Vec<u32> = cores.iter().map(|c| c.recv_pc).collect();
     let mut closed: std::collections::BTreeSet<u16> = fresh.keys().copied().collect();
     for (pc, i) in instrs.iter() {
@@ -592,11 +579,11 @@ pub fn map_prim_rewrites(
         Recv::Local(n) => closed.contains(n),
         Recv::Field { .. } => true,
     });
-    if cores.is_empty() {
-        return 0;
-    }
+}
 
-    // Phase F — splice, descending so the indices stay valid.
+/// Phase F (verbatim from `map_prim_rewrites`, round-5 reshaping): splice
+/// the synthetic instructions in, descending so the indices stay valid.
+fn splice_synthetic(instrs: &mut Vec<(u32, Instr)>, cores: &[MapCore]) -> usize {
     let mut replaced = 0;
     for c in cores.iter().rev() {
         let synthetic = if c.put {
@@ -614,6 +601,53 @@ pub fn map_prim_rewrites(
         replaced += 1;
     }
     replaced
+}
+
+/// replaced. `shapes` must be the method's verified per-pc shapes (the
+/// caller re-verifies after the rewrite; the synthetic instructions have
+/// verifier arms). `proven` is the class-level proven static-field set
+/// (slice 3) — the getstatic receivers this method's cores may use.
+pub fn map_prim_rewrites(
+    instrs: &mut Vec<(u32, Instr)>,
+    exception_table: &[(u32, u32, u32, Option<String>)],
+    shapes: &crate::verify::MethodShapes,
+    proven: &std::collections::BTreeMap<(String, String), (PrimType, crate::ir::MapKind)>,
+) -> usize {
+    // Branch targets, for the span guards.
+    let mut targets = Vec::new();
+    targets_of(instrs, &mut targets);
+    targets.sort_unstable();
+    targets.dedup();
+
+    // Phase A — map-fresh locals (the helper above).
+    let fresh = fresh_map_locals(instrs, &targets);
+    // (No early-out on empty `fresh`: slice 3's field-fed cores rewrite
+    // in methods that never touch a map local.)
+
+    // Phase B — recognize the cores (the adjacency window itself).
+    let recognized = recognize_cores(instrs);
+
+    // Phase C — resolve each core's receiver by the backward shape walk:
+    // a HashMap-fresh local (slice 2) or a proven static field (slice 3).
+    let mut cores: Vec<MapCore> = recognized
+        .into_iter()
+        .filter_map(|(i, put, prim)| resolve_core(instrs, shapes, i, put, prim, &fresh, proven))
+        .collect();
+
+    // Phase D — the span guards (branch targets + handler overlap).
+    span_guard_pass(&mut cores, &targets, exception_table);
+    if cores.is_empty() {
+        return 0;
+    }
+
+    // Phase E — consumption closure for the LOCAL receivers.
+    consumption_closure(instrs, &mut cores, &fresh);
+    if cores.is_empty() {
+        return 0;
+    }
+
+    // Phase F — splice, descending so the indices stay valid.
+    splice_synthetic(instrs, &cores)
 }
 
 fn unbox_desc(p: PrimType) -> &'static str {

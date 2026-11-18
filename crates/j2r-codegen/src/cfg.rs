@@ -371,27 +371,10 @@ fn trampoline_map(cfg: &Cfg, m: &MethodPlan, loops: &[Loop]) -> HashMap<usize, u
     out
 }
 
-/// Analyse the CFG; `Err(reason)` means the method falls back to dispatch.
-/// On success returns the loops plus the trampoline-resolution map (the
-/// builder keys every stop lookup on resolved targets).
-fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<(Vec<Loop>, HashMap<usize, usize>), Unsupported> {
-    if m.instrs.is_empty() {
-        return Err(Unsupported::EmptyBody);
-    }
-    if !m.exception_table.is_empty() {
-        return Err(Unsupported::HasExceptionTable);
-    }
-    if m.instrs
-        .iter()
-        .any(|(_, i)| matches!(i, Instr::TableSwitch { .. } | Instr::LookupSwitch { .. }))
-    {
-        return Err(Unsupported::HasSwitch);
-    }
-
-    // Retreating edges via iterative DFS.
-    let n = cfg.blocks.len();
-    let succs: Vec<Vec<usize>> = cfg
-        .blocks
+/// Successor lists, sorted+deduped (verbatim from `analyse`'s DFS prep,
+/// round-5 reshaping; the same lists serve the DFS and the exit pass).
+fn sorted_succ_lists(cfg: &Cfg) -> Vec<Vec<usize>> {
+    cfg.blocks
         .iter()
         .map(|b| {
             let mut v: Vec<usize> = b.succs.clone();
@@ -399,7 +382,13 @@ fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<(Vec<Loop>, HashMap<usize, usize
             v.dedup();
             v
         })
-        .collect();
+        .collect()
+}
+
+/// Retreating edges via iterative DFS (verbatim from `analyse`,
+/// round-5 reshaping).
+fn retreating_edges(cfg: &Cfg, succs: &[Vec<usize>]) -> Vec<(usize, usize)> {
+    let n = cfg.blocks.len();
     let mut state = vec![0u8; n]; // 0 unvisited, 1 on stack, 2 done
     let mut retreating: Vec<(usize, usize)> = Vec::new();
     let mut stack: Vec<(usize, usize)> = vec![(cfg.entry, 0)];
@@ -421,45 +410,18 @@ fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<(Vec<Loop>, HashMap<usize, usize
             stack.pop();
         }
     }
+    retreating
+}
 
-    let idoms = cfg.idom();
-    for &(from, to) in &retreating {
-        if !Cfg::dominates(&idoms, to, from) {
-            return Err(Unsupported::Irreducible);
-        }
-    }
-
-    // Natural loops (unioned across all back edges of a header). Exit
-    // handling (revised by the lift-closure wave, 2026-11-07):
-    //
-    // * Edges are grouped by TARGET BLOCK, not by (from, to) pair —
-    //   javac's `break` inside a `while`/`do-while` adds a second edge to
-    //   the SAME after-loop block, and the builder already routes every
-    //   body→exit edge through one `break` stop. Comparing (from, to)
-    //   pairs refused exactly those loops.
-    // * A target block whose terminator is `return`/`athrow` is NOT an
-    //   open exit: the natural-loop node set is built by walking
-    //   PREDECESSORS from the back edge, so early-return blocks inside
-    //   the loop body are excluded from `nodes` and their incoming edges
-    //   looked like exits with a second target. The builder emits such
-    //   blocks inline at the edge (the walk emits the return and that
-    //   path ends) — no post-loop region needed.
-    // * What remains must be ONE open exit target; a genuine multi-target
-    //   loop (Java labeled `break` to two different labels) still refuses
-    //   as MultiExitLoop.
-    // * The old "exit block has no outside predecessors" purity check is
-    //   GONE: the builder routes a shared exit through the enclosing
-    //   stop (the JaggedNew continue-target shape) or falls back loudly
-    //   (BranchIntoEmittedCode) on shapes it cannot structure — the
-    //   conservative direction is unchanged, nothing wrong can be
-    //   emitted (cfg_equiv is the proof obligation).
+/// Natural-loop node sets (unioned across all back edges of a header):
+/// every node that can reach the back-edge source without going through
+/// the header (verbatim from `analyse` pass 1, round-5 reshaping).
+fn loop_bodies(cfg: &Cfg, retreating: &[(usize, usize)]) -> Vec<(usize, HashSet<usize>)> {
     let preds = cfg.preds();
     let mut back_edges: HashMap<usize, Vec<usize>> = HashMap::new();
-    for &(from, header) in &retreating {
+    for &(from, header) in retreating {
         back_edges.entry(header).or_default().push(from);
     }
-    // Pass 1: loop node sets (headers known afterwards — the trampoline
-    // map needs them: chains never walk through a loop top).
     let mut bodies: Vec<(usize, HashSet<usize>)> = Vec::new();
     for (header, sources) in back_edges {
         let mut nodes: HashSet<usize> = HashSet::new();
@@ -476,19 +438,41 @@ fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<(Vec<Loop>, HashMap<usize, usize
         }
         bodies.push((header, nodes));
     }
-    let tramp = trampoline_map(
-        cfg,
-        m,
-        &bodies
-            .iter()
-            .map(|(h, ns)| Loop {
-                header: *h,
-                exit: None,
-                nodes: ns.clone(),
-            })
-            .collect::<Vec<_>>(),
-    );
-    // Pass 2: exit classification per loop.
+    bodies
+}
+
+/// Exit classification per loop (verbatim from `analyse` pass 2,
+/// round-5 reshaping). Exit handling (revised by the lift-closure wave,
+/// 2026-11-07):
+///
+/// * Edges are grouped by TARGET BLOCK, not by (from, to) pair —
+///   javac's `break` inside a `while`/`do-while` adds a second edge to
+///   the SAME after-loop block, and the builder already routes every
+///   body→exit edge through one `break` stop. Comparing (from, to)
+///   pairs refused exactly those loops.
+/// * A target block whose terminator is `return`/`athrow` is NOT an
+///   open exit: the natural-loop node set is built by walking
+///   PREDECESSORS from the back edge, so early-return blocks inside
+///   the loop body are excluded from `nodes` and their incoming edges
+///   looked like exits with a second target. The builder emits such
+///   blocks inline at the edge (the walk emits the return and that
+///   path ends) — no post-loop region needed.
+/// * What remains must be ONE open exit target; a genuine multi-target
+///   loop (Java labeled `break` to two different labels) still refuses
+///   as MultiExitLoop.
+/// * The old "exit block has no outside predecessors" purity check is
+///   GONE: the builder routes a shared exit through the enclosing
+///   stop (the JaggedNew continue-target shape) or falls back loudly
+///   (BranchIntoEmittedCode) on shapes it cannot structure — the
+///   conservative direction is unchanged, nothing wrong can be
+///   emitted (cfg_equiv is the proof obligation).
+fn classify_loops(
+    cfg: &Cfg,
+    m: &MethodPlan,
+    succs: &[Vec<usize>],
+    tramp: &HashMap<usize, usize>,
+    bodies: Vec<(usize, HashSet<usize>)>,
+) -> Result<Vec<Loop>, Unsupported> {
     let mut loops: Vec<Loop> = Vec::new();
     for (header, nodes) in bodies {
         let mut open_exits: Vec<usize> = Vec::new();
@@ -523,6 +507,53 @@ fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<(Vec<Loop>, HashMap<usize, usize
             nodes,
         });
     }
+    Ok(loops)
+}
+
+/// Analyse the CFG; `Err(reason)` means the method falls back to dispatch.
+/// On success returns the loops plus the trampoline-resolution map (the
+/// builder keys every stop lookup on resolved targets).
+fn analyse(cfg: &Cfg, m: &MethodPlan) -> Result<(Vec<Loop>, HashMap<usize, usize>), Unsupported> {
+    if m.instrs.is_empty() {
+        return Err(Unsupported::EmptyBody);
+    }
+    if !m.exception_table.is_empty() {
+        return Err(Unsupported::HasExceptionTable);
+    }
+    if m.instrs
+        .iter()
+        .any(|(_, i)| matches!(i, Instr::TableSwitch { .. } | Instr::LookupSwitch { .. }))
+    {
+        return Err(Unsupported::HasSwitch);
+    }
+
+    let succs = sorted_succ_lists(cfg);
+    let retreating = retreating_edges(cfg, &succs);
+    let idoms = cfg.idom();
+    for &(from, to) in &retreating {
+        if !Cfg::dominates(&idoms, to, from) {
+            return Err(Unsupported::Irreducible);
+        }
+    }
+
+    // Natural loops (unioned across all back edges of a header). Pass 1:
+    // loop node sets (headers known afterwards — the trampoline map needs
+    // them: chains never walk through a loop top).
+    let bodies = loop_bodies(cfg, &retreating);
+    let tramp = trampoline_map(
+        cfg,
+        m,
+        &bodies
+            .iter()
+            .map(|(h, ns)| Loop {
+                header: *h,
+                exit: None,
+                nodes: ns.clone(),
+            })
+            .collect::<Vec<_>>(),
+    );
+    // Pass 2: exit classification per loop.
+    let loops = classify_loops(cfg, m, &succs, &tramp, bodies)?;
     Ok((loops, tramp))
 }
 

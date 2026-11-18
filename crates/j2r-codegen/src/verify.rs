@@ -635,6 +635,124 @@ impl<'a> Sim<'a> {
         Ok(v)
     }
 
+    /// dup_x2 form 1/2 (verbatim from `dup_family`, round-5 reshaping).
+    fn dup_x2(&mut self) -> std::result::Result<(), VerifyError> {
+        let v1 = self.pop_cat1("dup_x2")?;
+        let v2 = self.pop()?;
+        if v2.is_cat2() {
+            // Form 2: v2(cat2), v1 -> v1, v2, v1
+            self.push(v1.clone())?;
+            self.push(v2.clone())?;
+            self.push(v1.clone())?;
+        } else {
+            // Form 1: v3, v2, v1 (all cat1) -> v1, v3, v2, v1
+            let v3 = self.pop_cat1("dup_x2")?;
+            self.push(v1.clone())?;
+            self.push(v3.clone())?;
+            self.push(v2.clone())?;
+            self.push(v1.clone())?;
+        }
+        Ok(())
+    }
+
+    /// dup2 form 1/2 (verbatim from `dup_family`, round-5 reshaping).
+    fn dup2(&mut self) -> std::result::Result<(), VerifyError> {
+        let v1 = self.pop()?;
+        if v1.is_cat2() {
+            // Form 2: v1 -> v1, v1
+            self.push(v1.clone())?;
+            self.push(v1.clone())?;
+        } else {
+            // Form 1: v2, v1 -> v2, v1, v2, v1
+            let v2 = self.pop_cat1("dup2")?;
+            self.push(v2.clone())?;
+            self.push(v1.clone())?;
+            self.push(v2.clone())?;
+            self.push(v1.clone())?;
+        }
+        Ok(())
+    }
+
+    /// dup2_x1 form 1/2 (verbatim from `dup_family`, round-5 reshaping).
+    fn dup2_x1(&mut self) -> std::result::Result<(), VerifyError> {
+        let v1 = self.pop()?;
+        if v1.is_cat2() {
+            // Form 2: v2(cat1), v1(cat2) -> v1, v2, v1
+            let v2 = self.pop_cat1("dup2_x1")?;
+            self.push(v1.clone())?;
+            self.push(v2.clone())?;
+            self.push(v1.clone())?;
+        } else {
+            // Form 1: v3, v2, v1 (all cat1) -> v2, v1, v3, v2, v1
+            let v2 = self.pop_cat1("dup2_x1")?;
+            let v3 = self.pop_cat1("dup2_x1")?;
+            self.push(v2.clone())?;
+            self.push(v1.clone())?;
+            self.push(v3.clone())?;
+            self.push(v2.clone())?;
+            self.push(v1.clone())?;
+        }
+        Ok(())
+    }
+
+    /// dup2_x2 forms 1-4 (verbatim from `dup_family`, round-5 reshaping).
+    /// Forms follow the runtime's stack.rs table (and the JVMS):
+    /// each of the top two two-slot units (U = the duplicated
+    /// unit on top, X = the unit the copy is inserted below) is
+    /// either one category-2 value or two category-1 values.
+    ///   F1 U=c1,c1  X=c1,c1: v4,v3,v2,v1 -> v2,v1,v4,v3,v2,v1
+    ///   F2 U=cat2   X=c1,c1: v3,v2,v1 -> v1,v3,v2,v1
+    ///     (JAMA wave 3: `LUrowi[j] = LUcolj[i] -= s;` — javac's
+    ///     compound double assignment ends cat2-on-top)
+    ///   F3 U=c1,c1  X=cat2:  v3,v2,v1 -> v2,v1,v3,v2,v1
+    ///   F4 U=cat2   X=cat2:  v2,v1 -> v1,v2,v1
+    fn dup2_x2(&mut self) -> std::result::Result<(), VerifyError> {
+        let v1 = self.pop()?;
+        let v2 = self.pop()?;
+        match (v1.is_cat2(), v2.is_cat2()) {
+            (true, true) => {
+                // Form 4
+                self.push(v1.clone())?;
+                self.push(v2.clone())?;
+                self.push(v1.clone())?;
+            }
+            (true, false) => {
+                // Form 2
+                let v3 = self.pop_cat1("dup2_x2")?;
+                self.push(v1.clone())?;
+                self.push(v3.clone())?;
+                self.push(v2.clone())?;
+                self.push(v1.clone())?;
+            }
+            (false, true) => {
+                return Err(self.e(
+                    "dup2_x2: no JVMS form has a category-1 value on top of a category-2 value",
+                ));
+            }
+            (false, false) => {
+                let v3 = self.pop()?;
+                if v3.is_cat2() {
+                    // Form 3
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
+                    self.push(v3.clone())?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
+                } else {
+                    // Form 1
+                    let v4 = self.pop_cat1("dup2_x2")?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
+                    self.push(v4.clone())?;
+                    self.push(v3.clone())?;
+                    self.push(v2.clone())?;
+                    self.push(v1.clone())?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn dup_family(&mut self, instr: &Instr) -> std::result::Result<(), VerifyError> {
         match instr {
             Instr::Pop => {
@@ -658,112 +776,10 @@ impl<'a> Sim<'a> {
                 self.push(v2.clone())?;
                 self.push(v1.clone())?;
             }
-            Instr::DupX2 => {
-                let v1 = self.pop_cat1("dup_x2")?;
-                let v2 = self.pop()?;
-                if v2.is_cat2() {
-                    // Form 2: v2(cat2), v1 -> v1, v2, v1
-                    self.push(v1.clone())?;
-                    self.push(v2.clone())?;
-                    self.push(v1.clone())?;
-                } else {
-                    // Form 1: v3, v2, v1 (all cat1) -> v1, v3, v2, v1
-                    let v3 = self.pop_cat1("dup_x2")?;
-                    self.push(v1.clone())?;
-                    self.push(v3.clone())?;
-                    self.push(v2.clone())?;
-                    self.push(v1.clone())?;
-                }
-            }
-            Instr::Dup2 => {
-                let v1 = self.pop()?;
-                if v1.is_cat2() {
-                    // Form 2: v1 -> v1, v1
-                    self.push(v1.clone())?;
-                    self.push(v1.clone())?;
-                } else {
-                    // Form 1: v2, v1 -> v2, v1, v2, v1
-                    let v2 = self.pop_cat1("dup2")?;
-                    self.push(v2.clone())?;
-                    self.push(v1.clone())?;
-                    self.push(v2.clone())?;
-                    self.push(v1.clone())?;
-                }
-            }
-            Instr::Dup2X1 => {
-                let v1 = self.pop()?;
-                if v1.is_cat2() {
-                    // Form 2: v2(cat1), v1(cat2) -> v1, v2, v1
-                    let v2 = self.pop_cat1("dup2_x1")?;
-                    self.push(v1.clone())?;
-                    self.push(v2.clone())?;
-                    self.push(v1.clone())?;
-                } else {
-                    // Form 1: v3, v2, v1 (all cat1) -> v2, v1, v3, v2, v1
-                    let v2 = self.pop_cat1("dup2_x1")?;
-                    let v3 = self.pop_cat1("dup2_x1")?;
-                    self.push(v2.clone())?;
-                    self.push(v1.clone())?;
-                    self.push(v3.clone())?;
-                    self.push(v2.clone())?;
-                    self.push(v1.clone())?;
-                }
-            }
-            Instr::Dup2X2 => {
-                // Forms follow the runtime's stack.rs table (and the JVMS):
-                // each of the top two two-slot units (U = the duplicated
-                // unit on top, X = the unit the copy is inserted below) is
-                // either one category-2 value or two category-1 values.
-                //   F1 U=c1,c1  X=c1,c1: v4,v3,v2,v1 -> v2,v1,v4,v3,v2,v1
-                //   F2 U=cat2   X=c1,c1: v3,v2,v1 -> v1,v3,v2,v1
-                //     (JAMA wave 3: `LUrowi[j] = LUcolj[i] -= s;` — javac's
-                //     compound double assignment ends cat2-on-top)
-                //   F3 U=c1,c1  X=cat2:  v3,v2,v1 -> v2,v1,v3,v2,v1
-                //   F4 U=cat2   X=cat2:  v2,v1 -> v1,v2,v1
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                match (v1.is_cat2(), v2.is_cat2()) {
-                    (true, true) => {
-                        // Form 4
-                        self.push(v1.clone())?;
-                        self.push(v2.clone())?;
-                        self.push(v1.clone())?;
-                    }
-                    (true, false) => {
-                        // Form 2
-                        let v3 = self.pop_cat1("dup2_x2")?;
-                        self.push(v1.clone())?;
-                        self.push(v3.clone())?;
-                        self.push(v2.clone())?;
-                        self.push(v1.clone())?;
-                    }
-                    (false, true) => {
-                        return Err(self.e(
-                            "dup2_x2: no JVMS form has a category-1 value on top of a category-2 value",
-                        ));
-                    }
-                    (false, false) => {
-                        let v3 = self.pop()?;
-                        if v3.is_cat2() {
-                            // Form 3
-                            self.push(v2.clone())?;
-                            self.push(v1.clone())?;
-                            self.push(v3.clone())?;
-                            self.push(v2.clone())?;
-                            self.push(v1.clone())?;
-                        } else {
-                            // Form 1
-                            let v4 = self.pop_cat1("dup2_x2")?;
-                            self.push(v2.clone())?;
-                            self.push(v1.clone())?;
-                            self.push(v4.clone())?;
-                            self.push(v3.clone())?;
-                            self.push(v2.clone())?;
-                            self.push(v1.clone())?;
-                        }
-                    }
-                }
-            }
+            Instr::DupX2 => self.dup_x2()?,
+            Instr::Dup2 => self.dup2()?,
+            Instr::Dup2X1 => self.dup2_x1()?,
+            Instr::Dup2X2 => self.dup2_x2()?,
             Instr::Swap => {
                 let v1 = self.pop_cat1("swap")?;
                 let v2 = self.pop_cat1("swap")?;
@@ -795,10 +811,167 @@ impl<'a> Sim<'a> {
 
     /// Executes one instruction against the abstract state. Returns the
     /// control successors as `(target_pc, entry_state)` pairs (empty for
-    /// `return`/`athrow`).
+    /// `return`/`athrow`). The dispatch match partitions the `Instr`
+    /// enum exhaustively into the family helpers (round-5 reshaping);
+    /// each helper re-matches only its own variants, so a variant landing
+    /// in the wrong helper is the loud `unreachable!`, never a silent
+    /// no-op. The family bodies are verbatim from the pre-split match.
     fn execute(&mut self, instr: &Instr) -> std::result::Result<Vec<(u32, State)>, VerifyError> {
         use Instr::*;
-        use NumKind as NK;
+        match instr {
+            IfZero(_, _)
+            | IfICmp(_, _)
+            | IfRefCmp { .. }
+            | IfNull(_)
+            | IfNonNull(_)
+            | Goto(_)
+            | TableSwitch { .. }
+            | LookupSwitch { .. }
+            | Return(_)
+            | AThrow => {
+                return self.execute_control(instr);
+            }
+            Nop | AConstNull | IConst(_) | LConst(_) | FConst(_) | DConst(_) | Ldc(_)
+            | Ldc2W(_) => self.execute_const_ops(instr)?,
+            Load(_) | Store(_) | IInc { .. } | ALoad(_) | AStore(_) | ArrayLength => {
+                self.execute_local_array_ops(instr)?;
+            }
+            Pop | Pop2 | Dup | DupX1 | DupX2 | Dup2 | Dup2X1 | Dup2X2 | Swap => {
+                self.dup_family(instr)?;
+            }
+            Arith { .. } | Convert(_) | Cmp(_) => self.execute_arith_ops(instr)?,
+            GetStatic { .. } | PutStatic { .. } | GetField { .. } | PutField { .. } => {
+                self.execute_field_ops(instr)?;
+            }
+            InvokeVirtual { .. }
+            | InvokeSpecial { .. }
+            | InvokeInterface { .. }
+            | InvokeStatic { .. }
+            | InvokeDynamic { .. } => self.execute_invoke_ops(instr)?,
+            New { .. }
+            | NewArray(_)
+            | NewIntArrayFilled { .. }
+            | MapPutPrim { .. }
+            | MapGetPrim { .. }
+            | ANewArray { .. }
+            | MultiNewArray { .. } => {
+                self.execute_alloc_ops(instr)?;
+            }
+            MonitorEnter | MonitorExit | CheckCast { .. } | InstanceOf { .. } => {
+                self.execute_misc_ops(instr)?;
+            }
+        }
+        // fallthrough successor
+        let np = next_pc(self.m, self.pc);
+        if np == u32::MAX {
+            return Err(self.e("control flow falls off the end of the method body"));
+        }
+        Ok(vec![(np, self.snapshot())])
+    }
+
+    /// Control-family arms (verbatim from `execute`, round-5 reshaping):
+    /// every variant returns its explicit successor list.
+    #[allow(clippy::type_complexity)]
+    fn execute_control(
+        &mut self,
+        instr: &Instr,
+    ) -> std::result::Result<Vec<(u32, State)>, VerifyError> {
+        use Instr::*;
+        match instr {
+            IfZero(_, t) => {
+                self.pop_exact(VTy::Int)?;
+                self.branch_out(*t, true)
+            }
+            IfICmp(_, t) => {
+                self.pop_exact(VTy::Int)?;
+                self.pop_exact(VTy::Int)?;
+                self.branch_out(*t, true)
+            }
+            IfRefCmp { target: t, .. } => {
+                self.pop_ref()?;
+                self.pop_ref()?;
+                self.branch_out(*t, true)
+            }
+            IfNull(t) | IfNonNull(t) => {
+                self.pop_ref()?;
+                self.branch_out(*t, true)
+            }
+            Goto(t) => self.branch_out(*t, false),
+            TableSwitch {
+                default, targets, ..
+            } => {
+                self.pop_exact(VTy::Int)?;
+                let snap = self.snapshot();
+                let mut out = Vec::with_capacity(targets.len() + 1);
+                out.push((*default, snap.clone()));
+                for t in targets {
+                    out.push((*t, snap.clone()));
+                }
+                Ok(out)
+            }
+            LookupSwitch { default, pairs } => {
+                self.pop_exact(VTy::Int)?;
+                let snap = self.snapshot();
+                let mut out = Vec::with_capacity(pairs.len() + 1);
+                out.push((*default, snap.clone()));
+                for (_, t) in pairs {
+                    out.push((*t, snap.clone()));
+                }
+                Ok(out)
+            }
+            Return(t) => {
+                let (_params, ret) = parse_method_desc(&self.m.desc)
+                    .ok_or_else(|| self.e(format!("bad descriptor {:?}", self.m.desc)))?;
+                match (t, &ret) {
+                    (TypeDesc::Void, TypeDesc::Void) => {}
+                    (TypeDesc::Void, _) | (_, TypeDesc::Void) => {
+                        return Err(self.e(format!(
+                            "{} in a method declared -> {}",
+                            if *t == TypeDesc::Void {
+                                "void return"
+                            } else {
+                                "value return"
+                            },
+                            self.m.desc
+                        )))
+                    }
+                    (TypeDesc::Long, TypeDesc::Long)
+                    | (TypeDesc::Float, TypeDesc::Float)
+                    | (TypeDesc::Double, TypeDesc::Double) => {
+                        self.pop_exact(td_vty(t))?;
+                    }
+                    (TypeDesc::Object(_), TypeDesc::Object(_))
+                    | (TypeDesc::Object(_), TypeDesc::Array(_))
+                    | (TypeDesc::Array(_), _) => {
+                        self.pop_ref()?;
+                    }
+                    (TypeDesc::Int, _)
+                    | (TypeDesc::Boolean, _)
+                    | (TypeDesc::Byte, _)
+                    | (TypeDesc::Short, _)
+                    | (TypeDesc::Char, _) => {
+                        self.pop_exact(VTy::Int)?;
+                    }
+                    _ => {
+                        return Err(self.e(format!(
+                            "return kind {t:?} does not match descriptor {}",
+                            self.m.desc
+                        )))
+                    }
+                }
+                Ok(Vec::new())
+            }
+            AThrow => {
+                self.pop_ref()?;
+                Ok(Vec::new())
+            }
+            _ => unreachable!("not a control-family instruction"),
+        }
+    }
+
+    /// Const-family arms (verbatim from `execute`, round-5 reshaping).
+    fn execute_const_ops(&mut self, instr: &Instr) -> std::result::Result<(), VerifyError> {
+        use Instr::*;
         match instr {
             Nop => {}
             AConstNull => self.push(VTy::Null)?,
@@ -815,6 +988,16 @@ impl<'a> Sim<'a> {
                 Ldc2::Long(_) => self.push(VTy::Long)?,
                 Ldc2::Double(_) => self.push(VTy::Double)?,
             },
+            _ => unreachable!("not a const-family instruction"),
+        }
+        Ok(())
+    }
+
+    /// Local/array access arms (verbatim from `execute`, round-5
+    /// reshaping).
+    fn execute_local_array_ops(&mut self, instr: &Instr) -> std::result::Result<(), VerifyError> {
+        use Instr::*;
+        match instr {
             Load(idx) => self.load(*idx)?,
             Store(idx) => self.store(*idx)?,
             IInc { idx, .. } => {
@@ -865,9 +1048,17 @@ impl<'a> Sim<'a> {
                 self.pop_ref()?;
                 self.push(VTy::Int)?;
             }
-            Pop | Pop2 | Dup | DupX1 | DupX2 | Dup2 | Dup2X1 | Dup2X2 | Swap => {
-                self.dup_family(instr)?;
-            }
+            _ => unreachable!("not a local/array-family instruction"),
+        }
+        Ok(())
+    }
+
+    /// Arithmetic/conversion/comparison arms (verbatim from `execute`,
+    /// round-5 reshaping).
+    fn execute_arith_ops(&mut self, instr: &Instr) -> std::result::Result<(), VerifyError> {
+        use Instr::*;
+        use NumKind as NK;
+        match instr {
             Arith { op, kind } => {
                 use ArithOp::*;
                 match kind {
@@ -965,89 +1156,15 @@ impl<'a> Sim<'a> {
                     self.push(VTy::Int)?;
                 }
             },
-            IfZero(_, t) => {
-                self.pop_exact(VTy::Int)?;
-                return self.branch_out(*t, true);
-            }
-            IfICmp(_, t) => {
-                self.pop_exact(VTy::Int)?;
-                self.pop_exact(VTy::Int)?;
-                return self.branch_out(*t, true);
-            }
-            IfRefCmp { target: t, .. } => {
-                self.pop_ref()?;
-                self.pop_ref()?;
-                return self.branch_out(*t, true);
-            }
-            IfNull(t) | IfNonNull(t) => {
-                self.pop_ref()?;
-                return self.branch_out(*t, true);
-            }
-            Goto(t) => return self.branch_out(*t, false),
-            TableSwitch {
-                default, targets, ..
-            } => {
-                self.pop_exact(VTy::Int)?;
-                let snap = self.snapshot();
-                let mut out = Vec::with_capacity(targets.len() + 1);
-                out.push((*default, snap.clone()));
-                for t in targets {
-                    out.push((*t, snap.clone()));
-                }
-                return Ok(out);
-            }
-            LookupSwitch { default, pairs } => {
-                self.pop_exact(VTy::Int)?;
-                let snap = self.snapshot();
-                let mut out = Vec::with_capacity(pairs.len() + 1);
-                out.push((*default, snap.clone()));
-                for (_, t) in pairs {
-                    out.push((*t, snap.clone()));
-                }
-                return Ok(out);
-            }
-            Return(t) => {
-                let (_params, ret) = parse_method_desc(&self.m.desc)
-                    .ok_or_else(|| self.e(format!("bad descriptor {:?}", self.m.desc)))?;
-                match (t, &ret) {
-                    (TypeDesc::Void, TypeDesc::Void) => {}
-                    (TypeDesc::Void, _) | (_, TypeDesc::Void) => {
-                        return Err(self.e(format!(
-                            "{} in a method declared -> {}",
-                            if *t == TypeDesc::Void {
-                                "void return"
-                            } else {
-                                "value return"
-                            },
-                            self.m.desc
-                        )))
-                    }
-                    (TypeDesc::Long, TypeDesc::Long)
-                    | (TypeDesc::Float, TypeDesc::Float)
-                    | (TypeDesc::Double, TypeDesc::Double) => {
-                        self.pop_exact(td_vty(t))?;
-                    }
-                    (TypeDesc::Object(_), TypeDesc::Object(_))
-                    | (TypeDesc::Object(_), TypeDesc::Array(_))
-                    | (TypeDesc::Array(_), _) => {
-                        self.pop_ref()?;
-                    }
-                    (TypeDesc::Int, _)
-                    | (TypeDesc::Boolean, _)
-                    | (TypeDesc::Byte, _)
-                    | (TypeDesc::Short, _)
-                    | (TypeDesc::Char, _) => {
-                        self.pop_exact(VTy::Int)?;
-                    }
-                    _ => {
-                        return Err(self.e(format!(
-                            "return kind {t:?} does not match descriptor {}",
-                            self.m.desc
-                        )))
-                    }
-                }
-                return Ok(Vec::new());
-            }
+            _ => unreachable!("not an arith-family instruction"),
+        }
+        Ok(())
+    }
+
+    /// Field access arms (verbatim from `execute`, round-5 reshaping).
+    fn execute_field_ops(&mut self, instr: &Instr) -> std::result::Result<(), VerifyError> {
+        use Instr::*;
+        match instr {
             GetStatic { desc, .. } => {
                 let t = field_vty(desc).map_err(|m| self.e(m))?;
                 self.push(t)?;
@@ -1066,6 +1183,15 @@ impl<'a> Sim<'a> {
                 self.pop_exact(t)?;
                 self.pop_ref()?;
             }
+            _ => unreachable!("not a field-family instruction"),
+        }
+        Ok(())
+    }
+
+    /// Invoke arms (verbatim from `execute`, round-5 reshaping).
+    fn execute_invoke_ops(&mut self, instr: &Instr) -> std::result::Result<(), VerifyError> {
+        use Instr::*;
+        match instr {
             InvokeVirtual { desc, .. }
             | InvokeSpecial { desc, .. }
             | InvokeInterface { desc, .. } => {
@@ -1100,6 +1226,15 @@ impl<'a> Sim<'a> {
                     return Err(self.e(format!("invokedynamic #{index} has no resolved plan")));
                 }
             }
+            _ => unreachable!("not an invoke-family instruction"),
+        }
+        Ok(())
+    }
+
+    /// Allocation arms (verbatim from `execute`, round-5 reshaping).
+    fn execute_alloc_ops(&mut self, instr: &Instr) -> std::result::Result<(), VerifyError> {
+        use Instr::*;
+        match instr {
             New { .. } => self.push(VTy::Ref)?,
             NewArray(p) => {
                 self.pop_exact(VTy::Int)?;
@@ -1171,10 +1306,16 @@ impl<'a> Sim<'a> {
                     self.push(VTy::Array(array_elem_kind(desc)))?;
                 }
             }
-            AThrow => {
-                self.pop_ref()?;
-                return Ok(Vec::new());
-            }
+            _ => unreachable!("not an allocation-family instruction"),
+        }
+        Ok(())
+    }
+
+    /// Monitor/check/instanceof arms (verbatim from `execute`, round-5
+    /// reshaping).
+    fn execute_misc_ops(&mut self, instr: &Instr) -> std::result::Result<(), VerifyError> {
+        use Instr::*;
+        match instr {
             MonitorEnter | MonitorExit => {
                 self.pop_ref()?;
             }
@@ -1194,13 +1335,9 @@ impl<'a> Sim<'a> {
                 self.pop_ref()?;
                 self.push(VTy::Int)?;
             }
+            _ => unreachable!("not a monitor/check-family instruction"),
         }
-        // fallthrough successor
-        let np = next_pc(self.m, self.pc);
-        if np == u32::MAX {
-            return Err(self.e("control flow falls off the end of the method body"));
-        }
-        Ok(vec![(np, self.snapshot())])
+        Ok(())
     }
 
     fn snapshot(&self) -> State {

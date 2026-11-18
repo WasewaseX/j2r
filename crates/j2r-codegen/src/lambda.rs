@@ -104,9 +104,23 @@ pub fn bootstrap_class_of(c: &crate::ClassPlan, indy_index: u16) -> Result<Strin
     }
 }
 
-/// Resolves one `invokedynamic` site to a [`LambdaPlan`], or fails with the
-/// exact unsupported shape (loud, naming the bootstrap — M3_PLAN §6.4).
-pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<LambdaPlan, String> {
+/// The indy site + bootstrap-method resolution (verbatim from
+/// `resolve_lambda`, round-5 reshaping): the interface check, the
+/// LambdaMetafactory bootstrap handle check, the capture kinds.
+fn resolve_bsm(
+    prog: &Program,
+    ci: usize,
+    indy_index: u16,
+) -> Result<
+    (
+        &j2r_classfile::BootstrapMethod,
+        String,
+        String,
+        usize,
+        String,
+    ),
+    String,
+> {
     let c = &prog.classes[ci];
     let cp = &c.cf.constant_pool;
     let (bsm_index, sam_name, indy_desc) = cp.dynamic(indy_index).map_err(|e| e.message)?;
@@ -129,6 +143,7 @@ pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<Lamb
         ));
     }
     let capture_kinds: String = caps.iter().map(kind_char).collect();
+    let n_caps = caps.len();
 
     let bsm =
         c.cf.bootstrap_methods
@@ -147,7 +162,16 @@ pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<Lamb
             "unsupported invokedynamic bootstrap {bcls}.{bmeth} (J2R supports LambdaMetafactory.metafactory and StringConcatFactory.makeConcatWithConstants)"
         ));
     }
+    Ok((bsm, sam_name, capture_kinds, n_caps, interface))
+}
 
+/// The three LambdaMetafactory static arguments (verbatim from
+/// `resolve_lambda`, round-5 reshaping): samMethodType, implMethod,
+/// instantiatedMethodType.
+#[allow(clippy::type_complexity)] // the (sam, impl-handle, inst) triple is the LMF surface
+fn read_lmf_args(
+    bsm: &j2r_classfile::BootstrapMethod,
+) -> Result<(String, (u8, String, String, String), String), String> {
     // Static arguments: [samMethodType, implMethod, instantiatedMethodType].
     let sam_desc = match bsm.arguments.first() {
         Some(j2r_classfile::BootstrapArgument::MethodType(d)) => d.clone(),
@@ -158,8 +182,6 @@ pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<Lamb
         }
         None => return Err("LambdaMetafactory without samMethodType".to_string()),
     };
-    let (sam_params, sam_ret) =
-        parse_method_desc(&sam_desc).ok_or_else(|| format!("bad samMethodType {sam_desc:?}"))?;
     let impl_handle = match bsm.arguments.get(1) {
         Some(j2r_classfile::BootstrapArgument::MethodHandle {
             kind,
@@ -183,33 +205,25 @@ pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<Lamb
         }
         None => return Err("LambdaMetafactory without instantiatedMethodType".to_string()),
     };
-    let (inst_params, _inst_ret) = parse_method_desc(&inst_desc)
-        .ok_or_else(|| format!("bad instantiatedMethodType {inst_desc:?}"))?;
+    Ok((sam_desc, impl_handle, inst_desc))
+}
 
-    // SAM arity pinned per interface (the M3 set is exactly the generic
-    // java.util.function shapes; erasure agreement check M3_PLAN §6.1).
-    let sam_arity = sam_arity_of(&interface)?;
-    if sam_params.len() != sam_arity {
-        return Err(format!(
-            "samMethodType {sam_desc} has {} parameters, {interface}'s SAM has {sam_arity}",
-            sam_params.len()
-        ));
-    }
-    if inst_params.len() != sam_arity {
-        return Err(format!(
-            "instantiatedMethodType {inst_desc} disagrees with samMethodType {sam_desc}"
-        ));
-    }
-    check_sam_return(&interface, &sam_ret)?;
-
-    let (kind, tcls, tname, tdesc) = impl_handle;
-    let (impl_params, impl_ret) =
-        parse_method_desc(&tdesc).ok_or_else(|| format!("bad implMethod descriptor {tdesc:?}"))?;
-    let n_caps = caps.len();
-    // Void-ness must agree: consumer SAMs (accept(... )V) have void impls,
-    // every other SAM in the M3 set has a non-void impl.
-    let sam_void = matches!(sam_ret, TypeDesc::Void);
-
+/// The implMethod handle-kind dispatch (verbatim from `resolve_lambda`'s
+/// shape match, round-5 reshaping): returns the closure shape plus the
+/// constructor slot count (constructor refs only).
+#[allow(clippy::too_many_arguments)]
+fn shape_of(
+    prog: &Program,
+    ci: usize,
+    kind: u8,
+    n_caps: usize,
+    sam_arity: usize,
+    impl_params: &[TypeDesc],
+    impl_ret: &TypeDesc,
+    tcls: &str,
+    tname: &str,
+    tdesc: &str,
+) -> Result<(u8, u32), String> {
     let (shape, ctor_slots) = match kind {
         // REF_invokeStatic: (caps..., sam-args...)ret
         6 => {
@@ -271,7 +285,7 @@ pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<Lamb
                     "constructor {tcls}.{tname}{tdesc} arity disagrees with the capture signature"
                 ));
             }
-            let slots = ctor_slot_count(prog, ci, &tcls)?;
+            let slots = ctor_slot_count(prog, ci, tcls)?;
             (SHAPE_CTOR, slots)
         }
         other => {
@@ -280,6 +294,74 @@ pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<Lamb
             ))
         }
     };
+    Ok((shape, ctor_slots))
+}
+
+/// The implMethod target must resolve somewhere (verbatim from
+/// `resolve_lambda`, round-5 reshaping): a compiled method (the generated
+/// registry) or a native row. Otherwise the closure would explode at
+/// first SAM invocation instead of failing the build.
+fn check_impl_target(prog: &Program, tcls: &str, tname: &str, tdesc: &str) -> Result<(), String> {
+    if let Some(&ci_target) = prog.user_index.get(tcls) {
+        let tc = &prog.classes[ci_target];
+        if tc.cf.method(tname, tdesc).is_none() {
+            return Err(format!(
+                "implMethod target {tcls}.{tname}{tdesc} is not a compiled method"
+            ));
+        }
+    } else if natives::lookup_exact(tcls, tname, tdesc).is_none() {
+        return Err(format!(
+            "implMethod target {tcls}.{tname}{tdesc} is neither compiled nor a runtime native"
+        ));
+    }
+    Ok(())
+}
+
+/// Resolves one `invokedynamic` site to a [`LambdaPlan`], or fails with the
+/// exact unsupported shape (loud, naming the bootstrap — M3_PLAN §6.4).
+pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<LambdaPlan, String> {
+    let (bsm, sam_name, capture_kinds, n_caps, interface) = resolve_bsm(prog, ci, indy_index)?;
+    let (sam_desc, impl_handle, inst_desc) = read_lmf_args(bsm)?;
+    let (sam_params, sam_ret) =
+        parse_method_desc(&sam_desc).ok_or_else(|| format!("bad samMethodType {sam_desc:?}"))?;
+    let (inst_params, _inst_ret) = parse_method_desc(&inst_desc)
+        .ok_or_else(|| format!("bad instantiatedMethodType {inst_desc:?}"))?;
+
+    // SAM arity pinned per interface (the M3 set is exactly the generic
+    // java.util.function shapes; erasure agreement check M3_PLAN §6.1).
+    let sam_arity = sam_arity_of(&interface)?;
+    if sam_params.len() != sam_arity {
+        return Err(format!(
+            "samMethodType {sam_desc} has {} parameters, {interface}'s SAM has {sam_arity}",
+            sam_params.len()
+        ));
+    }
+    if inst_params.len() != sam_arity {
+        return Err(format!(
+            "instantiatedMethodType {inst_desc} disagrees with samMethodType {sam_desc}"
+        ));
+    }
+    check_sam_return(&interface, &sam_ret)?;
+
+    let (kind, tcls, tname, tdesc) = impl_handle;
+    let (impl_params, impl_ret) =
+        parse_method_desc(&tdesc).ok_or_else(|| format!("bad implMethod descriptor {tdesc:?}"))?;
+    // Void-ness must agree: consumer SAMs (accept(... )V) have void impls,
+    // every other SAM in the M3 set has a non-void impl.
+    let sam_void = matches!(sam_ret, TypeDesc::Void);
+
+    let (shape, ctor_slots) = shape_of(
+        prog,
+        ci,
+        kind,
+        n_caps,
+        sam_arity,
+        &impl_params,
+        &impl_ret,
+        &tcls,
+        &tname,
+        &tdesc,
+    )?;
 
     // Void-ness agreement applies uniformly (constructor refs handled by
     // their own void check above).
@@ -290,23 +372,7 @@ pub fn resolve_lambda(prog: &Program, ci: usize, indy_index: u16) -> Result<Lamb
         ));
     }
 
-    // The target must resolve somewhere: a compiled method (the generated
-    // registry) or a native row. Otherwise the closure would explode at
-    // first SAM invocation instead of failing the build. The check uses the
-    // raw classfile method list because resolution happens *during*
-    // plan_methods — the compiled `MethodPlan`s do not exist yet.
-    if let Some(&ci_target) = prog.user_index.get(&tcls) {
-        let tc = &prog.classes[ci_target];
-        if tc.cf.method(&tname, &tdesc).is_none() {
-            return Err(format!(
-                "implMethod target {tcls}.{tname}{tdesc} is not a compiled method"
-            ));
-        }
-    } else if natives::lookup_exact(&tcls, &tname, &tdesc).is_none() {
-        return Err(format!(
-            "implMethod target {tcls}.{tname}{tdesc} is neither compiled nor a runtime native"
-        ));
-    }
+    check_impl_target(prog, &tcls, &tname, &tdesc)?;
 
     Ok(LambdaPlan {
         interface,

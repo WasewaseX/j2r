@@ -296,6 +296,138 @@ pub fn inflate(data: &[u8], out: &mut Vec<u8>) -> Result<(), InflateError> {
     inflate_capped(data, out, MAX_OUTPUT)
 }
 
+/// Stored block (RFC 1951 §3.1.4): align to a byte boundary, then LEN,
+/// NLEN, and LEN raw bytes — all read through the same reader so the
+/// position domain stays single and absolute across any number of blocks.
+/// Extracted verbatim from `inflate_capped`'s 0b00 arm (round-5 reshaping).
+fn inflate_stored_block(
+    br: &mut BitReader,
+    out: &mut Vec<u8>,
+    max_output: usize,
+) -> Result<(), InflateError> {
+    br.align();
+    let len = br.bits(8)? as usize | (br.bits(8)? as usize) << 8;
+    let nlen = br.bits(8)? as usize | (br.bits(8)? as usize) << 8;
+    if len != (!nlen & 0xFFFF) {
+        return Err(err(br.byte_pos(), "stored block LEN/NLEN mismatch"));
+    }
+    if out.len() + len > max_output {
+        return Err(err(
+            br.byte_pos(),
+            "output exceeds the size cap (bomb guard)",
+        ));
+    }
+    for _ in 0..len {
+        out.push(br.bits(8)? as u8);
+    }
+    Ok(())
+}
+
+/// Fixed Huffman (RFC 1951 §3.2.6). The fixed distance table is built in
+/// its complete 32-entry five-bit form (30 real codes plus the two
+/// impossible codes 30/31, which the `dsym >= 30` use-time check rejects)
+/// — exactly how zlib builds it, so the table is never incomplete
+/// (audit A5). Extracted verbatim from `inflate_capped`'s 0b01 arm.
+fn inflate_fixed_block(
+    br: &mut BitReader,
+    out: &mut Vec<u8>,
+    max_output: usize,
+) -> Result<(), InflateError> {
+    let mut lit_lengths = [0u8; 288];
+    for (i, l) in lit_lengths.iter_mut().enumerate() {
+        *l = match i {
+            0..=143 => 8,
+            144..=255 => 9,
+            256..=279 => 7,
+            _ => 8,
+        };
+    }
+    let lit = Huffman::from_lengths(&lit_lengths, TableKind::Literals)
+        .map_err(|_| err(br.byte_pos(), "fixed literal table build failed"))?;
+    let dist_lengths = [5u8; 32];
+    let dist = Huffman::from_lengths(&dist_lengths, TableKind::Distances)
+        .map_err(|_| err(br.byte_pos(), "fixed distance table build failed"))?;
+    inflate_block(br, &lit, &dist, out, max_output)
+}
+
+/// The code-length-code phase plus the literal/distance table build of a
+/// dynamic Huffman block (RFC 1951 §3.2.7). Extracted verbatim from
+/// `inflate_capped`'s 0b10 arm; ends in the block walk.
+fn inflate_dynamic_block(
+    br: &mut BitReader,
+    out: &mut Vec<u8>,
+    max_output: usize,
+) -> Result<(), InflateError> {
+    let hlit = br.bits(5)? as usize + 257;
+    let hdist = br.bits(5)? as usize + 1;
+    let hclen = br.bits(4)? as usize + 4;
+    if hlit > 286 {
+        return Err(err(br.byte_pos(), "HLIT > 286"));
+    }
+    if hdist > 30 {
+        return Err(err(br.byte_pos(), "HDIST > 30"));
+    }
+    let mut clc_lengths = [0u8; 19];
+    for i in 0..hclen {
+        clc_lengths[CLC_ORDER[i]] = br.bits(3)? as u8;
+    }
+    let clc = Huffman::from_lengths(&clc_lengths, TableKind::CodeLengths).map_err(|e| match e {
+        TableError::OverSubscribed => err(br.byte_pos(), "over-subscribed code-length code"),
+        TableError::Incomplete => err(br.byte_pos(), "incomplete code-length code"),
+    })?;
+
+    let mut lengths = vec![0u8; hlit + hdist];
+    let mut i = 0;
+    while i < hlit + hdist {
+        let sym = clc.decode(br)?;
+        match sym {
+            0..=15 => {
+                lengths[i] = sym as u8;
+                i += 1;
+            }
+            16 => {
+                if i == 0 {
+                    return Err(err(br.byte_pos(), "repeat with no previous length"));
+                }
+                let prev = lengths[i - 1];
+                let rep = 3 + br.bits(2)? as usize;
+                for _ in 0..rep {
+                    if i >= lengths.len() {
+                        return Err(err(br.byte_pos(), "length repeat overflows"));
+                    }
+                    lengths[i] = prev;
+                    i += 1;
+                }
+            }
+            17 => {
+                let rep = 3 + br.bits(3)? as usize;
+                i += rep;
+                if i > lengths.len() {
+                    return Err(err(br.byte_pos(), "zero repeat overflows"));
+                }
+            }
+            18 => {
+                let rep = 11 + br.bits(7)? as usize;
+                i += rep;
+                if i > lengths.len() {
+                    return Err(err(br.byte_pos(), "long zero repeat overflows"));
+                }
+            }
+            _ => return Err(err(br.byte_pos(), "bad code-length symbol")),
+        }
+    }
+    if lengths[256] == 0 {
+        return Err(err(br.byte_pos(), "no end-of-block code"));
+    }
+    let lit =
+        Huffman::from_lengths(&lengths[..hlit], TableKind::Literals).map_err(|e| match e {
+            TableError::OverSubscribed => err(br.byte_pos(), "over-subscribed literal code"),
+            TableError::Incomplete => err(br.byte_pos(), "incomplete literal code"),
+        })?;
+    let dist = build_distance_table(&lengths[hlit..], br.byte_pos())?;
+    inflate_block(br, &lit, &dist, out, max_output)
+}
+
 /// Inflate with an explicit uncompressed-size cap (bomb guard).
 pub fn inflate_capped(
     data: &[u8],
@@ -307,128 +439,9 @@ pub fn inflate_capped(
         let bfinal = br.bit()?;
         let btype = br.bits(2)?;
         match btype {
-            0b00 => {
-                // Stored block (RFC 1951 §3.1.4): align to a byte
-                // boundary, then LEN, NLEN, and LEN raw bytes — all read
-                // through the same reader so the position domain stays
-                // single and absolute across any number of blocks.
-                br.align();
-                let len = br.bits(8)? as usize | (br.bits(8)? as usize) << 8;
-                let nlen = br.bits(8)? as usize | (br.bits(8)? as usize) << 8;
-                if len != (!nlen & 0xFFFF) {
-                    return Err(err(br.byte_pos(), "stored block LEN/NLEN mismatch"));
-                }
-                if out.len() + len > max_output {
-                    return Err(err(
-                        br.byte_pos(),
-                        "output exceeds the size cap (bomb guard)",
-                    ));
-                }
-                for _ in 0..len {
-                    out.push(br.bits(8)? as u8);
-                }
-            }
-            0b01 => {
-                // Fixed Huffman (RFC 1951 §3.2.6). The fixed distance table
-                // is built in its complete 32-entry five-bit form (30 real
-                // codes plus the two impossible codes 30/31, which the
-                // `dsym >= 30` use-time check rejects) — exactly how zlib
-                // builds it, so the table is never incomplete (audit A5).
-                let mut lit_lengths = [0u8; 288];
-                for (i, l) in lit_lengths.iter_mut().enumerate() {
-                    *l = match i {
-                        0..=143 => 8,
-                        144..=255 => 9,
-                        256..=279 => 7,
-                        _ => 8,
-                    };
-                }
-                let lit = Huffman::from_lengths(&lit_lengths, TableKind::Literals)
-                    .map_err(|_| err(br.byte_pos(), "fixed literal table build failed"))?;
-                let dist_lengths = [5u8; 32];
-                let dist = Huffman::from_lengths(&dist_lengths, TableKind::Distances)
-                    .map_err(|_| err(br.byte_pos(), "fixed distance table build failed"))?;
-                inflate_block(&mut br, &lit, &dist, out, max_output)?;
-            }
-            0b10 => {
-                // Dynamic Huffman (RFC 1951 §3.2.7).
-                let hlit = br.bits(5)? as usize + 257;
-                let hdist = br.bits(5)? as usize + 1;
-                let hclen = br.bits(4)? as usize + 4;
-                if hlit > 286 {
-                    return Err(err(br.byte_pos(), "HLIT > 286"));
-                }
-                if hdist > 30 {
-                    return Err(err(br.byte_pos(), "HDIST > 30"));
-                }
-                let mut clc_lengths = [0u8; 19];
-                for i in 0..hclen {
-                    clc_lengths[CLC_ORDER[i]] = br.bits(3)? as u8;
-                }
-                let clc = Huffman::from_lengths(&clc_lengths, TableKind::CodeLengths).map_err(
-                    |e| match e {
-                        TableError::OverSubscribed => {
-                            err(br.byte_pos(), "over-subscribed code-length code")
-                        }
-                        TableError::Incomplete => err(br.byte_pos(), "incomplete code-length code"),
-                    },
-                )?;
-
-                let mut lengths = vec![0u8; hlit + hdist];
-                let mut i = 0;
-                while i < hlit + hdist {
-                    let sym = clc.decode(&mut br)?;
-                    match sym {
-                        0..=15 => {
-                            lengths[i] = sym as u8;
-                            i += 1;
-                        }
-                        16 => {
-                            if i == 0 {
-                                return Err(err(br.byte_pos(), "repeat with no previous length"));
-                            }
-                            let prev = lengths[i - 1];
-                            let rep = 3 + br.bits(2)? as usize;
-                            for _ in 0..rep {
-                                if i >= lengths.len() {
-                                    return Err(err(br.byte_pos(), "length repeat overflows"));
-                                }
-                                lengths[i] = prev;
-                                i += 1;
-                            }
-                        }
-                        17 => {
-                            let rep = 3 + br.bits(3)? as usize;
-                            i += rep;
-                            if i > lengths.len() {
-                                return Err(err(br.byte_pos(), "zero repeat overflows"));
-                            }
-                        }
-                        18 => {
-                            let rep = 11 + br.bits(7)? as usize;
-                            i += rep;
-                            if i > lengths.len() {
-                                return Err(err(br.byte_pos(), "long zero repeat overflows"));
-                            }
-                        }
-                        _ => return Err(err(br.byte_pos(), "bad code-length symbol")),
-                    }
-                }
-                if lengths[256] == 0 {
-                    return Err(err(br.byte_pos(), "no end-of-block code"));
-                }
-                let lit =
-                    Huffman::from_lengths(&lengths[..hlit], TableKind::Literals).map_err(|e| {
-                        match e {
-                            TableError::OverSubscribed => {
-                                err(br.byte_pos(), "over-subscribed literal code")
-                            }
-                            TableError::Incomplete => err(br.byte_pos(), "incomplete literal code"),
-                        }
-                    })?;
-                let dist = build_distance_table(&lengths[hlit..], br.byte_pos())?;
-                inflate_block(&mut br, &lit, &dist, out, max_output)?;
-            }
+            0b00 => inflate_stored_block(&mut br, out, max_output)?,
+            0b01 => inflate_fixed_block(&mut br, out, max_output)?,
+            0b10 => inflate_dynamic_block(&mut br, out, max_output)?,
             _ => return Err(err(br.byte_pos(), "reserved block type 0b11")),
         }
         if bfinal == 1 {
