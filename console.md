@@ -4782,3 +4782,46 @@ roadmap" on the A-graded tree.
   6/6; fmt + clippy -D warnings clean, exit codes CHECKED;
   REGEN-BYTE-IDENTICAL over the generated set with the HAND list in
   force.
+
+### slice-i addendum (same day): SingularValueDecomposition reshaped — the flagged ~421-line Golub-Reinsch constructor is three files; THE OWNER'S COMPLEXITY LIST IS FULLY RESOLVED
+
+- THE FILES: SingularValueDecomposition 138 (fields package-visible +
+  the delegating ctor: dims + the s/U/V allocations + one
+  SingularValueCore dispatch), SingularValueCore 361 (the algorithm:
+  bidiagonalize with the column/row Householder arms extracted,
+  setUpFinal, generateU, generateV, iterate with the kase selection
+  in the loop), SingularValueCases 170 (the four kase bodies —
+  deflate / split / qr step / convergence — reaching the work area
+  through the st receiver). All <=441, every function under the
+  80-line house limit.
+- THE MECHANICS: the slice-e2/slice-h work-area model — the upstream
+  ctor locals are the core's fields set at entry exactly where the
+  upstream locals lived; the case scratch (f/t/cs/sn/g/scale/sp/
+  spm1/epm1/sk/ek/b/c/shift) stays case-local exactly as upstream
+  (it never crosses a phase boundary); `work` keeps its upstream
+  ctor-head allocation timing in run(); the k-search gap between the
+  two iterate segments is handled by segment ranges, not by a hand
+  retyping.
+- WHY THE BYTE-IDENTITY PROOF IS COMPLETE HERE: the bench driver
+  runs the full SVD on a 40x24 matrix EVERY iteration (1200x), so
+  all four kase branches — deflate, split, the qr step with its
+  rotation chains over U and V, and the convergence ordering — are
+  on the gated path; no extra probe was needed for SVD (unlike the
+  nonsymmetric eig branch, which needed EigenNonsymProbe because the
+  driver never runs it).
+- GATES: javac+java stdout BYTE-IDENTICAL (85 bytes, sha256
+  e830385d..., stderr 0, exit 0); j2r test --release three-channel
+  PASS (5m41s); corpus_suite 6/6; fmt + clippy -D warnings clean,
+  exit codes CHECKED; gate-11 in sync (fixtures=130, tests=619);
+  REGEN-BYTE-IDENTICAL with the HAND list in force.
+- THE LIST, RESOLVED: HexFloatProbe:18 (round-3 main split);
+  JZlibCorpus:0 + the six amalgam function findings (slice-c + the
+  d/e1/e2 state-machine families); JamaBench:0 + 1372/1489/1609/
+  1722+nest (slice-f + slice-h); JamaBench:2845 (slice-i). The
+  earlier empty-catch error list (ZOutputStream:126, GZIPInputStream
+  :135, JZlibCorpus:2051/2852/6703, Deflate:1693, bench_suite.py:86)
+  was closed in the round-2/master-ci waves — re-verified today: no
+  empty catch remains anywhere in corpus/ (the flagged catch bodies
+  carry throws; the bench_suite handler assigns its fallback
+  explicitly). Every jamaentry/ and jzlibentry/ file is <=441 lines.
+  NEXT: the queue head T15.2 (the MappingSet-driven remap pass).

@@ -18,9 +18,11 @@
 # EigenSymmetric 305 + EigenOrthes 133 + EigenHqr2 419 +
 # EigenHqr2Backsub 163) and the EigenNonsymProbe that pins the
 # nonsymmetric branch joined the HAND list the same day.
-# SingularValueDecomposition still carries the owner's round-3
-# complexity findings and reshapes in the following slice, then joins
-# the HAND list.
+# SingularValueDecomposition (slice-i: the 548-line class with the
+# flagged ~421-line Golub-Reinsch constructor becomes three files —
+# main 138 + SingularValueCore 361 + SingularValueCases 170 — the
+# work-area model with the four kase bodies dispatched through the st
+# receiver) joined the HAND list the same day.
 #
 # The old single-file amalgam (driver + 7 classes, 3363 lines) is
 # retired: corpus/JamaBench.java is the driver only and imports
@@ -124,7 +126,7 @@ DRIVER
 # remaining generated files (EigenvalueDecomposition and
 # SingularValueDecomposition) reshape in the following slices and then
 # join the HAND list.
-HAND="Matrix MatrixOps MatrixSolve MatrixIo EigenvalueDecomposition EigenSymmetric EigenOrthes EigenHqr2 EigenHqr2Backsub"
+HAND="Matrix MatrixOps MatrixSolve MatrixIo EigenvalueDecomposition EigenSymmetric EigenOrthes EigenHqr2 EigenHqr2Backsub SingularValueDecomposition SingularValueCore SingularValueCases"
 mkdir -p "$ENTRY"
 for f in corpus/jama/Matrix.java corpus/jama/CholeskyDecomposition.java \
          corpus/jama/EigenvalueDecomposition.java \

@@ -41,9 +41,13 @@ EigenHqr2Backsub 163, the slice-e2 work-area model, the running
 index renamed nrun, the backsubstitution reaching the state through
 the st receiver; the NEW corpus/EigenNonsymProbe pins the
 never-gated nonsymmetric branch and is corpus_suite entry 6);
-SingularValueDecomposition 548 still to go) — every flagged
-function/file to the limits, then flip to HAND-maintained in the
-script; the per-commit
+SingularValueDecomposition 548 → DONE in slice-i as three files
+(138 + SingularValueCore 361 + SingularValueCases 170; the full
+Golub-Reinsch path is on the gated workload so the driver's
+byte-identity covers it end to end) — THE OWNER'S COMPLEXITY LIST
+IS FULLY RESOLVED (HexFloatProbe + JZlibCorpus + JamaBench + all
+the function/nesting findings; every jamaentry/jzlibentry file
+<=441 lines, every function <=80, nesting <=5); the per-commit
 detail lives in the commit messages, the board record for the wave is
 written with slice-f (slices a-e2 landed without a same-commit boards
 entry). THEN the queue head T15.2 (the MappingSet-driven remap pass).
