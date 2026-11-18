@@ -1203,8 +1203,20 @@ fn emit_method(
     }
 }
 
-fn emit_default_body(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) -> String {
-    let mut out = String::new();
+/// The default-body method prologue (verbatim from `emit_default_body`,
+/// round-5 reshaping): the fn header, the FrameGuard (before any work —
+/// M2_PLAN §3.1: past the frame limit it yields the catchable
+/// StackOverflowError and the emitted match turns it into
+/// `return Err(..)` immediately; the JVM throws SOE at the call site, so
+/// propagating the Err through the caller's j2r_try! gives the caller's
+/// exception table first crack — the callee's own handlers must not see
+/// it, and they don't), the argument unmarshal, the instance receiver,
+/// the ACC_SYNCHRONIZED acquire (M3_PLAN §7.1: the FrameGuard's Drop
+/// releases on every exit path; plain early-return on failure — no
+/// `j2r_try!`, the `'run` label is not yet in scope this early and
+/// monitor acquisition cannot fail in the single-threaded runtime
+/// anyway), and the stack/pc/thrown/fault_pc decls.
+fn emit_default_prologue(c: &ClassPlan, m: &MethodPlan, out: &mut String) {
     let instance = !m.is_static;
     let unmarshal_start = if instance { 1usize } else { 0usize };
     let locals_len = m.max_locals.max(if instance { 1 } else { 0 });
@@ -1214,12 +1226,6 @@ fn emit_default_body(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bo
         "pub fn {}(recv: ::core::option::Option<&{RT}::JRef>, args: &[{RT}::Value]) -> ::core::result::Result<{RT}::Value, {RT}::Throw> {{",
         m.fn_name
     );
-    // FrameGuard first — before any work (M2_PLAN §3.1): past the frame
-    // limit it yields the catchable StackOverflowError and the emitted
-    // match turns it into `return Err(..)` immediately. The JVM throws SOE
-    // at the call site, so propagating the Err through the caller's
-    // j2r_try! gives the caller's exception table first crack — the
-    // callee's own handlers must not see it, and they don't.
     let _ = writeln!(
         out,
         "    let __frame = match {RT}::frame::FrameGuard::enter() {{"
@@ -1250,11 +1256,6 @@ fn emit_default_body(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bo
         );
         let _ = writeln!(out, "    }}");
     }
-    // ACC_SYNCHRONIZED prologue (M3_PLAN §7.1): acquire on entry; the
-    // FrameGuard's Drop releases on every exit path (normal, `Err`, panic).
-    // Plain early-return on failure (no `j2r_try!` — the `'run` label is
-    // not yet in scope this early in the body; monitor acquisition cannot
-    // fail in the single-threaded runtime anyway).
     if m.is_sync {
         if instance {
             out.push_str("    if let ::core::option::Option::Some(r) = recv {\n");
@@ -1284,29 +1285,63 @@ fn emit_default_body(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bo
         "    let mut thrown: ::core::option::Option<{RT}::Throw> = ::core::option::Option::None;"
     );
     let _ = writeln!(out, "    let mut fault_pc: u32 = 0u32;");
+}
+
+/// The emitted `__j2r_find_handler` helper (verbatim from
+/// `emit_default_body`, round-5 reshaping; byte-identical to the typed
+/// body's handler, which reuses this fn).
+pub(crate) fn emit_default_handlers(m: &MethodPlan, out: &mut String) {
+    let _ = writeln!(
+        out,
+        "    fn __j2r_find_handler(thrown_class: &str, fault: u32) -> ::core::option::Option<u32> {{"
+    );
+    for (start, end, handler, catch) in &m.exception_table {
+        let cond = match catch {
+            Some(cls) => format!(
+                " && {RT}::is_subtype(thrown_class, {cls:?}, ::core::option::Option::Some(crate::registry::parents_of))"
+            ),
+            None => String::new(),
+        };
+        let _ = writeln!(
+            out,
+            "        if ({start}u32..{end}u32).contains(&fault){cond} {{ return ::core::option::Option::Some({handler}u32); }}"
+        );
+    }
+    let _ = writeln!(out, "        ::core::option::Option::None");
+    let _ = writeln!(out, "    }}");
+}
+
+/// The pc-dispatch body over basic blocks (verbatim from
+/// `emit_default_body`, round-5 reshaping).
+fn emit_default_dispatch_body(prog: &Program, c: &ClassPlan, m: &MethodPlan, out: &mut String) {
+    let leaders = compute_leaders(m);
+    let mut sorted: Vec<u32> = leaders.iter().copied().collect();
+    sorted.sort_unstable();
+
+    let _ = writeln!(out, "        match pc {{");
+    for (i, &leader) in sorted.iter().enumerate() {
+        let next_leader = sorted.get(i + 1).copied();
+        let block = emit_block(prog, c, m, leader, next_leader);
+        let _ = writeln!(out, "            {leader}u32 => {{");
+        for line in block {
+            let _ = writeln!(out, "                {line}");
+        }
+        let _ = writeln!(out, "            }}");
+    }
+    let _ = writeln!(
+        out,
+        "            _ => ::core::panic!(\"j2r internal: pc out of range\"),"
+    );
+    let _ = writeln!(out, "        }}");
+}
+
+fn emit_default_body(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bool) -> String {
+    let mut out = String::new();
+    emit_default_prologue(c, m, &mut out);
 
     // exception handler lookup
     let has_table = !m.exception_table.is_empty();
-    if has_table {
-        let _ = writeln!(
-            out,
-            "    fn __j2r_find_handler(thrown_class: &str, fault: u32) -> ::core::option::Option<u32> {{"
-        );
-        for (start, end, handler, catch) in &m.exception_table {
-            let cond = match catch {
-                Some(cls) => format!(
-                    " && {RT}::is_subtype(thrown_class, {cls:?}, ::core::option::Option::Some(crate::registry::parents_of))"
-                ),
-                None => String::new(),
-            };
-            let _ = writeln!(
-                out,
-                "        if ({start}u32..{end}u32).contains(&fault){cond} {{ return ::core::option::Option::Some({handler}u32); }}"
-            );
-        }
-        let _ = writeln!(out, "        ::core::option::Option::None");
-        let _ = writeln!(out, "    }}");
-    }
+    emit_default_handlers(m, &mut out);
 
     let _ = writeln!(out, "    'run: loop {{");
     if has_table {
@@ -1363,25 +1398,7 @@ fn emit_default_body(prog: &Program, c: &ClassPlan, m: &MethodPlan, emit_cfg: bo
         }
     } else {
         // pc dispatch over basic blocks
-        let leaders = compute_leaders(m);
-        let mut sorted: Vec<u32> = leaders.iter().copied().collect();
-        sorted.sort_unstable();
-
-        let _ = writeln!(out, "        match pc {{");
-        for (i, &leader) in sorted.iter().enumerate() {
-            let next_leader = sorted.get(i + 1).copied();
-            let block = emit_block(prog, c, m, leader, next_leader);
-            let _ = writeln!(out, "            {leader}u32 => {{");
-            for line in block {
-                let _ = writeln!(out, "                {line}");
-            }
-            let _ = writeln!(out, "            }}");
-        }
-        let _ = writeln!(
-            out,
-            "            _ => ::core::panic!(\"j2r internal: pc out of range\"),"
-        );
-        let _ = writeln!(out, "        }}");
+        emit_default_dispatch_body(prog, c, m, &mut out);
     }
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");

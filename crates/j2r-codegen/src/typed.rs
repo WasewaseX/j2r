@@ -944,48 +944,41 @@ fn try_wrap(fault: &str, expr: String) -> String {
     format!("{RT}::j2r_try!('run, thrown, fault_pc, {fault}, {expr})")
 }
 
-fn emit_body(mut ctx: Ctx<'_>) -> String {
-    let m = ctx.m;
-    let c = ctx.c;
-    let p = ctx.p;
-    let mut out = String::new();
+/// The typed-body method header (verbatim from `emit_body`, round-5
+/// reshaping): the banner comment, the fn signature, the FrameGuard
+/// (identical to the default body, M2_PLAN §3.1), the argument unmarshal
+/// through the transient Vec (the runtime's unmarshal law is unchanged),
+/// and the instance receiver.
+fn emit_typed_header(m: &MethodPlan, p: &Plan, out: &mut String) {
     let instance = !m.is_static;
     let unmarshal_start = if instance { 1usize } else { 0usize };
-    let locals_len = m
-        .max_locals
-        .max(ctx.shapes.max_locals)
-        .max(if instance { 1 } else { 0 });
-
+    let locals_len = m.max_locals.max(if instance { 1 } else { 0 });
     let _ = writeln!(
-        &mut out,
+        out,
         "// j2r: typed-operand emission ({} typed vars, {} Value cells)",
         p.typed_vars, p.cell_vars
     );
     let _ = writeln!(
-        &mut out,
+        out,
         "pub fn {}(recv: ::core::option::Option<&{RT}::JRef>, args: &[{RT}::Value]) -> ::core::result::Result<{RT}::Value, {RT}::Throw> {{",
         m.fn_name
     );
-    // FrameGuard first — identical to the default body (M2_PLAN §3.1).
     let _ = writeln!(
-        &mut out,
+        out,
         "    let __frame = match {RT}::frame::FrameGuard::enter() {{"
     );
     let _ = writeln!(out, "        ::core::result::Result::Ok(f) => f,");
     let _ = writeln!(
-        &mut out,
+        out,
         "        ::core::result::Result::Err(t) => return ::core::result::Result::Err(t),"
     );
     let _ = writeln!(out, "    }};");
-    // Argument unmarshal goes through a transient Vec (the runtime's
-    // unmarshal law is unchanged), then the typed/cell locals extract
-    // from it — entry-time only.
     let _ = writeln!(
-        &mut out,
+        out,
         "    let mut __loc_tmp: ::std::vec::Vec<{RT}::Value> = ::std::vec![{RT}::Value::Void; {locals_len}usize];"
     );
     let _ = writeln!(
-        &mut out,
+        out,
         "    {RT}::unmarshal_args(&mut __loc_tmp, args, {:?}, {unmarshal_start}usize).expect(\"j2r internal: argument unmarshal\");",
         m.desc
     );
@@ -1000,16 +993,25 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
         );
         let _ = writeln!(out, "    }}");
     }
-    // Local variables: cells clone out; typed epochs take the entry value
-    // from the unmarshal Vec when the epoch covers entry, defaults else.
-    // ONLY incoming argument slots may be read from the unmarshal Vec:
-    // slot 0 is `this` for instance methods, then the descriptor's
-    // parameters (long/double take two slots). A non-argument local whose
-    // epoch covers entry must take the typed default — the JVM verifier
-    // guarantees a store before any read — because the unmarshal Vec holds
-    // Void there. Live catch: BigJson's skipWs()V has a loop-live `c`
-    // local that is not an argument; reading __loc_tmp[1] panicked
-    // "expected int value, got Void" at runtime.
+}
+
+/// The typed/cell local declarations (verbatim from `emit_body`,
+/// round-5 reshaping). Cells clone out; typed epochs take the entry value
+/// from the unmarshal Vec when the epoch covers entry, defaults else.
+/// ONLY incoming argument slots may be read from the unmarshal Vec:
+/// slot 0 is `this` for instance methods, then the descriptor's
+/// parameters (long/double take two slots). A non-argument local whose
+/// epoch covers entry must take the typed default — the JVM verifier
+/// guarantees a store before any read — because the unmarshal Vec holds
+/// Void there. Live catch: BigJson's skipWs()V has a loop-live `c`
+/// local that is not an argument; reading __loc_tmp[1] panicked
+/// "expected int value, got Void" at runtime.
+fn emit_typed_locals(m: &MethodPlan, p: &Plan, shapes_max_locals: usize, out: &mut String) {
+    let instance = !m.is_static;
+    let locals_len = m
+        .max_locals
+        .max(shapes_max_locals)
+        .max(if instance { 1 } else { 0 });
     let arg_slots = {
         let (params, _) = parse_method_desc(&m.desc)
             .unwrap_or_else(|| panic!("j2r internal: bad descriptor {:?}", m.desc));
@@ -1050,8 +1052,13 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
             }
         }
     }
-    // ACC_SYNCHRONIZED prologue — byte-identical to the default body.
+}
+
+/// The ACC_SYNCHRONIZED prologue (verbatim from `emit_body`, round-5
+/// reshaping) — byte-identical to the default body.
+fn emit_typed_sync(m: &MethodPlan, c: &ClassPlan, out: &mut String) {
     if m.is_sync {
+        let instance = !m.is_static;
         if instance {
             out.push_str("    if let ::core::option::Option::Some(r) = recv {\n");
             out.push_str(&format!(
@@ -1069,7 +1076,12 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
             out.push_str("    __frame.record_monitor(__cm);\n");
         }
     }
-    // Operand-stack variables: one Value cell or one typed var per epoch.
+}
+
+/// The operand-stack variable declarations + the pc/thrown/fault_pc
+/// decls (verbatim from `emit_body`, round-5 reshaping): one Value cell
+/// or one typed var per epoch.
+fn emit_typed_stack(p: &Plan, out: &mut String) {
     for (n, var) in p.stack.iter().enumerate() {
         match var {
             Var::Dead => {}
@@ -1091,6 +1103,25 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
     }
     let _ = writeln!(out, "    let mut pc: u32 = 0u32;");
     let _ = writeln!(
+        out,
+        "    let mut thrown: ::core::option::Option<{RT}::Throw> = ::core::option::Option::None;"
+    );
+    let _ = writeln!(out, "    let mut fault_pc: u32 = 0u32;");
+}
+
+fn emit_body(mut ctx: Ctx<'_>) -> String {
+    let m = ctx.m;
+    let c = ctx.c;
+    let p = ctx.p;
+    let mut out = String::new();
+
+    emit_typed_header(m, p, &mut out);
+    let shapes_max_locals = ctx.shapes.max_locals;
+    emit_typed_locals(m, p, shapes_max_locals, &mut out);
+    emit_typed_sync(m, c, &mut out);
+    emit_typed_stack(p, &mut out);
+    let _ = writeln!(out, "    let mut pc: u32 = 0u32;");
+    let _ = writeln!(
         &mut out,
         "    let mut thrown: ::core::option::Option<{RT}::Throw> = ::core::option::Option::None;"
     );
@@ -1098,24 +1129,8 @@ fn emit_body(mut ctx: Ctx<'_>) -> String {
 
     let has_table = !m.exception_table.is_empty();
     if has_table {
-        let _ = writeln!(
-            out,
-            "    fn __j2r_find_handler(thrown_class: &str, fault: u32) -> ::core::option::Option<u32> {{"
-        );
-        for (start, end, handler, catch) in &m.exception_table {
-            let cond = match catch {
-                Some(cls) => format!(
-                    " && {RT}::is_subtype(thrown_class, {cls:?}, ::core::option::Option::Some(crate::registry::parents_of))"
-                ),
-                None => String::new(),
-            };
-            let _ = writeln!(
-                out,
-                "        if ({start}u32..{end}u32).contains(&fault){cond} {{ return ::core::option::Option::Some({handler}u32); }}"
-            );
-        }
-        let _ = writeln!(out, "        ::core::option::Option::None");
-        let _ = writeln!(out, "    }}");
+        // byte-identical to the default body's handler (shared fn)
+        crate::emit::emit_default_handlers(m, &mut out);
     }
 
     let _ = writeln!(out, "    'run: loop {{");
@@ -1242,6 +1257,78 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
     let k = vs.len();
     match instr {
         I::Nop => {}
+        I::AConstNull
+        | I::IConst(_)
+        | I::LConst(_)
+        | I::FConst(_)
+        | I::DConst(_)
+        | I::Ldc(_)
+        | I::Ldc2W(_)
+        | I::Load(_)
+        | I::Store(_) => {
+            emit_const_local_typed(ctx, pc, &fault, instr, &vs, k);
+        }
+        I::ALoad(_) | I::ArrayLength => emit_array_load_typed(ctx, pc, &fault, instr, &vs, k),
+        I::AStore(_) => emit_array_store_typed(ctx, pc, &fault, instr, &vs, k),
+        I::Pop | I::Pop2 => {}
+        I::Dup | I::DupX1 | I::DupX2 | I::Dup2 | I::Dup2X1 | I::Dup2X2 | I::Swap => {
+            emit_shuffle_typed(ctx, pc, instr);
+        }
+        I::Arith { op, kind } => emit_arith_typed(ctx, pc, &fault, *op, *kind, &vs),
+        I::Convert(conv) => emit_convert_typed(ctx, pc, *conv, &vs),
+        I::IInc { idx, c } => emit_iinc_typed(ctx, pc, idx, c),
+        I::Cmp(kind) => emit_cmp_typed(ctx, pc, *kind, &vs),
+        I::IfZero(..)
+        | I::IfICmp(..)
+        | I::IfRefCmp { .. }
+        | I::IfNull(_)
+        | I::IfNonNull(_)
+        | I::Goto(_)
+        | I::Return(_) => emit_branch_typed(ctx, pc, instr, &vs, k),
+        I::GetStatic { class, field, .. } => {
+            emit_getstatic_typed(ctx, pc, &fault, class, field);
+        }
+        I::PutStatic { .. } | I::GetField { .. } | I::PutField { .. } => {
+            emit_field_typed(ctx, pc, &fault, instr, &vs, k);
+        }
+        I::InvokeVirtual { .. }
+        | I::InvokeInterface { .. }
+        | I::InvokeSpecial { .. }
+        | I::InvokeStatic { .. } => emit_invoke_typed(ctx, pc, &fault, instr, &vs, k),
+        I::MapPutPrim { .. } | I::MapGetPrim { .. } => {
+            emit_map_prim_typed(ctx, pc, &fault, instr, &vs, k);
+        }
+        I::MonitorEnter | I::MonitorExit => emit_monitor_typed(ctx, pc, &fault, instr, &vs, k),
+        I::New { .. } | I::NewArray(_) | I::ANewArray { .. } | I::MultiNewArray { .. } => {
+            emit_alloc_typed(ctx, pc, &fault, instr, &vs, k);
+        }
+        I::AThrow | I::CheckCast { .. } | I::InstanceOf { .. } => {
+            emit_throw_cast_typed(ctx, pc, &fault, instr, &vs, k);
+        }
+        I::TableSwitch { .. } | I::LookupSwitch { .. } => {
+            unreachable!("j2r internal: switch rejected by the typed plan")
+        }
+        I::NewIntArrayFilled { .. } => {
+            unreachable!("j2r internal: array-literal fill rejected by the typed plan")
+        }
+        I::InvokeDynamic { .. } => {
+            unreachable!("j2r internal: invokedynamic rejected by the typed plan")
+        }
+    }
+}
+
+/// The const/local arms (verbatim from `emit_instr_typed`, round-5 reshaping):
+/// the pushes, the loads (the load snapshot law), the stores.
+fn emit_const_local_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         I::AConstNull => {
             let slot = ctx.shape(pc).stack.len();
             let target = ctx.fresh_target(slot, pc);
@@ -1255,22 +1342,22 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             );
         }
         I::IConst(v) => {
-            push_const(ctx, pc, &fault, Src::Prim(Prim::I), v.to_string());
+            push_const(ctx, pc, fault, Src::Prim(Prim::I), v.to_string());
         }
         I::LConst(v) => {
-            push_const(ctx, pc, &fault, Src::Prim(Prim::L), format!("{v}i64"));
+            push_const(ctx, pc, fault, Src::Prim(Prim::L), format!("{v}i64"));
         }
         I::FConst(v) => {
-            push_const(ctx, pc, &fault, Src::Prim(Prim::F), f32_lit(*v));
+            push_const(ctx, pc, fault, Src::Prim(Prim::F), f32_lit(*v));
         }
         I::DConst(v) => {
-            push_const(ctx, pc, &fault, Src::Prim(Prim::D), f64_lit(*v));
+            push_const(ctx, pc, fault, Src::Prim(Prim::D), f64_lit(*v));
         }
         I::Ldc(Ldc::Int(v)) => {
-            push_const(ctx, pc, &fault, Src::Prim(Prim::I), v.to_string());
+            push_const(ctx, pc, fault, Src::Prim(Prim::I), v.to_string());
         }
         I::Ldc(Ldc::Float(v)) => {
-            push_const(ctx, pc, &fault, Src::Prim(Prim::F), f32_lit(*v));
+            push_const(ctx, pc, fault, Src::Prim(Prim::F), f32_lit(*v));
         }
         I::Ldc(Ldc::String(s)) => {
             let slot = ctx.shape(pc).stack.len();
@@ -1301,10 +1388,10 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             );
         }
         I::Ldc2W(Ldc2::Long(v)) => {
-            push_const(ctx, pc, &fault, Src::Prim(Prim::L), format!("{v}i64"));
+            push_const(ctx, pc, fault, Src::Prim(Prim::L), format!("{v}i64"));
         }
         I::Ldc2W(Ldc2::Double(v)) => {
-            push_const(ctx, pc, &fault, Src::Prim(Prim::D), f64_lit(*v));
+            push_const(ctx, pc, fault, Src::Prim(Prim::D), f64_lit(*v));
         }
         I::Load(idx) => {
             let expr = ctx.read_v(pc, *idx as usize);
@@ -1341,12 +1428,28 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 ctx.assign(t, expr, src);
             }
         }
+        _ => unreachable!("j2r internal: not a const_local arm"),
+    }
+}
+
+/// The array read arms (verbatim from `emit_instr_typed`, round-5 reshaping):
+/// aaload with the raw accessors for primitive element kinds, arraylength.
+fn emit_array_load_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         I::ALoad(_) => {
             // pop the int index, then the array ref; the result lands on
             // the ref's slot (kind change → next epoch, or the cell).
             let idx_expr = ctx.read_prim(pc, vs[k - 1], Prim::I);
             ctx.out.push(format!("let __idx = {idx_expr};"));
-            let arr_expr = ctx.try_ref_of(pc, vs[k - 2], &fault);
+            let arr_expr = ctx.try_ref_of(pc, vs[k - 2], fault);
             ctx.out.push(format!("let __arr = {arr_expr};"));
             let slot = vs[k - 2];
             let kind = elem_kind(instr);
@@ -1357,34 +1460,56 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             // kinds keep the Value-returning path.
             match kind {
                 Kind::Int => {
-                    let load =
-                        try_wrap(&fault, format!("{RT}::array::array_load_i(&__arr, __idx)"));
+                    let load = try_wrap(fault, format!("{RT}::array::array_load_i(&__arr, __idx)"));
                     ctx.push_result(slot, target, load, Src::Prim(Prim::I), false, Kind::Int);
                 }
                 Kind::Long => {
-                    let load =
-                        try_wrap(&fault, format!("{RT}::array::array_load_j(&__arr, __idx)"));
+                    let load = try_wrap(fault, format!("{RT}::array::array_load_j(&__arr, __idx)"));
                     ctx.push_result(slot, target, load, Src::Prim(Prim::L), false, Kind::Long);
                 }
                 Kind::Float => {
-                    let load =
-                        try_wrap(&fault, format!("{RT}::array::array_load_f(&__arr, __idx)"));
+                    let load = try_wrap(fault, format!("{RT}::array::array_load_f(&__arr, __idx)"));
                     ctx.push_result(slot, target, load, Src::Prim(Prim::F), false, Kind::Float);
                 }
                 Kind::Double => {
-                    let load =
-                        try_wrap(&fault, format!("{RT}::array::array_load_d(&__arr, __idx)"));
+                    let load = try_wrap(fault, format!("{RT}::array::array_load_d(&__arr, __idx)"));
                     ctx.push_result(slot, target, load, Src::Prim(Prim::D), false, Kind::Double);
                 }
                 _ => {
-                    let load = try_wrap(&fault, format!("{RT}::array::array_load(&__arr, __idx)"));
+                    let load = try_wrap(fault, format!("{RT}::array::array_load(&__arr, __idx)"));
                     ctx.push_result(slot, target, load, Src::Value, false, kind);
                 }
             }
         }
+        I::ArrayLength => {
+            let arr_expr = ctx.try_ref_of(pc, vs[k - 1], fault);
+            ctx.out.push(format!("let __arr = {arr_expr};"));
+            let len = try_wrap(fault, format!("{RT}::array::array_length(&__arr)"));
+            let slot = vs[k - 1];
+            let target = ctx.refill_target(slot, pc, Some(Kind::Int));
+            // __len is the raw i32 (try_wrap unwrapped the Result);
+            // Src::Prim lets a Cell target wrap it in Value::Int.
+            ctx.push_result(slot, target, len, Src::Prim(Prim::I), false, Kind::Int);
+        }
+        _ => unreachable!("j2r internal: not a array_load arm"),
+    }
+}
+
+/// The array-store arm (verbatim from `emit_instr_typed`, round-5 reshaping):
+/// raw int-group stores and the boxed ref path.
+fn emit_array_store_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         I::AStore(_) => {
             let idx_expr = ctx.read_prim(pc, vs[k - 2], Prim::I);
-            let arr_expr = ctx.try_ref_of(pc, vs[k - 3], &fault);
+            let arr_expr = ctx.try_ref_of(pc, vs[k - 3], fault);
             let store = match instr {
                 I::AStore(crate::ir::ElemKind::IntGroup) => {
                     // The raw int-group store: the runtime narrows by the
@@ -1395,7 +1520,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                     ctx.out.push(format!("let __arr = {arr_expr};"));
                     ctx.out.push(format!("let __sv = {v_expr};"));
                     try_wrap(
-                        &fault,
+                        fault,
                         format!("{RT}::array::array_store_i_raw(&__arr, __idx, __sv)"),
                     )
                 }
@@ -1405,7 +1530,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                     ctx.out.push(format!("let __arr = {arr_expr};"));
                     ctx.out.push(format!("let __sv = {v_expr};"));
                     try_wrap(
-                        &fault,
+                        fault,
                         format!("{RT}::array::array_store_j_raw(&__arr, __idx, __sv)"),
                     )
                 }
@@ -1415,7 +1540,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                     ctx.out.push(format!("let __arr = {arr_expr};"));
                     ctx.out.push(format!("let __sv = {v_expr};"));
                     try_wrap(
-                        &fault,
+                        fault,
                         format!("{RT}::array::array_store_f_raw(&__arr, __idx, __sv)"),
                     )
                 }
@@ -1425,7 +1550,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                     ctx.out.push(format!("let __arr = {arr_expr};"));
                     ctx.out.push(format!("let __sv = {v_expr};"));
                     try_wrap(
-                        &fault,
+                        fault,
                         format!("{RT}::array::array_store_d_raw(&__arr, __idx, __sv)"),
                     )
                 }
@@ -1437,7 +1562,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                     ctx.out.push(format!("let __arr = {arr_expr};"));
                     ctx.out.push(format!("let __v = {v_expr};"));
                     try_wrap(
-                        &fault,
+                        fault,
                         format!(
                             "{RT}::array::array_store(&__arr, __idx, __v, crate::j2r_dispatch())"
                         ),
@@ -1446,17 +1571,14 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             };
             ctx.out.push(format!("{store};"));
         }
-        I::ArrayLength => {
-            let arr_expr = ctx.try_ref_of(pc, vs[k - 1], &fault);
-            ctx.out.push(format!("let __arr = {arr_expr};"));
-            let len = try_wrap(&fault, format!("{RT}::array::array_length(&__arr)"));
-            let slot = vs[k - 1];
-            let target = ctx.refill_target(slot, pc, Some(Kind::Int));
-            // __len is the raw i32 (try_wrap unwrapped the Result);
-            // Src::Prim lets a Cell target wrap it in Value::Int.
-            ctx.push_result(slot, target, len, Src::Prim(Prim::I), false, Kind::Int);
-        }
-        I::Pop | I::Pop2 => {}
+        _ => unreachable!("j2r internal: not a array_store arm"),
+    }
+}
+
+/// The stack-shuffle arm (verbatim from `emit_instr_typed`, round-5 reshaping).
+fn emit_shuffle_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
+    use Instr as I;
+    match instr {
         I::Dup | I::DupX1 | I::DupX2 | I::Dup2 | I::Dup2X1 | I::Dup2X2 | I::Swap => {
             // A shuffle may consume a value TWICE (dup) — the one read
             // the symbolic model guarantees per def. Materialize the
@@ -1522,25 +1644,15 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 }
             }
         }
-        I::Arith { op, kind } => emit_arith_typed(ctx, pc, &fault, *op, *kind, &vs),
-        I::Convert(conv) => emit_convert_typed(ctx, pc, *conv, &vs),
-        I::IInc { idx, c } => {
-            let j = *idx as usize;
-            let expr = ctx.read_v(pc, j);
-            let line = match ctx.site_v(pc, j) {
-                Site::Typed(Prim::I) => {
-                    let (target, _) = ctx.store_target(j, pc).expect("j2r internal: iinc target");
-                    format!("{target} = {expr}.wrapping_add({c});")
-                }
-                Site::Cell => {
-                    let (target, _) = ctx.store_target(j, pc).expect("j2r internal: iinc target");
-                    format!("{target} = {RT}::Value::Int(v{j}.expect_int().wrapping_add({c}));")
-                }
-                Site::Typed(other) => unreachable!("j2r internal: iinc on {other:?}"),
-            };
-            ctx.out.push(line);
-        }
-        I::Cmp(kind) => emit_cmp_typed(ctx, pc, *kind, &vs),
+        _ => unreachable!("j2r internal: not a shuffle arm"),
+    }
+}
+
+/// The branch/return arms (verbatim from `emit_instr_typed`, round-5 reshaping):
+/// materialize-below + backward-poll + the pc update.
+fn emit_branch_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr, vs: &[usize], k: usize) {
+    use Instr as I;
+    match instr {
         I::IfZero(op, t) => {
             ctx.materialize_below(vs[k - 1]);
             ctx.backward_poll(pc, &[*t]);
@@ -1617,9 +1729,22 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                     .push(format!("return ::core::result::Result::Ok({v});"));
             }
         }
-        I::GetStatic { class, field, .. } => {
-            emit_getstatic_typed(ctx, pc, &fault, class, field);
-        }
+        _ => unreachable!("j2r internal: not a branch arm"),
+    }
+}
+
+/// The field access arms (verbatim from `emit_instr_typed`, round-5 reshaping):
+/// putstatic with ensure, getfield/putfield with the boundary markers.
+fn emit_field_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         I::PutStatic { class, field, .. } => {
             let f = crate::resolve_field_pub(ctx.prog, class, field, true)
                 .expect("validated static field");
@@ -1637,7 +1762,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 // in typed bodies too (same j2r_try lowering).
                 ctx.out.push(format!(
                     "{};",
-                    try_wrap(&fault, format!("crate::statics::ensure({id}u32, {expr})"))
+                    try_wrap(fault, format!("crate::statics::ensure({id}u32, {expr})"))
                 ));
             }
             ctx.out
@@ -1651,7 +1776,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                     ctx.out.push(marker);
                 }
             }
-            let r = ctx.try_ref_of(pc, vs[k - 1], &fault);
+            let r = ctx.try_ref_of(pc, vs[k - 1], fault);
             ctx.out.push(format!("let __r = {r};"));
             // obj_get returns a plain `Value` (the NPE is already raised
             // by ref_of above) — exactly the default body's law; no
@@ -1681,11 +1806,28 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             }
             let v = ctx.wrap_s(pc, vs[k - 1]);
             ctx.out.push(format!("let __v = {v};"));
-            let r = ctx.try_ref_of(pc, vs[k - 2], &fault);
+            let r = ctx.try_ref_of(pc, vs[k - 2], fault);
             ctx.out.push(format!("let __r = {r};"));
             ctx.out
                 .push(format!("{RT}::object::obj_set(&__r, {slot}usize, __v);"));
         }
+        _ => unreachable!("j2r internal: not a field arm"),
+    }
+}
+
+/// The invoke arms (verbatim from `emit_instr_typed`, round-5 reshaping): the
+/// call-boundary refresh, the G3.2 slice-2 stack-array args, and the
+/// User/Native call targets.
+fn emit_invoke_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         I::InvokeVirtual { class, name, desc } | I::InvokeInterface { class, name, desc } => {
             // Call boundary: refresh the root snapshot before the args
             // leave the operand positions (M2_PLAN §4.4).
@@ -1702,10 +1844,10 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             } else {
                 ctx.out.push(format!("let __a = [{}];", args.join(", ")));
             }
-            let r = ctx.try_ref_of(pc, vs[k - n - 1], &fault);
+            let r = ctx.try_ref_of(pc, vs[k - n - 1], fault);
             ctx.out.push(format!("let __r = {r};"));
             let call = try_wrap(
-                &fault,
+                fault,
                 format!(
                     "{RT}::invoke_virtual(&__r, {class:?}, {name:?}, {desc:?}, &__a, crate::j2r_dispatch())"
                 ),
@@ -1726,12 +1868,12 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             } else {
                 ctx.out.push(format!("let __a = [{}];", args.join(", ")));
             }
-            let r = ctx.try_ref_of(pc, vs[k - n - 1], &fault);
+            let r = ctx.try_ref_of(pc, vs[k - n - 1], fault);
             ctx.out.push(format!("let __r = {r};"));
             match crate::resolve_call_pub(ctx.prog, class, name, desc).expect("validated call") {
                 crate::CallTarget::User { module, fn_name } => {
                     let call = try_wrap(
-                        &fault,
+                        fault,
                         format!(
                             "crate::classes::{module}::{fn_name}(::core::option::Option::Some(&__r), &__a)"
                         ),
@@ -1740,7 +1882,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 }
                 crate::CallTarget::Native { class: ncls } => {
                     let call = try_wrap(
-                        &fault,
+                        fault,
                         format!(
                             "{RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::Some(&__r), &__a, crate::j2r_dispatch())"
                         ),
@@ -1769,28 +1911,44 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                         // CLINIT-THROW: same lowering as the default body.
                         ctx.out.push(format!(
                             "{};",
-                            try_wrap(&fault, format!("crate::statics::ensure({id}u32, {expr})"))
+                            try_wrap(fault, format!("crate::statics::ensure({id}u32, {expr})"))
                         ));
                     }
                     let call = try_wrap(
-                        &fault,
+                        fault,
                         format!(
                             "crate::classes::{module}::{fn_name}(::core::option::Option::None, &__a)"
                         ),
                     );
-                    write_invoke_result_static(ctx, pc, &vs, k, n, desc, call);
+                    write_invoke_result_static(ctx, pc, vs, k, n, desc, call);
                 }
                 crate::CallTarget::Native { class: ncls } => {
                     let call = try_wrap(
-                        &fault,
+                        fault,
                         format!(
                             "{RT}::natives::invoke_exact({ncls:?}, {name:?}, {desc:?}, ::core::option::Option::None, &__a, crate::j2r_dispatch())"
                         ),
                     );
-                    write_invoke_result_static(ctx, pc, &vs, k, n, desc, call);
+                    write_invoke_result_static(ctx, pc, vs, k, n, desc, call);
                 }
             }
         }
+        _ => unreachable!("j2r internal: not a invoke arm"),
+    }
+}
+
+/// The G3.3 specialized-map core arms (verbatim from `emit_instr_typed`,
+/// round-5 reshaping).
+fn emit_map_prim_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         // G3.3 slice 2 (peephole.rs): the specialized-map cores. The
         // prim value flows straight from the typed stack read into the
         // node's slot — no Value::Ref box, no valueOf dispatch, no unbox
@@ -1807,7 +1965,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 ctx.read_prim(pc, vs[k - 1], tp)
             );
             let key = ctx.wrap_s(pc, vs[k - 2]);
-            let r = ctx.try_ref_of(pc, vs[k - 3], &fault);
+            let r = ctx.try_ref_of(pc, vs[k - 3], fault);
             ctx.out.push(format!("let __k = {key};"));
             ctx.out.push(format!("let __val = {val};"));
             ctx.out.push(format!("let __r = {r};"));
@@ -1820,7 +1978,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 _ => "hm_put_prim",
             };
             let call = try_wrap(
-                &fault,
+                fault,
                 format!("{RT}::collections::{put_fn}(&__r, __k, __val, crate::j2r_dispatch())"),
             );
             ctx.out.push(format!("let __v = {call};"));
@@ -1838,7 +1996,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 _ => "java/lang/Integer",
             };
             let key = ctx.wrap_s(pc, vs[k - 1]);
-            let r = ctx.try_ref_of(pc, vs[k - 2], &fault);
+            let r = ctx.try_ref_of(pc, vs[k - 2], fault);
             ctx.out.push(format!("let __k = {key};"));
             ctx.out.push(format!("let __r = {r};"));
             // The storage kind routes the native (G3.3 slice 4).
@@ -1847,7 +2005,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 _ => "hm_get_prim",
             };
             let call = try_wrap(
-                &fault,
+                fault,
                 format!(
                     "{RT}::collections::{get_fn}(&__r, __k, {expect:?}, crate::j2r_dispatch())"
                 ),
@@ -1862,23 +2020,54 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let target = ctx.refill_target(slot, pc, Some(kind));
             ctx.push_result(slot, target, call, Src::Value, false, kind);
         }
+        _ => unreachable!("j2r internal: not a map_prim arm"),
+    }
+}
+
+/// The monitor arms (verbatim from `emit_instr_typed`, round-5 reshaping).
+fn emit_monitor_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         I::MonitorEnter => {
-            let r = ctx.try_ref_of(pc, vs[k - 1], &fault);
+            let r = ctx.try_ref_of(pc, vs[k - 1], fault);
             ctx.out.push(format!("let __r = {r};"));
-            let enter = try_wrap(&fault, format!("{RT}::monitor::monitor_enter(&__r)"));
+            let enter = try_wrap(fault, format!("{RT}::monitor::monitor_enter(&__r)"));
             ctx.out.push(format!("{enter};"));
         }
         I::MonitorExit => {
-            let r = ctx.try_ref_of(pc, vs[k - 1], &fault);
+            let r = ctx.try_ref_of(pc, vs[k - 1], fault);
             ctx.out.push(format!("let __r = {r};"));
-            let exit = try_wrap(&fault, format!("{RT}::monitor::monitor_exit(&__r)"));
+            let exit = try_wrap(fault, format!("{RT}::monitor::monitor_exit(&__r)"));
             ctx.out.push(format!("{exit};"));
         }
+        _ => unreachable!("j2r internal: not a monitor arm"),
+    }
+}
+
+/// The allocation arms (verbatim from `emit_instr_typed`, round-5 reshaping):
+/// the gc_point collection shapes and the in-place refills.
+fn emit_alloc_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         I::New { class } => {
             // The one collection point shape (M2_PLAN §4.3).
             ctx.refresh(pc);
             ctx.out.push(format!("{RT}::heap::gc_point();"));
-            crate::emit::new_obj_lines(ctx.prog, class, &fault, &mut ctx.out);
+            crate::emit::new_obj_lines(ctx.prog, class, fault, &mut ctx.out);
             let slot = ctx.shape(pc).stack.len();
             let target = ctx.fresh_target(slot, pc);
             ctx.push_result(
@@ -1897,7 +2086,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let len = ctx.read_prim(pc, vs[k - 1], Prim::I);
             ctx.out.push(format!("let __len = {len};"));
             let new = try_wrap(
-                &fault,
+                fault,
                 format!("{RT}::array::array_new_prim({desc:?}, __len)"),
             );
             ctx.out.push(format!("let __narr = {new};"));
@@ -1922,7 +2111,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let len = ctx.read_prim(pc, vs[k - 1], Prim::I);
             ctx.out.push(format!("let __len = {len};"));
             let new = try_wrap(
-                &fault,
+                fault,
                 format!("{RT}::array::array_new_ref({elem:?}, __len)"),
             );
             ctx.out.push(format!("let __narr = {new};"));
@@ -1950,7 +2139,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             }
             let list: Vec<String> = (0..*dims).map(|i| format!("__dim{i}")).collect();
             let new = try_wrap(
-                &fault,
+                fault,
                 format!(
                     "{RT}::array::array_new_multi({desc:?}, &[{}])",
                     list.join(", ")
@@ -1970,8 +2159,24 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
                 Kind::Ref,
             );
         }
+        _ => unreachable!("j2r internal: not a alloc arm"),
+    }
+}
+
+/// The athrow/checkcast/instanceof arms (verbatim from `emit_instr_typed`,
+/// round-5 reshaping).
+fn emit_throw_cast_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    instr: &Instr,
+    vs: &[usize],
+    k: usize,
+) {
+    use Instr as I;
+    match instr {
         I::AThrow => {
-            let thr = ctx.try_ref_of(pc, vs[k - 1], &fault);
+            let thr = ctx.try_ref_of(pc, vs[k - 1], fault);
             ctx.out.push(format!("let __thr = {thr};"));
             ctx.out.push(format!(
                 "thrown = ::core::option::Option::Some({RT}::Throw {{ obj: __thr }});"
@@ -1982,7 +2187,7 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
         I::CheckCast { class } => {
             let v = ctx.read_s(pc, vs[k - 1]);
             let cc = try_wrap(
-                &fault,
+                fault,
                 format!("{RT}::checkcast({v}, {class:?}, crate::j2r_dispatch())"),
             );
             let slot = vs[k - 1];
@@ -1998,16 +2203,26 @@ fn emit_instr_typed(ctx: &mut Ctx<'_>, pc: u32, instr: &Instr) {
             let target = ctx.refill_target(slot, pc, Some(Kind::Int));
             ctx.push_result(slot, target, io, Src::Prim(Prim::I), false, Kind::Int);
         }
-        I::TableSwitch { .. } | I::LookupSwitch { .. } => {
-            unreachable!("j2r internal: switch rejected by the typed plan")
-        }
-        I::NewIntArrayFilled { .. } => {
-            unreachable!("j2r internal: array-literal fill rejected by the typed plan")
-        }
-        I::InvokeDynamic { .. } => {
-            unreachable!("j2r internal: invokedynamic rejected by the typed plan")
-        }
+        _ => unreachable!("j2r internal: not a throw_cast arm"),
     }
+}
+
+/// The iinc arm (verbatim from `emit_instr_typed`, round-5 reshaping).
+fn emit_iinc_typed(ctx: &mut Ctx<'_>, pc: u32, idx: &u16, c: &i32) {
+    let j = *idx as usize;
+    let expr = ctx.read_v(pc, j);
+    let line = match ctx.site_v(pc, j) {
+        Site::Typed(Prim::I) => {
+            let (target, _) = ctx.store_target(j, pc).expect("j2r internal: iinc target");
+            format!("{target} = {expr}.wrapping_add({c});")
+        }
+        Site::Cell => {
+            let (target, _) = ctx.store_target(j, pc).expect("j2r internal: iinc target");
+            format!("{target} = {RT}::Value::Int(v{j}.expect_int().wrapping_add({c}));")
+        }
+        Site::Typed(other) => unreachable!("j2r internal: iinc on {other:?}"),
+    };
+    ctx.out.push(line);
 }
 
 /// The `Kind` of a stack slot's verified type at `pc`.
@@ -2128,7 +2343,10 @@ fn return_desc(desc: &str) -> String {
     desc[close + 1..].to_string()
 }
 
-fn emit_arith_typed(
+/// The int/long arithmetic arm (verbatim from `emit_arith_typed`,
+/// round-5 reshaping): reads-first then the per-op result push; div/rem
+/// trap through the try-wrapped helpers, shifts mask to 31/63.
+fn emit_arith_intlong_typed(
     ctx: &mut Ctx<'_>,
     pc: u32,
     fault: &str,
@@ -2138,6 +2356,178 @@ fn emit_arith_typed(
 ) {
     use NumKind as NK;
     let k = vs.len();
+    let prim = if kind == NK::Long { Prim::L } else { Prim::I };
+    let (result_slot, a_slot, b_slot) = match op {
+        ArithOp::Neg => (vs[k - 1], vs[k - 1], vs[k - 1]),
+        _ => (vs[k - 2], vs[k - 2], vs[k - 1]),
+    };
+    // Reads first (the same-kind refill overwrites the operand's
+    // variable), then write.
+    let a = ctx.read_prim(pc, a_slot, prim);
+    let b = if op == ArithOp::Neg {
+        String::new()
+    } else if op == ArithOp::Shl || op == ArithOp::Shr || op == ArithOp::UShr {
+        // The shift amount is always an int, even for long shifts.
+        ctx.read_prim(pc, b_slot, Prim::I)
+    } else {
+        ctx.read_prim(pc, b_slot, prim)
+    };
+    let new_kind = match kind {
+        NK::Long => Kind::Long,
+        _ => Kind::Int,
+    };
+    let ty = prim.rust_ty();
+    // Typed operand bindings: the composed reads may be bare
+    // literals or leaf reads — without the annotation, Rust
+    // inference hits ambiguous `{integer}`/`{float}` types, and
+    // the shared `__a`/`__b` names of a LATER op in the same arm
+    // would shadow an earlier entry's captured string.
+    match op {
+        ArithOp::Neg => {
+            ctx.out.push(format!("let __a: {ty} = {a};"));
+            let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+            ctx.push_result(
+                result_slot,
+                target,
+                "__a.wrapping_neg()".to_string(),
+                Src::Prim(prim),
+                false,
+                new_kind,
+            );
+        }
+        ArithOp::Add | ArithOp::Sub | ArithOp::Mul | ArithOp::And | ArithOp::Or | ArithOp::Xor => {
+            let rust_op = match op {
+                ArithOp::Add => "wrapping_add",
+                ArithOp::Sub => "wrapping_sub",
+                ArithOp::Mul => "wrapping_mul",
+                ArithOp::And => "&",
+                ArithOp::Or => "|",
+                _ => "^",
+            };
+            ctx.out
+                .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
+            let expr = if rust_op.starts_with("wrapping") {
+                format!("__a.{rust_op}(__b)")
+            } else {
+                format!("__a {rust_op} __b")
+            };
+            let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+            ctx.push_result(result_slot, target, expr, Src::Prim(prim), false, new_kind);
+        }
+        ArithOp::Div | ArithOp::Rem => {
+            let helper = match (op, kind) {
+                (ArithOp::Div, NK::Long) => "long_div",
+                (ArithOp::Div, _) => "int_div",
+                (ArithOp::Rem, NK::Long) => "long_rem",
+                _ => "int_rem",
+            };
+            ctx.out
+                .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
+            let div = try_wrap(fault, format!("{RT}::{helper}(__a, __b)"));
+            let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+            // The trapping divide materializes into the def-time
+            // temp (a method-unique `__t{n}`) — a pending result
+            // can live across a LATER divide's old `__r` binding.
+            ctx.push_result(result_slot, target, div, Src::Prim(prim), false, new_kind);
+        }
+        ArithOp::Shl | ArithOp::Shr | ArithOp::UShr => {
+            let mask = if kind == NK::Long { 63 } else { 31 };
+            let shift_fn = if op == ArithOp::Shl {
+                "wrapping_shl"
+            } else {
+                "wrapping_shr"
+            };
+            // The shift amount is an INT even for long shifts —
+            // the two bindings carry DIFFERENT types here.
+            ctx.out
+                .push(format!("let __b: i32 = {b}; let __a: {} = {a};", ty));
+            let expr = if op == ArithOp::UShr {
+                // logical shift on the unsigned reinterpretation
+                let uty = if kind == NK::Long { "u64" } else { "u32" };
+                format!(
+                    " ((__a as {uty}).{shift_fn}((__b & {mask}) as u32)) as {}",
+                    if kind == NK::Long { "i64" } else { "i32" }
+                )
+                .trim_start()
+                .to_string()
+            } else {
+                format!("__a.{shift_fn}((__b & {mask}) as u32)")
+            };
+            let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+            // Shifts never trap, but the composed string binds the
+            // shared __a/__b names — it materializes into its own
+            // temp like every other composed op, or a LATER op's
+            // rebinding of those names would re-evaluate this
+            // entry's captured string against wrong values.
+            ctx.push_result(result_slot, target, expr, Src::Prim(prim), false, new_kind);
+        }
+    }
+}
+
+/// The float/double arithmetic arm (verbatim from `emit_arith_typed`,
+/// round-5 reshaping): neg is a bare negate; the rest are the plain FP
+/// operators (JLS: no traps on FP div/rem).
+fn emit_arith_float_typed(ctx: &mut Ctx<'_>, pc: u32, op: ArithOp, kind: NumKind, vs: &[usize]) {
+    use NumKind as NK;
+    let k = vs.len();
+    let prim = if kind == NK::Float { Prim::F } else { Prim::D };
+    let (result_slot, a_slot, b_slot) = match op {
+        ArithOp::Neg => (vs[k - 1], vs[k - 1], vs[k - 1]),
+        _ => (vs[k - 2], vs[k - 2], vs[k - 1]),
+    };
+    let a = ctx.read_prim(pc, a_slot, prim);
+    let b = ctx.read_prim(pc, b_slot, prim);
+    let new_kind = if kind == NK::Float {
+        Kind::Float
+    } else {
+        Kind::Double
+    };
+    let ty = prim.rust_ty();
+    let rust_op = match op {
+        ArithOp::Neg => {
+            ctx.out.push(format!("let __a: {ty} = {a};"));
+            let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+            ctx.push_result(
+                result_slot,
+                target,
+                "-__a".to_string(),
+                Src::Prim(prim),
+                false,
+                new_kind,
+            );
+            return;
+        }
+        ArithOp::Add => "+",
+        ArithOp::Sub => "-",
+        ArithOp::Mul => "*",
+        ArithOp::Div => "/",
+        _ => "%",
+    };
+    ctx.out
+        .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
+    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
+    // FP arithmetic never traps (JLS: no exceptions on div/rem),
+    // but the composed string binds shared names — the result
+    // materializes into its own temp like every other op.
+    ctx.push_result(
+        result_slot,
+        target,
+        format!("__a {rust_op} __b"),
+        Src::Prim(prim),
+        false,
+        new_kind,
+    );
+}
+
+fn emit_arith_typed(
+    ctx: &mut Ctx<'_>,
+    pc: u32,
+    fault: &str,
+    op: ArithOp,
+    kind: NumKind,
+    vs: &[usize],
+) {
+    use NumKind as NK;
     // The unification layer's purity law: int/long division and remainder
     // trap (ArithmeticException — the helper is j2r_try-wrapped), every
     // other arithmetic form is side-effect-free and keeps its expression
@@ -2148,168 +2538,8 @@ fn emit_arith_typed(
     // temp regardless — the composed string binds the shared __a/__b
     // names, so a pending entry must never carry it past this op.
     match kind {
-        NK::Int | NK::Long => {
-            let prim = if kind == NK::Long { Prim::L } else { Prim::I };
-            let (result_slot, a_slot, b_slot) = match op {
-                ArithOp::Neg => (vs[k - 1], vs[k - 1], vs[k - 1]),
-                _ => (vs[k - 2], vs[k - 2], vs[k - 1]),
-            };
-            // Reads first (the same-kind refill overwrites the operand's
-            // variable), then write.
-            let a = ctx.read_prim(pc, a_slot, prim);
-            let b = if op == ArithOp::Neg {
-                String::new()
-            } else if op == ArithOp::Shl || op == ArithOp::Shr || op == ArithOp::UShr {
-                // The shift amount is always an int, even for long shifts.
-                ctx.read_prim(pc, b_slot, Prim::I)
-            } else {
-                ctx.read_prim(pc, b_slot, prim)
-            };
-            let new_kind = match kind {
-                NK::Long => Kind::Long,
-                _ => Kind::Int,
-            };
-            let ty = prim.rust_ty();
-            // Typed operand bindings: the composed reads may be bare
-            // literals or leaf reads — without the annotation, Rust
-            // inference hits ambiguous `{integer}`/`{float}` types, and
-            // the shared `__a`/`__b` names of a LATER op in the same arm
-            // would shadow an earlier entry's captured string.
-            match op {
-                ArithOp::Neg => {
-                    ctx.out.push(format!("let __a: {ty} = {a};"));
-                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
-                    ctx.push_result(
-                        result_slot,
-                        target,
-                        "__a.wrapping_neg()".to_string(),
-                        Src::Prim(prim),
-                        false,
-                        new_kind,
-                    );
-                }
-                ArithOp::Add
-                | ArithOp::Sub
-                | ArithOp::Mul
-                | ArithOp::And
-                | ArithOp::Or
-                | ArithOp::Xor => {
-                    let rust_op = match op {
-                        ArithOp::Add => "wrapping_add",
-                        ArithOp::Sub => "wrapping_sub",
-                        ArithOp::Mul => "wrapping_mul",
-                        ArithOp::And => "&",
-                        ArithOp::Or => "|",
-                        _ => "^",
-                    };
-                    ctx.out
-                        .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
-                    let expr = if rust_op.starts_with("wrapping") {
-                        format!("__a.{rust_op}(__b)")
-                    } else {
-                        format!("__a {rust_op} __b")
-                    };
-                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
-                    ctx.push_result(result_slot, target, expr, Src::Prim(prim), false, new_kind);
-                }
-                ArithOp::Div | ArithOp::Rem => {
-                    let helper = match (op, kind) {
-                        (ArithOp::Div, NK::Long) => "long_div",
-                        (ArithOp::Div, _) => "int_div",
-                        (ArithOp::Rem, NK::Long) => "long_rem",
-                        _ => "int_rem",
-                    };
-                    ctx.out
-                        .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
-                    let div = try_wrap(fault, format!("{RT}::{helper}(__a, __b)"));
-                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
-                    // The trapping divide materializes into the def-time
-                    // temp (a method-unique `__t{n}`) — a pending result
-                    // can live across a LATER divide's old `__r` binding.
-                    ctx.push_result(result_slot, target, div, Src::Prim(prim), false, new_kind);
-                }
-                ArithOp::Shl | ArithOp::Shr | ArithOp::UShr => {
-                    let mask = if kind == NK::Long { 63 } else { 31 };
-                    let shift_fn = if op == ArithOp::Shl {
-                        "wrapping_shl"
-                    } else {
-                        "wrapping_shr"
-                    };
-                    // The shift amount is an INT even for long shifts —
-                    // the two bindings carry DIFFERENT types here.
-                    ctx.out
-                        .push(format!("let __b: i32 = {b}; let __a: {} = {a};", ty));
-                    let expr = if op == ArithOp::UShr {
-                        // logical shift on the unsigned reinterpretation
-                        let uty = if kind == NK::Long { "u64" } else { "u32" };
-                        format!(
-                            " ((__a as {uty}).{shift_fn}((__b & {mask}) as u32)) as {}",
-                            if kind == NK::Long { "i64" } else { "i32" }
-                        )
-                        .trim_start()
-                        .to_string()
-                    } else {
-                        format!("__a.{shift_fn}((__b & {mask}) as u32)")
-                    };
-                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
-                    // Shifts never trap, but the composed string binds the
-                    // shared __a/__b names — it materializes into its own
-                    // temp like every other composed op, or a LATER op's
-                    // rebinding of those names would re-evaluate this
-                    // entry's captured string against wrong values.
-                    ctx.push_result(result_slot, target, expr, Src::Prim(prim), false, new_kind);
-                }
-            }
-        }
-        NK::Float | NK::Double => {
-            let prim = if kind == NK::Float { Prim::F } else { Prim::D };
-            let (result_slot, a_slot, b_slot) = match op {
-                ArithOp::Neg => (vs[k - 1], vs[k - 1], vs[k - 1]),
-                _ => (vs[k - 2], vs[k - 2], vs[k - 1]),
-            };
-            let a = ctx.read_prim(pc, a_slot, prim);
-            let b = ctx.read_prim(pc, b_slot, prim);
-            let new_kind = if kind == NK::Float {
-                Kind::Float
-            } else {
-                Kind::Double
-            };
-            let ty = prim.rust_ty();
-            let rust_op = match op {
-                ArithOp::Neg => {
-                    ctx.out.push(format!("let __a: {ty} = {a};"));
-                    let target = ctx.refill_target(result_slot, pc, Some(new_kind));
-                    ctx.push_result(
-                        result_slot,
-                        target,
-                        "-__a".to_string(),
-                        Src::Prim(prim),
-                        false,
-                        new_kind,
-                    );
-                    return;
-                }
-                ArithOp::Add => "+",
-                ArithOp::Sub => "-",
-                ArithOp::Mul => "*",
-                ArithOp::Div => "/",
-                _ => "%",
-            };
-            ctx.out
-                .push(format!("let __b: {ty} = {b}; let __a: {ty} = {a};"));
-            let target = ctx.refill_target(result_slot, pc, Some(new_kind));
-            // FP arithmetic never traps (JLS: no exceptions on div/rem),
-            // but the composed string binds shared names — the result
-            // materializes into its own temp like every other op.
-            ctx.push_result(
-                result_slot,
-                target,
-                format!("__a {rust_op} __b"),
-                Src::Prim(prim),
-                false,
-                new_kind,
-            );
-        }
+        NK::Int | NK::Long => emit_arith_intlong_typed(ctx, pc, fault, op, kind, vs),
+        NK::Float | NK::Double => emit_arith_float_typed(ctx, pc, op, kind, vs),
         _ => unreachable!("arith on narrow kind"),
     }
 }

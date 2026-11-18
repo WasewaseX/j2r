@@ -1,79 +1,30 @@
-# master-ci v2.9.1 opt-outs. Every line carries its justification; the
-# adjudication record is scripts/evidence/slop_audit/AUDIT_2026-11-17.md
-# (all 20 owner-pasted claims checked against the bytes). The blocking
-# fixes of 2026-11-18 live in git history: everything fixable was fixed
-# (empty catches in the suite fixtures, the swallowed exception, the
-# self-matching gate script, the 254x/60x/142x boilerplate families);
-# what remains is upstream-verbatim or generated text whose shape IS the
-# product.
+# master-ci exemptions - each justified; see console.md round-5 slice-b2 and
+# scripts/evidence/slop_audit/ROUND5_2026-11-19.md (the full rationale).
 #
-# corpus/ — the differential-testing workload. Vendored upstream
-# snapshots (JZlib 1.1.0, minimal-json — byte-pinned for fidelity, the
-# audit proved zero post-vendoring edits) plus probe/bench drivers whose
-# System.out IS the measurement channel and whose upstream algorithm
-# shape (DEFLATE, EISPACK) is the workload itself. The oracle here is
-# byte-identical output vs Temurin (gate-2 diff_suite, 130 fixtures),
-# which is strictly stronger than content heuristics; hand-reshaping
-# would break the fidelity the corpus exists to preserve.
-# Round-2 update (2026-11-18): every empty catch now carries the
-# `ignored` name + an honest rationale comment (the hosted surface's
-# own `ignored` convention, upstream 1.1.0's idiom) and the one
-# project-authored flagged function (the driver main) was split under
-# the 80-line limit — see scripts/evidence/slop_audit/ROUND2_2026-11-18.md.
-# What remains here is the vendored algorithm SHAPE (state machines,
-# EISPACK numerics) whose bytes the corpus exists to preserve.
-corpus/
-
-# GENERATED FILE — scripts/gen_jni_env_table.py owns the bytes; the slot
-# layout is pinned by the offset-assertion table at the bottom of the
-# file. Repetition in a JNI slot table is the JNI spec's own shape.
-# (The scoped rule is needed because file globs do not reach the
-# cross-file duplication counter.)
+# 1) Vendored-derived corpus entry sources: the upstream BSD/JCraft/JZlib
+#    license headers are legally required VERBATIM in every derived file, so
+#    the cross-file license-line duplication cannot be "extracted into a
+#    shared helper". These directories are script-generated (byte-frozen
+#    vendor archives) or HAND-reshaped fixtures gated by byte-identity
+#    oracles and the corpus_suite differential; prose/phrase checks on
+#    vendored text are noise by construction.
+corpus/jzlibentry/*.java
+corpus/jamaentry/*.java
+corpus/stringsimentry/*.java
+corpus/minimaljsonentry/*.java
+#
+# 2) AcpyProbe: the fixture's 145 nested classes each carry the identical
+#    main signature BY DESIGN (the annotation-processing probe matrix); the
+#    bytes are pinned by the diff_suite zero-diff baseline.
+corpus/AcpyProbe.java
+#
+# 3) jni/tables.rs: generated JNI registration-table DATA - the repeated
+#    method_id_from_ptr rows ARE the table format (data rows, not logic to
+#    factor); the file's logic lives in the tables module's builders.
 crates/j2r-runtime/src/jni/tables.rs
+
+# Round-5 (2026-11-19): the j2r-runtime JNI method-registration tables are
+# generated DATA — the repeated method_id_from_ptr rows ARE the table
+# format (one row per registered native), the same shape the generated
+# env table above carries. Logic lives in the tables module's builders.
 check:boilerplate-duplication:crates/j2r-runtime/src/jni/tables.rs
-
-# The generator's template strings repeat verbatim by design (they are
-# emitted text, not app logic).
-check:boilerplate-duplication:scripts/gen_jni_env_table.py
-
-# `public static void main(String[] args) {` is the language-inherent
-# entry-point signature — every runnable fixture, probe and example
-# carries it exactly once per class. There is nothing to extract.
-check:boilerplate-duplication:*.java
-
-# The corpus build script embeds a Java driver as a heredoc; the Java
-# content rules above cover it, shell rules do not apply to the payload.
-scripts/build_corpus_jzlib.sh
-
-# Probe and example sources print to stdout BY DESIGN — that output is
-# the differential channel compared byte-for-byte against Temurin.
-check:debug-print:scripts/evidence/*
-check:debug-print:examples/*
-check:debug-print:tests/*
-
-# Probe mains declare `throws Exception`: reflective harnesses that
-# catch and classify everything themselves.
-check:java-broad-throws:scripts/evidence/*
-
-# The boards and records (README, ROADMAP, TODO, console*, docs/) are
-# written in the established house voice — em-dash apposition, direct
-# address, emphasis — and are append-only evidence; historical entries
-# are never re-prosed. Content-defect channels stay live everywhere.
-check:em-dash-density:*.md
-check:humanizer:*.md
-check:humanizer:scripts/evidence/*
-check:exclamations:*.md
-check:ai-prose:*.md
-check:rhetorical-questions:*.md
-check:rule-of-three:*.md
-
-# The law-comment convention: every non-obvious behavior carries its
-# evidence trail in place (the audit IDs, plan sections, Temurin proofs
-# beside the code that implements them). Long comment blocks are that
-# convention working, not narrated filler; the content defects that
-# matter (stubs, elision markers, parked FIXMEs) are gate-checked by
-# scripts/check_stubs.py and the master-ci blocking rules.
-check:prose-block:crates/*
-check:prose-block:docs/*
-check:prose-block:scripts/*
-check:prose-block:tests/*
