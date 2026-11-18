@@ -17,6 +17,7 @@ use std::fmt;
 
 pub mod crc32;
 pub mod inflate;
+pub mod remap;
 pub mod zip;
 
 pub mod flags {
@@ -805,7 +806,7 @@ fn parse_constant_pool(r: &mut Reader<'_>) -> Result<ConstantPool> {
 
 /// Decodes JVM *modified UTF-8* (JVMS §4.4.7): NUL as `C0 80` and
 /// supplementary characters as surrogate pairs of 3-byte sequences.
-fn decode_modified_utf8(bytes: &[u8]) -> Option<String> {
+pub(crate) fn decode_modified_utf8(bytes: &[u8]) -> Option<String> {
     if bytes.iter().all(|b| *b != 0 && *b < 0x80) {
         return Some(String::from_utf8_lossy(bytes).into_owned());
     }
