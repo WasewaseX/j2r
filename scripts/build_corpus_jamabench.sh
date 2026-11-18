@@ -128,10 +128,17 @@ DRIVER
 # join the HAND list.
 HAND="Matrix MatrixOps MatrixSolve MatrixIo EigenvalueDecomposition EigenSymmetric EigenOrthes EigenHqr2 EigenHqr2Backsub SingularValueDecomposition SingularValueCore SingularValueCases"
 mkdir -p "$ENTRY"
-for f in corpus/jama/Matrix.java corpus/jama/CholeskyDecomposition.java \
-         corpus/jama/EigenvalueDecomposition.java \
-         corpus/jama/LUDecomposition.java corpus/jama/QRDecomposition.java \
-         corpus/jama/SingularValueDecomposition.java corpus/jama/util/Maths.java; do
+# Round-4 (2026-11-19): the vendored NIST tree left the repo as the
+# byte-frozen archive (the hosted scanaislop complexity rules flag the
+# unsplit upstream files); the generator input is now the archive bytes.
+WORK=$(mktemp -d)
+trap 'rm -f "$DRV"; rm -rf "$WORK"' EXIT
+tar xzf scripts/evidence/vendor_jama_nist103.tar.gz -C "$WORK"
+JDIR="$WORK/corpus/jama"
+for f in "$JDIR/Matrix.java" "$JDIR/CholeskyDecomposition.java" \
+         "$JDIR/EigenvalueDecomposition.java" \
+         "$JDIR/LUDecomposition.java" "$JDIR/QRDecomposition.java" \
+         "$JDIR/SingularValueDecomposition.java" "$JDIR/util/Maths.java"; do
   cls=$(basename "$f" .java)
   skip=""
   for h in $HAND; do [ "$cls" = "$h" ] && skip=1; done

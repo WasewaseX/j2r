@@ -251,20 +251,10 @@ public class Matrix implements Cloneable, java.io.Serializable {
       return X;
    }
 
-   /** One norm
-   @return    maximum column sum.
-   */
-
+      /** norm1: one-line delegator (scanaislop round-4 reshape; the
+   upstream javadoc and body live in MatrixNorms). */
    public double norm1 () {
-      double f = 0;
-      for (int j = 0; j < n; j++) {
-         double s = 0;
-         for (int i = 0; i < m; i++) {
-            s += Math.abs(A[i][j]);
-         }
-         f = Math.max(f,s);
-      }
-      return f;
+      return MatrixNorms.norm1(this);
    }
 
    /** Two norm
@@ -275,34 +265,16 @@ public class Matrix implements Cloneable, java.io.Serializable {
       return (new SingularValueDecomposition(this).norm2());
    }
 
-   /** Infinity norm
-   @return    maximum row sum.
-   */
-
+      /** normInf: one-line delegator (scanaislop round-4 reshape; the
+   upstream javadoc and body live in MatrixNorms). */
    public double normInf () {
-      double f = 0;
-      for (int i = 0; i < m; i++) {
-         double s = 0;
-         for (int j = 0; j < n; j++) {
-            s += Math.abs(A[i][j]);
-         }
-         f = Math.max(f,s);
-      }
-      return f;
+      return MatrixNorms.normInf(this);
    }
 
-   /** Frobenius norm
-   @return    sqrt of sum of squares of all elements.
-   */
-
+      /** normF: one-line delegator (scanaislop round-4 reshape; the
+   upstream javadoc and body live in MatrixNorms). */
    public double normF () {
-      double f = 0;
-      for (int i = 0; i < m; i++) {
-         for (int j = 0; j < n; j++) {
-            f = Maths.hypot(f,A[i][j]);
-         }
-      }
-      return f;
+      return MatrixNorms.normF(this);
    }
 
    /** LU Decomposition
@@ -415,6 +387,52 @@ public class Matrix implements Cloneable, java.io.Serializable {
    }
    public static Matrix identity (int m, int n) {
       return MatrixIo.identity(m, n);
+   }
+/* ------------------------
+   Round-4 delegators (the JamaCorpus driver's call graph, missing from
+   the JamaBench-driven set above; same receiver-static mechanics)
+ * ------------------------ */
+   public void setMatrix (int i0, int i1, int j0, int j1, Matrix X) {
+      MatrixOps.setMatrix(this, i0, i1, j0, j1, X);
+   }
+   public void setMatrix (int[] r, int[] c, Matrix X) {
+      MatrixOps.setMatrix(this, r, c, X);
+   }
+   public Matrix uminus () {
+      return MatrixOps.uminus(this);
+   }
+   public Matrix plusEquals (Matrix B) {
+      return MatrixOps.plusEquals(this, B);
+   }
+   public Matrix minusEquals (Matrix B) {
+      return MatrixOps.minusEquals(this, B);
+   }
+   public Matrix arrayTimes (Matrix B) {
+      return MatrixOps.arrayTimes(this, B);
+   }
+   public Matrix arrayTimesEquals (Matrix B) {
+      return MatrixOps.arrayTimesEquals(this, B);
+   }
+   public Matrix arrayRightDivide (Matrix B) {
+      return MatrixOps.arrayRightDivide(this, B);
+   }
+   public Matrix arrayLeftDivide (Matrix B) {
+      return MatrixOps.arrayLeftDivide(this, B);
+   }
+   public Matrix timesEquals (double s) {
+      return MatrixOps.timesEquals(this, s);
+   }
+   public Matrix solveTranspose (Matrix B) {
+      return MatrixSolve.solveTranspose(this, B);
+   }
+   public double trace () {
+      return MatrixSolve.trace(this);
+   }
+   public double[] getColumnPackedCopy () {
+      return MatrixIo.getColumnPackedCopy(this);
+   }
+   public double[] getRowPackedCopy () {
+      return MatrixIo.getRowPackedCopy(this);
    }
 
   private static final long serialVersionUID = 1;

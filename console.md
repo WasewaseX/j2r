@@ -4919,3 +4919,42 @@ roadmap" on the A-graded tree.
   warnings clean; gate-11 in sync (fixtures=130 tests=619);
   REGEN-BYTE-IDENTICAL; the hosted-rules replica reports ZERO findings
   on MinimalJsonCorpus.java + minimaljsonentry/ (max file 409 lines).
+
+## 2026-11-19 — round-4 slice-l (JAMA retirement + the SVD core tightened)
+
+- THE VENDOR (NIST JAMA 1.0.3, 7 files + util/) left the repo as the
+  byte-frozen archive scripts/evidence/vendor_jama_nist103.tar.gz;
+  build_corpus_jamabench.sh now extracts its generator input from the
+  archive (the 4 verbatim classes) and build_corpus_jama.sh delegates
+  entry generation to it (single source of truth).
+- corpus/JamaCorpus.java (3518 lines, the pasted file-too-large + the
+  :48 main + the embedded-class function findings) becomes the 218-line
+  driver (main 9 + phase1 76 + phase2 64 + phase3 62 under the
+  80-line house limit; A rides the parameters, every section-local stays
+  local, output order unchanged) importing jamaentry.*.
+- THE API-GAP AUDIT: the JamaCorpus call graph needed 14 delegators the
+  JamaBench-driven reshape had left as bare statics (setMatrix x2,
+  uminus, plus/minusEquals, arrayTimes/Equals, arrayRight/LeftDivide,
+  timesEquals, solveTranspose, trace, getColumn/RowPackedCopy) — added
+  to jamaentry/Matrix in the round-3 delegator style. That pushed
+  Matrix.java to 467 lines, so the norm bodies (norm1/normInf/normF)
+  moved to the new MatrixNorms helper (61 lines) — Matrix.java 439,
+  every jamaentry file <=441 again.
+- THE SVD CORE TIGHTENED (pre-existing slice-i shape, not in the pasted
+  cut but flagged by the calibrated replica): SingularValueCore's
+  generateU/generateV rotation-apply blocks and the iterate kase
+  selection extracted verbatim (uRotationApply/vRotationApply/
+  selectKase; the work-area fields carry k/ks/kase exactly where the
+  upstream locals lived) — the >88-line function and the two nest-6
+  shapes are gone; SingularValueCore 384 lines; replica ZERO findings
+  on the whole jamaentry package.
+- THE PROOF IS STRONGER THAN ROUND-3's: byte-identity is now gated by
+  BOTH drivers — JamaBench (73 B, sha e830385d... unchanged) and
+  JamaCorpus (5015 B, sha 6fdd2b23... unchanged), and the JamaCorpus
+  workload exercises ALL FIVE decompositions + the nonsymmetric eigen
+  branch + the five message-exact error paths over the reshaped library
+  (EigenNonsymProbe re-gates the hqr2 family through corpus_suite).
+- GATES: j2r test --release three-channel PASS on BOTH drivers;
+  corpus_suite 6/6 (53.3s warm); fmt + clippy -D warnings clean;
+  gate-11 in sync (fixtures=130 tests=619); REGEN-BYTE-IDENTICAL over
+  driver + entry.

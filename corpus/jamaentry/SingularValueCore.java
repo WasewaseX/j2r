@@ -135,16 +135,7 @@ final class SingularValueCore {
          }
          for (int k = nct-1; k >= 0; k--) {
             if (s[k] != 0.0) {
-               for (int j = k+1; j < nu; j++) {
-                  double t = 0;
-                  for (int i = k; i < m; i++) {
-                     t += U[i][k]*U[i][j];
-                  }
-                  t = -t/U[k][k];
-                  for (int i = k; i < m; i++) {
-                     U[i][j] += t*U[i][k];
-                  }
-               }
+               uRotationApply(k);
                for (int i = k; i < m; i++ ) {
                   U[i][k] = -U[i][k];
                }
@@ -170,16 +161,7 @@ final class SingularValueCore {
       if (wantv) {
          for (int k = n-1; k >= 0; k--) {
             if ((k < nrt) & (e[k] != 0.0)) {
-               for (int j = k+1; j < nu; j++) {
-                  double t = 0;
-                  for (int i = k+1; i < n; i++) {
-                     t += V[i][k]*V[i][j];
-                  }
-                  t = -t/V[k+1][k];
-                  for (int i = k+1; i < n; i++) {
-                     V[i][j] += t*V[i][k];
-                  }
-               }
+               vRotationApply(k);
             }
             for (int i = 0; i < n; i++) {
                V[i][k] = 0.0;
@@ -212,40 +194,7 @@ final class SingularValueCore {
          //              s(k), ..., s(p) are not negligible (qr step).
          // kase = 4     if e(p-1) is negligible (convergence).
 
-         for (k = p-2; k >= -1; k--) {
-            if (k == -1) {
-               break;
-            }
-            if (Math.abs(e[k]) <=
-                  tiny + eps*(Math.abs(s[k]) + Math.abs(s[k+1]))) {
-               e[k] = 0.0;
-               break;
-            }
-         }
-
-         if (k == p-2) {
-            kase = 4;
-         } else {
-            for (ks = p-1; ks >= k; ks--) {
-               if (ks == k) {
-                  break;
-               }
-               double t = (ks != p ? Math.abs(e[ks]) : 0.) + 
-                          (ks != k+1 ? Math.abs(e[ks-1]) : 0.);
-               if (Math.abs(s[ks]) <= tiny + eps*t)  {
-                  s[ks] = 0.0;
-                  break;
-               }
-            }
-            if (ks == k) {
-               kase = 3;
-            } else if (ks == p-1) {
-               kase = 1;
-            } else {
-               kase = 2;
-               k = ks;
-            }
-         }
+         selectKase();
          k++;
 
          // Perform the task indicated by kase.
@@ -279,6 +228,80 @@ final class SingularValueCore {
                SingularValueCases.case4(this);
             }
             break;
+         }
+      }
+   }
+
+   // the kase selection of the upstream main loop (the two negligible-
+   // element searches and the kase decision), extracted verbatim with the
+   // work-area fields carrying k/ks/kase exactly where the upstream
+   // locals lived (scanaislop round-4 reshape)
+
+   private void selectKase () {
+      for (k = p-2; k >= -1; k--) {
+         if (k == -1) {
+            break;
+         }
+         if (Math.abs(e[k]) <=
+               tiny + eps*(Math.abs(s[k]) + Math.abs(s[k+1]))) {
+            e[k] = 0.0;
+            break;
+         }
+      }
+
+      if (k == p-2) {
+         kase = 4;
+      } else {
+         for (ks = p-1; ks >= k; ks--) {
+            if (ks == k) {
+               break;
+            }
+            double t = (ks != p ? Math.abs(e[ks]) : 0.) + 
+                       (ks != k+1 ? Math.abs(e[ks-1]) : 0.);
+            if (Math.abs(s[ks]) <= tiny + eps*t)  {
+               s[ks] = 0.0;
+               break;
+            }
+         }
+         if (ks == k) {
+            kase = 3;
+         } else if (ks == p-1) {
+            kase = 1;
+         } else {
+            kase = 2;
+            k = ks;
+         }
+      }
+   }
+
+   // the U rotation application for the k-th column (was the inline
+   // for-j block of the upstream generateU; scanaislop round-4 reshape)
+
+   private void uRotationApply (int k) {
+      for (int j = k+1; j < nu; j++) {
+         double t = 0;
+         for (int i = k; i < m; i++) {
+            t += U[i][k]*U[i][j];
+         }
+         t = -t/U[k][k];
+         for (int i = k; i < m; i++) {
+            U[i][j] += t*U[i][k];
+         }
+      }
+   }
+
+   // the V rotation application for the k-th column (was the inline
+   // for-j block of the upstream generateV; scanaislop round-4 reshape)
+
+   private void vRotationApply (int k) {
+      for (int j = k+1; j < nu; j++) {
+         double t = 0;
+         for (int i = k+1; i < n; i++) {
+            t += V[i][k]*V[i][j];
+         }
+         t = -t/V[k+1][k];
+         for (int i = k+1; i < n; i++) {
+            V[i][j] += t*V[i][k];
          }
       }
    }

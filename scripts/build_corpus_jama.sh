@@ -1,21 +1,40 @@
 #!/bin/bash
-# Build the JAMA real-world corpus file: one .java, multiple package-private
-# classes + a public JamaCorpus driver entry point.
-# Source: NIST JAMA 1.0.3 (public domain), fetched to corpus/jama/.
+# Build the JAMA real-world corpus ENTRY in the post-amalgam layout
+# (scanaislop round-4 wave: the amalgam shape retires).
+#
+# Layout owned by this script:
+#   corpus/JamaCorpus.java         — driver only (imports jamaentry.*),
+#                                    main split main+phase1..3 under the
+#                                    80-line house limit
+#   corpus/jamaentry/              — the entry package, owned by
+#                                    scripts/build_corpus_jamabench.sh
+#                                    (single source of truth: 4 verbatim
+#                                    classes generated from the archived
+#                                    NIST tree + the 12 HAND-maintained
+#                                    reshape families)
+#   scripts/evidence/vendor_jama_nist103.tar.gz — the pristine NIST
+#                                    JAMA 1.0.3 tree (public domain),
+#                                    byte-frozen generator input
+#
+# REGEN-BYTE-IDENTICAL: re-running this script leaves the tree unchanged.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-OUT=corpus/JamaCorpus.java
-IMP=$(mktemp)
-FRAG=$(mktemp)
-DRV=$(mktemp)
-trap 'rm -f "$IMP" "$FRAG" "$DRV"' EXIT
 
-cat > "$DRV" <<'DRIVER'
+# the entry package + the JamaBench driver are owned by the bench script
+bash scripts/build_corpus_jamabench.sh > /dev/null
+
+cat > corpus/JamaCorpus.java <<'DRIVER'
 /**
  * Differential driver over the JAMA library (real-world corpus, NIST
  * public-domain matrix package). Deterministic output only: every double
  * is printed via Double.toString; no Math.random, no NumberFormat paths.
+ *
+ * scanaislop round-4 wave: the driver imports the jamaentry entry package
+ * (the amalgam shape retires) and main is split main+phase1..3 under the
+ * 80-line house limit; output order is unchanged.
  */
+import jamaentry.*;
+
 public class JamaCorpus {
 
   static void pm(String label, Matrix X) {
@@ -51,9 +70,15 @@ public class JamaCorpus {
   }
 
   public static void main(String[] args) {
-    // --- construction and element access -------------------------------
     double[][] spd = {{4, 3, 0}, {3, 7, -1}, {0, -1, 9}};
     Matrix A = new Matrix(spd);
+    phase1(A);
+    phase2(A);
+    phase3(A);
+  }
+
+  static void phase1(Matrix A) {
+    // --- construction and element access -------------------------------
     pm("A", A);
     pm("I34", Matrix.identity(3, 4));
     pm("F23", new Matrix(2, 3, 2.5));
@@ -126,8 +151,12 @@ public class JamaCorpus {
         + " normInf=" + Double.toString(N34.normInf())
         + " normF=" + Double.toString(N34.normF())
         + " trace=" + Double.toString(A.trace()));
+  }
 
+  static void phase2(Matrix A) {
     // --- LU -------------------------------------------------------------
+    Matrix rhs = new Matrix(new double[][]{{
+        1.0, 2.0, 3.0}, {0.5, -1.0, 4.0}, {2.0, 0.0, -1.0}});
     LUDecomposition lu = A.lu();
     System.out.println("luNonsingular=" + lu.isNonsingular()
         + " det=" + Double.toString(A.det()));
@@ -135,8 +164,6 @@ public class JamaCorpus {
     pm("U", lu.getU());
     pi("pivot", lu.getPivot());
     pv("dpivot", lu.getDoublePivot());
-    Matrix rhs = new Matrix(new double[][]{{
-        1.0, 2.0, 3.0}, {0.5, -1.0, 4.0}, {2.0, 0.0, -1.0}});
     Matrix X = lu.solve(rhs);
     pm("luSolve", X);
     Matrix residual = A.times(X).minus(rhs);
@@ -178,7 +205,9 @@ public class JamaCorpus {
     } catch (RuntimeException e) {
       System.out.println("notspd: " + e.getMessage());
     }
+  }
 
+  static void phase3(Matrix A) {
     // --- SVD over the Hilbert matrix (classic ill-conditioned case) -----
     int n = 5;
     double[][] hh = new double[n][n];
@@ -233,26 +262,4 @@ public class JamaCorpus {
 }
 DRIVER
 
-# Library files: drop package + intra-library imports; demote top-level
-# public; split imports from bodies.
-for f in corpus/jama/Matrix.java corpus/jama/CholeskyDecomposition.java \
-         corpus/jama/EigenvalueDecomposition.java \
-         corpus/jama/LUDecomposition.java corpus/jama/QRDecomposition.java \
-         corpus/jama/SingularValueDecomposition.java corpus/jama/util/Maths.java; do
-  grep -v '^import Jama\.' "$f"
-done | sed -e 's/^package .*;//' \
-    -e 's/^public \(final \|abstract \)\+\(class\|interface\|enum\)/\1\2/' \
-    -e 's/^public \(class\|interface\|enum\)/\1/' | while IFS= read -r line; do
-  case "$line" in
-    import\ *) printf '%s\n' "$line" >> "$IMP" ;;
-    *) printf '%s\n' "$line" >> "$FRAG" ;;
-  esac
-done
-
-{
-  sort -u "$IMP"
-  cat "$DRV"
-  cat "$FRAG"
-} > "$OUT"
-
-javac -d /tmp/jama_corpus_out "$OUT" && echo JAVAC_OK
+javac -sourcepath corpus -d /tmp/jama_corpus_out corpus/JamaCorpus.java && echo JAVAC_OK
