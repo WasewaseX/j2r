@@ -15,8 +15,8 @@ public class HexFloatProbe {
             System.out.println(name + " !! " + e.getClass().getSimpleName() + " | " + e.getMessage());
         }
     }
-    public static void main(String[] args) {
-        // basic shapes
+    // basic shapes, suffixes, exponent signs and zeros, no 0x prefix forms
+    static void basics() {
         p("0x1.8p1", true);
         p("0x1.8p1", false);
         p("0X1.8P1", true);
@@ -51,7 +51,9 @@ public class HexFloatProbe {
         p(".8p1", false);
         p("8p1", true);
         p("1p1", true);
-        // missing pieces
+    }
+    // missing pieces
+    static void missing() {
         p("0x1.8", true);
         p("0x1.8", false);
         p("0x1p", true);
@@ -64,7 +66,9 @@ public class HexFloatProbe {
         p("0x1.8p 1", true);
         p(" 0x1.8p1 ", true);
         p("0x1.8p1 ", false);
-        // digits beyond precision (rounding)
+    }
+    // digits beyond precision (rounding) + overflow
+    static void rounding() {
         p("0x1.00000000000001p0", false);  // 1 + 2^-52 exact
         p("0x1.00000000000008p0", false);  // halfway tie -> even -> 1.0
         p("0x1.00000000000009p0", false);  // above halfway -> up
@@ -85,7 +89,9 @@ public class HexFloatProbe {
         p("0x1.fffffffffffffp1023", false);
         p("0x1.ffffffffffff8p1023", false);
         p("-0x1p2000", false);
-        // subnormals
+    }
+    // subnormals + long significands (trim + sticky) + garbage hex
+    static void subnormals() {
         p("0x1p-149", true);               // Float.MIN_VALUE
         p("0x1p-150", true);               // half min -> tie -> 0
         p("0x1.000001p-149", true);        // 1.5x min
@@ -119,6 +125,12 @@ public class HexFloatProbe {
         p("0x1.8p1e2", true);
         p("0x1.8e2p1", true);
         p("0x0000p-5", false);
+    }
+    public static void main(String[] args) {
+        basics();
+        missing();
+        rounding();
+        subnormals();
         // decimal forms unchanged (regression)
         p("2.5", true);
         p("1e10", false);
