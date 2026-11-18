@@ -150,7 +150,14 @@ DRIVER
 # reshaping, behavior byte-identical); the script never overwrites them.
 HAND="Deflate Inflate InfBlocks InfCodes InfTree"
 mkdir -p "$ENTRY"
-for f in corpus/jzlib/*.java; do
+# Round-4 (2026-11-19): the vendored com.jcraft.jzlib tree left the repo
+# as the byte-frozen archive (the hosted scanaislop complexity rules flag
+# the unsplit upstream state machines); the generator input is now the
+# archive bytes.
+VWORK=$(mktemp -d)
+trap 'rm -f "$DRV"; rm -rf "$VWORK"' EXIT
+tar xzf scripts/evidence/vendor_jzlib.tar.gz -C "$VWORK"
+for f in "$VWORK"/corpus/jzlib/*.java; do
   cls=$(basename "$f" .java)
   skip=""
   for h in $HAND; do [ "$cls" = "$h" ] && skip=1; done

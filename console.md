@@ -4958,3 +4958,17 @@ roadmap" on the A-graded tree.
   corpus_suite 6/6 (53.3s warm); fmt + clippy -D warnings clean;
   gate-11 in sync (fixtures=130 tests=619); REGEN-BYTE-IDENTICAL over
   driver + entry.
+
+## 2026-11-19 — round-4 slice-m (JZlib vendor removal)
+
+- THE VENDOR (com.jcraft.jzlib, 24 files) left the repo as the
+  byte-frozen archive scripts/evidence/vendor_jzlib.tar.gz;
+  build_corpus_jzlib.sh extracts its generator input from the archive
+  (the same package-swap + expand -t 8 pipeline) — REGEN-BYTE-IDENTICAL
+  over the driver + all 23 entry files proves the switch is byte-exact.
+- PROOFS: javac+java stdout BYTE-IDENTICAL (330 B oracle, sha 780e9802...);
+  j2r test --release three-channel PASS; corpus_suite 6/6 (53.5s warm);
+  fmt + clippy -D warnings clean; gate-11 in sync (fixtures=130
+  tests=619).
+- THE REPO NOW CARRIES NO VENDORED .JAVA TREE AND NO AMALGAM: every
+  corpus entry is driver + entry-package, every file <=441 lines.
