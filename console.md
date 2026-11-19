@@ -5079,3 +5079,13 @@ roadmap" on the A-graded tree.
   PROOFS: same battery as slice-d (diff_suite 4/4 shards zero-diff,
   corpus_suite 6/6, cfg_equiv PASS, fmt + clippy -D warnings, gate-11 in
   sync, engine baseline CLEAN). PR HOLD unchanged.
+- round-6 slices f+g (this commit): the two pure-data tables split —
+  jni/tables.rs env_slot_addrs (553) -> a 10-line aggregator over six
+  contiguous row-block helpers (every row byte-identical, row order
+  preserved, so the returned Vec is identical by construction — the rows
+  ARE the table format, the same justification the engine baseline
+  records); builtin.rs builtin_parent_of (290) -> a 6-line .or() chain
+  over four contiguous arm-section helpers and builtin_own_slots (166) ->
+  a 5-line chain over two sections plus the verbatim catch-all fallback
+  (consulted only after every section missed; first-match-wins preserved
+  exactly). PROOFS: same battery green. PR HOLD unchanged.

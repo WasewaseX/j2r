@@ -1097,6 +1097,18 @@ const _: () = {
 /// no-null-slots evidence; a native lib must never meet a null slot.
 /// A runtime fn: fn-pointer-to-usize casts are not const-evaluable.
 pub fn env_slot_addrs() -> Vec<(&'static str, usize)> {
+    let mut rows = Vec::new();
+    rows.extend(env_slot_rows_0());
+    rows.extend(env_slot_rows_1());
+    rows.extend(env_slot_rows_2());
+    rows.extend(env_slot_rows_3());
+    rows.extend(env_slot_rows_4());
+    rows.extend(env_slot_rows_5());
+    rows
+}
+
+/// The JNI env-table slot rows, part 0 of 5 (verbatim from `env_slot_addrs`, round-6 reshaping — the rows ARE the table format).
+fn env_slot_rows_0() -> Vec<(&'static str, usize)> {
     vec![
         ("GetVersion", ENV_TABLE.GetVersion as usize),
         ("DefineClass", ENV_TABLE.DefineClass as usize),
@@ -1200,6 +1212,12 @@ pub fn env_slot_addrs() -> Vec<(&'static str, usize)> {
             "CallNonvirtualByteMethodA",
             ENV_TABLE.CallNonvirtualByteMethodA as usize,
         ),
+    ]
+}
+
+/// The JNI env-table slot rows, part 1 of 5 (verbatim from `env_slot_addrs`, round-6 reshaping — the rows ARE the table format).
+fn env_slot_rows_1() -> Vec<(&'static str, usize)> {
+    vec![
         (
             "CallNonvirtualCharMethod",
             ENV_TABLE.CallNonvirtualCharMethod as usize,
@@ -1300,6 +1318,12 @@ pub fn env_slot_addrs() -> Vec<(&'static str, usize)> {
         ("SetCharField", ENV_TABLE.SetCharField as usize),
         ("SetShortField", ENV_TABLE.SetShortField as usize),
         ("SetIntField", ENV_TABLE.SetIntField as usize),
+    ]
+}
+
+/// The JNI env-table slot rows, part 2 of 5 (verbatim from `env_slot_addrs`, round-6 reshaping — the rows ARE the table format).
+fn env_slot_rows_2() -> Vec<(&'static str, usize)> {
+    vec![
         ("SetLongField", ENV_TABLE.SetLongField as usize),
         ("SetFloatField", ENV_TABLE.SetFloatField as usize),
         ("SetDoubleField", ENV_TABLE.SetDoubleField as usize),
@@ -1400,6 +1424,12 @@ pub fn env_slot_addrs() -> Vec<(&'static str, usize)> {
             "CallStaticFloatMethodA",
             ENV_TABLE.CallStaticFloatMethodA as usize,
         ),
+    ]
+}
+
+/// The JNI env-table slot rows, part 3 of 5 (verbatim from `env_slot_addrs`, round-6 reshaping — the rows ARE the table format).
+fn env_slot_rows_3() -> Vec<(&'static str, usize)> {
+    vec![
         (
             "CallStaticDoubleMethod",
             ENV_TABLE.CallStaticDoubleMethod as usize,
@@ -1500,6 +1530,12 @@ pub fn env_slot_addrs() -> Vec<(&'static str, usize)> {
         ("NewShortArray", ENV_TABLE.NewShortArray as usize),
         ("NewIntArray", ENV_TABLE.NewIntArray as usize),
         ("NewLongArray", ENV_TABLE.NewLongArray as usize),
+    ]
+}
+
+/// The JNI env-table slot rows, part 4 of 5 (verbatim from `env_slot_addrs`, round-6 reshaping — the rows ARE the table format).
+fn env_slot_rows_4() -> Vec<(&'static str, usize)> {
+    vec![
         ("NewFloatArray", ENV_TABLE.NewFloatArray as usize),
         ("NewDoubleArray", ENV_TABLE.NewDoubleArray as usize),
         (
@@ -1602,6 +1638,12 @@ pub fn env_slot_addrs() -> Vec<(&'static str, usize)> {
             "SetFloatArrayRegion",
             ENV_TABLE.SetFloatArrayRegion as usize,
         ),
+    ]
+}
+
+/// The JNI env-table slot rows, part 5 of 5 (verbatim from `env_slot_addrs`, round-6 reshaping — the rows ARE the table format).
+fn env_slot_rows_5() -> Vec<(&'static str, usize)> {
+    vec![
         (
             "SetDoubleArrayRegion",
             ENV_TABLE.SetDoubleArrayRegion as usize,

@@ -5,6 +5,15 @@
 /// Direct superclass of a builtin class, or `None` when the class is unknown
 /// to the runtime or is `java/lang/Object` (the root).
 pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
+    builtin_parent_of_part0(class)
+        .or(builtin_parent_of_part1(class))
+        .or(builtin_parent_of_part2(class))
+        .or(builtin_parent_of_part3(class))
+}
+
+/// The `builtin_parent_of` arms, part 0 of 3 (verbatim from the
+/// original match, round-6 reshaping).
+fn builtin_parent_of_part0(class: &str) -> Option<&'static str> {
     let p = match class {
         "java/lang/String" => "java/lang/Object",
         // Corpus gap F4/F5 support (2026-11-05): java.lang.Comparable is a
@@ -85,6 +94,14 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         // uncaught-header parity (the 12c e2e) needs the parent chain
         // for the builtin toString dispatch; NoSuchMethodError rides
         // the same family (the T11 pending shape).
+        _ => return None,
+    };
+    Some(p)
+}
+/// The `builtin_parent_of` arms, part 1 of 3 (verbatim from the
+/// original match, round-6 reshaping).
+fn builtin_parent_of_part1(class: &str) -> Option<&'static str> {
+    let p = match class {
         "java/lang/UnsatisfiedLinkError" => "java/lang/LinkageError",
         "java/lang/NoSuchMethodError" => "java/lang/IncompatibleClassChangeError",
         // EXTERNAL-B4 (jbox2d port, 2026-11-13): javac emits
@@ -163,6 +180,14 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         "java/util/HashMap$EntrySet" => "java/lang/Object",
         // stringsim corpus wave: the narrow regex surface (Pattern \s+ /
         // Matcher.replaceAll), slots owned by j2r-runtime/src/regex.rs.
+        _ => return None,
+    };
+    Some(p)
+}
+/// The `builtin_parent_of` arms, part 2 of 3 (verbatim from the
+/// original match, round-6 reshaping).
+fn builtin_parent_of_part2(class: &str) -> Option<&'static str> {
+    let p = match class {
         "java/util/regex/Pattern" => "java/lang/Object",
         "java/util/regex/Matcher" => "java/lang/Object",
         "java/util/HashMap$EntryIterator" => "java/lang/Object",
@@ -239,6 +264,14 @@ pub fn builtin_parent_of(class: &str) -> Option<&'static str> {
         // fails loud with a named reason (natives.rs marker row).
         "java/io/InputStream" => "java/lang/Object",
         "java/io/ObjectInputStream" => "java/io/InputStream",
+        _ => return None,
+    };
+    Some(p)
+}
+/// The `builtin_parent_of` arms, part 3 of 3 (verbatim from the
+/// original match, round-6 reshaping).
+fn builtin_parent_of_part3(class: &str) -> Option<&'static str> {
+    let p = match class {
         "java/io/Serializable" => "java/lang/Object",
         // Real-world corpus wave 3 (JAMA): the write-side text surface plus
         // the registered-loud classes. PrintWriter is REAL (io subset in
@@ -465,6 +498,14 @@ pub fn builtin_is_interface(class: &str) -> bool {
 /// suppressed list (audit A2); the boxed classes and `StringBuilder` keep
 /// their payload in slot 0; `PrintStream` keeps its sink id in slot 0.
 fn builtin_own_slots(class: &str) -> Option<usize> {
+    builtin_own_slots_part0(class)
+        .or(builtin_own_slots_part1(class))
+        .or_else(|| builtin_own_slots_fallback(class))
+}
+
+/// The `builtin_own_slots` arms, part 0 of 1 (verbatim from
+/// the original match, round-6 reshaping).
+fn builtin_own_slots_part0(class: &str) -> Option<usize> {
     let n = match class {
         "java/lang/Object" | "java/lang/System" | "java/lang/Math" | "java/lang/Number" => 0,
         // EXTERNAL-B5 (jbox2d port): StrictMath resolves as its own class
@@ -557,6 +598,14 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         "java/util/HashMap$EntryIterator" => 5,
         // stringsim corpus wave: Pattern (the pattern text), Matcher
         // (pattern text + input text).
+        _ => return None,
+    };
+    Some(n)
+}
+/// The `builtin_own_slots` arms, part 1 of 1 (verbatim from
+/// the original match, round-6 reshaping).
+fn builtin_own_slots_part1(class: &str) -> Option<usize> {
+    let n = match class {
         "java/util/regex/Pattern" => 1,
         "java/util/regex/Matcher" => 2,
         "java/util/HashMap$EntrySet" => 1,
@@ -619,16 +668,19 @@ fn builtin_own_slots(class: &str) -> Option<usize> {
         // 0/1), slot 2 = nextNextGaussian (Double). Behavior in natives.rs
         // (the JDK's 48-bit LCG, byte-exact).
         "java/util/Random" => 3,
-        _ => {
-            // exception families own no extra fields
-            if builtin_parent_of(class).is_some() {
-                0
-            } else {
-                return None;
-            }
-        }
+        _ => return None,
     };
     Some(n)
+}
+
+/// The `builtin_own_slots` catch-all (verbatim from the original `_`
+/// arm): exception families own no extra fields.
+fn builtin_own_slots_fallback(class: &str) -> Option<usize> {
+    if builtin_parent_of(class).is_some() {
+        Some(0)
+    } else {
+        None
+    }
 }
 
 /// Total flattened slot count of a builtin class (including inherited
