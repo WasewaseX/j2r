@@ -6267,6 +6267,16 @@ mod tests {
         // side, inclusivity-blind strictly-above-hi on the toKey side, the
         // crossed check last; the absolute builders never range-check
         let (m, s37) = tm_views_fixture(); // s37: lo=3 inc, hi=7 EXC
+        let (tail5, head7) = matrix_s37_window(m, s37);
+        matrix_derived_windows(m, s37, tail5, head7);
+        matrix_hi_inclusive(m, s37);
+    }
+
+    /// The narrowing-matrix scenarios on the S37 window (verbatim from
+    /// `submap_narrowing_matrix_law`, round-6 reshaping): the two probe
+    /// views first, then the a/c/e/f/g window laws. Returns the probes
+    /// for the derived-window group.
+    fn matrix_s37_window(m: JRef, s37: JRef) -> (JRef, JRef) {
         let tail5 = match n_tm_tail_map(Some(&m), &[boxed_i32(5)], ctx()).unwrap() {
             Value::Ref(Some(v)) => v,
             _ => panic!("tail5"),
@@ -6274,11 +6284,6 @@ mod tests {
         let head7 = match n_tm_head_map(Some(&m), &[boxed_i32(7)], ctx()).unwrap() {
             Value::Ref(Some(v)) => v,
             _ => panic!("head7"),
-        };
-        let iae = |r: Result<Value, Throw>| -> String {
-            let e = r.unwrap_err();
-            assert_eq!(e.java_class(), "java/lang/IllegalArgumentException");
-            throw_message(&e)
         };
         // a. re-requesting the same bounds is LEGAL (toKey == exclusive hi
         //    passes the toKey-side gate)
@@ -6313,6 +6318,13 @@ mod tests {
             _ => panic!("c16g"),
         };
         assert_eq!(s(&n_sms_to_string(Some(&g), &[], ctx()).unwrap()), "{}");
+        (tail5, head7)
+    }
+
+    /// The narrowing-matrix scenarios over the derived views (verbatim
+    /// continuation): i/j/k/o on the probes, l/mm/n on the absolute map
+    /// (chain), q/s/t/u/w/x on the window and the big view.
+    fn matrix_derived_windows(m: JRef, s37: JRef, tail5: JRef, head7: JRef) {
         // i. on an unbounded-hi view: headMap creates a new exclusive hi
         let i = match n_sms_head_map(Some(&tail5), &[boxed_i32(7)], ctx()).unwrap() {
             Value::Ref(Some(v)) => v,
@@ -6412,6 +6424,11 @@ mod tests {
             )),
             "fromKey out of range"
         );
+    }
+
+    /// The narrowing-matrix tail pair (verbatim continuation): the
+    /// HI-INCLUSIVE parent law (y) and the view comparator law (v).
+    fn matrix_hi_inclusive(m: JRef, s37: JRef) {
         // y. headMap == hi on a HI-INCLUSIVE parent: accepted (strictly-
         //    above-hi is inclusivity-blind)
         let inc_hi = match n_tm_sub_map4(
@@ -6435,6 +6452,14 @@ mod tests {
         // v. the view's comparator: null for natural ordering (deref'd from
         //    the backing map — the c20 law)
         assert!(n_sms_comparator(Some(&s37), &[], ctx()).unwrap().is_null());
+    }
+
+    /// The IAE probe (the test's `iae` closure, verbatim): every
+    /// rejected narrowing must be an IllegalArgumentException.
+    fn iae(r: Result<Value, Throw>) -> String {
+        let e = r.unwrap_err();
+        assert_eq!(e.java_class(), "java/lang/IllegalArgumentException");
+        throw_message(&e)
     }
 
     #[test]

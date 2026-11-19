@@ -5100,3 +5100,13 @@ roadmap" on the A-graded tree.
   full-count release) over wait_park (the ticket-condvar park with the
   JDK wake order) and wait_recompete (the Mesa-semantics reacquire loop).
   PROOFS: same battery green. PR HOLD unchanged.
+- round-6 slices j+k (this commit): collections.rs
+  submap_narrowing_matrix_law (175, a law TEST) -> a 10-line test over four
+  contiguous scenario-group helpers in the exact original call order
+  (matrix_s37_window returning the two probe views, matrix_derived_windows,
+  matrix_hi_inclusive) with the iae closure lifted to a free fn so every
+  moved scenario keeps its iae(...) calls verbatim; formatter.rs render
+  (160) -> a 59-line body (upper variants, unboxing, null law, unified
+  tail) over six conversion-family helpers (s/int/f/float/bool+char/h),
+  each re-matching only its own conversions with every arm body verbatim.
+  PROOFS: same battery green. PR HOLD unchanged.

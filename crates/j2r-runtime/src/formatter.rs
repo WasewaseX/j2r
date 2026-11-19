@@ -813,6 +813,41 @@ fn render(sp: &Spec, arg: &Value, ctx: Dispatch) -> Result<String, Throw> {
         return Ok(pad(s, width, sp.left));
     }
     let piece = match lc {
+        's' => render_s_piece(sp, arg, lc, precision, ctx)?,
+        'd' | 'x' | 'o' => render_int_piece(sp, arg, lc, precision, ctx)?,
+        'f' => render_f_piece(sp, arg, lc, precision, ctx)?,
+        'e' | 'g' | 'a' => render_float_piece(sp, arg, lc, precision, ctx)?,
+        'b' | 'c' => render_bool_char_piece(sp, arg, lc, precision, ctx)?,
+        'h' => render_h_piece(sp, arg, lc, precision, ctx)?,
+        _ => {
+            return Err(err(
+                "java/util/UnknownFormatConversionException",
+                &format!("Conversion = '{c}'"),
+            ))
+        }
+    };
+    // unified tail: the uppercase flag uppercases the WHOLE rendered piece
+    // (that is why %E of Infinity is "INFINITY", %G of NaN is "NAN", %A of
+    // 3.14 is "0X1.91EB851EB851FP1", %H of "key" is "19E5F"), then the
+    // width padding. Zero-pad applies to the numeric conversions only.
+    let s = if upper { piece.to_uppercase() } else { piece };
+    if sp.zero && !sp.left && matches!(lc, 'd' | 'o' | 'x' | 'f' | 'e' | 'g' | 'a') {
+        Ok(pad_zero(&s, width))
+    } else {
+        Ok(pad(&s, width, sp.left))
+    }
+}
+
+/// The %s piece (verbatim from `render`, round-6 reshaping): the
+/// display truncation at the precision.
+fn render_s_piece(
+    _sp: &Spec,
+    arg: &Value,
+    lc: char,
+    precision: Option<usize>,
+    ctx: Dispatch,
+) -> Result<String, Throw> {
+    Ok(match lc {
         's' => {
             let mut s = to_display(arg, ctx)?;
             if let Some(p) = precision {
@@ -820,6 +855,20 @@ fn render(sp: &Spec, arg: &Value, ctx: Dispatch) -> Result<String, Throw> {
             }
             s
         }
+        _ => unreachable!("j2r internal: not a render_s_piece conversion"),
+    })
+}
+
+/// The integer and radix pieces (verbatim): %d's sign/parens/comma
+/// engine and the %x/%o radix with the unified-tail uppercase law.
+fn render_int_piece(
+    sp: &Spec,
+    arg: &Value,
+    lc: char,
+    _precision: Option<usize>,
+    _ctx: Dispatch,
+) -> Result<String, Throw> {
+    Ok(match lc {
         'd' => render_int(arg, sp.plus, sp.space, sp.comma, sp.paren)?,
         'x' | 'o' => {
             let base = if lc == 'o' { 8 } else { 16 };
@@ -833,6 +882,20 @@ fn render(sp: &Spec, arg: &Value, ctx: Dispatch) -> Result<String, Throw> {
                 )
             })?
         }
+        _ => unreachable!("j2r internal: not a render_int_piece conversion"),
+    })
+}
+
+/// The %f piece (verbatim): the fixed rendering with the %,g-style
+/// grouping of the fixed-path integer part.
+fn render_f_piece(
+    sp: &Spec,
+    arg: &Value,
+    lc: char,
+    precision: Option<usize>,
+    _ctx: Dispatch,
+) -> Result<String, Throw> {
+    Ok(match lc {
         'f' => {
             let v = as_f64(arg, lc)?;
             let mut s = render_f(v, precision.unwrap_or(6));
@@ -849,6 +912,20 @@ fn render(sp: &Spec, arg: &Value, ctx: Dispatch) -> Result<String, Throw> {
             }
             s
         }
+        _ => unreachable!("j2r internal: not a render_f_piece conversion"),
+    })
+}
+
+/// The %e/%g/%a pieces (verbatim): scientific, general (with the
+/// fixed-path grouping law) and hex-float.
+fn render_float_piece(
+    sp: &Spec,
+    arg: &Value,
+    lc: char,
+    precision: Option<usize>,
+    _ctx: Dispatch,
+) -> Result<String, Throw> {
+    Ok(match lc {
         'e' => render_e(as_f64(arg, lc)?, precision.unwrap_or(6)),
         'g' => {
             let mut s = render_g(as_f64(arg, lc)?, precision);
@@ -869,6 +946,20 @@ fn render(sp: &Spec, arg: &Value, ctx: Dispatch) -> Result<String, Throw> {
             s
         }
         'a' => render_a(as_f64(arg, lc)?, precision),
+        _ => unreachable!("j2r internal: not a render_float_piece conversion"),
+    })
+}
+
+/// The %b/%c pieces (verbatim): bool_of and the char law with the
+/// IllegalFormatConversionException shape.
+fn render_bool_char_piece(
+    _sp: &Spec,
+    arg: &Value,
+    lc: char,
+    _precision: Option<usize>,
+    ctx: Dispatch,
+) -> Result<String, Throw> {
+    Ok(match lc {
         'b' => bool_of(arg, ctx)?.to_string(),
         'c' => match arg {
             Value::Int(i) => char::from_u32(*i as u32)
@@ -881,6 +972,20 @@ fn render(sp: &Spec, arg: &Value, ctx: Dispatch) -> Result<String, Throw> {
                 ))
             }
         },
+        _ => unreachable!("j2r internal: not a render_bool_char_piece conversion"),
+    })
+}
+
+/// The %h piece (verbatim): content hash for strings (via the
+/// String.hashCode native), identity hash for refs, the prim folds.
+fn render_h_piece(
+    _sp: &Spec,
+    arg: &Value,
+    lc: char,
+    _precision: Option<usize>,
+    ctx: Dispatch,
+) -> Result<String, Throw> {
+    Ok(match lc {
         'h' => {
             let hash = match arg {
                 // strings hash by content (deterministic), objects by the
@@ -920,23 +1025,8 @@ fn render(sp: &Spec, arg: &Value, ctx: Dispatch) -> Result<String, Throw> {
             };
             format!("{:x}", hash as u32)
         }
-        _ => {
-            return Err(err(
-                "java/util/UnknownFormatConversionException",
-                &format!("Conversion = '{c}'"),
-            ))
-        }
-    };
-    // unified tail: the uppercase flag uppercases the WHOLE rendered piece
-    // (that is why %E of Infinity is "INFINITY", %G of NaN is "NAN", %A of
-    // 3.14 is "0X1.91EB851EB851FP1", %H of "key" is "19E5F"), then the
-    // width padding. Zero-pad applies to the numeric conversions only.
-    let s = if upper { piece.to_uppercase() } else { piece };
-    if sp.zero && !sp.left && matches!(lc, 'd' | 'o' | 'x' | 'f' | 'e' | 'g' | 'a') {
-        Ok(pad_zero(&s, width))
-    } else {
-        Ok(pad(&s, width, sp.left))
-    }
+        _ => unreachable!("j2r internal: not a render_h_piece conversion"),
+    })
 }
 
 /// `String.format(String, Object...)`.
