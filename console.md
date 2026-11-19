@@ -5179,3 +5179,13 @@ roadmap" on the A-graded tree.
   inner wrapper and reach the crate API via `use crate::*;`. PROOFS:
   fmt + clippy --all-targets -D warnings, codegen tests green. PR HOLD
   unchanged.
+- round-7 file-split pass, slice-d (this commit): verify.rs (2567) -> a
+  452-line parent (VerifyError/VTy/State/PcShape/MethodShapes + the
+  descriptor helpers + verify_class/known_class) over three verbatim
+  children — sim (997, the shape simulation + verify_method_shapes/
+  verify_method with State bumped pub(crate) for the parent's push_ret),
+  tests_a (578, the law helpers plan/verify_ok/verify_err bumped
+  pub(crate) as the shared test API) and tests_b (567, importing the
+  helpers from tests_a, its own Ldc/CmpOp ir imports). Both test mods
+  are #[cfg(test)] at the decl, wrapper-unwrapped. PROOFS: fmt + clippy
+  --all-targets -D warnings, codegen tests green. PR HOLD unchanged.
