@@ -5309,3 +5309,21 @@ roadmap" on the A-graded tree.
   PROOFS: fmt + clippy --all-targets -D warnings, j2r-runtime 308,
   j2r-codegen 172 + e2e green, diff_suite 130 fixtures zero-diff 4/4
   shards (193-199s). PR HOLD unchanged.
+- round-8 file-split pass, slice-l (this commit): reflect.rs (1665) ->
+  a 177-line parent (doc + imports + the GC-scan/class-registry core +
+  the name family) over four children — class (336, the Class-object
+  surface + typed field access), members (328, the
+  fields/constructors/methods lookup family), invoke (491, the
+  box/unbox + field_get/set + method_invoke/ctor_new_instance +
+  the caller-law access checks), tests (277, both test mods
+  wrapper-unwrapped). Cross-child bumps: str_arg (class -> invoke);
+  ctor_access_allowed/dotted_class_of/throw_ill_arg/
+  throw_illegal_access/throw_npe_null_recv (invoke -> class/members);
+  ctor_new_instance_caller keeps its EXTERNAL path
+  (j2r_runtime::reflect::ctor_new_instance_caller — the emitted
+  Constructor.newInstance law) via an explicit pub use beside the
+  child glob. The caller_law_tests mod's inner use super::* dropped
+  (the wrapper unwrap made it a dup). PROOFS: fmt + clippy
+  --all-targets -D warnings, j2r-runtime 308, j2r-codegen 172 + e2e
+  green, diff_suite 130 fixtures zero-diff 4/4 shards (191-198s).
+  PR HOLD unchanged.
