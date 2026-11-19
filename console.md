@@ -5089,3 +5089,14 @@ roadmap" on the A-graded tree.
   a 5-line chain over two sections plus the verbatim catch-all fallback
   (consulted only after every section missed; first-match-wins preserved
   exactly). PROOFS: same battery green. PR HOLD unchanged.
+- round-6 slices h+i (this commit): hexfloat.rs parse_bits (217) -> a
+  77-line body over parse_hex_parts (the lexical scan), zero_bits (the
+  signed-zero literal shape shared by three sites — the all-zero
+  significand, the subnormal underflow and the "-0x0p0" law) and
+  round_to_grid (the round-half-to-even step; the exact left shift's ?
+  propagates None unchanged); the overflow arm reuses inf_bits (value
+  identical). monitor.rs object_wait (178) -> an 87-line head (argument
+  checks, ownership gate, budget/deadline, the T14 pre-check, the atomic
+  full-count release) over wait_park (the ticket-condvar park with the
+  JDK wake order) and wait_recompete (the Mesa-semantics reacquire loop).
+  PROOFS: same battery green. PR HOLD unchanged.

@@ -323,6 +323,21 @@ pub fn object_wait(
     drop(st);
     m.cv.notify_all(); // enter-contenders may take the freed monitor
 
+    let interrupted = wait_park(&m, rec.clone(), me, deadline);
+    wait_recompete(&m, rec, me, saved, interrupted)
+}
+
+/// The wait park loop (verbatim from `object_wait`, round-6
+/// reshaping): the ticket-condvar park with the JDK wake order
+/// (interrupt beats notified beats deadline) and the STW/coop rejoin
+/// on leaving the park state. Returns whether an interrupt won.
+fn wait_park(
+    m: &Monitor,
+    rec: std::sync::Arc<crate::thread::ThreadRecord>,
+    me: usize,
+    deadline: Option<Instant>,
+) -> bool {
+    let mut st;
     let mut parked = false;
     // Park loop (T14-refactored): the wake channel is now the thread's
     // OWN ticket condvar — `notify` delivers through it for each removed
@@ -362,13 +377,20 @@ pub fn object_wait(
     if parked {
         crate::thread::monitor_wake_prep(&rec);
     }
+    interrupted
+}
 
-    // Recompete: reacquire with the FULL saved count. The notified (or
-    // timed-out, or interrupted) thread contends like any enter-contender
-    // — the monitor may have been taken in between (Mesa semantics); if
-    // so we park on the same condvar until it is free again. JDK: the
-    // interrupted waiter must RE-ACQUIRE before the exception is
-    // delivered, so the catch handler sees the monitor held.
+/// The recompete loop (verbatim from `object_wait`, round-6
+/// reshaping): reacquire with the FULL saved count, then deliver the
+/// JDK epilog — an interrupt pending at wake beats a normal return.
+/// The loop never falls through: every path returns.
+fn wait_recompete(
+    m: &Monitor,
+    rec: std::sync::Arc<crate::thread::ThreadRecord>,
+    me: usize,
+    saved: u32,
+    interrupted: bool,
+) -> Result<crate::Value, crate::Throw> {
     let mut st = m.lock();
     let mut parked2 = false;
     loop {

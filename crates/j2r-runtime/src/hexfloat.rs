@@ -31,6 +31,82 @@ pub fn parse_bits(body: &str, is_f32: bool) -> Option<u64> {
     } else {
         (53u32, -1022i64, 1023i64, 1023i64)
     };
+    let (neg, nibbles, frac, exp) = parse_hex_parts(body)?;
+    // value = M * 2^shift, M = integer over the nibbles, shift accounts for
+    // the fraction nibbles (each = 2^-4)
+    let shift0 = exp.saturating_sub(4 * frac as i64);
+
+    // skip leading zero nibbles
+    let nz = &nibbles[..];
+    let mut start = 0usize;
+    while start < nz.len() && nz[start] == 0 {
+        start += 1;
+    }
+    if start == nz.len() {
+        // all-zero significand → signed zero (the sign survives: "-0x0p0")
+        return Some(zero_bits(is_f32, neg));
+    }
+    // keep at most 16 nibbles (64 bits); anything beyond is a sticky boolean.
+    // With 64 kept bits and p <= 53, the final rounding's guard bit always
+    // sits inside the kept value, so the tail can only feed the sticky —
+    // the decision stays exact.
+    const KEEP: usize = 16;
+    let avail = &nz[start..];
+    let keep_n = avail.len().min(KEEP);
+    let dropped = avail.len() - keep_n;
+    let sticky_tail = avail[keep_n..].iter().any(|&n| n != 0);
+    let mut m: u64 = 0;
+    for &n in &avail[..keep_n] {
+        m = (m << 4) | n as u64;
+    }
+    let shift: i64 = shift0.saturating_add(4 * dropped as i64);
+    let sticky_any = sticky_tail; // M's own low bits feed sticky inside the rounder
+
+    // top = position of M's highest set bit; E = unbiased exponent of the
+    // leading-1 position of the value
+    let top = (63 - u64::from(m.leading_zeros())) as i64;
+    let e = top.saturating_add(shift);
+    if e > emax {
+        // overflow → infinity (sign preserved)
+        return Some(inf_bits(is_f32, neg));
+    }
+    let (mut k, _guard, _sticky_m) = round_to_grid(m, shift, e, p, emin, sticky_any)?;
+
+    if e >= emin {
+        // normal path: k in [2^(p-1), 2^p]
+        if k == 1u64 << p {
+            // carry out of the mantissa → exponent bump
+            k >>= 1;
+            let e2 = e + 1;
+            if e2 > emax {
+                return Some(inf_bits(is_f32, neg));
+            }
+            return Some(assemble(is_f32, neg, e2, k, bias));
+        }
+        Some(assemble(is_f32, neg, e, k, bias))
+    } else {
+        // subnormal path: k counts grid units 2^(emin-p+1)
+        if k == 0 {
+            return Some(zero_bits(is_f32, neg));
+        }
+        if k >= 1u64 << (p - 1) {
+            // crossed into the normal range at emin
+            return Some(assemble(is_f32, neg, emin, k, bias));
+        }
+        // subnormal bits directly
+        let bits = k;
+        Some(if is_f32 {
+            (if neg { 0x8000_0000u64 } else { 0 }) | bits
+        } else {
+            (if neg { 0x8000_0000_0000_0000u64 } else { 0 }) | bits
+        })
+    }
+}
+
+/// The lexical scan (verbatim from `parse_bits`, round-6 reshaping):
+/// the sign, the required 0x prefix, the significand nibbles and the
+/// binary exponent. `None` on any malformed shape.
+fn parse_hex_parts(body: &str) -> Option<(bool, Vec<u8>, u32, i64)> {
     // sign
     let (neg, rest) = match body.as_bytes().first() {
         Some(b'-') => (true, &body[1..]),
@@ -110,72 +186,37 @@ pub fn parse_bits(body: &str, is_f32: bool) -> Option<u64> {
     if exp_digits == 0 {
         return None;
     }
+    Some((neg, nibbles, frac, exp))
+}
 
-    // value = M * 2^shift, M = integer over the nibbles, shift accounts for
-    // the fraction nibbles (each = 2^-4)
-    let shift0 = exp.saturating_sub(4 * frac as i64);
-
-    // skip leading zero nibbles
-    let nz = &nibbles[..];
-    let mut start = 0usize;
-    while start < nz.len() && nz[start] == 0 {
-        start += 1;
-    }
-    if start == nz.len() {
-        // all-zero significand → signed zero (the sign survives: "-0x0p0")
-        return Some(if is_f32 {
-            if neg {
-                0x8000_0000u64
-            } else {
-                0
-            }
-        } else if neg {
-            0x8000_0000_0000_0000u64
+/// The signed-zero bit pattern (the literal shape shared by the
+/// "-0x0p0", all-zero-significand and subnormal-underflow sites;
+/// round-6 reshaping).
+fn zero_bits(is_f32: bool, neg: bool) -> u64 {
+    if is_f32 {
+        if neg {
+            0x8000_0000u64
         } else {
             0
-        });
+        }
+    } else if neg {
+        0x8000_0000_0000_0000u64
+    } else {
+        0
     }
+}
 
-    // keep at most 16 nibbles (64 bits); anything beyond is a sticky boolean.
-    // With 64 kept bits and p <= 53, the final rounding's guard bit always
-    // sits inside the kept value, so the tail can only feed the sticky —
-    // the decision stays exact.
-    const KEEP: usize = 16;
-    let avail = &nz[start..];
-    let keep_n = avail.len().min(KEEP);
-    let dropped = avail.len() - keep_n;
-    let sticky_tail = avail[keep_n..].iter().any(|&n| n != 0);
-    let mut m: u64 = 0;
-    for &n in &avail[..keep_n] {
-        m = (m << 4) | n as u64;
-    }
-    let shift: i64 = shift0.saturating_add(4 * dropped as i64);
-    let sticky_any = sticky_tail; // M's own low bits feed sticky inside the rounder
-
-    // top = position of M's highest set bit; E = unbiased exponent of the
-    // leading-1 position of the value
-    let top = (63 - u64::from(m.leading_zeros())) as i64;
-    let e = top.saturating_add(shift);
-
-    if e > emax {
-        // overflow → infinity (sign preserved)
-        return Some(
-            (if is_f32 {
-                0x7F80_0000u64
-            } else {
-                0x7FF0_0000_0000_0000u64
-            }) | (if neg {
-                if is_f32 {
-                    0x8000_0000u64
-                } else {
-                    0x8000_0000_0000_0000u64
-                }
-            } else {
-                0
-            }),
-        );
-    }
-
+/// The round-half-to-even step (verbatim from `parse_bits`, round-6
+/// reshaping): k on the target grid with its guard/sticky pair. The
+/// exact left shift's `?` propagates the caller's None unchanged.
+fn round_to_grid(
+    m: u64,
+    shift: i64,
+    e: i64,
+    p: u32,
+    emin: i64,
+    sticky_any: bool,
+) -> Option<(u64, bool, bool)> {
     // round M * 2^shift to the target grid g (round-half-to-even)
     let g = if e >= emin {
         e - (p as i64 - 1)
@@ -201,46 +242,7 @@ pub fn parse_bits(body: &str, is_f32: bool) -> Option<u64> {
     if guard && (sticky_m || k & 1 == 1) {
         k += 1;
     }
-
-    if e >= emin {
-        // normal path: k in [2^(p-1), 2^p]
-        if k == 1u64 << p {
-            // carry out of the mantissa → exponent bump
-            k >>= 1;
-            let e2 = e + 1;
-            if e2 > emax {
-                return Some(inf_bits(is_f32, neg));
-            }
-            return Some(assemble(is_f32, neg, e2, k, bias));
-        }
-        Some(assemble(is_f32, neg, e, k, bias))
-    } else {
-        // subnormal path: k counts grid units 2^(emin-p+1)
-        if k == 0 {
-            return Some(if is_f32 {
-                if neg {
-                    0x8000_0000u64
-                } else {
-                    0
-                }
-            } else if neg {
-                0x8000_0000_0000_0000u64
-            } else {
-                0
-            });
-        }
-        if k >= 1u64 << (p - 1) {
-            // crossed into the normal range at emin
-            return Some(assemble(is_f32, neg, emin, k, bias));
-        }
-        // subnormal bits directly
-        let bits = k;
-        Some(if is_f32 {
-            (if neg { 0x8000_0000u64 } else { 0 }) | bits
-        } else {
-            (if neg { 0x8000_0000_0000_0000u64 } else { 0 }) | bits
-        })
-    }
+    Some((k, guard, sticky_m))
 }
 
 fn inf_bits(is_f32: bool, neg: bool) -> u64 {
