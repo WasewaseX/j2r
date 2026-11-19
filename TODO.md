@@ -3,8 +3,28 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-20 (standing run 2 of the new epoch, the round-9
-hosted-claims wave — **THE OWNER PASTED THE 20-WARNING LIST (the
+fix the board. Last updated: 2026-11-20 (the gate-6 unblock + the merge
+authorization — **THE OWNER PASTED THE GREPTILE BLOCKER (gate-6-doc-lint
+red on PR #7) AND ORDERED FIX -> CHECK -> MERGE ("learn from mistakes
+and don't repeat them"). FIVE rustdoc lints from the round-9 dedup
+refactor's new module docs fixed doc-comment-only (jni/bridge.rs +
+jni/classes.rs private intra-doc links -> plain code spans,
+jni/strings.rs + lib/dispatch.rs bare prose brackets escaped, codegen
+lib/resolve.rs private link -> code span; five files five lines, zero
+behavior change). THE PROOF STACK GAINS GATE-6 PERMANENTLY: every push
+runs fmt + clippy --all-targets -D warnings + cargo doc -D warnings +
+battery + diff_suite + gate-11 BEFORE the push. MEASURED at 6ec764c:
+cargo doc green (the failing gate), battery runtime 308/0 + codegen
+172/0 + classfile 52/0 + jni-ffi 17/0, diff_suite 130 zero-diff 4/4
+shards (194.0/193.9/193.0/193.4s), corpus_suite PASS, jar_suite 3
+green, gate-11 exit 0 (fixtures=130 tests=619); hosted gate-6 success.
+THE NEW SCHEDULED EPOCH: 10 standing runs, 30 min apart (job 538852,
+counter runs=1 of 10; the platform caps the job at ~3 triggers/day).
+PR #7 merge pending hosted-CI green on the final docs SHA (the owner's
+order). QUEUE HEAD: T15.2 (the MappingSet-driven remap pass) after the
+merge, off fresh main.
+Previous: 2026-11-20 (standing run 2 of the new epoch, the round-9
+hosted-claims wave — THE OWNER PASTED THE 20-WARNING LIST (the
 scripts/comment tail: too-many-params, the two families fn-too-long,
 the unused-import, 19 narrative/trivial comments) AND ORDERED THEM
 FIXED, WITH EVERY PR REQUESTED FIRST AND HELD UNMERGED.** ALL
@@ -38,10 +58,9 @@ fn over 80), the gen-table file-too-large (380 lines). MEASURED:
 runtime 308/0, codegen 172/0, classfile 52/0, jni-ffi 17/0, diff_suite
 130 zero-diff 4/4 shards (195.9/195.6/193.5/193.5s), corpus_suite
 PASS, jar_suite 3 green, fmt + clippy --all-targets -D warnings,
-gate-11 exit 0 (fixtures=130 tests=619). THE WAVE RIDES THE
-scanaislop-fixes-r9 BRANCH AS A HELD PR (the owner's PR-first rule;
-nothing merged — the four dependabot branches stay unmerged too).
-QUEUE HEAD: T15.2 (the MappingSet-driven remap pass).
+gate-11 exit 0 (fixtures=130 tests=619). THE WAVE RODE THE
+scanaislop-fixes-r9 BRANCH AS A HELD PR (now authorized to merge by
+the owner's gate-6 fix -> check -> merge order).
 Previous: 2026-11-19 (standing run 1 — the round-8 wave, slices h-t:
 all 11 Rust file-too-large + the test-harness fns resolved, the scan
 surface CLEAN, the pre-existing tables.rs drift + the M1 corrupted

@@ -5511,3 +5511,50 @@ roadmap" on the A-graded tree.
   commit; every one pushed to the branch. REMAINING: T15.2 (the
   MappingSet-driven remap pass) is the queue head; the PR stays HELD
   for the owner's review.
+
+## Session cont. — 2026-11-20: gate-6 unblocked — PR #7 authorized to merge (fix -> check -> merge), the 10x30min scheduled epoch starts
+
+- THE OWNER PASTED THE GREPTILE BLOCKER (gate-6-doc-lint red on PR #7)
+  and ordered: "fix check again then merge (learn from mistakes and
+  don't repeat them) continue through roadmap never stop." The PR-first
+  HOLD on PR #7 is LIFTED BY THIS ORDER — the branch may merge once
+  checks are green; every future branch still rides the PR-first rule.
+- PROBE FIRST: RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --locked
+  reproduced the hosted failure locally before touching anything: FIVE
+  rustdoc lints the round-9 dedup refactor shipped inside its new
+  module docs — jni/bridge.rs 23 + jni/classes.rs 12 (private
+  intra-doc links scan_roots / crate::reflect::class_name_of),
+  jni/strings.rs 6 + lib/dispatch.rs 38 (bare prose brackets slots[0] /
+  parents[0] parsed as link targets), codegen lib/resolve.rs 497
+  (interface_receiver_closure private).
+- THE FIX (doc-comment-only, five files five lines): the two private
+  links demoted to plain code spans (the names stay documented, the
+  link syntax goes), the two prose bracket pairs escaped, the codegen
+  private link demoted the same way. No visibility change, no behavior
+  change.
+- LESSON RECORDED (the owner's "learn from mistakes"): gate-6 joins
+  the mandatory local proof stack — every push now runs fmt + clippy +
+  cargo doc -D warnings + battery + diff_suite + gate-11 BEFORE the
+  push, not just the gates that failed last time.
+- MEASURED at this tree (6ec764c): fmt OK, clippy --all-targets -D
+  warnings OK, cargo doc -D warnings OK (the failing gate), battery
+  runtime 308/0 + codegen 172/0 + classfile 52/0 + jni-ffi 17/0,
+  diff_suite 130 zero-diff 4/4 shards (194.0/193.9/193.0/193.4s),
+  corpus_suite PASS, jar_suite 3 green, gate-11 exit 0 fixtures=130
+  tests=619. Hosted CI on 6ec764c: gate-6-doc-lint success with gates
+  1/2/4/7/10/11/12/16/17/19/20/21/22 + zizmor/osv/scorecard green; the
+  long differential/gc gates running at record time.
+- THE SCHEDULED EPOCH: the owner ordered the standing prompt
+  scheduled — 10 runs, 30 minutes apart, then stop. Job
+  j2r-standing-30min created (job id 538852, fixed-rate 1800s, the
+  counter in /home/z/my-project/prompt_budget.json counts this
+  interactive run as 1 of 10; the payload self-deletes the job after
+  run 10). Platform caveat recorded: the scheduler caps the job at
+  ~3 triggers/day, so the half-hour cadence is throttled upstream of
+  the counter.
+- NEXT: when hosted CI reports all green, MERGE PR #7 (the owner's
+  order); then the queue head T15.2 — the MappingSet-driven remap pass
+  (NameAndType/FieldRef/MethodRef/InterfaceMethodRef + Exceptions/
+  InnerClasses/NestHost/NestMembers/EnclosingMethod/Signature text/
+  StackMapTable Object_variable_info/Record components) off a fresh
+  main.
