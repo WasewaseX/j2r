@@ -25,8 +25,17 @@ classfile 70/0 (61 remap_pass incl. R4b + 9 remap_attrs) + jni-ffi
 (340.9/255.8/188.9/189.3s — two agents shared the box), corpus_suite
 PASS, jar_suite 3 green, gate-11 exit 0 (fixtures=130 tests=637), the
 authoritative master-ci scan BLOCKING=0 grade B CLEAN. Budget: runs=2
-of 10. QUEUE HEAD: T15.2c (the Code-internal tables: LocalVariableType
-signatures + LocalVariableTable descriptors — no committed vector
+of 10. T15.2 COMPLETE (2a the pool pass + 2b the non-Code attributes +
+2c the Code-internal variable tables, all name-for-name with laws and
+proofs — riding HELD PR #8). QUEUE HEAD: T15.3 (the CLI `remap` stage:
+load a Tiny v2 map + a jar, remap every class through
+remap_attrs::remap_class, write the remapped jar; T16 then loads the
+REAL Fabric intermediary map for the remapped-jar differential).
+Previous: 2026-11-20 (standing run 3 + this interactive run — the
+gate-6 fix wave MERGED (PR #7, 34 gates green), the T15.2c slice
+landed 0d753b3 with 6 laws over the hand-built Code vector (the
+no-LVT probe fact pinned as C5), proofs battery 600/0 + diff_suite
+4 shards + gate-11 643; previous: no committed vector
 carries either, probe fact; synthetic-covered) + hosted CI watch on
 PR #8, then T15.3 (the remap driver wiring).
 Previous: 2026-11-20 (the gate-6 unblock + the merge
