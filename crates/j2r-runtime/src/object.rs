@@ -150,6 +150,14 @@ pub fn new_string(s: &str) -> JRef {
     })
 }
 
+/// The shared tail of the string-returning natives: wrap the built
+/// Rust string as a fresh Java string ref (the Value those natives
+/// return). One shape, one home - the per-family tails repeated this
+/// exact line at 14 call sites before the r9 dedup.
+pub fn string_out(out: &str) -> Value {
+    Value::Ref(Some(new_string(out)))
+}
+
 /// Creates a `java/lang/String` object sharing an existing character buffer
 /// (used by `StringBuilder.toString`, which is safe because `StringBuilder`
 /// mutations copy-on-write through `Arc::make_mut`).

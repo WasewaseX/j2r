@@ -35,7 +35,7 @@ impl Dispatch {
 
     /// The FULL parents array of a compiled class (superclass first, then
     /// interfaces) — the interface-default resolution walks the interface
-    /// edges, which `parent_of` (parents[0] only) never visits. `None`
+    /// edges, which `parent_of` (parents\[0\] only) never visits. `None`
     /// when the class is not compiled (builtin callers use
     /// `subtype::builtin_parent_of`).
     pub fn parents_of_full(&self, class: &str) -> Option<&'static [&'static str]> {

@@ -21,7 +21,6 @@ class HashIndexTable {
   void add(String name, int index) {
     int slot = hashSlotFor(name);
     if (index < 0xff) {
-      // increment by 1, 0 stands for empty
       hashTable[slot] = (byte)(index + 1);
     } else {
       hashTable[slot] = 0;

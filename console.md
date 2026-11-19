@@ -5470,3 +5470,91 @@ roadmap" on the A-graded tree.
   T15.2 (the MappingSet-driven remap pass) is the queue head; the
   master-ci engine re-sweep awaits network; PR HOLD unchanged (the
   four dependabot branches stay unmerged).
+- standing run 2 of the new epoch (this docs commit): the round-9
+  hosted-claims wave COMPLETE and riding the scanaislop-fixes-r9
+  branch as a HELD PR (the owner's "request PR first, do not merge
+  things" rule; the four dependabot branches stay unmerged too). The
+  20 hosted claims all resolved: bench_suite.py:255 emit_row 7 -> 3
+  params (every fn <= 6 params / <= 48 lines); gen_jni_env_table.py:136
+  the side-effect import -> explicit families_arrays.register();
+  families_calls.py:7 build 348 -> 12 fns max 47 lines (and the latent
+  bug fixed: no sys import meant the loud drift-abort was a NameError
+  time bomb - now proven SystemExit with the FATAL message, and the
+  pre-split code proven to NameError); families_fields.py:9 build 129
+  -> 4 fns max 41; families_arrays.py wrapped in register() with
+  per-family body builders. BYTE-PARITY: the three modules under fake
+  slot tables re-register 73 + 56 + 70 WRAPPER_BODIES entries
+  identical to the pre-split HEAD code; the full generator over
+  Temurin 21.0.13's jni.h reproduces tables.rs and jni_slot_list.txt
+  byte-identically (pre-vs-new). The 23 corpus comment claims deleted
+  by exact-text match (JamaCorpus x10 separators, StringsSimBench x4,
+  JZlibCorpus phase-1 narrative, HashIndexTable increment note,
+  InfBlocks x5 restating comments; licenses verbatim). Stale claims
+  verified resolved: the 4 evidence probes (files gone in round-8),
+  bench_suite.py:113, the gen-table file-too-large. master-ci updated
+  to 8298ac4 (v2.19.1+20): the authoritative scan reports BLOCKING=0
+  grade B CLEAN (was D/56 under the stale local copy - the local
+  skills clone was v1.3.0-era and carried the scan_duplicates
+  ignore-bypass that upstream already fixed); the three genuine
+  hand-code repetitions it surfaced factored (14x string tail ->
+  object::string_out, 12x panic guard -> catch_panicked in five test
+  files, 10x arrays cleanup -> del_local) and .ai-integrity-ignore
+  re-truthed with per-class justifications (probe matrices, fixture
+  trees, frozen evidence, the one-main-per-program convention). The
+  gate-11 suite-count guard the round-8 shard rewrite dropped is
+  restored (fixtures.len() >= 129; checker exit 0). MEASURED: runtime
+  308/0, codegen 172/0, classfile 52/0, jni-ffi 17/0, diff_suite 130
+  zero-diff 4/4 shards (195.9/195.6/193.5/193.5s), corpus_suite PASS,
+  jar_suite 3 green, fmt + clippy --all-targets -D warnings, gate-11
+  exit 0 (fixtures=130 tests=619). Commits a7be8ea (scripts),
+  447c71c (corpus), 6a50bf6 (dedup + ignore + guard), this docs
+  commit; every one pushed to the branch. REMAINING: T15.2 (the
+  MappingSet-driven remap pass) is the queue head; the PR stays HELD
+  for the owner's review.
+
+## Session cont. — 2026-11-20: gate-6 unblocked — PR #7 authorized to merge (fix -> check -> merge), the 10x30min scheduled epoch starts
+
+- THE OWNER PASTED THE GREPTILE BLOCKER (gate-6-doc-lint red on PR #7)
+  and ordered: "fix check again then merge (learn from mistakes and
+  don't repeat them) continue through roadmap never stop." The PR-first
+  HOLD on PR #7 is LIFTED BY THIS ORDER — the branch may merge once
+  checks are green; every future branch still rides the PR-first rule.
+- PROBE FIRST: RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --locked
+  reproduced the hosted failure locally before touching anything: FIVE
+  rustdoc lints the round-9 dedup refactor shipped inside its new
+  module docs — jni/bridge.rs 23 + jni/classes.rs 12 (private
+  intra-doc links scan_roots / crate::reflect::class_name_of),
+  jni/strings.rs 6 + lib/dispatch.rs 38 (bare prose brackets slots[0] /
+  parents[0] parsed as link targets), codegen lib/resolve.rs 497
+  (interface_receiver_closure private).
+- THE FIX (doc-comment-only, five files five lines): the two private
+  links demoted to plain code spans (the names stay documented, the
+  link syntax goes), the two prose bracket pairs escaped, the codegen
+  private link demoted the same way. No visibility change, no behavior
+  change.
+- LESSON RECORDED (the owner's "learn from mistakes"): gate-6 joins
+  the mandatory local proof stack — every push now runs fmt + clippy +
+  cargo doc -D warnings + battery + diff_suite + gate-11 BEFORE the
+  push, not just the gates that failed last time.
+- MEASURED at this tree (6ec764c): fmt OK, clippy --all-targets -D
+  warnings OK, cargo doc -D warnings OK (the failing gate), battery
+  runtime 308/0 + codegen 172/0 + classfile 52/0 + jni-ffi 17/0,
+  diff_suite 130 zero-diff 4/4 shards (194.0/193.9/193.0/193.4s),
+  corpus_suite PASS, jar_suite 3 green, gate-11 exit 0 fixtures=130
+  tests=619. Hosted CI on 6ec764c: gate-6-doc-lint success with gates
+  1/2/4/7/10/11/12/16/17/19/20/21/22 + zizmor/osv/scorecard green; the
+  long differential/gc gates running at record time.
+- THE SCHEDULED EPOCH: the owner ordered the standing prompt
+  scheduled — 10 runs, 30 minutes apart, then stop. Job
+  j2r-standing-30min created (job id 538852, fixed-rate 1800s, the
+  counter in /home/z/my-project/prompt_budget.json counts this
+  interactive run as 1 of 10; the payload self-deletes the job after
+  run 10). Platform caveat recorded: the scheduler caps the job at
+  ~3 triggers/day, so the half-hour cadence is throttled upstream of
+  the counter.
+- NEXT: when hosted CI reports all green, MERGE PR #7 (the owner's
+  order); then the queue head T15.2 — the MappingSet-driven remap pass
+  (NameAndType/FieldRef/MethodRef/InterfaceMethodRef + Exceptions/
+  InnerClasses/NestHost/NestMembers/EnclosingMethod/Signature text/
+  StackMapTable Object_variable_info/Record components) off a fresh
+  main.

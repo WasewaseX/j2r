@@ -15,9 +15,6 @@ public class JZlibCorpus {
     phase2(data, text);
   }
 
-  // phase 1: core deflate/inflate through the public ZStream API (levels 0-9
-  // sampled, Z_FINISH/Z_NO_FLUSH semantics, wrapper off), Adler32 and CRC32
-  // checksums over a fixed vector, and the library version string.
   private static void phase1(byte[] data, String text) throws Exception {
     for (int level = 0; level <= 9; level += 3) {
       ZStream z = new ZStream();

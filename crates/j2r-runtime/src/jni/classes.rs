@@ -9,7 +9,7 @@
 //! * `jclass` IS a real `jobject` — the tag of the interned
 //!   `java/lang/Class` mirror object ([`crate::reflect::class_ref`]);
 //!   the internal class name rides in the mirror's `slots[0]` and is
-//!   recovered with [`crate::reflect::class_name_of`] (loud on a
+//!   recovered with `crate::reflect::class_name_of` (loud on a
 //!   non-Class object — a foreign-side bug, never silent).
 //! * `jfieldID` is a tag into the field-ID table below, marked by bit 63
 //!   so it can never be confused with a handle-table `jobject` tag. IDs

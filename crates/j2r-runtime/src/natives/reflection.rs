@@ -369,7 +369,7 @@ pub(crate) fn n_modifier_to_string(
         push(&mut sb, 0x0200, "interface");
     }
     let out = sb.strip_suffix(' ').unwrap_or(&sb).to_string();
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 
 // R2 slice 2: the typed getter/setter family (`Field.getInt` and

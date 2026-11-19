@@ -20,7 +20,7 @@
 //!   recycled object is structurally impossible.
 //! * **Every kind of reference is a GC root.** Local refs (per-thread
 //!   frame stacks), global refs and the direct-critical registry are all
-//!   scanned by [`scan_roots`] from the collector's root set
+//!   scanned by `scan_roots` from the collector's root set
 //!   (heap::collect root source 5) — pointer-free protocol, index push
 //!   only. A ref held only by native code therefore survives collection
 //!   exactly as long as the JNI contract says it must.
@@ -481,6 +481,12 @@ mod tests {
         obj_get(&r, 0).expect_int()
     }
 
+    /// The loud-abort guard shared by this file's panic tests: run the
+    /// closure, catch the unwind, report whether it panicked.
+    fn catch_panicked<F: FnOnce()>(f: F) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err()
+    }
+
     #[test]
     fn tag_roundtrip_and_abi_boundary() {
         let _rt = crate::runtime();
@@ -513,10 +519,9 @@ mod tests {
         assert_ne!(a, b, "recycled slot must not reissue the old tag value");
         assert_eq!(payload(b), 2);
         // the stale tag resolves to a generation mismatch: loud panic
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let panicked = catch_panicked(|| {
             let _ = payload(a);
-        }))
-        .is_err();
+        });
         assert!(panicked, "stale tag must panic, never silently alias");
         delete_local(b);
     }
@@ -525,10 +530,9 @@ mod tests {
     fn wrong_kind_delete_is_loud() {
         let _rt = crate::runtime();
         let local = new_local(obj(3));
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let panicked = catch_panicked(|| {
             delete_global(local);
-        }))
-        .is_err();
+        });
         assert!(panicked, "DeleteGlobalRef on a local tag must panic");
         delete_local(local);
     }
@@ -552,10 +556,9 @@ mod tests {
         assert_eq!(pop_local_frame(g), g, "global result is returned unchanged");
         delete_global(g);
         // popping the bottom frame is fatal
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let panicked = catch_panicked(|| {
             let _ = pop_local_frame(0);
-        }))
-        .is_err();
+        });
         assert!(panicked, "PopLocalFrame past the bottom frame must panic");
         delete_local(outer);
         delete_local(promoted);
@@ -568,10 +571,9 @@ mod tests {
         let discarded = new_local(obj(14));
         let kept = pop_local_frame(0);
         assert_eq!(kept, 0, "null result pops to null");
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let panicked = catch_panicked(|| {
             let _ = payload(discarded);
-        }))
-        .is_err();
+        });
         assert!(
             panicked,
             "locals of the popped frame are freed — stale use is loud"
@@ -591,10 +593,9 @@ mod tests {
         assert_eq!(payload(tag), 15, "a live local ref is a GC root");
         // detach frees it: after detach the tag is stale
         detach_thread();
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let panicked = catch_panicked(|| {
             let _ = payload(tag);
-        }))
-        .is_err();
+        });
         assert!(
             panicked,
             "detached thread's locals are freed — stale use is loud"

@@ -432,7 +432,7 @@ pub fn n_str_repeat(recv: Option<&JRef>, args: &[Value], _ctx: Dispatch) -> Resu
     for _ in 0..count {
         out.push_str(&s);
     }
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 
 // ---------------------------------------------------------------- StringBuilder

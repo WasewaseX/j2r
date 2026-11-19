@@ -133,7 +133,6 @@ final class InfBlocks implements InfBlocksC {
     p = z.next_out_index;
     q = read;
 
-    // compute number of bytes to copy as far as end of window
     n = (int)((q <= write ? write : end) - q);
     if(n > z.avail_out) n = z.avail_out;
     if(n!=0 && r == Z_BUF_ERROR) r = Z_OK;
@@ -145,19 +144,15 @@ final class InfBlocks implements InfBlocksC {
       z.adler.update(window, q, n);
     }
 
-    // copy as far as end of window
     System.arraycopy(window, q, z.next_out, p, n);
     p += n;
     q += n;
 
-    // see if more to copy at beginning of window
     if (q == end){
-      // wrap pointers
       q = 0;
       if (write == end)
         write = 0;
 
-      // compute bytes to copy
       n = write - q;
       if (n > z.avail_out) n = z.avail_out;
       if (n!=0 && r == Z_BUF_ERROR) r = Z_OK;

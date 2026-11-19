@@ -52,7 +52,6 @@ public class JamaCorpus {
   }
 
   static void phase1(Matrix A) {
-    // --- construction and element access -------------------------------
     pm("A", A);
     pm("I34", Matrix.identity(3, 4));
     pm("F23", new Matrix(2, 3, 2.5));
@@ -100,7 +99,6 @@ public class JamaCorpus {
       System.out.println("submatrix: " + e.getMessage());
     }
 
-    // --- arithmetic -----------------------------------------------------
     Matrix B = new Matrix(new double[][]{{1, 0, 2}, {0, 1, 1}, {1, 1, 0}});
     pm("plus", A.plus(B));
     pm("minus", A.minus(B));
@@ -119,7 +117,6 @@ public class JamaCorpus {
     pm("chainMut", mut);
     pm("transpose", A.transpose());
 
-    // --- norms ----------------------------------------------------------
     Matrix N34 = new Matrix(new double[][]{{1, -2, 3, 0}, {-4, 5, -6, 7}});
     System.out.println("norm1=" + Double.toString(N34.norm1())
         + " normInf=" + Double.toString(N34.normInf())
@@ -128,7 +125,6 @@ public class JamaCorpus {
   }
 
   static void phase2(Matrix A) {
-    // --- LU -------------------------------------------------------------
     Matrix rhs = new Matrix(new double[][]{{
         1.0, 2.0, 3.0}, {0.5, -1.0, 4.0}, {2.0, 0.0, -1.0}});
     LUDecomposition lu = A.lu();
@@ -154,7 +150,6 @@ public class JamaCorpus {
       System.out.println("singular: " + e.getMessage());
     }
 
-    // --- QR -------------------------------------------------------------
     QRDecomposition qr = A.qr();
     System.out.println("qrFullRank=" + qr.isFullRank());
     pm("Q", qr.getQ());
@@ -163,7 +158,6 @@ public class JamaCorpus {
     Matrix qx = qr.solve(rhs.getMatrix(0, 2, 0, 0));
     pv("qrSolveCol", qx.getColumnPackedCopy());
 
-    // --- Cholesky -------------------------------------------------------
     CholeskyDecomposition chol = A.chol();
     System.out.println("spd=" + chol.isSPD());
     pm("cholL", chol.getL());
@@ -182,7 +176,6 @@ public class JamaCorpus {
   }
 
   static void phase3(Matrix A) {
-    // --- SVD over the Hilbert matrix (classic ill-conditioned case) -----
     int n = 5;
     double[][] hh = new double[n][n];
     for (int i = 0; i < n; i++)
@@ -201,7 +194,6 @@ public class JamaCorpus {
         + " mCond=" + Double.toString(H.cond())
         + " mRank=" + H.rank());
 
-    // --- Eigen ----------------------------------------------------------
     EigenvalueDecomposition eig = A.eig();
     pv("eigReal", eig.getRealEigenvalues());
     pv("eigImag", eig.getImagEigenvalues());
@@ -219,14 +211,12 @@ public class JamaCorpus {
         .minus(eigN.getV().times(eigN.getD()));
     System.out.println("nEigResidual=" + Double.toString(nr.normInf()));
 
-    // --- packed-constructor error path ----------------------------------
     try {
       new Matrix(new double[]{1, 2, 3, 4, 5}, 2);
     } catch (RuntimeException e) {
       System.out.println("packed: " + e.getMessage());
     }
 
-    // --- times dimension-mismatch error path ----------------------------
     try {
       A.times(new Matrix(2, 2));
     } catch (RuntimeException e) {

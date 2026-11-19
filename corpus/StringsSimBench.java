@@ -46,21 +46,18 @@ public class StringsSimBench {
   }
 
   public static void main(String[] args) {
-    // --- W1: Levenshtein, short pairs (per-call allocation shape) ------
     Levenshtein lev = new Levenshtein();
     double s1 = 0.0;
     for (int i = 0; i < 200_000; i++) {
       s1 += lev.distance(rstr(8, 16, LOW26), rstr(8, 16, LOW26));
     }
 
-    // --- W5: JaroWinkler, record-linkage shape --------------------------
     JaroWinkler jw = new JaroWinkler();
     double s5 = 0.0;
     for (int i = 0; i < 500_000; i++) {
       s5 += jw.similarity(rstr(6, 12, LOW26), rstr(6, 12, LOW26));
     }
 
-    // --- W7a/W7b: profile build once, then the precompute-and-reuse -----
     // pattern the library documents: getProfile per document (HashMap
     // insertion order = the OpenJDK law), then cosine over PREBUILT
     // profiles — dot_product/norm iterate the profiles' entry sets, so
@@ -93,7 +90,6 @@ public class StringsSimBench {
       s7 += cos.similarity(profiles[rint(1000)], profiles[rint(1000)]);
     }
 
-    // --- W8: NGram(2) + NGram(4), f32 DP law ----------------------------
     NGram ng2 = new NGram(2);
     NGram ng4 = new NGram(4);
     double s8 = 0.0;
