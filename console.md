@@ -5189,3 +5189,12 @@ roadmap" on the A-graded tree.
   helpers from tests_a, its own Ldc/CmpOp ir imports). Both test mods
   are #[cfg(test)] at the decl, wrapper-unwrapped. PROOFS: fmt + clippy
   --all-targets -D warnings, codegen tests green. PR HOLD unchanged.
+- round-7 file-split pass, slice-e (this commit): cfg.rs (2675) -> a
+  716-line parent (lift + MethodCfg + plan_program + render_report +
+  DeepScan + tests) over four verbatim children — graph (272, Cfg/Block
+  with fields+methods pub(crate)), loops (274, the loop analysis),
+  builder (736, the Builder's first half — struct fields bumped
+  pub(crate) for the cross-half methods) and builder2 (731, the second
+  half as a SEPARATE `impl<'a> Builder<'a>` block re-opened in the child,
+  diamond_match through drain_deferred_since). PROOFS: fmt + clippy
+  --all-targets -D warnings, codegen tests green. PR HOLD unchanged.
