@@ -20,7 +20,7 @@
 //!   recycled object is structurally impossible.
 //! * **Every kind of reference is a GC root.** Local refs (per-thread
 //!   frame stacks), global refs and the direct-critical registry are all
-//!   scanned by [`scan_roots`] from the collector's root set
+//!   scanned by `scan_roots` from the collector's root set
 //!   (heap::collect root source 5) — pointer-free protocol, index push
 //!   only. A ref held only by native code therefore survives collection
 //!   exactly as long as the JNI contract says it must.

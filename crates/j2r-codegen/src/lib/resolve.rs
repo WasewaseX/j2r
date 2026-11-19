@@ -494,7 +494,7 @@ pub fn resolve_virtual_target(
 ///   subclass for dispatch);
 /// * a user INTERFACE: the implementor closure — every user class whose
 ///   subtype closure reaches the interface through the user tables
-///   ([`interface_receiver_closure`]).
+///   (`interface_receiver_closure`).
 ///
 /// `None` = the declared type is not a user class/interface, or the
 /// closure is empty (no compiled class can carry the receiver — the site

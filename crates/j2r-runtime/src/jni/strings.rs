@@ -3,7 +3,7 @@
 //! JNI strings cross the boundary as **modified UTF-8** (JVMS §4.4.7:
 //! NUL encoded as `C0 80`, supplementary characters as surrogate pairs of
 //! 3-byte sequences, no 4-byte form). The j2r string model is a Rust
-//! `String` (slots[0] of a `java/lang/String` object), so every crossing
+//! `String` (slots\[0\] of a `java/lang/String` object), so every crossing
 //! encodes or decodes at this module, never at a call site.
 //!
 //! **The decode is a byte-for-byte mirror of the differential oracle's
