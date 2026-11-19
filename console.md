@@ -5217,3 +5217,16 @@ roadmap" on the A-graded tree.
   rewriter). PROOFS: fmt + clippy --all-targets -D warnings, codegen
   tests green. The j2r-codegen crate is now FULLY under the 1100-line
   file flag (largest: typed/instr.rs 1041). PR HOLD unchanged.
+- round-7 battery (this docs commit): the codegen split phase PROVEN —
+  diff_suite 130 fixtures zero-diff 4/4 shards (191-196s), corpus_suite
+  6/6 (53.8s), cfg_equiv PASS (449.3s), fmt + clippy --all-targets -D
+  warnings workspace, gate-11 in sync (fixtures=130 tests=619), engine
+  baseline-mode scan blocking=0 grade=A CLEAN. The file-size scan now
+  reports 12 over-length files (all runtime/classfile — natives 8764,
+  collections 7588, jni/tables 5366, thread 2381, io 2171, classfile lib
+  1974, langext 1848, jni/calls 1769, reflect 1665, jdkutil 1588,
+  runtime lib 1301, formatter 1233) + 6 over-length fns (all in the
+  test-harness files: diff_suite 410, jmm_boundary 223, e2e 187,
+  jar_suite 181 + the raw-string false positives). NEXT (run 4): the
+  runtime/classfile split pass (12 files), then the four test-harness
+  fns, then T15.2.
