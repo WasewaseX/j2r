@@ -5146,3 +5146,16 @@ roadmap" on the A-graded tree.
   1588, runtime lib 1301, partition 1299, formatter 1233) then the four
   over-length test-harness fns (diff_suite 410, jmm_boundary 223, e2e 187,
   jar_suite 181) then T15.2.
+- round-7 file-split pass, slice-a (this commit): emit.rs (3347) -> a
+  165-line parent (emit_crate + the mod tree) over seven verbatim
+  children — crate_glue (609), statics_glue (377, incl. the
+  STATICS_SOURCE template + class_file_rel re-exported pub), vendored
+  (105), method (478), npe (778, with its tests mod), instr (870, the
+  twelve-family dispatch), lits (394). Every child carries the original
+  import block + `use super::*;`; the parent glob re-exports
+  (`pub(crate) use child::*;` + one explicit `pub use`) preserve every
+  pre-split path; col-0 private items bumped pub(crate), raw-string
+  bodies never touched (the splitter tracks r#"..."# state). Splitter
+  provenance: /home/z/my-project/scripts/r7_filesplit.py. PROOFS: fmt +
+  clippy --all-targets -D warnings, codegen 172+12+11+1+1 tests green.
+  PR HOLD unchanged.
