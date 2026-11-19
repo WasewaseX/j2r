@@ -3,7 +3,33 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-20 (the gate-6 unblock + the merge
+fix the board. Last updated: 2026-11-20 (standing run 3 of the 10x30min
+epoch — **PR #7 MERGED** (10eeb157, all 34 hosted gates green incl.
+gate-9-solo and gate-8-all-gates-green; the owner's fix -> check -> merge
+order executed exactly). The T15.2a wave verified, rebased onto fresh
+main, opened as PR #8 (t15-remap -> main, HELD UNMERGED per the owner's
+PR-first rule). T15.2b LANDED on the same branch (63e58f2): the
+remap_attrs::remap_class non-Code attribute pass (Signature texts at
+class/field/method/Record-component level, Record component names +
+descriptors, the EnclosingMethod NameAndType; every class-referencing
+payload byte-identical by design fact A4, payload lengths stable by
+A7) + the signature-BOUND fix R4b (the descriptor walker's T arm
+swallowed <T:LBound;> bounds — refsig_end now measures one
+ReferenceTypeSignature). TWO CONCURRENT AGENTS built T15.2b twice; the
+module design won, the composed layer was reverted, the survivor's
+stat hooks + Interner helpers reconstructed, both law sets green
+together. MEASURED at 63e58f2: fmt + clippy --all-targets -D warnings
++ cargo doc -D warnings green, battery runtime 308/0 + codegen 172/0 +
+classfile 70/0 (61 remap_pass incl. R4b + 9 remap_attrs) + jni-ffi
+17/0, diff_suite 130 zero-diff 4/4 shards
+(340.9/255.8/188.9/189.3s — two agents shared the box), corpus_suite
+PASS, jar_suite 3 green, gate-11 exit 0 (fixtures=130 tests=637), the
+authoritative master-ci scan BLOCKING=0 grade B CLEAN. Budget: runs=2
+of 10. QUEUE HEAD: T15.2c (the Code-internal tables: LocalVariableType
+signatures + LocalVariableTable descriptors — no committed vector
+carries either, probe fact; synthetic-covered) + hosted CI watch on
+PR #8, then T15.3 (the remap driver wiring).
+Previous: 2026-11-20 (the gate-6 unblock + the merge
 authorization — **THE OWNER PASTED THE GREPTILE BLOCKER (gate-6-doc-lint
 red on PR #7) AND ORDERED FIX -> CHECK -> MERGE ("learn from mistakes
 and don't repeat them"). FIVE rustdoc lints from the round-9 dedup

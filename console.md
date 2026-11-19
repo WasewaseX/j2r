@@ -5622,3 +5622,53 @@ roadmap" on the A-graded tree.
   attribute pass (Exceptions, InnerClasses, NestHost/NestMembers,
   EnclosingMethod, Signature text, StackMapTable Object_variable_info,
   Record components).
+
+## 2026-11-20 — standing run 3 (the 10x30min epoch, runs=2 of 10): PR #7 MERGED, PR #8 opened + T15.2b landed through a two-agent reconciliation
+
+- PLANNED (the previous entry's NEXT): merge PR #7 on gate-9-solo green;
+  open the t15-remap PR; then T15.2b. ALL THREE HAPPENED, in order.
+- PR #7 MERGED (merge commit 10eeb157): all 34 hosted checks success on
+  cb747de — including gate-6-doc-lint (the original blocker), the whole
+  gate-9 gc-stress family (solo/light-0/light-1/light-2/monitors/heavy),
+  gate-13-concurrency (0/1/7/11) and gate-8-all-gates-green. The owner's
+  fix -> check -> merge order executed exactly as ordered; the merge was
+  held until the API reported every check green, not before.
+- main synced to the merge; t15-remap REBASED onto fresh main (the two
+  T15.2a commits rewritten as 5a8233c + b62bdab, force-pushed with
+  --force-with-lease) and PR #8 opened (t15-remap -> main, HELD
+  UNMERGED per the owner's PR-first rule — merge authorization covers
+  PR #7 only).
+- T15.2b LANDED (63e58f2): the non-Code attribute pass. THE RACE: two
+  concurrent agents built T15.2b twice in the same tree — a composed
+  layer inside remap_pass.rs (this agent) and a standalone module
+  (remap_attrs.rs, the other instance). The OTHER agent's design won:
+  remap_with stays pool-only (its 8 laws keep their pinned counts — no
+  re-pin needed), remap_attrs::remap_class composes plan_attrs ->
+  remap_with -> apply_attrs. The composed layer was reverted; the
+  survivor's RemapStats stat hooks (signatures_rewritten/
+  record_parts_renamed/enclosing_renamed) + the pub(crate) Interner
+  helpers were reconstructed verbatim from reads; both law sets green
+  together. This agent's surviving contributions: the signature-BOUND
+  fix (R4b — the descriptor walker's T arm ran verbatim to ';' and
+  swallowed `<T:LBound;>` bounds; now the identifier stops at ':' and
+  refsig_end measures ONE ReferenceTypeSignature, bracket-depth-aware
+  for nested generics) + the probe scripts (probe_vec_attrs.py measured
+  all 8 vectors' attribute inventories BEFORE any law: Vec2's field
+  Signature with nested generics, Vec2.score Exceptions, NestHost/
+  NestMembers, Vec3$Pair Record, Vec3$Tone class Signature, NO
+  LVTT/LVT anywhere — the T15.2c scope fact).
+- MEASURED at 63e58f2: fmt + clippy --all-targets -D warnings + cargo
+  doc -D warnings green; battery runtime 308/0 + codegen 172/0 +
+  classfile 70/0 (61 remap_pass incl. R4b + 9 remap_attrs) + jni-ffi
+  17/0; diff_suite 130 zero-diff 4/4 shards
+  (340.9/255.8/188.9/189.3s — two agents shared the box, honest slow
+  numbers); corpus_suite PASS; jar_suite 3 green; gate-11 exit 0
+  (fixtures=130 tests=637; README 627 -> 637 + the T15.2b roster + the
+  R4b clause); the authoritative master-ci scan BLOCKING=0 grade B
+  CLEAN (advisory 1094 -> 1108 = the new module's advisories, none
+  blocking).
+- NEXT: T15.2c (the Code-internal tables: LocalVariableTypeTable
+  signatures + LocalVariableTable descriptors — synthetic-covered, no
+  committed vector carries either) + the hosted-CI watch on PR #8,
+  then T15.3 (the remap driver wiring). The t15-remap PR stays HELD
+  until the owner says otherwise.
