@@ -5412,3 +5412,20 @@ roadmap" on the A-graded tree.
   j2r-runtime 308 (all family + view + materialization + red-black
   laws still green), diff_suite 130 fixtures zero-diff 4/4 shards
   (186-193s). PR HOLD unchanged.
+- round-8 file-split pass, slice-s (this commit): natives.rs (8764, the
+  largest file) -> a 330-line parent (doc + shared arg/print helpers +
+  the ps! macro + lookup_exact/invoke_exact/scan_runtime_roots) over
+  NINE family children — pw (172) / core (482) / strings (611) /
+  throwable (319) / boxed (448) / random (354) / misc2 (356) /
+  reflection (526, renamed from "reflect" for the E0255 mod-vs-import
+  collision) / thread (108) — and the 4621-row NATIVES table split
+  VERBATIM into five contiguous unit-aligned part files (table_a..e,
+  913-929 lines each; NATIVES is now a slice of slices and lookup_exact
+  gains one flat_map level — row bytes and lookup order unchanged).
+  The macro-generated surface: the six macro_rules! bodies now emit
+  pub fns (the boxed/ps/sb_append/field_typed families) so the table
+  parts reach every n_* fn via the parent's pub(crate) globs; a sed
+  &-expansion mangling of two field_typed lines was caught and
+  repaired. PROOFS: fmt + clippy --all-targets -D warnings,
+  j2r-runtime 308 + j2r-codegen 172 + e2e green, diff_suite 130
+  fixtures zero-diff 4/4 shards (193-198s). PR HOLD unchanged.
