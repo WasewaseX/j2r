@@ -5275,3 +5275,22 @@ roadmap" on the A-graded tree.
   syntax + --help + the missing-fixture dry-run path on bench_suite,
   tar extract + cmp byte-exact on all 4 frozen probes, corpus_suite
   PASS (52.8s) over the InfBlocks edit. PR HOLD unchanged.
+- round-8 scripts wave, slice-j (this commit): gen_jni_env_table.py
+  (1714, the file-too-large flag) -> a 379-line main (header parse +
+  typedef verification + slot extraction + registry verification +
+  emit) over the scripts/jni_env_table/ package — mapping (123, the
+  C->Rust type fns), data_real_slots (156, REAL_SLOTS), 
+  data_wrapper_bodies (404, the wired-slot literal), families_arrays
+  (210), families_fields (137, build(slots) — the body computes
+  _idx_of verbatim and registers its own REAL_SLOTS entries),
+  families_calls (356, build(_idx_of)); every moved line verbatim
+  except the two build() indent wraps. THE DRIFT FINDING: the
+  committed tables.rs does NOT match the current generator's output
+  (842+/1655- at any seed; runs are seed-stable so the generator is
+  deterministic — the committed artifact is stale against the script,
+  a pre-existing state this slice does NOT touch; the committed bytes
+  are restored and the battery keeps proving them). PROOF: the
+  refactored generator's output BYTE-IDENTICAL to the pre-split
+  generator's output (tables.rs fd37d7b6..., jni_slot_list.txt
+  f0b1758f..., cmp clean at PYTHONHASHSEED=1), committed artifacts
+  restored, tree clean. PR HOLD unchanged.
