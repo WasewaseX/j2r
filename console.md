@@ -5379,3 +5379,17 @@ roadmap" on the A-graded tree.
   coop/registry helpers got their pub(crate) bumps. PROOFS: fmt +
   clippy --all-targets -D warnings, j2r-runtime 308, diff_suite 130
   fixtures zero-diff 4/4 shards (190-200s). PR HOLD unchanged.
+- round-8 file-split pass, slice-q (this commit): j2r-classfile lib.rs
+  (1974) -> a 324-line parent (doc + the 4 existing submodule decls +
+  flags/CpEntry/ConstantPool/Error + the fmt helpers) over five
+  #[path = "lib/<name>.rs"] children — structs (143, the 8 attribute /
+  member data types), classfile (231, ClassFile + Reader), parse (442,
+  the 8 parse fns), testclass (281, the hand-crafted-classfile builder
+  unwrap — its inner //! doc + #![allow] hoisted to the file top after
+  two botched reorder passes were rebuilt deterministically from HEAD),
+  tests (546, unwrapped). The parse surface is pub(crate) (8 fns),
+  Reader + its fields/methods pub(crate) for the parse child, the 8
+  structs + ClassFile keep their pub paths via explicit re-exports.
+  PROOFS: fmt + clippy --all-targets -D warnings, j2r-classfile 52,
+  j2r-codegen 172 + e2e + j2r-runtime 308 green, diff_suite 130
+  fixtures zero-diff 4/4 shards (191-198s). PR HOLD unchanged.
