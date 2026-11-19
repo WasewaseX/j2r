@@ -5206,3 +5206,14 @@ roadmap" on the A-graded tree.
   unbox_desc/recognize_cores/resolve_core), tests (925, cfg-gated,
   wrapper-unwrapped). PROOFS: fmt + clippy --all-targets -D warnings,
   codegen tests green. PR HOLD unchanged.
+- round-7 file-split pass, slice-g (this commit): partition.rs (1299) ->
+  a 169-line parent (emit_workspace, the entry seam) over five verbatim
+  children — workspace (144, the part layout + reuse scan + glue +
+  manifest), member (151, Ws with fields+methods pub(crate) +
+  part_dep/write_member_cargo + the registry_hook template), support
+  (132, the vendored support-crate emitter with its raw templates), part
+  (290, the member-crate emitter trio + the link registration) and app
+  (468, app_cargo_toml/lib_rs/jmm_sidecar/main_rs + the class-module
+  rewriter). PROOFS: fmt + clippy --all-targets -D warnings, codegen
+  tests green. The j2r-codegen crate is now FULLY under the 1100-line
+  file flag (largest: typed/instr.rs 1041). PR HOLD unchanged.
