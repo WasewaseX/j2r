@@ -5294,3 +5294,18 @@ roadmap" on the A-graded tree.
   generator's output (tables.rs fd37d7b6..., jni_slot_list.txt
   f0b1758f..., cmp clean at PYTHONHASHSEED=1), committed artifacts
   restored, tree clean. PR HOLD unchanged.
+- round-8 file-split pass, slice-k (this commit): jdkutil.rs (1588) ->
+  a 161-line parent (doc + imports + the shared array helpers +
+  merge_sort_stable/join_array/v_to_string) over four children —
+  arrays (669, the toString/fill/copyOf/equals/sort/comparator
+  families), arraylist (245, the list plumbing + Collections fns +
+  toArray; renamed from "collections" because the child mod name
+  collided with the crate's own collections module import, E0255),
+  sublist (281, the SL_ state machine), unmod (156). The cross-child
+  helper bumps the compiler dictated (file-wide private -> crate
+  -visible): comparator_compare/compare_to_dispatch (arrays ->
+  arraylist), arrays_range_check (arraylist -> arrays),
+  list_to_vec/list_size/list_get/list_set (arraylist -> sublist/unmod).
+  PROOFS: fmt + clippy --all-targets -D warnings, j2r-runtime 308,
+  j2r-codegen 172 + e2e green, diff_suite 130 fixtures zero-diff 4/4
+  shards (193-199s). PR HOLD unchanged.
