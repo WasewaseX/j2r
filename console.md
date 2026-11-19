@@ -5365,3 +5365,17 @@ roadmap" on the A-graded tree.
   internal calls. PROOFS: fmt + clippy --all-targets -D warnings,
   j2r-runtime 308, j2r-codegen 172 + e2e green, diff_suite 130
   fixtures zero-diff 4/4 shards (190-201s). PR HOLD unchanged.
+- round-8 file-split pass, slice-p (this commit): thread.rs (2403) ->
+  a 310-line parent (doc + the record/sched statics + frame_slots)
+  over four children — sched (343, the registry + coop/yield/safepoint
+  + StwGuard), native (712, the java.lang.Thread native family +
+  join/sleep/interrupt), lifecycle (147, chaos + the shutdown rule +
+  the test-lock hooks), tests (821, wrapper-unwrapped). The
+  dead-code law from slice-h bit again: pub-at-root items
+  (begin_main_java_thread, await_non_daemons, THREAD_SLOTS) under a
+  private child module lose their API exemption, so the children
+  carry BOTH a pub glob (the API surface) and — after clippy proved
+  the pub(crate) globs shadowed — only the pub glob; the cross-child
+  coop/registry helpers got their pub(crate) bumps. PROOFS: fmt +
+  clippy --all-targets -D warnings, j2r-runtime 308, diff_suite 130
+  fixtures zero-diff 4/4 shards (190-200s). PR HOLD unchanged.
