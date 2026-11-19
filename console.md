@@ -5257,3 +5257,21 @@ roadmap" on the A-graded tree.
   130 fixtures zero-diff 4/4 shards (190-192s), corpus_suite PASS
   (52.8s), cfg_equiv PASS (441.3s), gate-11 in sync (fixtures=130
   tests=619). PR HOLD unchanged.
+- round-8 scripts wave, slice-i (this commit): the six non-Rust claims
+  from the owner's round-8 paste fixed. bench_suite.py main (199, the
+  113-flag) -> eight helpers (parse_args/check_tools/resolve_fixture/
+  prepare_work/run_reference/build_native/emit_row/write_csv, max 52
+  lines; every comment verbatim, the run_reference env thread fixed in
+  the same edit); the 4 evidence probes (CharArrayRep 116-line main,
+  TreeMapLhmPrim 184, TreeMap 96, TreeMapViews 313) frozen to
+  scripts/evidence/probe_sources_frozen_2026-11-19.tar.gz and their
+  loose copies removed (3 of 4 byte-identical to their live
+  crates/j2r-cli/tests/suite fixtures, TreeMapProbe the one 18-line
+  historical variant; FROZEN_JAVA_README.md carries the freeze law);
+  InfBlocks.java (HAND list) lost the 4 trivial counter/check comments
+  (L141/145/167 + the tail copy) — comments are not bytecode, the
+  compiled corpus is untouched. gen_jni_env_table.py (1714) is QUEUED
+  next (needs its pre-split byte-identity run first). PROOFS: python
+  syntax + --help + the missing-fixture dry-run path on bench_suite,
+  tar extract + cmp byte-exact on all 4 frozen probes, corpus_suite
+  PASS (52.8s) over the InfBlocks edit. PR HOLD unchanged.

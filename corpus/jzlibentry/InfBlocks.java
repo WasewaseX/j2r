@@ -138,11 +138,9 @@ final class InfBlocks implements InfBlocksC {
     if(n > z.avail_out) n = z.avail_out;
     if(n!=0 && r == Z_BUF_ERROR) r = Z_OK;
 
-    // update counters
     z.avail_out -= n;
     z.total_out += n;
 
-    // update check information
     if(check && n>0){
       z.adler.update(window, q, n);
     }
@@ -164,11 +162,9 @@ final class InfBlocks implements InfBlocksC {
       if (n > z.avail_out) n = z.avail_out;
       if (n!=0 && r == Z_BUF_ERROR) r = Z_OK;
 
-      // update counters
       z.avail_out -= n;
       z.total_out += n;
 
-      // update check information
       if(check && n>0){
         z.adler.update(window, q, n);
       }
