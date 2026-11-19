@@ -5429,3 +5429,20 @@ roadmap" on the A-graded tree.
   repaired. PROOFS: fmt + clippy --all-targets -D warnings,
   j2r-runtime 308 + j2r-codegen 172 + e2e green, diff_suite 130
   fixtures zero-diff 4/4 shards (193-198s). PR HOLD unchanged.
+- round-8 function-split pass, slice-t (this commit): the four
+  test-harness fns the string-aware scanner confirmed (the naive brace
+  walk had produced false positives — btrace is 37 lines, emit_default_
+  prologue 70, emit_typed_header fits — the true queue was exactly the
+  round-7 docs' test-harness set): diff_suite's
+  differential_suite_matches_jvm (410) -> the wave-history comment
+  (230 lines) hoisted to file level + the three filter blocks extracted
+  verbatim as apply_shard_filter/apply_explicit_selection/
+  apply_bucket_filter (the test fn now ~60 lines); e2e's
+  handcrafted_class_runs_natively (187) -> build_hello_class;
+  jmm_boundary's test (223) -> build_jmm_class + build_jmm_run;
+  jar_suite's jar_differential_suite (181) -> build_fixture +
+  compare_three_channel (RunResult params). PROOFS: fmt + clippy
+  --all-targets -D warnings, j2r-codegen 172 + e2e + jmm_boundary
+  green, jar_suite 3 green, diff_suite 130 fixtures zero-diff 4/4
+  shards (192-196s), the fn-length scan reports ZERO fns over 132.
+  PR HOLD unchanged.

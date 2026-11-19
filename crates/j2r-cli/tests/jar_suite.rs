@@ -168,46 +168,7 @@ fn jar_differential_suite() {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|_| "jar".to_string());
 
-        let build = || -> Result<(String, String), String> {
-            let app_jar = work.join("app.jar");
-            let classpath: String = match kind.as_str() {
-                "jar" => {
-                    let cls = work.join("classes");
-                    std::fs::create_dir_all(&cls).unwrap();
-                    javac_all(&javac, fixture, &cls)?;
-                    pack_jar(&jar, &cls, &app_jar)?;
-                    app_jar.to_string_lossy().to_string()
-                }
-                "dupdir" => {
-                    // The directory copy of Dup goes first on the
-                    // classpath; the jar (built from dup_jar) second. Both
-                    // JVMs must load Dup from the directory copy.
-                    let dupcls = work.join("dupcls");
-                    let jarcls = work.join("jarcls");
-                    std::fs::create_dir_all(&dupcls).unwrap();
-                    std::fs::create_dir_all(&jarcls).unwrap();
-                    javac_all(&javac, &fixture.join("dup_dir"), &dupcls)?;
-                    javac_all(&javac, &fixture.join("dup_jar"), &jarcls)?;
-                    // Compile App.java (fixture root) together with the
-                    // jar copy of Dup so javac resolves the reference.
-                    let status = Command::new(&javac)
-                        .arg("-d")
-                        .arg(&jarcls)
-                        .arg(fixture.join("dup_jar").join("Dup.java"))
-                        .arg(fixture.join("App.java"))
-                        .status()
-                        .map_err(|e| format!("javac failed to start: {e}"))?;
-                    if !status.success() {
-                        return Err("javac App failed".to_string());
-                    }
-                    pack_jar(&jar, &jarcls, &app_jar)?;
-                    format!("{}:{}", dupcls.display(), app_jar.display())
-                }
-                other => return Err(format!("unknown fixture kind {other}")),
-            };
-            Ok((classpath, app_jar.to_string_lossy().to_string()))
-        };
-        let (classpath, app_jar) = match build() {
+        let (classpath, app_jar) = match build_fixture(&javac, &jar, fixture, &work, &kind) {
             Ok(v) => v,
             Err(e) => {
                 failures.push(format!("{name}: fixture build failed: {e}"));
@@ -281,25 +242,7 @@ fn jar_differential_suite() {
 
         // Three-channel comparison. These fixtures are deterministic and
         // exception-free, so no stack-frame normalization is needed.
-        if generated.stdout != reference.stdout {
-            failures.push(format!(
-                "{name}: stdout mismatch\n--- jvm:\n{}\n--- j2r:\n{}",
-                reference.stdout, generated.stdout
-            ));
-        }
-        if generated.stderr != reference.stderr {
-            failures.push(format!(
-                "{name}: stderr mismatch\n--- jvm:\n{}\n--- j2r:\n{}",
-                reference.stderr, generated.stderr
-            ));
-        }
-        if generated.code != reference.code {
-            failures.push(format!(
-                "{name}: exit mismatch (jvm {}, j2r {})",
-                reference.code, generated.code
-            ));
-        }
-        let _ = app_jar;
+        compare_three_channel(&name, &reference, &generated, &mut failures, &app_jar);
     }
 
     let _ = std::fs::remove_dir_all(&work_root);
@@ -432,4 +375,83 @@ fn missing_class_fails_loudly() {
         "error must name the referer, got: {}",
         r.stderr
     );
+}
+
+/// The per-fixture classpath builder (extracted verbatim from the test
+/// body's closure in the 2026-11-19 function-length wave; the captured
+/// javac/jar/fixture became parameters).
+#[allow(clippy::too_many_arguments)]
+fn build_fixture(
+    javac: &Path,
+    jar: &Path,
+    fixture: &Path,
+    work: &Path,
+    kind: &str,
+) -> Result<(String, String), String> {
+    let app_jar = work.join("app.jar");
+    let classpath: String = match kind {
+        "jar" => {
+            let cls = work.join("classes");
+            std::fs::create_dir_all(&cls).unwrap();
+            javac_all(javac, fixture, &cls)?;
+            pack_jar(jar, &cls, &app_jar)?;
+            app_jar.to_string_lossy().to_string()
+        }
+        "dupdir" => {
+            // The directory copy of Dup goes first on the
+            // classpath; the jar (built from dup_jar) second. Both
+            // JVMs must load Dup from the directory copy.
+            let dupcls = work.join("dupcls");
+            let jarcls = work.join("jarcls");
+            std::fs::create_dir_all(&dupcls).unwrap();
+            std::fs::create_dir_all(&jarcls).unwrap();
+            javac_all(javac, &fixture.join("dup_dir"), &dupcls)?;
+            javac_all(javac, &fixture.join("dup_jar"), &jarcls)?;
+            // Compile App.java (fixture root) together with the
+            // jar copy of Dup so javac resolves the reference.
+            let status = Command::new(javac)
+                .arg("-d")
+                .arg(&jarcls)
+                .arg(fixture.join("dup_jar").join("Dup.java"))
+                .arg(fixture.join("App.java"))
+                .status()
+                .map_err(|e| format!("javac failed to start: {e}"))?;
+            if !status.success() {
+                return Err("javac App failed".to_string());
+            }
+            pack_jar(jar, &jarcls, &app_jar)?;
+            format!("{}:{}", dupcls.display(), app_jar.display())
+        }
+        other => return Err(format!("unknown fixture kind {other}")),
+    };
+    Ok((classpath, app_jar.to_string_lossy().to_string()))
+}
+
+/// The three-channel comparison (extracted verbatim).
+fn compare_three_channel(
+    name: &str,
+    reference: &RunResult,
+    generated: &RunResult,
+    failures: &mut Vec<String>,
+    app_jar: &str,
+) {
+    let _ = app_jar;
+    if generated.stdout != reference.stdout {
+        failures.push(format!(
+            "{name}: stdout mismatch\n--- jvm:\n{}\n--- j2r:\n{}",
+            reference.stdout, generated.stdout
+        ));
+    }
+    if generated.stderr != reference.stderr {
+        failures.push(format!(
+            "{name}: stderr mismatch\n--- jvm:\n{}\n--- j2r:\n{}",
+            reference.stderr, generated.stderr
+        ));
+    }
+    if generated.code != reference.code {
+        failures.push(format!(
+            "{name}: exit mismatch (jvm {}, j2r {})",
+            reference.code, generated.code
+        ));
+    }
 }

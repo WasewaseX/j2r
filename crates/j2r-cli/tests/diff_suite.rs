@@ -36,6 +36,239 @@ fn which(program: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+// The suite must keep growing with the milestone; 75 = the 70 fixtures
+// through M3 Wave 5 (reflection) plus the five real-program-scale
+// fixtures (BigJson, BigHuffman, BigRpg, BigLang, BigCache — 300-500
+// line multi-class programs, not micro-probes). Standing policy from
+// the M3 review: every wave adds real-program fixtures too. M3.5 (audit
+// A2) added the four try-with-resources fixtures (TwrSuppress, TwrCaught,
+// TwrCause, TwrThree) — 82 on disk, guard one below that.
+// A3 added the MultiMain stem-preference fixture — 83 on disk, guard
+// one below that (the count itself is machine-checked by
+// scripts/check_doc_counts.py, audit A8).
+// M4 Wave 2 added the real-thread fixtures (ThreadHello, ThreadSafepoint)
+// — 86 on disk. M4 Wave 4 (T14) added the interrupt fixtures
+// (InterruptSleep, InterruptJoin, InterruptWait) and (T15) the daemon
+// fixtures (DaemonExit, DaemonInterrupt) — 94 on disk. The F2 probe
+// wave added LambdaClinit (lambda + final/volatile reference statics
+// in <clinit>, invoked through the interface types — the Runnable SAM
+// row) — 95 on disk. The F4/F5 closure wave added HexFloat (hex-float
+// literal parsing, bit-exact via floatToIntBits/doubleToLongBits) and
+// ArraycopyMismatch (the arraycopy element-mismatch message +
+// destination-order partial copy) — 97 on disk. The F6 wave added
+// EnumFixture (enum classes end-to-end: $VALUES / values() clone
+// semantics, valueOf with the canonical-name miss message,
+// getDeclaringClass, compareTo/equals, the $SwitchMap synthetic, enum
+// fields+ctors) — 98 on disk. The skip/charset wave added SkipDefault
+// (the InputStream.skip(J) DEFAULT loop-read on a read()-only stream,
+// ByteArrayInputStream semantics incl. close-no-op and mark/reset,
+// FilterInputStream delegation) and Utf16 (the UTF-16 charset family:
+// BOM encode/decode, BE/LE, surrogate pairs, U+FFFD substitution,
+// exact UEE names) — 100 on disk. The BufferedInputStream wave added
+// Buffered (buffer-read paths, the skip buffer-vs-inner law, mark/
+// readlimit invalidation, the "Stream closed" family) — 101 on disk.
+// The deep-arrays wave added DeepArrays (3D primitive arrays:
+// partial-dim alloc, null rows, clone-at-depth, arraycopy, instanceof,
+// the aastore ASE external-name shapes) — 102 on disk. The Formatter
+// wave added Fmt (String.format/printf subset: %s %S %d %x %X %o %f %e
+// %b %c %h, flags/width/precision, HALF_UP on the shortest repr, the
+// exact three error messages) — 103 on disk. The stream wave 4 added
+// Pushback (unread single/bulk/range, buffer exhaustion
+// "Push back buffer is full", skip-through-pushback, markSupported
+// false, the "Stream closed" family) — 104 on disk, guard one below
+// that. The Formatter-residuals wave (2026-11-06) extended Fmt IN
+// PLACE (no new fixture, count unchanged): %E %G %a/%A, the
+// ','-flag legality, null->null/NULL, the uppercase-variant family
+// (S B H C X E G A), the parse-time MFW/FFCME laws —
+// corpus/FmtResidualProbe.java is the 116-row Temurin vector.
+// The singleton/cyclic-init wave (2026-11-06, the review's P1 ask)
+// added SingletonFactory (factory singleton with a static-factory
+// <clinit> constructor call, the static-init-block form, and the
+// initialization-on-demand-holder idiom with a laziness proof) and
+// CyclicInit (two pairs of mutually-referencing <clinit> bodies pinning
+// JLS 12.4.2 in-progress recursion: assigned-value and default-value
+// visibility) — 106 on disk, guard one below that. The depth-4 wave
+// (2026-11-06) then extended DeepArrays IN PLACE (count unchanged):
+// ten `[[[[I` rows — full/partial/one-dim allocation, the typed-lattice
+// call-site payoff, shallow clone, 4D arraycopy, null-row NPE,
+// instanceof/getName shapes, the [[[F-into-[[[I ASE message.
+// The JAMA corpus wave (2026-11-06) added ArrayCovarianceProbe —
+// JLS 4.10.3 array covariance pinned differentially ([[D flows into
+// Object[] parameters/assignments; the verifier's covariant pop_exact
+// rule and the runtime store checks are the JDK's own): 107 on disk.
+// The Math-semantics wave (2026-11-07, evidence from the external
+// java-to-rust conversion report's silent-semantic class) added
+// MathSemantics — the JDK-8010430 round law (round(0.49999999999999994)
+// = 0 and the mathematical-integer cast branch above each binade, both
+// arities; the naive floor(x+0.5) native failed 4 rows before the fix),
+// the min/max signed-zero law bit-visible via doubleToLongBits, NaN
+// results pinned under the canonicalizing bit-conversion contract
+// (raw NaN payloads from min/max are a HotSpot C2-intrinsic artifact —
+// max(NaN,1.0) returns 1.0's bits on x86-64 while min returns the NaN
+// operand — deliberately not pinned), and abs's wrapping/signed-zero
+// laws: 108 on disk, guard one below that.
+// The runtime-io wave (2026-11-07, org.json conversion-report
+// findings #1-#3) added StringIoSemantics — StringReader.read()
+// returns UTF-16 CODE UNITS (astral = two reads, unit-precise
+// mark/reset), the full JDK surface (skip clamped + negative-returns-0
+// Temurin-21-empirical, reset-to-beginning before any mark, the
+// Objects.checkFromIndexRange bulk-range message, the close law) and
+// StringWriter's write(int) 16-bit truncation law: 109 on disk, guard
+// one below that. R2 slice 1 (2026-11-12) added ReflectForName (the
+// Class.forName closed-world resolution fixture) — 110 on disk, guard
+// one below that. External-B2/O5 (2026-11-13) added PartitionCatch
+// (the exception-table partition law) — 111 on disk, guard one below
+// that. The EXTERNAL-B4..B12 wave (2026-11-13, the jbox2d port
+// report) added Externals — NoSuchFieldError catch-type verification,
+// StrictMath's full mirrored surface, the 8 boxed constructors (fresh
+// boxes: `new Integer(127) == new Integer(127)` is FALSE, the owner's
+// bug.md cache claim corrected against the pinned JVM vector), the
+// AssertionError primitive/Object family, the reverse IEEE bit
+// statics, the fdlibm transcendental band (StrictMath pinned
+// bit-exactly; Math carries the documented HotSpot-intrinsic 1-ulp
+// residual O1), java.util.Random's 48-bit LCG bit-identical incl.
+// nextGaussian/nextBytes, the ArrayList.toArray two-branch contract,
+// Arrays.sort range forms with JDK-exact messages + reverseOrder +
+// desiredAssertionStatus — 112 on disk, guard one below that. It also
+// found a REAL pre-existing bug en route: a main() that touches none
+// of its own class's statics ran WITHOUT the `<clinit>` (the launcher
+// now ensures the main class, JLS 12.4.2). R2 slice 2 (2026-11-13)
+// added ReflectStatic — Class.getField's public-member search law
+// (inherited-public through the superclass chain, the non-public
+// shadow quirk), Field/Method.getModifiers (the raw ACC_* masks ride
+// the metadata), the static Field.get/set paths and the typed
+// getter/setter family with the JDK's widening table — 113 on disk.
+// The SORT-NULL-CMP fix (2026-11-13) extended
+// ArraysSurface IN PLACE (count unchanged): the whole-array
+// sort(T[], C) row with a NULL comparator must fall back to natural
+// ordering (the JDK source's first branch, `if (c == null)
+// { sort(a); }`) — the old row NPE'd where the range row already
+// delegated; two pins (String + Integer arrays) ride the existing
+// fixture. The CLINIT-THROW wave (2026-11-13) added ClinitThrow — the
+// JLS 12.4.2 steps 11-12 machinery end to end: non-Error wrapped in a
+// message-null EIIE (cause = the original), Error and EIIE rethrown
+// as-is, the static-block form, and the errant law at every later
+// first-use (NCDFE "Could not initialize class <binary name>" with a
+// fresh-EIIE cause carrying "Exception <E> [in thread \"main\"]"),
+// which also
+// forced the builtin parent rows for ExceptionInInitializerError and
+// NoClassDefFoundError (both invisible to catch matching before) —
+// 114 on disk. The R2 slice 3 wave (2026-11-13) added ReflectDeclared
+// — the reflection ARRAY forms + the Constructor surface:
+// getDeclaredFields (declaration order), getFields (own publics then
+// the superclass chain's, NO shadow dedupe), getDeclaredConstructors
+// (CLASSFILE order REVERSED — Temurin lists the last-declared ctor
+// first), getConstructors (public-only), getDeclaredConstructor /
+// getConstructor (exact param match up to the closing paren — the
+// bare-"(" no-arg shape must not prefix-match every descriptor),
+// Constructor's toString/getParameterTypes/getName/getModifiers/
+// getDeclaringClass, and Modifier.toString(int) (JDK canonical bit
+// order); the CTORS_{tag} metadata tables ride both emitters — 115 on
+// disk. The G3.3 slice-2 wave (2026-11-14) added MapPrim — the
+// primitive-specialized map path: four closure-proven HashMap locals
+// (Double/Integer/Long/Float) whose every access is javac's autobox
+// core shape, so the node slots hold RAW prim payloads; byte-identical
+// vs the boxing path on all three channels. The G3.3 slice-3 wave
+// (2026-11-14) added MapField — the field/materialization layer: the
+// maps are static fields (creation runs in <clinit> prove the
+// provenance law), the put/get cores ride getstatic receivers, and the
+// faithful exits (generic Object reads, entry.getValue, toString)
+// materialize the boxes lazily with the get-twice-same-ref and JLS
+// cache laws pinned. The FORNAME-INIT wave (2026-11-14) added
+// ForNameInit — forName(name) RUNS the clinit through the same
+// JLS 12.4.2 machine as the bytecode sites (the EIIIE wrap, the
+// errant NCDFE, the Error as-is), the 3-arg initialize=false skips
+// it, the array descriptor resolves without initializing the
+// component, and Class.getClassLoader joins the surface. The
+// NEW-INSTANCE wave (2026-11-14) added NewInstance —
+// Constructor.newInstance: the clinit runs through the same ensure
+// (the bare EIIE / errant NCDFE UNWRAPPED), the ctor sees the JLS
+// defaults (the layout spec rides the metadata), args type-check
+// through the shared unmarshal, a same-package private ctor
+// succeeds, an abstract class throws the message-null
+// InstantiationException, and a ctor's own throw wraps in
+// InvocationTargetException — 119 on disk, guard one below that.
+// The R5 slice-2 wave (2026-11-15) added VTableDispatch — the
+// codegen-time vtable + the interface closure: the implementor
+// closure (sub-interfaces and super chains included), the
+// monomorphic interface fold, the polymorphic interface and
+// class-typed sites dispatching through per-class vtable arms
+// (same-target receivers grouped under one arm), the inherited
+// interface method landing on the base's compiled method — 120 on
+// disk, guard one below that. The run-4 wave (2026-11-15) added
+// LhmProbe — LinkedHashMap the class: the insertion-order law (first
+// insertion wins position), re-put keeps position (value replaced),
+// remove + re-put moves to the tail, get never reorders, the
+// ctor-from-map copies in the source's iteration order (both source
+// kinds), is-a HashMap/Map, the three views in link order, the
+// entry-iterator remove (order intact, modCount re-synced), the null
+// key/value laws, clear + re-add, getOrDefault/containsValue — 121 on
+// disk, guard one below that. The run-4 residual wave (2026-11-15)
+// added ItrOrderProbe — the hash-iterator remove() fix: mid-walk
+// remove through keySet/values/entrySet, continued iteration without
+// CME, double-remove ISE, foreign-mod CME, and the probed combined
+// law (fresh iterator + foreign mod + remove without next → ISE,
+// NOT CME) — 122 on disk, guard one below that. The run-5 wave
+// (2026-11-15) added TreeMapProbe — the SORTED map: the red-black
+// storage under key-order iteration, first/lastKey, the
+// ceiling/floor/higher/lower navigable surface, the Comparator ctor
+// reordering everything, the null-key NPE + non-Comparable CCE laws,
+// the sorted copy ctor, and the successor-walk iterator remove (the
+// ISE-first law) — 123 on disk, guard one below that. The run-6 wave
+// (2026-11-15) added TreeMapViewsProbe — the BOUNDED views: the
+// 26-cell narrowing matrix (full inRange on the fromKey side, the
+// inclusivity-blind strictly-above-hi toKey gate, the crossed check
+// last), the range-gated Map surface (silent misses, IAE "key out of
+// range" on put, NPE/CCE through the range compare), the computed
+// size, the live views, the slice-only clear, the view-of-view
+// keySet/values/entrySet, and the bounded iterators sharing the
+// unbounded remove (ISE-first carries) — 124 on disk, guard one below
+// that. The G3.3 slice-4 wave (2026-11-16) added TreeMapLhmPrimProbe —
+// the prim rewrites RIDING BOTH NEW MAPS: the closure-clean TreeMap and
+// LinkedHashMap locals, the proven static fields, L1/L2 through the
+// materialization layer, the faithful overwrite/remove returns, the
+// null laws (the tag is an annotation), the SubMap view readers, LHM
+// insertion order, and the c12-corrected CCE self-compare law
+// (StringBuilder is Comparable since JDK 11 — pinned on Object keys).
+// The run-2 wave (2026-11-16) added CharArrayRepProbe — the [C
+// representation probe: both [C producers (new char[n] payload vs
+// String.toCharArray), the castore-into-toCharArray store shape, the
+// substring-reassignment t_j law, the char[] swap, the cross-shape
+// consumers, and the distilled NGram kernel — the run-2 P0 typed-
+// backend crash regression —
+// The run-3 wave (2026-11-16) added DefaultDispatchProbe — the
+// user-interface DEFAULT-method dispatch law (the registered Probe5
+// residual): the single default through the interface-typed receiver,
+// the most-specific default through the sub-interface, the
+// class-override-beats-default chain precedence, and the
+// super-interface default reached through a non-redeclaring Mid —
+// 127 on disk, guard one below that.
+// The standing-run-4 wave (2026-11-16) added NpeShapeProbe2 — the
+// HELPFUL-NPE residual's JEP 358 oracle matrix: the eight probed
+// null-dereference shapes (unbox-a-call-result S1/S8, null local
+// S2/S3, producer chain S4, array length S5, field read S6, array
+// store S7) all caught and printing getMessage(), so the fix's
+// static messages must match Temurin byte-for-byte on stdout — the
+// registered slice-(a)+(b) proof — 128 on disk, guard one below
+// that.
+// The standing-run-5 wave (2026-11-16) added PrivateCtorAccess — the
+// reflection CALLER law (the different-package private-ctor residual
+// closed): the nestmate private allowed (JEP 181 NestHost), the
+// SAME-package NON-nestmate private refused, the foreign-host nested
+// private refused, the same-package protected/package-private
+// allowed, the public allowed, and the raw modifier bits — the
+// reachable shapes one self-contained file pins; the diff-package
+// refusal shapes ride the law tests + the pA/pB probe corpus — 129
+// on disk, guard one below that.
+// The cycle-complete wave (2026-11-17) added HashMapCopyProbe — the
+// registered HashMap COPY-CTOR gap closed: the putMapEntries laws
+// (L1 the source-order insertion read through the chain order, L2
+// the cap-16/32 pre-size boundary tableSizeFor(s/0.75f+1) made
+// observable by key 20, L3 the copy-of-copy law, L4/L4b the tree
+// sources through BOTH copy ctors, L5 content, L6 the null-map NPE,
+// L7 the null-key carry, L8 the empty-source lazy table, L9 the
+// post-copy growth timing with the lo/hi split) — 130 on disk, guard
+// one below that.
 #[test]
 fn differential_suite_matches_jvm() {
     let exe = env!("CARGO_BIN_EXE_j2r");
@@ -55,245 +288,36 @@ fn differential_suite_matches_jvm() {
         "no fixtures found in {}",
         suite_dir.display()
     );
-    // The suite must keep growing with the milestone; 75 = the 70 fixtures
-    // through M3 Wave 5 (reflection) plus the five real-program-scale
-    // fixtures (BigJson, BigHuffman, BigRpg, BigLang, BigCache — 300-500
-    // line multi-class programs, not micro-probes). Standing policy from
-    // the M3 review: every wave adds real-program fixtures too. M3.5 (audit
-    // A2) added the four try-with-resources fixtures (TwrSuppress, TwrCaught,
-    // TwrCause, TwrThree) — 82 on disk, guard one below that.
-    // A3 added the MultiMain stem-preference fixture — 83 on disk, guard
-    // one below that (the count itself is machine-checked by
-    // scripts/check_doc_counts.py, audit A8).
-    // M4 Wave 2 added the real-thread fixtures (ThreadHello, ThreadSafepoint)
-    // — 86 on disk. M4 Wave 4 (T14) added the interrupt fixtures
-    // (InterruptSleep, InterruptJoin, InterruptWait) and (T15) the daemon
-    // fixtures (DaemonExit, DaemonInterrupt) — 94 on disk. The F2 probe
-    // wave added LambdaClinit (lambda + final/volatile reference statics
-    // in <clinit>, invoked through the interface types — the Runnable SAM
-    // row) — 95 on disk. The F4/F5 closure wave added HexFloat (hex-float
-    // literal parsing, bit-exact via floatToIntBits/doubleToLongBits) and
-    // ArraycopyMismatch (the arraycopy element-mismatch message +
-    // destination-order partial copy) — 97 on disk. The F6 wave added
-    // EnumFixture (enum classes end-to-end: $VALUES / values() clone
-    // semantics, valueOf with the canonical-name miss message,
-    // getDeclaringClass, compareTo/equals, the $SwitchMap synthetic, enum
-    // fields+ctors) — 98 on disk. The skip/charset wave added SkipDefault
-    // (the InputStream.skip(J) DEFAULT loop-read on a read()-only stream,
-    // ByteArrayInputStream semantics incl. close-no-op and mark/reset,
-    // FilterInputStream delegation) and Utf16 (the UTF-16 charset family:
-    // BOM encode/decode, BE/LE, surrogate pairs, U+FFFD substitution,
-    // exact UEE names) — 100 on disk. The BufferedInputStream wave added
-    // Buffered (buffer-read paths, the skip buffer-vs-inner law, mark/
-    // readlimit invalidation, the "Stream closed" family) — 101 on disk.
-    // The deep-arrays wave added DeepArrays (3D primitive arrays:
-    // partial-dim alloc, null rows, clone-at-depth, arraycopy, instanceof,
-    // the aastore ASE external-name shapes) — 102 on disk. The Formatter
-    // wave added Fmt (String.format/printf subset: %s %S %d %x %X %o %f %e
-    // %b %c %h, flags/width/precision, HALF_UP on the shortest repr, the
-    // exact three error messages) — 103 on disk. The stream wave 4 added
-    // Pushback (unread single/bulk/range, buffer exhaustion
-    // "Push back buffer is full", skip-through-pushback, markSupported
-    // false, the "Stream closed" family) — 104 on disk, guard one below
-    // that. The Formatter-residuals wave (2026-11-06) extended Fmt IN
-    // PLACE (no new fixture, count unchanged): %E %G %a/%A, the
-    // ','-flag legality, null->null/NULL, the uppercase-variant family
-    // (S B H C X E G A), the parse-time MFW/FFCME laws —
-    // corpus/FmtResidualProbe.java is the 116-row Temurin vector.
-    // The singleton/cyclic-init wave (2026-11-06, the review's P1 ask)
-    // added SingletonFactory (factory singleton with a static-factory
-    // <clinit> constructor call, the static-init-block form, and the
-    // initialization-on-demand-holder idiom with a laziness proof) and
-    // CyclicInit (two pairs of mutually-referencing <clinit> bodies pinning
-    // JLS 12.4.2 in-progress recursion: assigned-value and default-value
-    // visibility) — 106 on disk, guard one below that. The depth-4 wave
-    // (2026-11-06) then extended DeepArrays IN PLACE (count unchanged):
-    // ten `[[[[I` rows — full/partial/one-dim allocation, the typed-lattice
-    // call-site payoff, shallow clone, 4D arraycopy, null-row NPE,
-    // instanceof/getName shapes, the [[[F-into-[[[I ASE message.
-    // The JAMA corpus wave (2026-11-06) added ArrayCovarianceProbe —
-    // JLS 4.10.3 array covariance pinned differentially ([[D flows into
-    // Object[] parameters/assignments; the verifier's covariant pop_exact
-    // rule and the runtime store checks are the JDK's own): 107 on disk.
-    // The Math-semantics wave (2026-11-07, evidence from the external
-    // java-to-rust conversion report's silent-semantic class) added
-    // MathSemantics — the JDK-8010430 round law (round(0.49999999999999994)
-    // = 0 and the mathematical-integer cast branch above each binade, both
-    // arities; the naive floor(x+0.5) native failed 4 rows before the fix),
-    // the min/max signed-zero law bit-visible via doubleToLongBits, NaN
-    // results pinned under the canonicalizing bit-conversion contract
-    // (raw NaN payloads from min/max are a HotSpot C2-intrinsic artifact —
-    // max(NaN,1.0) returns 1.0's bits on x86-64 while min returns the NaN
-    // operand — deliberately not pinned), and abs's wrapping/signed-zero
-    // laws: 108 on disk, guard one below that.
-    // The runtime-io wave (2026-11-07, org.json conversion-report
-    // findings #1-#3) added StringIoSemantics — StringReader.read()
-    // returns UTF-16 CODE UNITS (astral = two reads, unit-precise
-    // mark/reset), the full JDK surface (skip clamped + negative-returns-0
-    // Temurin-21-empirical, reset-to-beginning before any mark, the
-    // Objects.checkFromIndexRange bulk-range message, the close law) and
-    // StringWriter's write(int) 16-bit truncation law: 109 on disk, guard
-    // one below that. R2 slice 1 (2026-11-12) added ReflectForName (the
-    // Class.forName closed-world resolution fixture) — 110 on disk, guard
-    // one below that. External-B2/O5 (2026-11-13) added PartitionCatch
-    // (the exception-table partition law) — 111 on disk, guard one below
-    // that. The EXTERNAL-B4..B12 wave (2026-11-13, the jbox2d port
-    // report) added Externals — NoSuchFieldError catch-type verification,
-    // StrictMath's full mirrored surface, the 8 boxed constructors (fresh
-    // boxes: `new Integer(127) == new Integer(127)` is FALSE, the owner's
-    // bug.md cache claim corrected against the pinned JVM vector), the
-    // AssertionError primitive/Object family, the reverse IEEE bit
-    // statics, the fdlibm transcendental band (StrictMath pinned
-    // bit-exactly; Math carries the documented HotSpot-intrinsic 1-ulp
-    // residual O1), java.util.Random's 48-bit LCG bit-identical incl.
-    // nextGaussian/nextBytes, the ArrayList.toArray two-branch contract,
-    // Arrays.sort range forms with JDK-exact messages + reverseOrder +
-    // desiredAssertionStatus — 112 on disk, guard one below that. It also
-    // found a REAL pre-existing bug en route: a main() that touches none
-    // of its own class's statics ran WITHOUT the `<clinit>` (the launcher
-    // now ensures the main class, JLS 12.4.2). R2 slice 2 (2026-11-13)
-    // added ReflectStatic — Class.getField's public-member search law
-    // (inherited-public through the superclass chain, the non-public
-    // shadow quirk), Field/Method.getModifiers (the raw ACC_* masks ride
-    // the metadata), the static Field.get/set paths and the typed
-    // getter/setter family with the JDK's widening table — 113 on disk.
-    // The SORT-NULL-CMP fix (2026-11-13) extended
-    // ArraysSurface IN PLACE (count unchanged): the whole-array
-    // sort(T[], C) row with a NULL comparator must fall back to natural
-    // ordering (the JDK source's first branch, `if (c == null)
-    // { sort(a); }`) — the old row NPE'd where the range row already
-    // delegated; two pins (String + Integer arrays) ride the existing
-    // fixture. The CLINIT-THROW wave (2026-11-13) added ClinitThrow — the
-    // JLS 12.4.2 steps 11-12 machinery end to end: non-Error wrapped in a
-    // message-null EIIE (cause = the original), Error and EIIE rethrown
-    // as-is, the static-block form, and the errant law at every later
-    // first-use (NCDFE "Could not initialize class <binary name>" with a
-    // fresh-EIIE cause carrying "Exception <E> [in thread \"main\"]"),
-    // which also
-    // forced the builtin parent rows for ExceptionInInitializerError and
-    // NoClassDefFoundError (both invisible to catch matching before) —
-    // 114 on disk. The R2 slice 3 wave (2026-11-13) added ReflectDeclared
-    // — the reflection ARRAY forms + the Constructor surface:
-    // getDeclaredFields (declaration order), getFields (own publics then
-    // the superclass chain's, NO shadow dedupe), getDeclaredConstructors
-    // (CLASSFILE order REVERSED — Temurin lists the last-declared ctor
-    // first), getConstructors (public-only), getDeclaredConstructor /
-    // getConstructor (exact param match up to the closing paren — the
-    // bare-"(" no-arg shape must not prefix-match every descriptor),
-    // Constructor's toString/getParameterTypes/getName/getModifiers/
-    // getDeclaringClass, and Modifier.toString(int) (JDK canonical bit
-    // order); the CTORS_{tag} metadata tables ride both emitters — 115 on
-    // disk. The G3.3 slice-2 wave (2026-11-14) added MapPrim — the
-    // primitive-specialized map path: four closure-proven HashMap locals
-    // (Double/Integer/Long/Float) whose every access is javac's autobox
-    // core shape, so the node slots hold RAW prim payloads; byte-identical
-    // vs the boxing path on all three channels. The G3.3 slice-3 wave
-    // (2026-11-14) added MapField — the field/materialization layer: the
-    // maps are static fields (creation runs in <clinit> prove the
-    // provenance law), the put/get cores ride getstatic receivers, and the
-    // faithful exits (generic Object reads, entry.getValue, toString)
-    // materialize the boxes lazily with the get-twice-same-ref and JLS
-    // cache laws pinned. The FORNAME-INIT wave (2026-11-14) added
-    // ForNameInit — forName(name) RUNS the clinit through the same
-    // JLS 12.4.2 machine as the bytecode sites (the EIIIE wrap, the
-    // errant NCDFE, the Error as-is), the 3-arg initialize=false skips
-    // it, the array descriptor resolves without initializing the
-    // component, and Class.getClassLoader joins the surface. The
-    // NEW-INSTANCE wave (2026-11-14) added NewInstance —
-    // Constructor.newInstance: the clinit runs through the same ensure
-    // (the bare EIIE / errant NCDFE UNWRAPPED), the ctor sees the JLS
-    // defaults (the layout spec rides the metadata), args type-check
-    // through the shared unmarshal, a same-package private ctor
-    // succeeds, an abstract class throws the message-null
-    // InstantiationException, and a ctor's own throw wraps in
-    // InvocationTargetException — 119 on disk, guard one below that.
-    // The R5 slice-2 wave (2026-11-15) added VTableDispatch — the
-    // codegen-time vtable + the interface closure: the implementor
-    // closure (sub-interfaces and super chains included), the
-    // monomorphic interface fold, the polymorphic interface and
-    // class-typed sites dispatching through per-class vtable arms
-    // (same-target receivers grouped under one arm), the inherited
-    // interface method landing on the base's compiled method — 120 on
-    // disk, guard one below that. The run-4 wave (2026-11-15) added
-    // LhmProbe — LinkedHashMap the class: the insertion-order law (first
-    // insertion wins position), re-put keeps position (value replaced),
-    // remove + re-put moves to the tail, get never reorders, the
-    // ctor-from-map copies in the source's iteration order (both source
-    // kinds), is-a HashMap/Map, the three views in link order, the
-    // entry-iterator remove (order intact, modCount re-synced), the null
-    // key/value laws, clear + re-add, getOrDefault/containsValue — 121 on
-    // disk, guard one below that. The run-4 residual wave (2026-11-15)
-    // added ItrOrderProbe — the hash-iterator remove() fix: mid-walk
-    // remove through keySet/values/entrySet, continued iteration without
-    // CME, double-remove ISE, foreign-mod CME, and the probed combined
-    // law (fresh iterator + foreign mod + remove without next → ISE,
-    // NOT CME) — 122 on disk, guard one below that. The run-5 wave
-    // (2026-11-15) added TreeMapProbe — the SORTED map: the red-black
-    // storage under key-order iteration, first/lastKey, the
-    // ceiling/floor/higher/lower navigable surface, the Comparator ctor
-    // reordering everything, the null-key NPE + non-Comparable CCE laws,
-    // the sorted copy ctor, and the successor-walk iterator remove (the
-    // ISE-first law) — 123 on disk, guard one below that. The run-6 wave
-    // (2026-11-15) added TreeMapViewsProbe — the BOUNDED views: the
-    // 26-cell narrowing matrix (full inRange on the fromKey side, the
-    // inclusivity-blind strictly-above-hi toKey gate, the crossed check
-    // last), the range-gated Map surface (silent misses, IAE "key out of
-    // range" on put, NPE/CCE through the range compare), the computed
-    // size, the live views, the slice-only clear, the view-of-view
-    // keySet/values/entrySet, and the bounded iterators sharing the
-    // unbounded remove (ISE-first carries) — 124 on disk, guard one below
-    // that. The G3.3 slice-4 wave (2026-11-16) added TreeMapLhmPrimProbe —
-    // the prim rewrites RIDING BOTH NEW MAPS: the closure-clean TreeMap and
-    // LinkedHashMap locals, the proven static fields, L1/L2 through the
-    // materialization layer, the faithful overwrite/remove returns, the
-    // null laws (the tag is an annotation), the SubMap view readers, LHM
-    // insertion order, and the c12-corrected CCE self-compare law
-    // (StringBuilder is Comparable since JDK 11 — pinned on Object keys).
-    // The run-2 wave (2026-11-16) added CharArrayRepProbe — the [C
-    // representation probe: both [C producers (new char[n] payload vs
-    // String.toCharArray), the castore-into-toCharArray store shape, the
-    // substring-reassignment t_j law, the char[] swap, the cross-shape
-    // consumers, and the distilled NGram kernel — the run-2 P0 typed-
-    // backend crash regression —
-    // The run-3 wave (2026-11-16) added DefaultDispatchProbe — the
-    // user-interface DEFAULT-method dispatch law (the registered Probe5
-    // residual): the single default through the interface-typed receiver,
-    // the most-specific default through the sub-interface, the
-    // class-override-beats-default chain precedence, and the
-    // super-interface default reached through a non-redeclaring Mid —
-    // 127 on disk, guard one below that.
-    // The standing-run-4 wave (2026-11-16) added NpeShapeProbe2 — the
-    // HELPFUL-NPE residual's JEP 358 oracle matrix: the eight probed
-    // null-dereference shapes (unbox-a-call-result S1/S8, null local
-    // S2/S3, producer chain S4, array length S5, field read S6, array
-    // store S7) all caught and printing getMessage(), so the fix's
-    // static messages must match Temurin byte-for-byte on stdout — the
-    // registered slice-(a)+(b) proof — 128 on disk, guard one below
-    // that.
-    // The standing-run-5 wave (2026-11-16) added PrivateCtorAccess — the
-    // reflection CALLER law (the different-package private-ctor residual
-    // closed): the nestmate private allowed (JEP 181 NestHost), the
-    // SAME-package NON-nestmate private refused, the foreign-host nested
-    // private refused, the same-package protected/package-private
-    // allowed, the public allowed, and the raw modifier bits — the
-    // reachable shapes one self-contained file pins; the diff-package
-    // refusal shapes ride the law tests + the pA/pB probe corpus — 129
-    // on disk, guard one below that.
-    // The cycle-complete wave (2026-11-17) added HashMapCopyProbe — the
-    // registered HashMap COPY-CTOR gap closed: the putMapEntries laws
-    // (L1 the source-order insertion read through the chain order, L2
-    // the cap-16/32 pre-size boundary tableSizeFor(s/0.75f+1) made
-    // observable by key 20, L3 the copy-of-copy law, L4/L4b the tree
-    // sources through BOTH copy ctors, L5 content, L6 the null-map NPE,
-    // L7 the null-key carry, L8 the empty-source lazy table, L9 the
-    // post-copy growth timing with the lo/hi split) — 130 on disk, guard
-    // one below that.
+    let fixtures = apply_bucket_filter(apply_explicit_selection(apply_shard_filter(fixtures)));
+    let mut failures = Vec::new();
+    for fixture in &fixtures {
+        let out = Command::new(exe)
+            .arg("test")
+            .arg(fixture)
+            .output()
+            .expect("run j2r test");
+        if !out.status.success() {
+            failures.push(format!(
+                "{}\n--- stdout:\n{}\n--- stderr:\n{}",
+                fixture.display(),
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        } else {
+            eprintln!("PASS {}", fixture.display());
+        }
+    }
     assert!(
-        fixtures.len() >= 129,
-        "differential suite shrank: {} fixtures (expected >= 129)",
-        fixtures.len()
+        failures.is_empty(),
+        "{} of {} fixtures failed:\n{}",
+        failures.len(),
+        fixtures.len(),
+        failures.join("\n\n")
     );
+}
 
+/// Optional sharding (ops): J2R_DIFF_SHARD=i/N — extracted verbatim
+fn apply_shard_filter(mut fixtures: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
     // Optional sharding (ops): J2R_DIFF_SHARD=i/N keeps only the fixtures
     // whose sorted index satisfies index % N == i. The corpus guard above
     // still asserts the full on-disk suite, so a shard can never silently
@@ -319,7 +343,11 @@ fn differential_suite_matches_jvm() {
             .collect();
         eprintln!("shard {spec}: {} of {total} fixtures", fixtures.len());
     }
+    fixtures
+}
 
+/// Optional explicit selection (ops): J2R_DIFF_FIXTURES — extracted verbatim
+fn apply_explicit_selection(mut fixtures: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
     // Optional explicit selection (ops): J2R_DIFF_FIXTURES="A,B,C" keeps
     // only the named fixtures (stems, no .java). Added 2026-11-05 for
     // gate-9's duration-balanced buckets — CI #59 proved stride sharding
@@ -371,7 +399,11 @@ fn differential_suite_matches_jvm() {
         fixtures = selected;
         eprintln!("explicit selection: {} of {total} fixtures", fixtures.len());
     }
+    fixtures
+}
 
+/// Optional gate-9 bucket selection (ops): J2R_DIFF_BUCKET — extracted verbatim
+fn apply_bucket_filter(mut fixtures: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
     // Optional gate-9 bucket selection (ops): J2R_DIFF_BUCKET names one
     // of the duration-balanced gate-9 partitions computed in-place from
     // the on-disk suite (bucket_for_gate9 below). The policy lives HERE —
@@ -420,32 +452,7 @@ fn differential_suite_matches_jvm() {
             fixtures.len()
         );
     }
-
-    let mut failures = Vec::new();
-    for fixture in &fixtures {
-        let out = Command::new(exe)
-            .arg("test")
-            .arg(fixture)
-            .output()
-            .expect("run j2r test");
-        if !out.status.success() {
-            failures.push(format!(
-                "{}\n--- stdout:\n{}\n--- stderr:\n{}",
-                fixture.display(),
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            ));
-        } else {
-            eprintln!("PASS {}", fixture.display());
-        }
-    }
-    assert!(
-        failures.is_empty(),
-        "{} of {} fixtures failed:\n{}",
-        failures.len(),
-        fixtures.len(),
-        failures.join("\n\n")
-    );
+    fixtures
 }
 
 // ------------------------------------------------------------ gate-9 buckets

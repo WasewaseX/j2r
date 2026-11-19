@@ -33,8 +33,9 @@ fn attr(name_idx: u16, bytes: &[u8]) -> Vec<u8> {
     a
 }
 
-#[test]
-fn jmm_boundary_markers_enforced_in_emitted_crate() {
+/// The hand-assembled `JmmFix.class` bytes (extracted verbatim from the
+/// test body in the 2026-11-19 function-length wave).
+fn build_jmm_class() -> Vec<u8> {
     const ACC_VOLATILE: u16 = 0x0040;
     const ACC_FINAL: u16 = 0x0010;
 
@@ -113,6 +114,32 @@ fn jmm_boundary_markers_enforced_in_emitted_crate() {
     //   getstatic vflag; pop;                  <- volatile: marker
     //   getstatic vflag; pop;                  <- volatile: marker (again)
     //   return
+    let run = build_jmm_run(
+        &mut b, this, obj_init, self_ref_v, self_ref_i, self_ref_p, cn,
+    );
+
+    b.finish(
+        ACC_PUBLIC,
+        this,
+        super_cls,
+        &[],
+        &field_refs,
+        &[&ctor, &run],
+        &[],
+    )
+}
+
+/// The `run()` method construction (extracted verbatim from the
+/// builder body in the 2026-11-19 function-length wave).
+fn build_jmm_run(
+    b: &mut Builder,
+    this: u16,
+    obj_init: u16,
+    self_ref_v: u16,
+    self_ref_i: u16,
+    self_ref_p: u16,
+    cn: u16,
+) -> Vec<u8> {
     let run_n = b.utf8("run");
     let run_d = b.utf8("()V");
     let code_n = b.utf8("Code");
@@ -153,7 +180,7 @@ fn jmm_boundary_markers_enforced_in_emitted_crate() {
         0xB1, // return
     ];
     let run_code: Vec<u8> = run_code.to_vec();
-    let run = method(
+    method(
         ACC_PUBLIC | ACC_STATIC,
         run_n,
         run_d,
@@ -162,17 +189,12 @@ fn jmm_boundary_markers_enforced_in_emitted_crate() {
         &run_code,
         &[],
         code_n,
-    );
+    )
+}
 
-    let bytes = b.finish(
-        ACC_PUBLIC,
-        this,
-        super_cls,
-        &[],
-        &field_refs,
-        &[&ctor, &run],
-        &[],
-    );
+#[test]
+fn jmm_boundary_markers_enforced_in_emitted_crate() {
+    let bytes = build_jmm_class();
 
     let cf = j2r_classfile::ClassFile::parse(&bytes).expect("handcrafted class parses");
     assert_eq!(cf.this_class, "JmmFix");

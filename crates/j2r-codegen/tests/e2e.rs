@@ -7,8 +7,9 @@ mod common;
 use common::builder::{method, Builder, ACC_PUBLIC, ACC_STATIC};
 use std::process::Command;
 
-#[test]
-fn handcrafted_class_runs_natively() {
+/// The hand-assembled `Hello.class` bytes (extracted verbatim from the
+/// test body in the 2026-11-19 function-length wave).
+fn build_hello_class() -> Vec<u8> {
     // class Hello extends Object with public static void main(String[]):
     //   getstatic System.out
     //   ldc "Hello, J2R!"
@@ -99,7 +100,12 @@ fn handcrafted_class_runs_natively() {
     // the out_ref entry keeps the pool index used for javap-style reference;
     // silence unused warning by referencing it
     let _ = out_ref;
-    let bytes = b.finish(ACC_PUBLIC, this, super_cls, &[], &[], &[&ctor, &main], &[]);
+    b.finish(ACC_PUBLIC, this, super_cls, &[], &[], &[&ctor, &main], &[])
+}
+
+#[test]
+fn handcrafted_class_runs_natively() {
+    let bytes = build_hello_class();
 
     // parse sanity (through the classfile crate)
     let cf = j2r_classfile::ClassFile::parse(&bytes).expect("handcrafted class parses");
