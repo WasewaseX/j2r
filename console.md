@@ -5168,3 +5168,14 @@ roadmap" on the A-graded tree.
   instr (1041, the family dispatch), arith (446, the arith/convert/cmp/
   getstatic arms + the write_invoke_result pair). PROOFS: fmt + clippy
   --all-targets -D warnings, codegen tests green. PR HOLD unchanged.
+- round-7 file-split pass, slice-c (this commit): lib.rs (2656) -> a
+  513-line parent (crate attrs + the module tree + the stage machinery +
+  CodegenError + Options + the model structs + the name helpers +
+  MainInfo) over four verbatim children — plan (562, the compile
+  pipeline), layout (333), resolve (781, the resolution+vtable engine)
+  and r5_law_tests (535, the R5 slice-1 law tests as a renamed outer
+  module). ROOT-module mechanics: children ride #[path = "lib/<name>.rs"]
+  (the root `mod` searches src/, not src/lib/); the R5 tests keep their
+  inner wrapper and reach the crate API via `use crate::*;`. PROOFS:
+  fmt + clippy --all-targets -D warnings, codegen tests green. PR HOLD
+  unchanged.
