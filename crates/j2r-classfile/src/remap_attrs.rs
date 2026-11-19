@@ -96,6 +96,10 @@ pub fn remap_class(
     let edits = plan_attrs(raw, ms, from_ns, to_ns)?;
     let mut stats = remap_with(raw, ms, from_ns, to_ns)?;
     apply_attrs(raw, &edits, &mut stats)?;
+    // the T15.2c layer (Code-internal variable tables) plans nothing
+    // against the original pool — its rewrites are pure TEXT swaps, so
+    // it can run last against the current pool (see remap_code.rs)
+    crate::remap_code::remap_code_tables(raw, ms, from_ns, to_ns, &mut stats)?;
     Ok(stats)
 }
 

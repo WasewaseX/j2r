@@ -64,6 +64,8 @@ pub struct RemapStats {
     pub record_parts_renamed: usize,
     /// EnclosingMethod NameAndTypes remapped (T15.2b).
     pub enclosing_renamed: usize,
+    /// LocalVariableTable/LVTT entries remapped inside Code (T15.2c).
+    pub code_vars_rewritten: usize,
 }
 
 /// One planned NameAndType rewrite (planned against the ORIGINAL pool).
@@ -272,6 +274,7 @@ pub fn remap_with(
         signatures_rewritten: 0,
         record_parts_renamed: 0,
         enclosing_renamed: 0,
+        code_vars_rewritten: 0,
     })
 }
 

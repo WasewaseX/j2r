@@ -18,6 +18,7 @@ pub mod crc32;
 pub mod inflate;
 pub mod remap;
 pub mod remap_attrs;
+pub mod remap_code;
 pub mod remap_pass;
 pub mod zip;
 pub mod flags {
