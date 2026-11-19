@@ -5198,3 +5198,11 @@ roadmap" on the A-graded tree.
   half as a SEPARATE `impl<'a> Builder<'a>` block re-opened in the child,
   diamond_match through drain_deferred_since). PROOFS: fmt + clippy
   --all-targets -D warnings, codegen tests green. PR HOLD unchanged.
+- round-7 file-split pass, slice-f (this commit): peephole.rs (1726) -> a
+  95-line parent (proven_map_fields + map_prim_rewrites, the two pub
+  entries) over four verbatim children — core (268, the array-fill
+  collapse + the boxed/map tables), proven (306, MapCore/Recv with fields
+  pub(crate) + the provenance scan + the phase helpers), map (155,
+  unbox_desc/recognize_cores/resolve_core), tests (925, cfg-gated,
+  wrapper-unwrapped). PROOFS: fmt + clippy --all-targets -D warnings,
+  codegen tests green. PR HOLD unchanged.
