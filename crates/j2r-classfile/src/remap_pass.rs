@@ -58,6 +58,12 @@ pub struct RemapStats {
     pub descriptors_rewritten: usize,
     /// New Utf8 constants appended (already deduplicated).
     pub utf8_appended: usize,
+    /// Signature attribute texts remapped (the T15.2b attribute layer).
+    pub signatures_rewritten: usize,
+    /// Record components whose NAME was mapped (T15.2b).
+    pub record_parts_renamed: usize,
+    /// EnclosingMethod NameAndTypes remapped (T15.2b).
+    pub enclosing_renamed: usize,
 }
 
 /// One planned NameAndType rewrite (planned against the ORIGINAL pool).
@@ -263,19 +269,31 @@ pub fn remap_with(
             + field_plans.iter().filter(|p| p.new_desc.is_some()).count()
             + method_plans.iter().filter(|p| p.new_desc.is_some()).count(),
         utf8_appended: interner.appended,
+        signatures_rewritten: 0,
+        record_parts_renamed: 0,
+        enclosing_renamed: 0,
     })
 }
 
 /// Appends Utf8 constants with within-pass deduplication (see the module
-/// docs for why pre-existing entries are not reused).
-struct Interner<'a> {
+/// docs for why pre-existing entries are not reused). Shared with the
+/// T15.2b attribute layer (`remap_attrs`).
+pub(crate) struct Interner<'a> {
     cache: HashMap<String, u16>,
     appended: usize,
     pool: &'a mut RawPool,
 }
 
 impl Interner<'_> {
-    fn intern(&mut self, text: &str) -> Result<u16, Error> {
+    pub(crate) fn new(pool: &mut RawPool) -> Interner<'_> {
+        Interner {
+            cache: HashMap::new(),
+            appended: 0,
+            pool,
+        }
+    }
+
+    pub(crate) fn intern(&mut self, text: &str) -> Result<u16, Error> {
         if let Some(&idx) = self.cache.get(text) {
             return Ok(idx);
         }
@@ -283,6 +301,43 @@ impl Interner<'_> {
         self.cache.insert(text.to_string(), idx);
         self.appended += 1;
         Ok(idx)
+    }
+
+    pub(crate) fn appended(&self) -> usize {
+        self.appended
+    }
+
+    /// Reads a Utf8 through the borrowed pool (so callers never need a
+    /// second borrow of it).
+    pub(crate) fn utf8(&self, idx: u16) -> Result<String, Error> {
+        self.pool.utf8(idx)
+    }
+
+    /// Reads the (name, descriptor) indexes of a NameAndType slot.
+    pub(crate) fn name_and_type(&self, slot: u16) -> Result<(u16, u16), Error> {
+        self.pool
+            .slots
+            .get(usize::from(slot))
+            .and_then(|s| s.as_ref())
+            .and_then(|s| s.name_and_type())
+            .ok_or_else(|| Error {
+                message: format!("cp slot {slot} is not a NameAndType"),
+                offset: 0,
+            })
+    }
+
+    /// Retargets a NameAndType slot's (name, descriptor) indexes.
+    pub(crate) fn set_name_and_type_slot(&mut self, slot: u16, name: u16, desc: u16) {
+        if let Some(e) = self
+            .pool
+            .slots
+            .get_mut(usize::from(slot))
+            .and_then(|s| s.as_mut())
+        {
+            if e.tag == 12 {
+                e.set_name_and_type(name, desc);
+            }
+        }
     }
 }
 
@@ -349,12 +404,29 @@ fn remap_region(chars: &[char], ms: &MappingSet, from_ns: usize, to_ns: usize, o
                 }
             }
             'T' => {
-                // a type variable: verbatim through its closing ';'
-                while i < chars.len() && chars[i] != ';' {
+                // a type-variable REFERENCE rides verbatim through its
+                // closing ';'. In signature text the same 'T' can also
+                // open a type-parameter DECLARATION (`<T:Bound...>`): the
+                // identifier then runs to ':' and the BOUND after it is a
+                // real reference that must remap (the pre-2b walker
+                // swallowed the whole bound verbatim — the gap the
+                // signature-bound law pins).
+                while i < chars.len() && chars[i] != ';' && chars[i] != ':' {
                     out.push(chars[i]);
                     i += 1;
                 }
-                if i < chars.len() {
+                if i < chars.len() && chars[i] == ':' {
+                    out.push(':');
+                    i += 1;
+                    // the bound is ONE ReferenceTypeSignature (L..., [L...,
+                    // or a T-variable); anything else opens the next
+                    // declaration — an empty bound rides through
+                    if matches!(chars.get(i), Some('L') | Some('[') | Some('T')) {
+                        let end = refsig_end(chars, i);
+                        remap_region(&chars[i..end], ms, from_ns, to_ns, out);
+                        i = end;
+                    }
+                } else if i < chars.len() {
                     out.push(';');
                     i += 1;
                 }
@@ -363,6 +435,39 @@ fn remap_region(chars: &[char], ms: &MappingSet, from_ns: usize, to_ns: usize, o
                 out.push(c);
                 i += 1;
             }
+        }
+    }
+}
+
+/// The end (exclusive) of ONE ReferenceTypeSignature starting at `start`:
+/// `L...;` (the ';'s inside its own `<...>` arguments belong to the
+/// nested types, so the close is the first ';' at bracket depth zero),
+/// `T...;`, or `[` followed by one of those. Malformed text (no closing
+/// `;`) ends at the text end — the walker never panics on junk.
+fn refsig_end(chars: &[char], start: usize) -> usize {
+    let mut i = start;
+    while i < chars.len() && chars[i] == '[' {
+        i += 1;
+    }
+    match chars.get(i) {
+        Some('L') => {
+            let mut depth = 0usize;
+            while i < chars.len() {
+                match chars[i] {
+                    '<' => depth += 1,
+                    '>' => depth -= 1,
+                    ';' if depth == 0 => return i + 1,
+                    _ => {}
+                }
+                i += 1;
+            }
+            chars.len()
+        }
+        _ => {
+            while i < chars.len() && chars[i] != ';' {
+                i += 1;
+            }
+            (i + 1).min(chars.len())
         }
     }
 }
@@ -660,6 +765,43 @@ mod tests {
         // a descriptor with no class references at all
         assert_eq!(r("([I[[D)Z"), "([I[[D)Z");
         assert_eq!(r("()V"), "()V");
+    }
+
+    /// Law R4b (T15.2b): type-parameter BOUNDS inside signature text are
+    /// real references and must remap. The pre-2b walker's `T` arm ran
+    /// verbatim to the closing `;` and swallowed the whole
+    /// `<T:Ljava/lang/From;>` bound — a mapped bound class stayed
+    /// unmapped in the output. Declarations whose identifier does NOT
+    /// start with `T` already rode the default arms correctly; the law
+    /// pins both spellings plus the reference spelling next to them.
+    #[test]
+    fn signature_type_param_bounds_move_too() {
+        let ms = tiny_class_map(&[("remap/From", "remap/To")]);
+        let r = |d: &str| remap_descriptor(d, &ms, 0, 1);
+        // a T-named declaration: the identifier runs to ':' and the
+        // bound remaps; the type-variable REFERENCES stay verbatim
+        assert_eq!(
+            r("<T:Lremap/From;>(TT;)Lremap/From<TT;>;^Lremap/From;"),
+            "<T:Lremap/To;>(TT;)Lremap/To<TT;>;^Lremap/To;"
+        );
+        // a declaration whose identifier does not start with T (the
+        // default arms already handled this spelling) and a nested
+        // generic bound with its own type variables
+        assert_eq!(
+            r("<U:Lremap/From<Lremap/From;TT;>;>Lremap/From;"),
+            "<U:Lremap/To<Lremap/To;TT;>;>Lremap/To;"
+        );
+        // array + type-var bounds remap/ride correctly
+        assert_eq!(
+            r("<T:[Lremap/From;>Lremap/From;"),
+            "<T:[Lremap/To;>Lremap/To;"
+        );
+        assert_eq!(r("<T:TT;>Lremap/From;"), "<T:TT;>Lremap/To;");
+        // an empty bound (the next declaration opens right after ':')
+        assert_eq!(
+            r("<T:U:Lremap/From;>Lremap/From;"),
+            "<T:U:Lremap/To;>Lremap/To;"
+        );
     }
 
     /// Law R5: the full pass over every vector (each class mapped to its
