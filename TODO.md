@@ -3018,3 +3018,44 @@ Waves 1–5 (register with acceptance bars lives in M5_PLAN §6):
       different-package private-ctor, the HashMap copy-ctor gap
       probed this window), the G3.1/G3.2 CFG layers, the owner-review
       asks in docs/STATUS_G2_G3_G4.md.
+
+- [x] **scanaislop round-6 (2026-11-19, run 2 of the 10x30m budget): the
+   NEWEST complexity claim list — the first targeting Rust crate files —
+   verified and CLOSED.** Sandbox reset: stale clone 241 behind (ff-only
+   to 996891f), toolchain re-bootstrapped byte-exact via USTC
+   (rustup-init stall at 0 bytes on static.rust-lang.org → the
+   rust-static mirror route; Temurin via Tuna Adoptium with a
+   resume+stall-detection retry; 21,347,088 / 207,858,352 byte pins
+   verified, rustc 1.99.1 + javac 21.0.13 both run-verified). The
+   updated master-ci engine (v2.1.0 working tree) has NO complexity
+   rules — the 21 claims were verified by the project's own scanner
+   (scripts/../../complexity_scan.py on the sandbox side): 17 file
+   claims real (19 with jni/tables 5366 + thread 2381 the user's scan
+   missed) + 3 fn claims real (builtin_own_slots 166 @467,
+   submap_narrowing_matrix_law 175 @6264, render 160 @781). ALL 21 fn
+   findings closed in six pushed slices (a45d5f1 1bb219a 8467a0d
+   3ded29d 16c4af4 bdb8693): emit_crate 548→115 + emit_instr 616→74
+   (12-family slim dispatch), diamond_match 416→36 (8 decision helpers +
+   free_walk_if_else dedup), env_slot_addrs 553→10 (6 row blocks),
+   builtin_parent_of 290→6 + builtin_own_slots 166→5 (.or() chains),
+   parse_bits 217→77, object_wait 178→87, submap law 175→10 (test split,
+   exact call order), render 160→59, n_thread_join 149→39,
+   invoke_virtual 138→68 — every moved block verbatim, every helper ≤132
+   (largest 110). GREEN: fmt + clippy --all-targets -D warnings
+   workspace, runtime 308/0 + codegen 172/0 + classfile 52/0,
+   diff_suite 130 fixtures zero-diff 4/4 shards (195-200s), corpus_suite
+   6/6 (55.3s), cfg_equiv PASS (447.1s), gate-11 in sync (fixtures=130
+   tests=619), engine baseline-mode scan blocking=0 grade=A CLEAN. The
+   scanner's leftover "over-length" rows are raw-string brace-count
+   false positives (emit_lib_rs/registry_hook_source/app_main_rs: true
+   28/48/130). **QUEUE HEAD (run 3+): the 19-file ≤1100 module-split
+   pass** (natives 8764, collections 7588, jni/tables 5366, emit 3347,
+   typed 2876, codegen lib 2656, verify 2567, cfg 2562, thread 2381, io
+   2171, classfile lib 1974, langext 1848, jni/calls 1769, peephole
+   1726, reflect 1665, jdkutil 1588, runtime lib 1301, partition 1299,
+   formatter 1233 — module dirs with verbatim item moves and
+   re-exports), then the four over-length test-harness fns (diff_suite
+   410, jmm_boundary 223, e2e 187, jar_suite 181 — real >132 but
+   outside every pasted scan's scope), then T15.2. The three dependabot
+   branches (checkout-7.0.1, setup-java-6.2.0, gitleaks 3.0.0) stay
+   HELD per the owner's PR order.
