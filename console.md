@@ -5327,3 +5327,17 @@ roadmap" on the A-graded tree.
   --all-targets -D warnings, j2r-runtime 308, j2r-codegen 172 + e2e
   green, diff_suite 130 fixtures zero-diff 4/4 shards (191-198s).
   PR HOLD unchanged.
+- round-8 file-split pass, slice-m (this commit): jni/calls.rs (1769)
+  -> a 279-line parent (doc + the jvalue decode/zero core + CallFamily
+  [enum bumped pub(crate) — the pub(crate) invoke fns expose it] +
+  resolve_checked/dispatch + the call_*_method_a/v entry fns) over
+  four children — vform (131, invoke_a/invoke_v + the VFORM limits +
+  decode_vform_args), slots_a (260, the 30 A-form slot wrappers +
+  tag_or_zero), slots_v (202, the 30 V-form slot wrappers), tests
+  (830, wrapper-unwrapped). One path fix the split forced:
+  slots_a's super::bridge::new_local -> crate::jni::bridge::new_local
+  (super now means the calls module, not jni); the tests child's
+  super::super:: paths still land on jni untouched. Cross-child
+  bumps: invoke_a/invoke_v (vform), tag_or_zero (slots_a). PROOFS:
+  fmt + clippy --all-targets -D warnings, j2r-runtime 308, diff_suite
+  130 fixtures zero-diff 4/4 shards (190-192s). PR HOLD unchanged.
