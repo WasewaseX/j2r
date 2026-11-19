@@ -528,12 +528,24 @@ mod tests {
 
     // ------------------------------------------------ 171 GetArrayLength
 
+    /// The loud-abort guard shared by this file's panic tests: run the
+    /// closure, catch the unwind, report whether it panicked.
+    fn catch_panicked<F: FnOnce()>(f: F) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err()
+    }
+
+    /// The per-test cleanup tail: drop the fixture's array tag (the
+    /// one bridge call every array test ends with).
+    fn del_local(tag: u64) {
+        super::super::bridge::delete_local(tag);
+    }
+
     #[test]
     fn get_array_length_roundtrips() {
         let _rt = crate::runtime();
         let (tag, _) = int_array(&[1, 2, 3, 4]);
         assert_eq!(slot_get_array_length(tag), 4);
-        super::super::bridge::delete_local(tag);
+        del_local(tag);
     }
 
     #[test]
@@ -553,7 +565,7 @@ mod tests {
             0,
             "null array → 0 — the §5-conceded v1 law (T13 gap)"
         );
-        super::super::bridge::delete_local(tag);
+        del_local(tag);
     }
 
     // ------------------------------------------------ 172–174 object arrays
@@ -655,7 +667,7 @@ mod tests {
             let r = super::super::bridge::resolve(tag);
             assert_eq!(&*with_obj(r, |o| o.jclass.clone()), desc);
             assert_eq!(slot_get_array_length(tag), 5);
-            super::super::bridge::delete_local(tag);
+            del_local(tag);
         }
     }
 
@@ -747,7 +759,7 @@ mod tests {
                 PrimKind::F => assert_eq!(array_load_f(&r, 0).unwrap(), 1.5),
                 PrimKind::D => assert_eq!(array_load_d(&r, 0).unwrap(), 2.5),
             }
-            super::super::bridge::delete_local(tag);
+            del_local(tag);
         }
     }
 
@@ -766,7 +778,7 @@ mod tests {
             "hand-out must be registry-pinned"
         );
         slot_release_prim_array_elements(PrimKind::I, tag, addr, 2); // ABORT
-        super::super::bridge::delete_local(tag);
+        del_local(tag);
     }
 
     #[test]
@@ -812,7 +824,7 @@ mod tests {
         );
         slot_release_prim_array_elements(PrimKind::I, tag, addr, 0);
         assert_eq!(array_load_i(&r, 0).unwrap(), 77, "second release re-copies");
-        super::super::bridge::delete_local(tag);
+        del_local(tag);
     }
 
     #[test]
@@ -839,7 +851,7 @@ mod tests {
         })
         .is_err();
         assert!(panicked, "foreign pointer release must be loud");
-        super::super::bridge::delete_local(tag);
+        del_local(tag);
     }
 
     // ------------------------------------------------ 199–214 regions
@@ -899,7 +911,7 @@ mod tests {
             let mut head = vec![0u8; *bps];
             slot_get_prim_array_region(*kind, tag, 0, 1, head.as_mut_ptr());
             assert_eq!(head, vec![0u8; *bps], "outside the region stays zero");
-            super::super::bridge::delete_local(tag);
+            del_local(tag);
         }
     }
 
@@ -909,15 +921,13 @@ mod tests {
         let (tag, _) = int_array(&[1, 2, 3]);
         let mut buf = [0u8; 4];
         for (start, len) in [(-1, 1), (0, -1), (2, 2), (4, 0)] {
-            let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let panicked = catch_panicked(|| {
                 slot_get_prim_array_region(PrimKind::I, tag, start, len, buf.as_mut_ptr())
-            }))
-            .is_err();
+            });
             assert!(panicked, "get region [{start},{len}) must be loud");
-            let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let panicked = catch_panicked(|| {
                 slot_set_prim_array_region(PrimKind::I, tag, start, len, buf.as_ptr())
-            }))
-            .is_err();
+            });
             assert!(panicked, "set region [{start},{len}) must be loud");
         }
         // the loud message names ArrayIndexOutOfBoundsException
@@ -931,7 +941,7 @@ mod tests {
             .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
             .unwrap_or_default();
         assert!(text.contains("ArrayIndexOutOfBoundsException"), "{text}");
-        super::super::bridge::delete_local(tag);
+        del_local(tag);
     }
 
     // ------------------------------------------------ 222–223 critical
@@ -951,7 +961,7 @@ mod tests {
         // the in-place law (the handed address IS the storage)
         array_store_i_raw(&r, 0, 50).expect("in-bounds");
         assert_eq!(array_load_i(&r, 0).unwrap(), 50);
-        super::super::bridge::delete_local(tag);
+        del_local(tag);
     }
 
     #[test]

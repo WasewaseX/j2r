@@ -288,6 +288,15 @@ fn differential_suite_matches_jvm() {
         "no fixtures found in {}",
         suite_dir.display()
     );
+    // The gate-11 count guard (scripts/check_doc_counts.py pins the
+    // literal shape): the full on-disk suite never silently shrinks
+    // below the documented fixture count minus one, no matter what
+    // the shard/bucket/explicit filters would later select.
+    assert!(
+        fixtures.len() >= 129,
+        "suite shrunk: {} fixtures on disk, want >= 129",
+        fixtures.len()
+    );
     let fixtures = apply_bucket_filter(apply_explicit_selection(apply_shard_filter(fixtures)));
     let mut failures = Vec::new();
     for fixture in &fixtures {

@@ -175,7 +175,7 @@ pub fn n_tks_to_string(
         out.push_str(&dispatch_to_string(k, ctx)?);
     }
     out.push(']');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 pub fn n_tvs_to_string(
     recv: Option<&JRef>,
@@ -192,7 +192,7 @@ pub fn n_tvs_to_string(
         out.push_str(&dispatch_to_string(v, ctx)?);
     }
     out.push(']');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 pub fn n_tes_to_string(
     recv: Option<&JRef>,
@@ -211,7 +211,7 @@ pub fn n_tes_to_string(
         out.push_str(&dispatch_to_string(v, ctx)?);
     }
     out.push(']');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 pub(crate) const SMS_MAP: usize = 0;
 pub(crate) const SMS_LO: usize = 1;
@@ -487,7 +487,7 @@ pub fn n_sms_to_string(
         out.push_str(&dispatch_to_string(v, ctx)?);
     }
     out.push('}');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 pub fn n_sms_first_key(
     recv: Option<&JRef>,
@@ -694,7 +694,7 @@ pub fn n_smsks_to_string(
         out.push_str(&dispatch_to_string(k, ctx)?);
     }
     out.push(']');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 pub fn n_smsvs_to_string(
     recv: Option<&JRef>,
@@ -711,7 +711,7 @@ pub fn n_smsvs_to_string(
         out.push_str(&dispatch_to_string(v, ctx)?);
     }
     out.push(']');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 pub fn n_smses_to_string(
     recv: Option<&JRef>,
@@ -730,7 +730,7 @@ pub fn n_smses_to_string(
         out.push_str(&dispatch_to_string(v, ctx)?);
     }
     out.push(']');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 
 // --- the bounded iterators (V8): the unbounded 4-slot layout, slot 0 =

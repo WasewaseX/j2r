@@ -759,7 +759,7 @@ pub fn n_tm_to_string(recv: Option<&JRef>, _args: &[Value], ctx: Dispatch) -> Re
         out.push_str(&dispatch_to_string(v, ctx)?);
     }
     out.push('}');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 pub fn n_tm_first_key(
     recv: Option<&JRef>,

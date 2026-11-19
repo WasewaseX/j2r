@@ -197,7 +197,7 @@ pub fn n_lhm_to_string(
         out.push_str(&dispatch_to_string(v, ctx)?);
     }
     out.push('}');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 fn lhm_new_view(map: &JRef, class: &str) -> Result<Value, Throw> {
     let v = new_obj(class, 1)?;

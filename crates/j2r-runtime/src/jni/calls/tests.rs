@@ -1,5 +1,11 @@
 use super::*;
 
+/// The loud-abort guard shared by this file's panic tests: run the
+/// closure, catch the unwind, report whether it panicked.
+fn catch_panicked<F: FnOnce()>(f: F) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err()
+}
+
 #[test]
 fn jvalue_words_decode_per_descriptor() {
     // Int-group sub-word kinds ride the LOW bytes (little-endian);
@@ -557,22 +563,19 @@ fn family_staticness_mismatches_are_loud() {
     let static_id =
         super::super::classes::slot_get_method_id(base_cls, "sm", "()I", true).expect("static sm");
     // instance ID through the static family → loud (Temurin: UB)
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let panicked = catch_panicked(|| {
         let _ = slot_call_static_int_method_a(instance_id, base_cls, 0);
-    }))
-    .is_err();
+    });
     assert!(panicked, "an instance ID in the static family must be loud");
     // static ID through the virtual family → loud
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let panicked = catch_panicked(|| {
         let _ = slot_call_int_method_a(static_id, 1, 0);
-    }))
-    .is_err();
+    });
     assert!(panicked, "a static ID in the virtual family must be loud");
     // static ID through the nonvirtual family → loud
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let panicked = catch_panicked(|| {
         let _ = slot_call_nonvirtual_int_method_a(static_id, 1, base_cls, 0);
-    }))
-    .is_err();
+    });
     assert!(
         panicked,
         "a static ID in the nonvirtual family must be loud"

@@ -536,6 +536,12 @@ mod tests {
         super::super::bridge::new_local(crate::reflect::class_ref(internal))
     }
 
+    /// The loud-abort guard shared by this file's panic tests: run the
+    /// closure, catch the unwind, report whether it panicked.
+    fn catch_panicked<F: FnOnce()>(f: F) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err()
+    }
+
     #[test]
     fn bind_requires_a_declared_native_method() {
         let _rt = crate::runtime();
@@ -719,7 +725,7 @@ mod tests {
             "(IIIII)I",
             Binding::Foreign(0xDEAD_C0DE),
         );
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let panicked = catch_panicked(|| {
             let wide = vec![Value::Int(1); 5];
             let _ = call_native(
                 "j2r/test/NativesBase",
@@ -728,8 +734,7 @@ mod tests {
                 None,
                 &wide,
             );
-        }))
-        .is_err();
+        });
         assert!(panicked, "beyond the register window must be loud");
         clear();
     }

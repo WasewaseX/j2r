@@ -136,7 +136,7 @@ fn collection_to_string(items: Vec<Value>, ctx: Dispatch) -> Result<Value, Throw
         out.push_str(&dispatch_to_string(v, ctx)?);
     }
     out.push(']');
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
 /// OpenJDK `HashMap.hash`: spreads the high bits down.
 /// `h ^ (h >>> 16)` on the dispatched `hashCode()` (null key: hash 0).

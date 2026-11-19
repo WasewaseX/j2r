@@ -449,6 +449,12 @@ mod tests {
     use super::*;
     use std::os::raw::c_void;
 
+    /// The loud-abort guard shared by this file's panic tests: run the
+    /// closure, catch the unwind, report whether it panicked.
+    fn catch_panicked<F: FnOnce()>(f: F) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err()
+    }
+
     #[test]
     fn copy_from_caller_roundtrip_and_total_guards() {
         let src: Vec<u8> = (0u8..=7).collect();
@@ -621,7 +627,7 @@ mod tests {
         );
         assert_eq!(ret.i, 42, "the GP words land in rdx/rcx order");
         // window guard: 5 GP words is OUTSIDE the window — loud
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let panicked = catch_panicked(|| {
             let _ = call_foreign_native(
                 probe_add as *const c_void,
                 std::ptr::null_mut(),
@@ -629,8 +635,7 @@ mod tests {
                 &[1, 2, 3, 4, 5],
                 &[],
             );
-        }))
-        .is_err();
+        });
         assert!(panicked, "beyond the GP window must be loud");
     }
 
@@ -647,7 +652,7 @@ mod tests {
         );
         assert!((ret.d - 42.0).abs() < 1e-9, "the SSE return channel works");
         // window guard: 9 FP words — loud
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let panicked = catch_panicked(|| {
             let _ = call_foreign_native(
                 probe_mul_d as *const c_void,
                 std::ptr::null_mut(),
@@ -655,8 +660,7 @@ mod tests {
                 &[],
                 &[0.0; 9],
             );
-        }))
-        .is_err();
+        });
         assert!(panicked, "beyond the FP window must be loud");
     }
 

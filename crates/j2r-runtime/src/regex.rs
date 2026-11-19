@@ -129,5 +129,5 @@ pub fn n_matcher_replace_all(
     if !run.is_empty() {
         out.push_str(&replacement);
     }
-    Ok(Value::Ref(Some(crate::object::new_string(&out))))
+    Ok(crate::object::string_out(&out))
 }
