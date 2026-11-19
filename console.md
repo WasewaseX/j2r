@@ -5066,3 +5066,16 @@ roadmap" on the A-graded tree.
   zero-diff 4/4 shards (195-200s each), corpus_suite 6/6 (55.3s),
   cfg_equiv PASS (447.1s), gate-11 in sync (fixtures=130 tests=619);
   engine baseline-mode scan blocking=0 grade=A CLEAN. PR HOLD unchanged.
+- round-6 slice-e (this commit): cfg.rs diamond_match (416) -> a 36-line
+  dispatcher over verbatim-verb decision helpers — diamond_active_meet and
+  diamond_already_stopped (Res<bool> "handled"), diamond_divergent (the
+  transfer gate + deep-attempt + deferral + the loud ImpureJoin refusal),
+  deep_cross_candidates returning the new DeepScan struct (d1/d2/deep/
+  cands/inter), diamond_deep_cross_meet (arm-start selection,
+  pre-registration, the optimistic join_via_label with full rollback),
+  diamond_deferred_joins, diamond_single_meet, diamond_both_terminate —
+  plus free_walk_if_else deduplicating the six byte-identical free-walk
+  if/else emissions. Decision order and every emitted line identical.
+  PROOFS: same battery as slice-d (diff_suite 4/4 shards zero-diff,
+  corpus_suite 6/6, cfg_equiv PASS, fmt + clippy -D warnings, gate-11 in
+  sync, engine baseline CLEAN). PR HOLD unchanged.

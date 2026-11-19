@@ -1301,6 +1301,59 @@ impl<'a> Builder<'a> {
         m1: Option<usize>,
         m2: Option<usize>,
     ) -> Res<()> {
+        if self.diamond_active_meet(ci, root, t_b, f_b, m1, m2)? {
+            return Ok(());
+        }
+        if self.diamond_already_stopped(ci, root, t_b, f_b, m1, m2)? {
+            return Ok(());
+        }
+        match (m1, m2) {
+            (Some(meet), Some(_)) if meet == m2.unwrap() => {
+                if self.join_via_label(meet, t_b, f_b, root, arm_blocks)? {
+                    // the meet was DEFERRED: its body drains later — no
+                    // inline emission here
+                } else {
+                    self.region(meet)?;
+                }
+                Ok(())
+            }
+            (Some(m1v), Some(m2v)) if m1v != m2v => {
+                self.diamond_divergent(ci, root, t_b, f_b, arm_blocks, m1v, m2v)
+            }
+            (Some(meet), None) | (None, Some(meet)) => {
+                self.diamond_single_meet(ci, root, t_b, f_b, meet, arm_blocks, m1, m2)
+            }
+            (None, None) => self.diamond_both_terminate(ci, root, t_b, f_b, m1, m2),
+            _ => unreachable!("diamond: both-equal meet handled above"),
+        }
+    }
+
+    /// The free-walk if/else (byte-identical at all six diamond sites):
+    /// each arm's region consumes its own side under the current stops.
+    fn free_walk_if_else(&mut self, t_b: usize, f_b: usize) -> Res<()> {
+        self.out.push("if __cond {".into());
+        self.btrace("if __cond {");
+        self.region(t_b)?;
+        self.out.push("} else {".into());
+        self.btrace("} else {");
+        self.region(f_b)?;
+        self.out.push("}".into());
+        self.btrace("}");
+        Ok(())
+    }
+
+    /// The loop-header meet case (verbatim from `diamond_match`, round-6
+    /// reshaping): the arms transfer back to the enclosing loop's top.
+    /// Returns true when this diamond was handled here.
+    fn diamond_active_meet(
+        &mut self,
+        ci: usize,
+        root: usize,
+        t_b: usize,
+        f_b: usize,
+        m1: Option<usize>,
+        m2: Option<usize>,
+    ) -> Res<bool> {
         // A meet that is the enclosing loop's header: the arms transfer
         // back to the loop top (`continue`); a terminating arm simply ends
         // inside its branch. The outer stops stay in force.
@@ -1326,18 +1379,25 @@ impl<'a> Builder<'a> {
             // DEFERRED join whose stop entry must outlive this frame.
             let frame_label = l.clone();
             let meet_sid = self.push_stop(meet, frame_label.clone());
-            self.out.push("if __cond {".into());
-            self.btrace("if __cond {");
-            self.region(t_b)?;
-            self.out.push("} else {".into());
-            self.btrace("} else {");
-            self.region(f_b)?;
-            self.out.push("}".into());
-            self.btrace("}");
+            self.free_walk_if_else(t_b, f_b)?;
             self.stops.retain(|e| e.sid != meet_sid);
-            return Ok(());
+            return Ok(true);
         }
+        Ok(false)
+    }
 
+    /// The already-stopped meet case (verbatim): an enclosing structure
+    /// owns the meet; free-walk if/else under the current stops.
+    /// Returns true when this diamond was handled here.
+    fn diamond_already_stopped(
+        &mut self,
+        ci: usize,
+        root: usize,
+        t_b: usize,
+        f_b: usize,
+        m1: Option<usize>,
+        m2: Option<usize>,
+    ) -> Res<bool> {
         // The meet is ALREADY a stop target: an enclosing structure owns
         // it (an outer diamond's labeled join, the loop exit). The arms
         // walk to it and break with the OWNER's label; re-joining here
@@ -1357,355 +1417,398 @@ impl<'a> Builder<'a> {
             );
         }
         if meet_already_stopped {
-            self.out.push("if __cond {".into());
-            self.btrace("if __cond {");
-            self.region(t_b)?;
-            self.out.push("} else {".into());
-            self.btrace("} else {");
-            self.region(f_b)?;
-            self.out.push("}".into());
-            self.btrace("}");
-            return Ok(());
+            self.free_walk_if_else(t_b, f_b)?;
+            return Ok(true);
         }
+        Ok(false)
+    }
 
-        match (m1, m2) {
-            (Some(meet), Some(_)) if meet == m2.unwrap() => {
-                if self.join_via_label(meet, t_b, f_b, root, arm_blocks)? {
-                    // the meet was DEFERRED: its body drains later — no
-                    // inline emission here
-                } else {
-                    self.region(meet)?;
-                }
-                Ok(())
+    // Divergent joins (readiness census: tql2/tred2/orthes
+    // loop-header diamonds). At least one arm is a TRANSFER
+    // arm: it starts at, or its walk meets, a block that is
+    // already a stop target (the enclosing loop's exit or an
+    // enclosing join) — its region ends in that stop's own
+    // `break`/`continue`, never falls through. Lower as a
+    // free-walk if/else: each arm's region consumes its own
+    // side (nested diamonds own their meets). An arm walk that
+    // is NOT a transfer must not fall past its meet — the
+    // m1==m2 shared-meet shape is the join_via_label case
+    // above; a walk that runs into emitted code or off the
+    // end fails LOUDLY (BranchIntoEmittedCode / FallOffEnd),
+    // never silently. Without a transfer arm the diamond is
+    // genuinely divergent (two live meets the outer walk
+    // still has to place) — refused as before.
+    #[allow(clippy::too_many_arguments)]
+    fn diamond_divergent(
+        &mut self,
+        ci: usize,
+        root: usize,
+        t_b: usize,
+        f_b: usize,
+        arm_blocks: &HashSet<usize>,
+        m1: usize,
+        m2: usize,
+    ) -> Res<()> {
+        if std::env::var_os("J2R_CFG_TRACE").is_some() {
+            eprintln!(
+                "cfg-trace: diamond {}{} ci={} root={} m1={:?} m2={:?} -> divergent",
+                self.m.name, self.m.desc, ci, root, m1, m2
+            );
+        }
+        let t_is_transfer = self.stops.iter().any(|e| e.block == t_b || e.block == m1);
+        let f_is_transfer = self.stops.iter().any(|e| e.block == f_b || e.block == m2);
+        if !(t_is_transfer || f_is_transfer) {
+            // G3.1 deep cross-meet attempt: walk_meet stops at the
+            // FIRST join of each arm, which hides the arms' TRUE
+            // convergence point when internal diamonds sit between
+            // (hqr2's diamond(76): shallow m1=83/m2=80, but both
+            // arms reach the loop latch 105 — the f-arm via the
+            // 81 fall-through, the t-arm through the notlast
+            // diamond 85 whose own arms converge at 105 too). The
+            // deep scan finds the unique cross-arm join and hands it
+            // to the battle-tested join_via_label; on refusal the
+            // shallow logic below still runs (fallback, never silent).
+            let scan = self.deep_cross_candidates(root, t_b, f_b);
+            if self.diamond_deep_cross_meet(ci, root, t_b, f_b, scan)? {
+                return Ok(());
             }
-            (Some(m1), Some(m2)) if m1 != m2 => {
-                // Divergent joins (readiness census: tql2/tred2/orthes
-                // loop-header diamonds). At least one arm is a TRANSFER
-                // arm: it starts at, or its walk meets, a block that is
-                // already a stop target (the enclosing loop's exit or an
-                // enclosing join) — its region ends in that stop's own
-                // `break`/`continue`, never falls through. Lower as a
-                // free-walk if/else: each arm's region consumes its own
-                // side (nested diamonds own their meets). An arm walk that
-                // is NOT a transfer must not fall past its meet — the
-                // m1==m2 shared-meet shape is the join_via_label case
-                // above; a walk that runs into emitted code or off the
-                // end fails LOUDLY (BranchIntoEmittedCode / FallOffEnd),
-                // never silently. Without a transfer arm the diamond is
-                // genuinely divergent (two live meets the outer walk
-                // still has to place) — refused as before.
-                if std::env::var_os("J2R_CFG_TRACE").is_some() {
-                    eprintln!(
-                        "cfg-trace: diamond {}{} ci={} root={} m1={:?} m2={:?} -> divergent",
-                        self.m.name, self.m.desc, ci, root, m1, m2
-                    );
-                }
-                let t_is_transfer = self.stops.iter().any(|e| e.block == t_b || e.block == m1);
-                let f_is_transfer = self.stops.iter().any(|e| e.block == f_b || e.block == m2);
-                if !(t_is_transfer || f_is_transfer) {
-                    // G3.1 deep cross-meet attempt: walk_meet stops at the
-                    // FIRST join of each arm, which hides the arms' TRUE
-                    // convergence point when internal diamonds sit between
-                    // (hqr2's diamond(76): shallow m1=83/m2=80, but both
-                    // arms reach the loop latch 105 — the f-arm via the
-                    // 81 fall-through, the t-arm through the notlast
-                    // diamond 85 whose own arms converge at 105 too). The
-                    // shallow divergent lowering then spuriously defers
-                    // 83 (its "outside pred" is its own chain successor)
-                    // and emits 105 inline in the f-arm, so the t-arm's
-                    // diamond(85) hits emitted code. The deep scan finds
-                    // the unique cross-arm join and hands it to the
-                    // battle-tested join_via_label; on refusal the shallow
-                    // logic below still runs (fallback, never silent).
-                    let d1 = self.walk_deep_set(t_b);
-                    let d2 = self.walk_deep_set(f_b);
-                    let mut deep = d1.clone();
-                    deep.extend(d2.iter().copied());
-                    deep.insert(t_b);
-                    deep.insert(f_b);
-                    let cands: Vec<usize> = d1
-                        .intersection(&d2)
-                        .copied()
-                        .filter(|&c| {
-                            c != root
-                                && self.is_join(c)
-                                && !self.emitted.contains(&c)
-                                && !self.loop_at(c)
-                                && !self.active_loops.iter().any(|(h, _)| *h == c)
-                                && !self.stops.iter().any(|e| e.block == c)
-                                && self.cfg.preds()[c]
-                                    .iter()
-                                    .all(|&p| p == root || deep.contains(&p))
-                        })
-                        .collect();
-                    let inter: Vec<usize> = {
-                        let mut v: Vec<usize> = d1.intersection(&d2).copied().collect();
-                        v.sort_unstable();
-                        v
-                    };
-                    if std::env::var_os("J2R_CFG_TRACE").is_some() {
-                        eprintln!(
-                            "cfg-trace: deep cross-meet {}{} ci={} root={} \
+            if self.diamond_deferred_joins(ci, root, t_b, f_b, arm_blocks, m1, m2)? {
+                return Ok(());
+            }
+            return Err(Unsupported::ImpureJoin);
+        }
+        self.free_walk_if_else(t_b, f_b)?;
+        Ok(())
+    }
+
+    /// The G3.1 deep cross-arm scan (verbatim from the divergent arm): both
+    /// arms' deep walk sets, the union, the arm-start join candidates and
+    /// their sorted intersection.
+    fn deep_cross_candidates(&self, root: usize, t_b: usize, f_b: usize) -> DeepScan {
+        let d1 = self.walk_deep_set(t_b);
+        let d2 = self.walk_deep_set(f_b);
+        let mut deep = d1.clone();
+        deep.extend(d2.iter().copied());
+        deep.insert(t_b);
+        deep.insert(f_b);
+        let cands: Vec<usize> = d1
+            .intersection(&d2)
+            .copied()
+            .filter(|&c| {
+                c != root
+                    && self.is_join(c)
+                    && !self.emitted.contains(&c)
+                    && !self.loop_at(c)
+                    && !self.active_loops.iter().any(|(h, _)| *h == c)
+                    && !self.stops.iter().any(|e| e.block == c)
+                    && self.cfg.preds()[c]
+                        .iter()
+                        .all(|&p| p == root || deep.contains(&p))
+            })
+            .collect();
+        let inter: Vec<usize> = {
+            let mut v: Vec<usize> = d1.intersection(&d2).copied().collect();
+            v.sort_unstable();
+            v
+        };
+        DeepScan {
+            d1,
+            d2,
+            deep,
+            cands,
+            inter,
+        }
+    }
+
+    /// The deep cross-meet attempt (verbatim): arm-start meet selection,
+    /// the cross-arm pre-registration loop and the optimistic
+    /// join_via_label attempt with full rollback. Returns true when the
+    /// diamond was handled here.
+    fn diamond_deep_cross_meet(
+        &mut self,
+        ci: usize,
+        root: usize,
+        t_b: usize,
+        f_b: usize,
+        scan: DeepScan,
+    ) -> Res<bool> {
+        let DeepScan {
+            d1,
+            d2,
+            deep,
+            cands,
+            inter,
+        } = scan;
+        if std::env::var_os("J2R_CFG_TRACE").is_some() {
+            eprintln!(
+                "cfg-trace: deep cross-meet {}{} ci={} root={} \
                              |d1|={} |d2|={} inter={:?} cands={:?} stops={:?} \
                              active={:?}",
-                            self.m.name,
-                            self.m.desc,
-                            ci,
-                            root,
-                            d1.len(),
-                            d2.len(),
-                            inter,
-                            cands,
-                            self.stops.iter().map(|e| e.block).collect::<Vec<_>>(),
-                            self.active_loops
-                                .iter()
-                                .map(|(x, _)| *x)
-                                .collect::<Vec<_>>()
+                self.m.name,
+                self.m.desc,
+                ci,
+                root,
+                d1.len(),
+                d2.len(),
+                inter,
+                cands,
+                self.stops.iter().map(|e| e.block).collect::<Vec<_>>(),
+                self.active_loops
+                    .iter()
+                    .map(|(x, _)| *x)
+                    .collect::<Vec<_>>()
+            );
+        }
+        // Meet selection: ONLY the ARM-START (empty-arm) shape
+        // — the branch target itself is the convergence point
+        // (hqr2's diamond(76): block 82 FALLS INTO the true
+        // arm's block 83, so 83 is both the arm start and the
+        // join; its preds are the root's branch edge and the
+        // else arm's fall-through). A general unique-candidate
+        // fallback would intercept PURE-meet divergent shapes
+        // that the shallow logic deliberately refuses — the
+        // pinned walk_meet law test's shape (nested diamond,
+        // both meets pure) lowered incompletely and refused
+        // with the wrong class — so non-arm-start candidates
+        // keep the shallow path, never the deep one.
+        let meet = if cands.contains(&t_b) {
+            Some(t_b)
+        } else if cands.contains(&f_b) {
+            Some(f_b)
+        } else {
+            None
+        };
+        if let Some(meet) = meet {
+            // Pre-register the REMAINING cross-arm joins
+            // (hqr2's latch 105: one pred is the else arm's
+            // own `goto 105` (81), the others live inside the
+            // meet body — the label must open BEFORE the
+            // if/else so every break site is inside it; the
+            // diamond-scoped drain closes it after the arms).
+            // A candidate qualifies only when some pred
+            // originates from ONE-SIDE-ONLY blocks (d1\d2 or
+            // d2\d1) — t-chain-internal joins (85, 90, ...)
+            // have all preds inside the meet body and stay
+            // inline.
+            for &c in cands.iter() {
+                if c == meet {
+                    continue;
+                }
+                let cross_pred = self.cfg.preds()[c].iter().any(|&p| {
+                    (d1.contains(&p) && !d2.contains(&p)) || (d2.contains(&p) && !d1.contains(&p))
+                });
+                if cross_pred {
+                    if std::env::var_os("J2R_CFG_TRACE").is_some() {
+                        eprintln!(
+                            "cfg-trace: deep pre-register {}{} \
+                                         ci={} cross-join={}",
+                            self.m.name, self.m.desc, ci, c
                         );
                     }
-                    // Meet selection: ONLY the ARM-START (empty-arm) shape
-                    // — the branch target itself is the convergence point
-                    // (hqr2's diamond(76): block 82 FALLS INTO the true
-                    // arm's block 83, so 83 is both the arm start and the
-                    // join; its preds are the root's branch edge and the
-                    // else arm's fall-through). A general unique-candidate
-                    // fallback would intercept PURE-meet divergent shapes
-                    // that the shallow logic deliberately refuses — the
-                    // pinned walk_meet law test's shape (nested diamond,
-                    // both meets pure) lowered incompletely and refused
-                    // with the wrong class — so non-arm-start candidates
-                    // keep the shallow path, never the deep one.
-                    let meet = if cands.contains(&t_b) {
-                        Some(t_b)
-                    } else if cands.contains(&f_b) {
-                        Some(f_b)
-                    } else {
-                        None
-                    };
-                    if let Some(meet) = meet {
-                        // Pre-register the REMAINING cross-arm joins
-                        // (hqr2's latch 105: one pred is the else arm's
-                        // own `goto 105` (81), the others live inside the
-                        // meet body — the label must open BEFORE the
-                        // if/else so every break site is inside it; the
-                        // diamond-scoped drain closes it after the arms).
-                        // A candidate qualifies only when some pred
-                        // originates from ONE-SIDE-ONLY blocks (d1\d2 or
-                        // d2\d1) — t-chain-internal joins (85, 90, ...)
-                        // have all preds inside the meet body and stay
-                        // inline.
-                        for &c in cands.iter() {
-                            if c == meet {
-                                continue;
-                            }
-                            let cross_pred = self.cfg.preds()[c].iter().any(|&p| {
-                                (d1.contains(&p) && !d2.contains(&p))
-                                    || (d2.contains(&p) && !d1.contains(&p))
-                            });
-                            if cross_pred {
-                                if std::env::var_os("J2R_CFG_TRACE").is_some() {
-                                    eprintln!(
-                                        "cfg-trace: deep pre-register {}{} \
-                                         ci={} cross-join={}",
-                                        self.m.name, self.m.desc, ci, c
-                                    );
-                                }
-                                self.register_deferred(c);
-                            }
-                        }
-                        // OPTIMISTIC attempt with full rollback: the deep
-                        // shape may still refuse inside join_via_label's
-                        // arm walks (the shallow walks' guarantees don't
-                        // extend to the deep sets). On refusal, restore
-                        // EVERY piece of builder state the attempt touched
-                        // and fall through to the shallow logic below —
-                        // its refusal class (ImpureJoin) is the pinned
-                        // law for shapes the deep lowering cannot finish.
-                        let out_mark = self.out.len();
-                        let brace_mark = self.brace_trace.len();
-                        let def_mark = self.deferred.len();
-                        let sid_mark = self.stop_seq;
-                        let loops_mark = self.active_loops.len();
-                        let emitted_before = self.emitted.clone();
-                        let bw = self.body_walk;
-                        let attempt = self.join_via_label(meet, t_b, f_b, root, &deep);
-                        match attempt {
-                            Ok(true) => return Ok(()), // deferred: drained by the mark bracket
-                            Ok(false) => {
-                                // the label form: the CALLER emits the meet
-                                // body (join_via_label's contract — the
-                                // equal-meet path does the same)
-                                self.region(meet)?;
-                                return Ok(());
-                            }
-                            Err(e) => {
-                                self.out.truncate(out_mark);
-                                self.brace_trace.truncate(brace_mark);
-                                self.deferred.truncate(def_mark);
-                                self.stops.retain(|s| s.sid < sid_mark);
-                                self.active_loops.truncate(loops_mark);
-                                self.emitted = emitted_before;
-                                self.body_walk = bw;
-                                if std::env::var_os("J2R_CFG_TRACE").is_some() {
-                                    eprintln!(
-                                        "cfg-trace: deep attempt rolled back \
-                                         {}{} ci={} meet={} err={:?}",
-                                        self.m.name, self.m.desc, ci, meet, e
-                                    );
-                                }
-                                // fall through to the shallow divergent logic
-                            }
-                        }
-                    }
-                    // G3.1 — the deferred-join mechanism (the named
-                    // ImpureJoin lowering). Defer ONLY the meet(s) that
-                    // have OUTSIDE predecessors (the design's guard): a
-                    // meet whose predecessors all lie inside the arms is
-                    // pure — the owning arm walks THROUGH it and emits it
-                    // inline, no deferral, no drain-order hazards. A meet
-                    // with an outside predecessor defers (must also be
-                    // deferrable: not emitted, not a loop header, not an
-                    // owned stop); its edges — arms AND the later outside
-                    // preds — break to the label, and the body drains
-                    // once at the enclosing loop-body end / lift end. A
-                    // shape where nothing defers keeps the loud refusal —
-                    // never a silent miscompile.
-                    let t_defer =
-                        self.meet_has_outside_pred(m1, root, arm_blocks) && self.deferrable(m1);
-                    let f_defer =
-                        self.meet_has_outside_pred(m2, root, arm_blocks) && self.deferrable(m2);
-                    let def_dbg = |b: Option<usize>| -> String {
-                        match b {
-                            None => "None".into(),
-                            Some(m) => format!(
-                                "emitted={} active_hdr={} loop_at={} stopped={}",
-                                self.emitted.contains(&m),
-                                self.active_loops.iter().any(|(h, _)| *h == m),
-                                self.loop_at(m),
-                                self.stops.iter().any(|e| e.block == m)
-                            ),
-                        }
-                    };
-                    if cfg_debug() {
+                    self.register_deferred(c);
+                }
+            }
+            // OPTIMISTIC attempt with full rollback: the deep
+            // shape may still refuse inside join_via_label's
+            // arm walks (the shallow walks' guarantees don't
+            // extend to the deep sets). On refusal, restore
+            // EVERY piece of builder state the attempt touched
+            // and fall through to the shallow logic below —
+            // its refusal class (ImpureJoin) is the pinned
+            // law for shapes the deep lowering cannot finish.
+            let out_mark = self.out.len();
+            let brace_mark = self.brace_trace.len();
+            let def_mark = self.deferred.len();
+            let sid_mark = self.stop_seq;
+            let loops_mark = self.active_loops.len();
+            let emitted_before = self.emitted.clone();
+            let bw = self.body_walk;
+            let attempt = self.join_via_label(meet, t_b, f_b, root, &deep);
+            match attempt {
+                Ok(true) => return Ok(true), // deferred: drained by the mark bracket
+                Ok(false) => {
+                    // the label form: the CALLER emits the meet
+                    // body (join_via_label's contract — the
+                    // equal-meet path does the same)
+                    self.region(meet)?;
+                    return Ok(true);
+                }
+                Err(e) => {
+                    self.out.truncate(out_mark);
+                    self.brace_trace.truncate(brace_mark);
+                    self.deferred.truncate(def_mark);
+                    self.stops.retain(|s| s.sid < sid_mark);
+                    self.active_loops.truncate(loops_mark);
+                    self.emitted = emitted_before;
+                    self.body_walk = bw;
+                    if std::env::var_os("J2R_CFG_TRACE").is_some() {
                         eprintln!(
-                            "cfg-debug: divergent defer check {}{} ci={} root={} \
+                            "cfg-trace: deep attempt rolled back \
+                                         {}{} ci={} meet={} err={:?}",
+                            self.m.name, self.m.desc, ci, meet, e
+                        );
+                    }
+                    // fall through to the shallow divergent logic
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// The G3.1 deferred-join mechanism (verbatim): defer ONLY the meet(s)
+    /// that have OUTSIDE predecessors, emit the free-walk if/else under the
+    /// registered stops, and keep the loud refusal when nothing defers.
+    /// Returns true when this diamond was handled here.
+    #[allow(clippy::too_many_arguments)]
+    fn diamond_deferred_joins(
+        &mut self,
+        ci: usize,
+        root: usize,
+        t_b: usize,
+        f_b: usize,
+        arm_blocks: &HashSet<usize>,
+        m1: usize,
+        m2: usize,
+    ) -> Res<bool> {
+        // G3.1 — the deferred-join mechanism (the named
+        // ImpureJoin lowering). Defer ONLY the meet(s) that
+        // have OUTSIDE predecessors (the design's guard): a
+        // meet whose predecessors all lie inside the arms is
+        // pure — the owning arm walks THROUGH it and emits it
+        // inline, no deferral, no drain-order hazards. A meet
+        // with an outside predecessor defers (must also be
+        // deferrable: not emitted, not a loop header, not an
+        // owned stop); its edges — arms AND the later outside
+        // preds — break to the label, and the body drains
+        // once at the enclosing loop-body end / lift end. A
+        // shape where nothing defers keeps the loud refusal —
+        // never a silent miscompile.
+        let t_defer = self.meet_has_outside_pred(m1, root, arm_blocks) && self.deferrable(m1);
+        let f_defer = self.meet_has_outside_pred(m2, root, arm_blocks) && self.deferrable(m2);
+        let def_dbg = |b: Option<usize>| -> String {
+            match b {
+                None => "None".into(),
+                Some(m) => format!(
+                    "emitted={} active_hdr={} loop_at={} stopped={}",
+                    self.emitted.contains(&m),
+                    self.active_loops.iter().any(|(h, _)| *h == m),
+                    self.loop_at(m),
+                    self.stops.iter().any(|e| e.block == m)
+                ),
+            }
+        };
+        if cfg_debug() {
+            eprintln!(
+                "cfg-debug: divergent defer check {}{} ci={} root={} \
                              t_b={} f_b={} m1={:?} m2={:?} t_out={} f_out={} t_def={} f_def={} \
                              m1[{}] m2[{}]",
-                            self.m.name,
-                            self.m.desc,
-                            ci,
-                            root,
-                            t_b,
-                            f_b,
-                            m1,
-                            m2,
-                            self.meet_has_outside_pred(m1, root, arm_blocks),
-                            self.meet_has_outside_pred(m2, root, arm_blocks),
-                            t_defer,
-                            f_defer,
-                            def_dbg(Some(m1)),
-                            def_dbg(Some(m2))
-                        );
-                    }
-                    if t_defer || f_defer {
-                        if t_defer {
-                            self.register_deferred(m1);
-                        }
-                        if f_defer {
-                            self.register_deferred(m2);
-                        }
-                        self.out.push("if __cond {".into());
-                        self.btrace("if __cond {");
-                        self.region(t_b)?;
-                        self.out.push("} else {".into());
-                        self.btrace("} else {");
-                        self.region(f_b)?;
-                        self.out.push("}".into());
-                        self.btrace("}");
-                        return Ok(());
-                    }
-                    if cfg_debug() {
-                        eprintln!(
-                            "cfg-debug: divergent joins unresolved {}{} ci={} (block {}) \
-                             t_b={} f_b={} m1={:?} m2={:?}",
-                            self.m.name, self.m.desc, ci, root, t_b, f_b, m1, m2
-                        );
-                    }
-                    return Err(Unsupported::ImpureJoin);
-                }
-                self.out.push("if __cond {".into());
-                self.btrace("if __cond {");
-                self.region(t_b)?;
-                self.out.push("} else {".into());
-                self.btrace("} else {");
-                self.region(f_b)?;
-                self.out.push("}".into());
-                self.btrace("}");
-                Ok(())
-            }
-            (Some(meet), None) | (None, Some(meet)) => {
-                // G3.1 guard-shape refinement (a latent pre-existing bug
-                // the deferral unmasked): when the MEET-side arm is itself
-                // a TRANSFER — its start block or its meet is already an
-                // owned stop — the arm's region breaks to that stop and
-                // never reaches the meet; claiming the meet via
-                // join_via_label would hoist the meet's code (which lives
-                // on the stop owner's side, e.g. the loop EXIT) into this
-                // diamond, and the owner's later walk would hit it
-                // emitted. tred2's loop(4) guard: true arm starts at the
-                // loop's exit-stop 40, meet 60 lies on the exit side —
-                // free-walk if/else instead, and the loop's own exit
-                // region emits the meet side once, after the loop.
-                if std::env::var_os("J2R_CFG_TRACE").is_some() {
-                    eprintln!(
-                        "cfg-trace: diamond {}{} ci={} root={} m1={:?} m2={:?} -> single_meet",
-                        self.m.name, self.m.desc, ci, root, m1, m2
-                    );
-                }
-                let meet_side_is_transfer = if m1.is_some() {
-                    self.stops.iter().any(|e| e.block == t_b || e.block == meet)
-                } else {
-                    self.stops.iter().any(|e| e.block == f_b || e.block == meet)
-                };
-                if meet_side_is_transfer {
-                    self.out.push("if __cond {".into());
-                    self.btrace("if __cond {");
-                    self.region(t_b)?;
-                    self.out.push("} else {".into());
-                    self.btrace("} else {");
-                    self.region(f_b)?;
-                    self.out.push("}".into());
-                    self.btrace("}");
-                    return Ok(());
-                }
-                if self.join_via_label(meet, t_b, f_b, root, arm_blocks)? {
-                    // the meet was DEFERRED: its body drains later
-                } else {
-                    self.region(meet)?;
-                }
-                Ok(())
-            }
-            (None, None) => {
-                if std::env::var_os("J2R_CFG_TRACE").is_some() {
-                    eprintln!(
-                        "cfg-trace: diamond {}{} ci={} root={} m1={:?} m2={:?} -> both_terminate",
-                        self.m.name, self.m.desc, ci, root, m1, m2
-                    );
-                }
-                // both arms terminate — plain if/else; the surrounding
-                // stop context carries into the arms
-                self.out.push("if __cond {".into());
-                self.btrace("if __cond {");
-                self.region(t_b)?;
-                self.out.push("} else {".into());
-                self.btrace("} else {");
-                self.region(f_b)?;
-                self.out.push("}".into());
-                self.btrace("}");
-                Ok(())
-            }
-            _ => unreachable!("diamond: both-equal meet handled above"),
+                self.m.name,
+                self.m.desc,
+                ci,
+                root,
+                t_b,
+                f_b,
+                m1,
+                m2,
+                self.meet_has_outside_pred(m1, root, arm_blocks),
+                self.meet_has_outside_pred(m2, root, arm_blocks),
+                t_defer,
+                f_defer,
+                def_dbg(Some(m1)),
+                def_dbg(Some(m2))
+            );
         }
+        if t_defer || f_defer {
+            if t_defer {
+                self.register_deferred(m1);
+            }
+            if f_defer {
+                self.register_deferred(m2);
+            }
+            self.free_walk_if_else(t_b, f_b)?;
+            return Ok(true);
+        }
+        if cfg_debug() {
+            eprintln!(
+                "cfg-debug: divergent joins unresolved {}{} ci={} (block {}) \
+                             t_b={} f_b={} m1={:?} m2={:?}",
+                self.m.name, self.m.desc, ci, root, t_b, f_b, m1, m2
+            );
+        }
+        Ok(false)
+    }
+
+    /// The single-meet arm (verbatim): the G3.1 guard-shape refinement —
+    /// when the MEET-side arm is itself a TRANSFER, free-walk if/else;
+    /// otherwise the meet joins via its label.
+    #[allow(clippy::too_many_arguments)]
+    fn diamond_single_meet(
+        &mut self,
+        ci: usize,
+        root: usize,
+        t_b: usize,
+        f_b: usize,
+        meet: usize,
+        arm_blocks: &HashSet<usize>,
+        m1: Option<usize>,
+        m2: Option<usize>,
+    ) -> Res<()> {
+        // G3.1 guard-shape refinement (a latent pre-existing bug
+        // the deferral unmasked): when the MEET-side arm is itself
+        // a TRANSFER — its start block or its meet is already an
+        // owned stop — the arm's region breaks to that stop and
+        // never reaches the meet; claiming the meet via
+        // join_via_label would hoist the meet's code (which lives
+        // on the stop owner's side, e.g. the loop EXIT) into this
+        // diamond, and the owner's later walk would hit it
+        // emitted. tred2's loop(4) guard: true arm starts at the
+        // loop's exit-stop 40, meet 60 lies on the exit side —
+        // free-walk if/else instead, and the loop's own exit
+        // region emits the meet side once, after the loop.
+        if std::env::var_os("J2R_CFG_TRACE").is_some() {
+            eprintln!(
+                "cfg-trace: diamond {}{} ci={} root={} m1={:?} m2={:?} -> single_meet",
+                self.m.name, self.m.desc, ci, root, m1, m2
+            );
+        }
+        let meet_side_is_transfer = if m1.is_some() {
+            self.stops.iter().any(|e| e.block == t_b || e.block == meet)
+        } else {
+            self.stops.iter().any(|e| e.block == f_b || e.block == meet)
+        };
+        if meet_side_is_transfer {
+            self.free_walk_if_else(t_b, f_b)?;
+            return Ok(());
+        }
+        if self.join_via_label(meet, t_b, f_b, root, arm_blocks)? {
+            // the meet was DEFERRED: its body drains later
+        } else {
+            self.region(meet)?;
+        }
+        Ok(())
+    }
+
+    /// The both-terminate arm (verbatim): plain if/else — the surrounding
+    /// stop context carries into the arms.
+    fn diamond_both_terminate(
+        &mut self,
+        ci: usize,
+        root: usize,
+        t_b: usize,
+        f_b: usize,
+        m1: Option<usize>,
+        m2: Option<usize>,
+    ) -> Res<()> {
+        if std::env::var_os("J2R_CFG_TRACE").is_some() {
+            eprintln!(
+                "cfg-trace: diamond {}{} ci={} root={} m1={:?} m2={:?} -> both_terminate",
+                self.m.name, self.m.desc, ci, root, m1, m2
+            );
+        }
+        // both arms terminate — plain if/else; the surrounding
+        // stop context carries into the arms
+        self.free_walk_if_else(t_b, f_b)?;
+        Ok(())
     }
 
     /// Emits a labeled join block around the two diamond arms. Returns
@@ -2119,6 +2222,16 @@ pub fn render_report(rows: &[MethodCfg]) -> String {
         let _ = writeln!(s, "| {name} | {count} |");
     }
     s
+}
+
+/// The deep-scan result type (the divergent arm's walk sets and
+/// candidate joins, computed once and consumed by the attempt).
+struct DeepScan {
+    d1: HashSet<usize>,
+    d2: HashSet<usize>,
+    deep: HashSet<usize>,
+    cands: Vec<usize>,
+    inter: Vec<usize>,
 }
 
 #[cfg(test)]
