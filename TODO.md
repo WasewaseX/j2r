@@ -3,372 +3,44 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-19 (the scanaislop round-4 wave,
-slice-j — **THE OWNER PASTED 20 COMPLEXITY FINDINGS OVER THE WAVE-1/3/4
-CORPUS AND THE JAMA VENDOR (files above 441 lines, functions above 88,
-nesting max 5; the paste is the first 20 of a report that also covers
-corpus/jzlib, corpus/minimal-json and corpus/stringsim by path order)
-and ordered them FIXED with every PR held to the same standard.** The
-end-state doctrine: no vendored .java tree and no amalgam remain in the
-repo — vendors become byte-frozen evidence archives, the compiled
-library is the <lib>entry package, oversized generated classes get the
-HAND reshape. slice-j (stringsim) DONE: vendor archived to
-scripts/evidence/vendor_stringsim.tar.gz, corpus/stringsimentry = 19
-script-generated verbatim per-class sources + 2 HAND reshapes (NGram
-distanceShort/buildPrefixed, Sift4 earlyResult/scanTranspositions/
-bestShift + the method-local Offset class now a package-private
-top-level carrier), StringsSimCorpus main split main+phase1..3 under
-the 80-line limit (the pasted :56 finding), StringsSimBench driver-only;
-build_corpus_stringsim.sh rewritten to own the new layout (REGEN-BYTE-
-IDENTICAL), build_corpus_stringsimbench.sh regenerates the bench driver
-over the same entry. PROOF (slice-j): javac+java stdout BYTE-IDENTICAL
-to the pre-edit baselines (SSC 580 B sha 2781d680…, SSB 140 B sha
-cb155cfa…, stderr 0, exit 0), j2r test --release three-channel PASS on
-both drivers, corpus_suite 6/6, fmt + clippy -D warnings clean,
-gate-11 in sync (fixtures=130 tests=619). THE ROUND-4 LIST IS FULLY
-RESOLVED (slices j-m + the sweep): slice-k minimal-json (vendor archived,
-minimaljsonentry 11 verbatim + 10 HAND — JsonObject/JsonParser/JsonArray/
-JsonValue split families, the nested-Member self-import restored, the
-package-private JsonNumber widened across the import boundary),
-slice-l JAMA (vendor archived, JamaCorpus driver imports the proven
-jamaentry.* — the API-gap audit added 14 delegators + MatrixNorms
-rebalanced Matrix to 439; the SVD core tightened: selectKase/
-uRotationApply/vRotationApply extracted, the >88-line function and both
-nest-6 shapes gone), slice-m JZlib (vendor archived, build_corpus_jzlib.sh
-extracts from the archive, REGEN-BYTE-IDENTICAL byte-exact), slice-n the
-full-repo sweep (ZERO findings outside the one documented hosted
-divergence, scripts/evidence/slop_audit/ROUND4_2026-11-19.md). The repo
-carries NO vendored .java tree and NO amalgam: every corpus entry is
-driver + entry-package, every file <=441, every function <=80, nesting
-<=5; the byte-identity proof is gated by BOTH JAMA drivers (JamaBench
-73 B sha e830385d..., JamaCorpus 5015 B sha 6fdd2b23...). THEN the queue
-head T15.2 (the MappingSet-driven remap pass). PR HOLD unchanged: the
-four dependabot branches stay unmerged.).
-Previous: 2026-11-18 (the scanaislop round-3 corpus
-wave, slices a-f — **THE AMALGAM SHAPE RETIRES AND THE
-VENDORED-EXEMPTION RETIRES WITH IT**: the owner re-pasted the
-complexity-only findings (file above 441 lines, function above 88,
-nesting max 5) over HexFloatProbe/JZlibCorpus/JamaBench and ordered
-them FIXED, so round 1/2's "vendored-algorithm advisories are
-exempt-by-design" is retired — the fix is reshape, not adjudicate.
-HexFloatProbe main split (main 9 + 4 helpers under the 80-line limit)
-forced the file's first full three-channel check and exposed that
-Float/Double.toHexString NEVER passed — closed probe-first with
-javafmt double_to_hex_string/float_to_hex_string pinned against the
-live Temurin oracle over the 76-row matrix + natives registered +
-HexFloatProbe pinned as corpus_suite entry 5; JZlibCorpus split into
-the 114-line driver + jzlibentry/ (18 script-generated REGEN-BYTE-
-IDENTICAL + 5 hand-maintained state machines) — Deflate → nine files
-(functions ≤80, nest ≤4, files ≤439) which exposed AND closed a real
-j2r gap (field resolution now walks the JVMS 5.4.3.2 superinterface
-closure so an interface-declared static resolves and its declaring
-interface <clinit> is ensured), Inflate → the 23-arm dispatcher +
-Header/Sync families, InfBlocks/InfCodes/InfTree → proc families with
-the upstream UPDATE-macro cursor-locals as fields; JamaBench (THIS
-run, slice-f) → the 67-line driver + jamaentry/ (7 per-class sources
-generated verbatim from the untouched NIST tree by the rewritten
-build_corpus_jamabench.sh — the one caught bug: the amalgam's
-public-demotion cannot cross a package boundary, `import jamaentry.*`
-cannot see package-private types). PROOF (slice-f): javac+java stdout
-BYTE-IDENTICAL to the pre-edit baseline (85 bytes, sha256 e830385d…,
-stderr 0, exit 0), j2r test --release three-channel PASS (5m35s),
-corpus_suite 5/5, fmt + clippy -D warnings clean, REGEN-BYTE-IDENTICAL.
-REMAINING under the same order: the jamaentry reshape slices (Matrix
-1046 → DONE in slice-g as Matrix 421 + MatrixOps 434 + MatrixSolve 82 +
-MatrixIo 243, all ≤441 with the receiver-mx mechanics and one-line
-delegators; EigenvalueDecomposition 956 → DONE in slice-h as five files
-(151 + EigenSymmetric 305 + EigenOrthes 133 + EigenHqr2 419 +
-EigenHqr2Backsub 163, the slice-e2 work-area model, the running
-index renamed nrun, the backsubstitution reaching the state through
-the st receiver; the NEW corpus/EigenNonsymProbe pins the
-never-gated nonsymmetric branch and is corpus_suite entry 6);
-SingularValueDecomposition 548 → DONE in slice-i as three files
-(138 + SingularValueCore 361 + SingularValueCases 170; the full
-Golub-Reinsch path is on the gated workload so the driver's
-byte-identity covers it end to end) — THE OWNER'S COMPLEXITY LIST
-IS FULLY RESOLVED (HexFloatProbe + JZlibCorpus + JamaBench + all
-the function/nesting findings; every jamaentry/jzlibentry file
-<=441 lines, every function <=80, nesting <=5); the per-commit
-detail lives in the commit messages, the board record for the wave is
-written with slice-f (slices a-e2 landed without a same-commit boards
-entry). THEN the queue head T15.2 (the MappingSet-driven remap pass).
-PR HOLD unchanged:
-the three dependabot branches stay unmerged.).
-Previous: 2026-11-18 (the scanaislop round-2 wave —
-**THE OWNER RE-PASTED THE SAME 21 FINDINGS AND ORDERED THEM FIXED: THE
-SIX EMPTY-CATCH ERRORS ARE NOW GONE IN THE BYTES ON EVERY SCANNER
-SURFACE** — round 1 adjudicated the claims and opted the corpus out;
-round 2 proved the hosted surface never reads the repo opt-out (the
-rule id `swallowed-exception` does not exist in v2.9.1) and proved its
-discriminator from the paste itself (the `ignored`-named catch at
-ZOutputStream:136 was never flagged while `catch(Exception e){}` at
-:126 was; comment-only blocks still count as empty), so every corpus
-catch now reads `catch (X ignored) { <the reason> }` —
-ZOutputStream end()/close(), GZIPInputStream fill(), Deflate
-deflateCopy, and the four amalgam twins; the one project-authored
-flagged function (the 95-line driver main) split into
-main+phase1+phase2 under the 80-line house limit; build_corpus_jzlib.sh
-re-owns the amalgam bytes (the phase-2 heredoc re-embedded + the lost
-expand -t 8 restored — the script regenerates the committed amalgam
-byte-for-byte); PROOF: javac stdout byte-identical to the pre-edit
-baseline (330B, stderr 0), j2r test three-channel PASS, corpus-direct
-engine scan empty-catch 0 (was 5), full-repo scan blocking=0 grade=A
-CLEAN, lib battery 541/0, diff_suite 130 fixtures three-channel ZERO
-(384.18s + 387.63s sharded), cfg_equiv zero (447.14s), fmt + clippy -D
-warnings clean FRESH, gate-11 in sync (fixtures=130, tests=613); the
-vendored-algorithm complexity advisories stay exempt-by-design
-(scripts/evidence/slop_audit/ROUND2_2026-11-18.md). THEN the queue
-head opened: T15.1 (the raw-class-transport, crates/j2r-classfile/src/
-remap.rs) LANDED the same day — the remap stage's byte-exact transport
-(4 law tests over 8 committed javac vectors; battery 545/0, gate-11
-130/617, evidence scripts/evidence/t15_remap/T15_1_2026-11-18.md).
-PR HOLD unchanged:
-the three dependabot branches stay unmerged.).
-Previous: 2026-11-18 (the master-ci v2.9.1 wave —
-**THE UPDATED ENGINE RE-SCANNED THE TREE AND EVERYTHING FIXABLE GOT
-FIXED**: the owner ordered "master-ci has been updated use the updated
-version and fix everything then continue from the roadmap"; the skill
-was re-cloned at tag **v2.9.1** (the old local clone was stale v1.3.0
-with a dead sandbox-relative origin), self-test PASS, and the fresh
-scan reported **20 blocking / 2027 advisory findings, slop 58/100 grade
-D verdict INFLATED**. The fix wave, in families: (1) the six suite
-empty catches (MonitorContention:38, WaitNotify:50/61/72/119,
-WaitTimeout:64) got same-line, same-line-count comments inside the
-braces — behavior-neutral for the differential channels by construction
-and re-proven by the full diff_suite; (2) scripts/bench_suite.py:90's
-pass-only OSError handler now assigns the empty fallback explicitly (no
-swallowed exception); (3) scripts/check_stubs.py no longer
-self-matches: the docstring and the selftest payload were reworded
-(the payload marker is built by string concatenation so the SOURCE no
-longer contains the elision pattern), todo-density 8.6% → 3.7%; the
-gate's own selftest stays GREEN (4 findings, clean.rs untouched);
-(4) the boilerplate families — the 254x `let _rt =
-crate::test_support::runtime()` sites now call the crate-root
-test-only re-export `crate::runtime()`, the 58x null-default argument
-expression is the `arg_or_null` law helper, the 51 `crate::internal_error`
-sites + 25 `super::super::bridge::delete_local` sites + 60x JNI
-descriptor/class strings (SIG_OBJECT/SIG_OBJECT_OBJECT/UNMOD_LIST) +
-AIOOBE + CME asserts + CALL_BASE + FRAME_REFRESH + cfg_debug +
-ThreadRecord::set_running + parse_ok/OBJ_NAME + util_iadd_row all
-collapsed to named single spellings, and the 19 §5 first-argument
-matches are the `first_arg_ref!` macro (the NPE arm + arity fallback in
-ONE definition); (5) the 11 remaining blocking findings are exactly the
-adjudicated no-action sites — corpus upstream-verbatim empty catches +
-minimal-json 'moreover' + the Java entry-point signature + the
-GENERATED tables.rs + the JZlib one-liner — now carried by the
-documented `.ai-integrity-ignore` (every line justified, pointer to
-AUDIT_2026-11-17.md); the FINAL scan reads **blocking=0, slop 9/100,
-grade A, verdict CLEAN**. Evidence:
-scripts/evidence/slop_audit/v291_scan_{before,after_fixes,final_clean}_2026-11-18.txt.
-GREEN end-to-end: toolchain re-bootstrapped byte-exact (rustc
-1.99.1/58cf8f9c3 + Temurin 21.0.13) after the sandbox reset; lib
-battery **541/0** (48+172+15+306); diff_suite **130 fixtures
-three-channel ZERO** (381.59s + 383.94s sharded); cfg_equiv zero
-(461.32s); fmt + clippy -D warnings clean FRESH; gate-11 in sync
-(fixtures=130, tests=613); check_stubs gate GREEN; the tables.rs
-regeneration sanity (generator runs, 235 slots, 159 wired — the import
-removal changed nothing; the fmt-vs-generated delta was restored).
-PR HOLD unchanged: the three dependabot branches stay unmerged.).
-Previous: 2026-11-17 (the cycle-complete session —
-**THE SCAN AISLOP CLAIMS RE-AUDITED + THE HASHMAP COPY-CTOR GAP CLOSED**:
-sandbox reset survived zero-loss again (the tree had rolled back to
-pre-M2 `b4badea`; ff-only to `ab24a08` restored everything; the
-toolchain re-bootstrapped byte-exact rustc 1.99.1/58cf8f9c3 + Temurin
-21.0.13 via the foreground-chunk protocol — the sandbox reaps
-multi-minute background processes, the recorded lesson re-proven);
-baseline re-proven BEFORE any code: release build + lib battery
-**534/0**. THEN: (1) the owner-ordered scanaislop claims re-audit — all
-20 pasted claims adjudicated against the bytes (6 empty catches
-upstream-verbatim, bench_suite.py:86 stale/already-fixed, 12 complexity
-flags = the real algorithm cores, the 441-lines figure matches no
-committed state); ONE hygiene fix (the have() predicate narrowed);
-evidence scripts/evidence/slop_audit/; the three dependabot PRs HELD
-per the owner's order; (2) the HashMap copy-ctor — PROBE FIRST
-(HashMapCopyProbe, the 130th fixture: L1 the source-order chain law,
-L2 the cap-16/32 pre-size boundary made observable by key 20, L4/L4b
-the tree sources, L6 the null-map NPE, L7 the null-key carry, L8 the
-lazy empty path, L9 the growth timing + the lo/hi split; Temurin
-21.0.13+9 oracle byte-captured), then LANDED: n_hm_init's putMapEntries
-Map arm (the pre-size law + the source-order inserts), the SHARED
-source-storage law fixing the LATENT LHM-from-TreeMap misread (the old
-`_` arm walked hash slots on a red-black object), +7 law tests; one
-en-route bug caught by the law battery: the arm-merge had routed the
-no-arg ctor through table_size_for(0)=1 — the HashSet iteration flip
-exposed it, the `None => 0` law restored. GREEN: the probe stdout
-BYTE-IDENTICAL vs Temurin on BOTH backends (exit 0); battery: lib
-**541/0** (48+172+15+306), diff_suite **130 fixtures three-channel
-ZERO** (385.18s + 387.45s sharded), cfg_equiv zero (451.66s); fmt +
-clippy -D warnings clean FRESH; gate-11 in sync (fixtures=130,
-tests=613; README 129→130, 593→600, cfg 129→130; diff guard 128→129).
-sandbox reset survived zero-loss (ff to `161fd44`, toolchain
-re-bootstrapped byte-exact rustc 1.99.1/58cf8f9c3 + Temurin 21.0.13,
-rust199 symlink re-wired); baseline re-proven BEFORE measuring: lib
-battery **512/0** (48+160+15+289); then, in ONE session, the G0.7
-same-session pairs, every native run stdout byte-identical vs the
-same-session Temurin full-tiered reference: **JamaBench default
-278.489s / typed 256.523s = 0.9211** (the 4th same-session pair:
-0.992 → 0.936 → 0.9092 → 0.9211, all < 1.0 — the typed lever is
-REPEATABLE, the ≥2-session clause HOLDS on this bench) and
-**StringsSimBench default 285.873s / typed 279.224s = 0.9767** — SSB's
-FIRST same-session pair, closing the audit's "no post-lever SSB
-measurement" verdict (typed cross-session 279.224 vs run-2's 279.243
-= 0.007% apart; default 285.873 vs the audit's 282.344 = 1.25% over
-9 days; one more SSB pair owed for the formal ≥2-session SSB clause).
-Same-session JVM gaps: JamaBench 73.7x typed / 80.0x default,
-SSB 100.0x typed / 102.4x default — the stale "~66x" board figure
-REPLACED (G3.5 unchanged: two orders of magnitude, quoted every
-time). BOARD TRUTH PASS en route: G3.1 box checked in
-REVIEW_CHECKLIST (closed session 17 `fb6683c`, the row had been left
-`[ ]`), STATUS G3.1 OPEN→CLOSED with the evidence path, STATUS G3.3
-stale "TreeMap next" line fixed (the prim rewrites ride ALL THREE map
-storages), G3.4 sub-gate state recorded. THEN THE RESIDUALS WAVE
-OPENED — **USER-INTERFACE DEFAULT-METHOD DISPATCH LANDED (the
-registered Probe5 residual)**: DefaultDispatchProbe (the 127th
-fixture, 11 classes, law matrix L1 the Probe5 shape / L2 the
-most-specific default / L3 the class-override precedence / L4 the
-super-interface reach through a non-redeclaring Mid; Temurin oracle
-scripts/evidence/default_dispatch/) RED-proved the residual exactly
-(rc=1 after "m=21", the loud internal Error) and the fix is RUNTIME-ONLY:
-invoke_virtual, after the class chain finds nothing, BFSes the
-receiver's transitive interface closure over the FULL parents arrays
-(new Dispatch::parents_of_full — parent_of returned parents[0] only),
-candidates = lookup hits on INTERFACE-typed nodes (abstract rows have
-no lookup row, so a hit IS a default body; builtin interfaces answer
-from the native rows), dominance via the existing is_subtype, exactly
-one survivor dispatches; the diamond conflict stays LOUD
-(IncompatibleClassChangeError — UNREACHABLE from javac input, which
-refuses it at compile time — probed live, the lesson pinned in the
-probe + evidence); 0 survivors keeps the loud Error. ZERO codegen
-changes (the fold mirrors the widened law by the documented `_`
-fallback). GREEN: probe stdout byte-identical vs Temurin; +5 law
-tests (lib.rs default_dispatch); lib battery **517/0**
-(48+160+15+294); diff_suite **127 fixtures three-channel ZERO**
-(365.52s + 371.10s sharded; the 127th fixture byte-identical vs
-Temurin); cfg_equiv zero (446.72s); fmt + clippy -D warnings clean
-FRESH; gate-11 in sync: fixtures=127 tests=576 (README 126→127 /
-571→576 / 127-127, diff guard 125→126 with the run-3 wave comment).
-THEN THE PROBE-FIRST COMMIT FOR THE NEXT RESIDUAL: NpeShapeProbe2
-(the HELPFUL-NPE oracle matrix, 8 shapes) captured Temurin 21.0.13+9's
-JEP 358 messages for the WHOLE javac-reachable matrix (unbox
-call-result S1/S8, null local S2/S3, producer chain S4, array length
-S5, field read S6, array store S7) and pinned the message-grammar
-laws (action-first; the cause is the producer chain with the ERASED
-descriptor, or <localN> = the local SLOT index when javac omits the
-LVT — the harness compiles without -g, so <localN> IS the oracle);
-j2r's RED state captured (all eight msg=[null], exit 0, 18 diff
-lines, message-only divergence); the fix design registered (the
-messages are computable AT EMIT TIME — the emitter knows the static
-receiver class, the (name, desc), the preceding call, and the local
-slot). Zero source changes. Evidence:
-scripts/evidence/default_dispatch/NPE_SHAPE2_2026-11-16.txt. Next
-queue: 1) HELPFUL-NPE — LANDED (both slices, run 4; the NpeShapeProbe2
-fixture, the 128th, three-channel GREEN vs live Temurin; lib 532/0,
-diff_suite 128 zero, cfg_equiv zero; evidence
-scripts/evidence/helpful_npe/; the registered residuals: the
-<parameterN>/this/LVT naming branches, the composed-value/chain
-causes, the specialized map cores, the typed emitter, monitorexit),
-2) the SSB same-session pair — TAKEN (run 5: 275.353/277.931 =
-0.9907, byte-identical vs the same-session ref; with run 3's 0.9767
-the formal ≥2-session SSB clause HOLDS, the G3.4 checklist box
-CLOSED; evidence scripts/evidence/g3_4_pairs/PAIRS_run5_2026-11-16.txt),
-3) different-package private-ctor — LANDED (run 5: the NestHost
-attribute parse end-to-end, the emit-time caller tag on
-Constructor.newInstance, the runtime JEP 181 law + Temurin's exact
-refusal messages; the 8-shape pA/pB probe corpus byte-identical
-three-channel, PrivateCtorAccess the 129th fixture, lib 534/0,
-diff_suite 129 zero, cfg_equiv zero; evidence
-scripts/evidence/private_ctor/; registered follow-ons: Method.invoke
-carries the SAME caller law — its arm is untouched, setAccessible
-has no surface, the field/method protected instance-context nuance),
-4) HEAD OF QUEUE — the HashMap copy-ctor gap — **CLOSED (2026-11-17,
-   the cycle-complete session, see the board head)**: HashMapCopyProbe
-   (the 130th fixture) three-channel GREEN, the putMapEntries pre-size +
-   source-order laws landed, +7 law tests, lib 541/0, diff_suite 130
-   zero, cfg_equiv zero; the G3.2 CFG layer (block-join/entry-var)
-   CONCLUDED (2026-11-18 census: the entry-var target set is consumed
-   — 13 cross-block s-cell clones on the full JAMA typed emit, the
-   rest rides typed local register reads; evidence
-   scripts/evidence/g3_2/entryvar_conclusion_census_2026-11-18.txt) and
-   M5 wave-3 T14 (the Tiny v2 parser, crates/j2r-mappings) LANDED the
-   same day — then the owner-ordered scanaislop round-2 wave ran as an
-   interleave (the six empty-catch errors fixed in the bytes, the
-   driver main split, the build script re-owning the amalgam — the
-   entry above) WITHOUT moving the queue head. NEW HEAD OF QUEUE: T15
-   (the remap stage, the
-   j2r-classfile write path) — its T15.1 transport slice LANDED (the
-   raw reader + byte-exact writer + retarget_this_class, 4 laws, 8
-   javac vectors); NEXT: T15.2 (the MappingSet-driven remap pass over
-   NameAndType/member-refs + the non-Code attributes that carry
-   class/name references), T15.3 (the CLI `remap` stage), T16 (real
-   intermediary load + remapped jar differential), then the run-5
-   registered follow-ons (Method.invoke's caller-law arm, the
-   user-Map-source copy-ctor residual); the M4 review belongs to the
-   owner. (The 5-run cycle is COMPLETE: runs 1-5 all recorded; the
-   cycle-complete session continued the queue head per the standing
-   discipline.)
-(Historical: standing run 2 — **THE P0 TYPED-BACKEND CRASH FIXED**: CharArrayRepProbe (the 126th
-fixture, 15 case groups, three-channel PASS on the DEFAULT backend; Temurin
-oracle at scripts/evidence/char_array_rep/) pinned the [C representation
-laws and reproduced the audit's crash exactly (typed exit 101,
-array_load_i <- m_ngram2___Ljava_lang_String_Ljava_lang_String__D). ROOT
-CAUSE (read, not guessed): n_str_to_char_array built the [C as prim=None
-boxed Value::Int slots — the ONE outlier producer of a prim-descriptor
-array — while the typed body's I::ALoad routes caload → array_load_i by
-the opcode's element kind (readiness MixedEpoch is NOT the gate: typed::plan
-accepts mixed positions as Cells, so NGram.distance's body IS emitted
-typed). THE FIX: n_str_to_char_array now builds the canonical prim-payload
-form (slots=[length], units in PrimData::I — the exact array_new_prim
-object shape); the raw-accessor loud contract stays as the drift detector;
-+3 runtime law tests (payload shape / both-families reads incl. surrogate
-pairs / raw-store char-narrow). GREEN: lib 512/0 (48+160+15+289); probe
-typed exit 0 stdout byte-identical vs Temurin; StringsSimBench typed exit
-0 twice (was rc=101 at 167.1s), stdout byte-identical vs the same-session
-Temurin reference, run-2 wall 279.243s (the same-session default/typed
-PAIR is NOT claimable from these numbers — it was the run-3 queue
-item, TAKEN 2026-11-16: see the run-3 block above); diff_suite 126
-fixtures three-channel ZERO (362.59s + 366.11s sharded);
-cfg_equiv zero (434.88s); fmt + clippy clean; gate-11 126/571.)
-(Historical: run 5 of 5 — **TREEMAP LANDED, the cycle
-ENDS**: the sorted map with the CLRS red-black storage — the probed
-laws (TreeMapProbe, the 123rd fixture, three-channel zero; evidence
-scripts/evidence/treemap/), the CLRS fixups with TWO bugs found by the
-validate-per-step integrity test (the insert zig-zag pivot, the delete
-loop's missing x.color == BLACK condition + the unconditional exit
-recolor), one never-repeat deadlock rule (no heap-lock read inside a
-with_obj_mut closure). Battery 492/0 lib + diff_suite 123 zero +
-cfg_equiv zero; gate-11 123/551. The G3.3 prim rewrites are UNBLOCKED
-(both new storages exist). HANDOFF QUEUE (no run 6 scheduled): the
-TreeMap bounded views (oracle ready, evidence case 12), the G3.3 prim
-rewrites, the residuals (user-interface DEFAULT dispatch, HELPFUL-NPE,
-different-package private-ctor, the HashMap copy-ctor gap), the
-G3.1/G3.2 CFG layers, the owner-review asks in
-docs/STATUS_G2_G3_G4.md.) after the LinkedHashMap
-landing, the owner's external review re-ranked the queue — residuals
-first, documentation sync second. **HASHMAP HASH-ITERATOR REMOVE()
-CLOSED**: ItrOrderProbe (the 122nd fixture) probed Temurin 21.0.13+9
-and pinned the HashIterator.remove law as **ISE FIRST** (both
-conditions → ISE, not CME) — which also exposed the run-4 LHM
-link-iterator remove as CME-first-divergent (case 5), now corrected.
-Hash iterators gained the `current` slot (4 → 5), n_hi_remove replaced
-the ArrayList-shaped rows, the missing HashMap$EntryIterator.remove
-row added; battery 486/0 lib + diff_suite 122 zero + cfg_equiv zero;
-gate-11 122/545; evidence scripts/evidence/itr_remove/. The review's
-evidence-backed status report landed as docs/STATUS_G2_G3_G4.md. Next
-queue: TreeMap (the red-black storage + the Comparable/Comparator
-dispatch law, probed FIRST), then the G3.3 prim rewrites ride both new
-maps.)
-reset #26 survived — this reset did NOT stale the git objects, only the
-toolchain; fetch+ff recovered to ea2d0af (run 3's R7 NO-GO), the repo's
-tracked bootstrap re-proved byte-exact, baseline re-proven 476/0. Queue
-decision: **the TreeMap/LinkedHashMap G3.3 follow-ons** — SCOPING FINDING:
-the classes DO NOT EXIST in j2r (no builtin rows, no natives; `new
-TreeMap` is the loud unsupported-class error, probed live), so the
-follow-on OPENS with the classes themselves; **LINKEDHASHMAP LANDED**
-(the class, the 11 probed order laws, the 121st fixture LhmProbe, 7 law
-tests, battery 483/0 lib + diff_suite 121 zero + cfg_equiv zero; gate-11
-121/542; evidence scripts/evidence/lhm/). Next queue: TreeMap (the
-red-black storage + the Comparable/Comparator dispatch law), then the G3.3
-prim rewrites ride both new maps.)
+fix the board. Last updated: 2026-11-19 (standing run 1 of the new epoch, the scanaislop
+round-8 wave, slices h-t — **THE OWNER PASTED THE 20-WARNING RUST-CRATE
+LIST (11 file-too-large over 1100 + the scripts/probe/comment tail) AND
+ORDERED THEM FIXED with every PR held to the same standard.** ALL
+RESOLVED this run, every slice pushed with its full proof stack:
+slice-h runtime lib.rs (1334) + formatter.rs (1323) — the #[path]
+children pattern, 18 explicit pub re-exports (the e2e loop caught the
+visibility law: pub-at-root items under a pub(crate) glob lose the
+generated-crate path, E0603); slice-i the scripts wave (bench_suite.py
+main 199 -> 8 helpers; the 4 flagged evidence probes frozen to
+probe_sources_frozen_2026-11-19.tar.gz — 3 byte-identical to their
+suite fixtures, TreeMapProbe the one historical variant;
+InfBlocks.java's trivial comments); slice-j gen_jni_env_table.py (1714)
+-> the scripts/jni_env_table/ package, output BYTE-IDENTICAL at a
+pinned seed, the committed tables.rs drift vs the generator documented
+(pre-existing, untouched); slices k-s the remaining nine Rust files —
+jdkutil 1588 (slice-k), reflect 1665 (slice-l), jni/calls 1769
+(slice-m), langext 1848 (slice-n, the int_radix_fns macro moved into
+its only consumer), io 2171 (slice-o), thread 2403 (slice-p), classfile
+lib 1974 (slice-q), collections 7613 (slice-r, nine family children +
+the 2647-line tests mod split two-stage into testsupport + eight family
+test children), natives 8764 (slice-s, nine children + the 4621-row
+NATIVES table verbatim in five unit-aligned parts as a slice of slices
+with one flat_map in lookup_exact); slice-t the four over-length
+test-harness fns (diff_suite 410 -> the wave history hoisted to file
+level + three verbatim filter helpers; e2e 187; jmm_boundary 223;
+jar_suite 181) — the naive brace-walk false positives (btrace 37,
+emit_default_prologue 70) documented and the scanner now string-aware.
+PROOF: fmt + clippy --all-targets -D warnings on every slice, runtime
+308 + codegen 172 + classfile 52 green on every slice, diff_suite 130
+fixtures zero-diff 4/4 shards on every slice, corpus_suite PASS over
+the InfBlocks edit, cfg_equiv PASS (441.3s), gen output byte-identical
+(cmp at PYTHONHASHSEED=1), gate-11 in sync (fixtures=130 tests=619).
+The scan surface is now CLEAN: zero .rs files over 1100 except
+jni/tables.rs (5408, the documented generated-data opt-out), zero fns
+over 132. QUEUE HEAD: T15.2 (the MappingSet-driven remap pass), then
+the master-ci engine re-sweep when the sandbox network allows.
+Previous: 2026-11-19 (the scanaislop round-4 wave, slice-j — the corpus complexity findings, fully resolved slices j-m + the sweep).
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside
 the audited `j2r-jni-ffi` FFI core: 11 occurrences, gate-10 pin ≤ 12,

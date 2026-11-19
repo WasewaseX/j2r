@@ -5446,3 +5446,27 @@ roadmap" on the A-graded tree.
   green, jar_suite 3 green, diff_suite 130 fixtures zero-diff 4/4
   shards (192-196s), the fn-length scan reports ZERO fns over 132.
   PR HOLD unchanged.
+- standing run 1 of the new epoch (this docs commit): the scanaislop
+  round-8 wave COMPLETE — 13 slices (h through t), 15 commits, every
+  one pushed with its proof stack. The final scan surface: zero .rs
+  files over the 1100 flag (jni/tables.rs 5408 rides its documented
+  generated-data opt-out and the newest owner scans stopped listing
+  it), zero fns over 132 (the string-aware scanner), the corpus
+  complexity claims resolved in rounds 3-4 (jzlibentry/jamaentry/
+  stringsimentry/minimaljsonentry + the probes frozen), the scripts
+  claims fixed (bench_suite split, gen_jni_env_table packaged with a
+  byte-identity proof, the evidence probes frozen). Pre-existing
+  findings recorded for the owner: (a) the committed jni/tables.rs is
+  STALE vs the current generator (842+/1655- at any seed; the generator
+  itself is seed-stable — regenerating is a functional decision, not a
+  scan fix); (b) lib.rs (classfile) carried a corrupted
+  `#acro_export]` line from the M1 baseline that still parses today —
+  byte-identical through every split, left untouched. Budget note: the
+  epoch counter was reset to 1 (the old counter file was wiped by the
+  sandbox reset; the epoch rule stays 5 runs / 2h apart).
+  MEASURED: runtime 308/0, codegen 172/0, classfile 52/0, diff_suite
+  130 zero-diff 4/4 shards on every slice, corpus_suite PASS,
+  cfg_equiv PASS 441.3s, gate-11 fixtures=130 tests=619. REMAINING:
+  T15.2 (the MappingSet-driven remap pass) is the queue head; the
+  master-ci engine re-sweep awaits network; PR HOLD unchanged (the
+  four dependabot branches stay unmerged).
