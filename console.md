@@ -5230,3 +5230,30 @@ roadmap" on the A-graded tree.
   jar_suite 181 + the raw-string false positives). NEXT (run 4): the
   runtime/classfile split pass (12 files), then the four test-harness
   fns, then T15.2.
+- round-8 file-split pass, slice-h (this commit): the runtime crate's
+  two flagged files split verbatim. lib.rs (1334) -> a 141-line parent
+  (crate doc + the 26 pub mod decls + the pub use block + test_support
+  inline) over nine #[path = "lib/<name>.rs"] children — value (67) /
+  throw (67) / plan (105) / dispatch (64) / checks (92) / invoke (174) /
+  throwable (129) / tests_a (74, tests + m4_wave1 unwrapped) /
+  default_dispatch (408, unwrapped); 18 explicit pub re-exports preserve
+  the root API surface and the e2e loop caught the visibility law twice
+  (invoke_virtual and throwable_display/enclosed_trace are pub-at-root —
+  under a pub(crate) glob they lose the external path and the GENERATED
+  crate fails E0603, so they ride explicit pub use lines). formatter.rs
+  (1323) -> a 267-line parent (doc + shared helpers + format + the two
+  pub natives) over four children — num (422) / spec (138, Spec with
+  pub(crate) fields) / pieces (246) / tests (234, wrapper-unwrapped with
+  the approx_constant allow riding the decl). The scripts wave rode the
+  same window: bench_suite.py main (199) -> 8 helpers (max 52; syntax +
+  --help + dry-run proofs, the real-bench equivalence rides the next
+  bench run), the 4 flagged evidence probes frozen to
+  probe_sources_frozen_2026-11-19.tar.gz (3 byte-identical to their
+  suite fixtures, TreeMapProbe the one 18-line historical variant,
+  FROZEN_JAVA_README.md documents the freeze), InfBlocks.java's 4
+  trivial comments removed (HAND file — corpus_suite proves the bytes).
+  PROOFS: fmt + clippy --all-targets -D warnings workspace, j2r-runtime
+  308 + j2r-codegen 172 + e2e/jmm/partition/native_e2e green, diff_suite
+  130 fixtures zero-diff 4/4 shards (190-192s), corpus_suite PASS
+  (52.8s), cfg_equiv PASS (441.3s), gate-11 in sync (fixtures=130
+  tests=619). PR HOLD unchanged.
