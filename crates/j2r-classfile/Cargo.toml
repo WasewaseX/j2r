@@ -7,3 +7,4 @@ description = "Java .class file parser for the J2R Java-to-Rust compiler"
 repository = "https://github.com/WasewaseX/j2r"
 
 [dependencies]
+j2r-mappings = { path = "../j2r-mappings" }
