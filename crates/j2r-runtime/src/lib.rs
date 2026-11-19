@@ -483,38 +483,8 @@ pub fn invoke_virtual(
     // The receiver's class chain is walked by name; the receiver itself is
     // rooted by the caller's refreshed frame snapshot (generated code
     // refreshes before every call), so no NativeRoots scope is needed here.
-    let mut cur: Arc<str> = crate::heap::with_obj(*recv, |o| o.jclass.clone());
-    // Array receivers (corpus wave 2, JZlib): every array type is a
-    // subtype of Object with a public `clone()` (JVMS 2.15/6.5 invokevirtual)
-    // plus the Object methods. `clone` shallow-copies element-wise here;
-    // the Object methods dispatch through the Object natives rows.
-    if cur.starts_with('[') {
-        if name == "clone" && desc == "()Ljava/lang/Object;" {
-            return Ok(Value::Ref(Some(crate::array::array_shallow_copy(
-                recv, ctx,
-            )?)));
-        }
-        if matches!(
-            (name, desc),
-            ("getClass", "()Ljava/lang/Class;")
-                | ("hashCode", "()I")
-                | ("equals", "(Ljava/lang/Object;)Z")
-                | ("toString", "()Ljava/lang/String;")
-        ) {
-            return natives::invoke_exact("java/lang/Object", name, desc, Some(recv), args, ctx);
-        }
-    }
-    for _ in 0..64 {
-        if let Some(f) = ctx.find_method(&cur, name, desc) {
-            return f(Some(recv), args);
-        }
-        if let Some(n) = natives::lookup_exact(&cur, name, desc) {
-            return n(Some(recv), args, ctx);
-        }
-        match ctx.parent_of(&cur) {
-            Some(p) => cur = Arc::from(p),
-            None => break,
-        }
+    if let Some(res) = dispatch_chain(recv, name, desc, args, ctx) {
+        return res;
     }
     // The interface-default resolution (the registered Probe5 residual,
     // standing run 3, 2026-11-16): the chain above walks parents[0] only,
@@ -541,6 +511,95 @@ pub fn invoke_virtual(
     //   re-abstract shapes: javac refuses both, concrete classes always
     //   implement re-abstracted members, so no extra filter is taken here
     //   and the loud Error remains the honest fallthrough.
+    let survivors = default_survivors(recv, name, desc, ctx);
+    if survivors.len() == 1 {
+        let (iface, is_user) = &survivors[0];
+        if *is_user {
+            if let Some(f) = ctx.find_method(iface, name, desc) {
+                return f(Some(recv), args);
+            }
+        } else if let Some(n) = natives::lookup_exact(iface, name, desc) {
+            return n(Some(recv), args, ctx);
+        }
+    }
+    if survivors.len() > 1 {
+        let names: Vec<String> = survivors.iter().map(|(i, _)| i.to_string()).collect();
+        return Err(throw_new(
+            "java/lang/IncompatibleClassChangeError",
+            Some(&format!(
+                "unrelated default methods found for {name}{desc} in {}",
+                names.join(", ")
+            )),
+        ));
+    }
+    let cls = crate::heap::with_obj(*recv, |o| o.jclass.clone());
+    Err(throw_new(
+        "java/lang/Error",
+        Some(&format!(
+            "j2r internal: no implementation found for {name}{desc} when dispatched on {cls}"
+        )),
+    ))
+}
+
+/// The concrete-class chain walk (verbatim from `invoke_virtual`,
+/// round-6 reshaping): the array-receiver specials, then up to 64
+/// parent hops over compiled fns and native rows. `Some(result)` when
+/// a target dispatched, `None` to fall through to the default walk.
+fn dispatch_chain(
+    recv: &JRef,
+    name: &str,
+    desc: &str,
+    args: &[Value],
+    ctx: Dispatch,
+) -> Option<Result<Value, Throw>> {
+    let mut cur: Arc<str> = crate::heap::with_obj(*recv, |o| o.jclass.clone());
+    // Array receivers (corpus wave 2, JZlib): every array type is a
+    // subtype of Object with a public `clone()` (JVMS 2.15/6.5 invokevirtual)
+    // plus the Object methods. `clone` shallow-copies element-wise here;
+    // the Object methods dispatch through the Object natives rows.
+    if cur.starts_with('[') {
+        if name == "clone" && desc == "()Ljava/lang/Object;" {
+            return Some(match crate::array::array_shallow_copy(recv, ctx) {
+                Ok(v) => Ok(Value::Ref(Some(v))),
+                Err(e) => return Some(Err(e)),
+            });
+        }
+        if matches!(
+            (name, desc),
+            ("getClass", "()Ljava/lang/Class;")
+                | ("hashCode", "()I")
+                | ("equals", "(Ljava/lang/Object;)Z")
+                | ("toString", "()Ljava/lang/String;")
+        ) {
+            return Some(natives::invoke_exact(
+                "java/lang/Object",
+                name,
+                desc,
+                Some(recv),
+                args,
+                ctx,
+            ));
+        }
+    }
+    for _ in 0..64 {
+        if let Some(f) = ctx.find_method(&cur, name, desc) {
+            return Some(f(Some(recv), args));
+        }
+        if let Some(n) = natives::lookup_exact(&cur, name, desc) {
+            return Some(n(Some(recv), args, ctx));
+        }
+        match ctx.parent_of(&cur) {
+            Some(p) => cur = Arc::from(p),
+            None => break,
+        }
+    }
+    None
+}
+
+/// The maximally-specific default-method scan (verbatim continuation):
+/// BFS over the FULL parents arrays, interface-typed lookup hits as
+/// candidates, dominance by strict subtype.
+fn default_survivors(recv: &JRef, name: &str, desc: &str, ctx: Dispatch) -> Vec<(Arc<str>, bool)> {
     let start = crate::heap::with_obj(*recv, |o| o.jclass.clone());
     let mut queue: std::collections::VecDeque<Arc<str>> = std::collections::VecDeque::new();
     let mut seen: std::collections::HashSet<Arc<str>> = std::collections::HashSet::new();
@@ -582,33 +641,7 @@ pub fn invoke_virtual(
             survivors.push((iface.clone(), *is_user));
         }
     }
-    if survivors.len() == 1 {
-        let (iface, is_user) = &survivors[0];
-        if *is_user {
-            if let Some(f) = ctx.find_method(iface, name, desc) {
-                return f(Some(recv), args);
-            }
-        } else if let Some(n) = natives::lookup_exact(iface, name, desc) {
-            return n(Some(recv), args, ctx);
-        }
-    }
-    if survivors.len() > 1 {
-        let names: Vec<String> = survivors.iter().map(|(i, _)| i.to_string()).collect();
-        return Err(throw_new(
-            "java/lang/IncompatibleClassChangeError",
-            Some(&format!(
-                "unrelated default methods found for {name}{desc} in {}",
-                names.join(", ")
-            )),
-        ));
-    }
-    let cls = crate::heap::with_obj(*recv, |o| o.jclass.clone());
-    Err(throw_new(
-        "java/lang/Error",
-        Some(&format!(
-            "j2r internal: no implementation found for {name}{desc} when dispatched on {cls}"
-        )),
-    ))
+    survivors
 }
 
 /// Renders an uncaught throwable the way the JVM does:

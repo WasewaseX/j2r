@@ -956,83 +956,105 @@ pub fn n_thread_join(recv: Option<&JRef>, args: &[Value]) -> Result<Value, Throw
         None => return Ok(Value::Void), // never started: nothing to wait for
     };
     if target.reg_index == current_record().reg_index {
-        // JDK behaviour: joining the current thread without a timeout
-        // never returns; with a timeout it returns after the budget.
-        // Interruptible in every form (T14): the JDK delivers the
-        // message-less InterruptedException (JoinInterruptProbe).
-        let me = current_record();
-        if budget_ms > 0 {
-            let deadline = Instant::now() + std::time::Duration::from_millis(budget_ms as u64);
-            me.state.store(STATE_PARKED, Ordering::Release);
-            let mut g = lock_sched();
-            notify_all(&g);
-            loop {
-                if interrupted_now(&me) {
-                    me.set_running();
-                    // L7: no SCHED guard across the heap lock (slot 5).
-                    drop(g);
-                    clear_interrupt(&me);
-                    return Err(throw_new("java/lang/InterruptedException", None));
-                }
-                let now = Instant::now();
-                if now >= deadline {
-                    break;
-                }
-                g = SCHED_CV
-                    .wait_timeout(g, deadline - now)
-                    .unwrap_or_else(|e| e.into_inner())
-                    .0;
-            }
-            me.set_running();
-            return Ok(Value::Void);
-        }
-        if coop_mode() {
-            loop {
-                if interrupted_now(&me) {
-                    clear_interrupt(&me);
-                    return Err(throw_new("java/lang/InterruptedException", None));
-                }
-                yield_point(); // deterministic hang, like the JVM's
-            }
-        }
+        return join_self(budget_ms);
+    }
+    if coop_mode() {
+        return join_coop(&target, budget_ms);
+    }
+    join_wait(&target, budget_ms)
+}
+
+/// The self-join phase (verbatim from `n_thread_join`, round-6
+/// reshaping): joining the current thread never returns without a
+/// timeout, returns after the budget with one, and is interruptible
+/// in every form (T14).
+fn join_self(budget_ms: i64) -> Result<Value, Throw> {
+    // JDK behaviour: joining the current thread without a timeout
+    // never returns; with a timeout it returns after the budget.
+    // Interruptible in every form (T14): the JDK delivers the
+    // message-less InterruptedException (JoinInterruptProbe).
+    let me = current_record();
+    if budget_ms > 0 {
+        let deadline = Instant::now() + std::time::Duration::from_millis(budget_ms as u64);
         me.state.store(STATE_PARKED, Ordering::Release);
-        // Every state flip notifies (T17.1): the STW collector's
-        // quiescence loop sleeps on this condvar.
-        {
-            let g = lock_sched();
-            notify_all(&g);
-        }
+        let mut g = lock_sched();
+        notify_all(&g);
         loop {
             if interrupted_now(&me) {
                 me.set_running();
+                // L7: no SCHED guard across the heap lock (slot 5).
+                drop(g);
                 clear_interrupt(&me);
                 return Err(throw_new("java/lang/InterruptedException", None));
             }
-            // thread::park() alone is not woken by interrupt()'s condvar
-            // notify, so poll on a short timeout (50 ms granularity).
-            std::thread::park_timeout(std::time::Duration::from_millis(50));
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            g = SCHED_CV
+                .wait_timeout(g, deadline - now)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
+        me.set_running();
+        return Ok(Value::Void);
     }
     if coop_mode() {
-        let deadline = budget_ms;
-        let mut waited: i64 = 0;
-        let me = current_record();
-        while target.state.load(Ordering::Acquire) != STATE_EXITED {
-            // Interrupt check every tick (T14): the flag can only have
-            // been set by another thread's turn, which is exactly one
-            // yield ago — deterministic delivery.
+        loop {
             if interrupted_now(&me) {
                 clear_interrupt(&me);
                 return Err(throw_new("java/lang/InterruptedException", None));
             }
-            if deadline > 0 && waited >= deadline {
-                return Ok(Value::Void);
-            }
-            yield_point();
-            waited += 1; // coop ticks, not wall-clock (documented gap)
+            yield_point(); // deterministic hang, like the JVM's
         }
-        return Ok(Value::Void);
     }
+    me.state.store(STATE_PARKED, Ordering::Release);
+    // Every state flip notifies (T17.1): the STW collector's
+    // quiescence loop sleeps on this condvar.
+    {
+        let g = lock_sched();
+        notify_all(&g);
+    }
+    loop {
+        if interrupted_now(&me) {
+            me.set_running();
+            clear_interrupt(&me);
+            return Err(throw_new("java/lang/InterruptedException", None));
+        }
+        // thread::park() alone is not woken by interrupt()'s condvar
+        // notify, so poll on a short timeout (50 ms granularity).
+        std::thread::park_timeout(std::time::Duration::from_millis(50));
+    }
+}
+
+/// The coop-ring phase (verbatim continuation): interrupt check every
+/// tick, deterministic hang like the JVM's, coop ticks as the budget
+/// currency (documented gap).
+fn join_coop(target: &Arc<ThreadRecord>, budget_ms: i64) -> Result<Value, Throw> {
+    let deadline = budget_ms;
+    let mut waited: i64 = 0;
+    let me = current_record();
+    while target.state.load(Ordering::Acquire) != STATE_EXITED {
+        // Interrupt check every tick (T14): the flag can only have
+        // been set by another thread's turn, which is exactly one
+        // yield ago — deterministic delivery.
+        if interrupted_now(&me) {
+            clear_interrupt(&me);
+            return Err(throw_new("java/lang/InterruptedException", None));
+        }
+        if deadline > 0 && waited >= deadline {
+            return Ok(Value::Void);
+        }
+        yield_point();
+        waited += 1; // coop ticks, not wall-clock (documented gap)
+    }
+    Ok(Value::Void)
+}
+
+/// The final wait phase (verbatim continuation): the join-waiter parks
+/// as Parked (never a collector-joiner-target cycle) and wakes on the
+/// sched condvar — interruptible, deadline-bounded when set.
+fn join_wait(target: &Arc<ThreadRecord>, budget_ms: i64) -> Result<Value, Throw> {
     let deadline = if budget_ms > 0 {
         Some(std::time::Instant::now() + std::time::Duration::from_millis(budget_ms as u64))
     } else {

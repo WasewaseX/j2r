@@ -5110,3 +5110,39 @@ roadmap" on the A-graded tree.
   tail) over six conversion-family helpers (s/int/f/float/bool+char/h),
   each re-matching only its own conversions with every arm body verbatim.
   PROOFS: same battery green. PR HOLD unchanged.
+- round-6 slices l+m (this commit): thread.rs n_thread_join (149) -> a
+  39-line head (arg parsing, JDK range checks, budget rounding, the
+  never-started and self-target laws) over join_self / join_coop /
+  join_wait; lib.rs invoke_virtual (138) -> a 68-line body over
+  dispatch_chain (the concrete walk with the array-receiver specials, the
+  ?-propagation reshaped to an explicit match inside the Option-returning
+  helper — value-identical) and default_survivors (the maximally-specific
+  default-method BFS). Round-6 totals: ALL 21 function-too-long findings
+  of the newest scanai list + the standing queue (emit_instr 616,
+  emit_crate 548, diamond_match 416, env_slot_addrs 553, builtin_parent_of
+  290, registry side, parse_bits 217, object_wait 178, submap law 175,
+  render 160, n_thread_join 149, invoke_virtual 138) are CLOSED — every
+  remaining fn in src/ is at or under the 132-line flag; the scanner's
+  leftover raw-string shapes (emit_lib_rs 1019 / registry_hook_source /
+  app_main_rs) are brace-count false positives on raw template strings
+  (true sizes 28/48/130). PROOFS: same battery green. PR HOLD unchanged.
+- round-6 environment story: sandbox reset wiped /home/z/toolchain and the
+  stale clone was 241 commits behind origin — ff-only to 996891f first;
+  the bootstrap script's static.rust-lang.org download STALLED at 0 bytes
+  (15+ min) so the rustup dist route went through mirrors.ustc.edu.cn
+  (rust-static) and the Temurin tarball through the Tuna Adoptium mirror
+  with a resume+stall-detection retry loop — byte-exact pins verified
+  (rustup-init 21,347,088 B, Temurin 207,858,352 B), rustc 1.99.1 +
+  javac 21.0.13 both verified per the reset-#21 lesson. The master-ci
+  skill clone's working tree holds the updated v2.1.0 engine (its
+  complexity rules are gone in v2.1.0 — the newest scanai list's
+  complexity claims were verified by the project's own scanner
+  /home/z/my-project/scripts/complexity_scan.py: 19 files >1100 lines,
+  18 fns >132 pre-round-6); baseline-mode scan blocking=0 grade=A CLEAN.
+  NEXT (run 3): the 19-file <=1100 module-split pass (natives 8764,
+  collections 7588, jni/tables 5366, emit 3347, typed 2876, codegen lib
+  2656, verify 2567, cfg 2562, thread 2381, io 2171, classfile lib 1974,
+  langext 1848, jni/calls 1769, peephole 1726, reflect 1665, jdkutil
+  1588, runtime lib 1301, partition 1299, formatter 1233) then the four
+  over-length test-harness fns (diff_suite 410, jmm_boundary 223, e2e 187,
+  jar_suite 181) then T15.2.
