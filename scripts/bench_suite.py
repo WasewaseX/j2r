@@ -252,10 +252,13 @@ def build_native(work, name, is_corpus, args, env):
     return gen_s, native_total, binary
 
 
-def emit_row(name, args, javac_s, java_ms, java_full_ms, native_total,
-             native_ms):
+def emit_row(name, args, timings):
     """Print one result line in the active mode's schema; return the CSV
-    row tuple (the printed line is the human side of the same numbers)."""
+    row tuple (the printed line is the human side of the same numbers).
+
+    timings = (javac_s, java_ms, java_full_ms, native_total, native_ms)
+    -- the five measured numbers in run_reference/build_native order."""
+    javac_s, java_ms, java_full_ms, native_total, native_ms = timings
     # The CSV keys rows by fixture name; a typed-backend run of the
     # same program must not look like a re-measurement of the default
     # emission. [typed] suffix = same law as the --emit-cfg addendum.
@@ -354,8 +357,8 @@ def main() -> int:
         native_ms, _ = median_run([str(binary)], cwd=REPO, reps=native_reps,
                                   warmup=native_warmups)
         native_ms *= 1000.0
-        rows.append(emit_row(name, args, javac_s, java_ms, java_full_ms,
-                             native_total, native_ms))
+        timings = (javac_s, java_ms, java_full_ms, native_total, native_ms)
+        rows.append(emit_row(name, args, timings))
 
     write_csv(args, rows, stamp, native_reps, native_warmups, full_warmups)
     return 0

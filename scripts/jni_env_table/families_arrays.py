@@ -1,5 +1,11 @@
 """The per-primitive array families + the virtual Call*MethodA family
-(verbatim from the pre-split generator; extends WRAPPER_BODIES)."""
+(verbatim from the pre-split generator; extends WRAPPER_BODIES).
+
+The r9 host-scan fix turned the import-time side effect into the
+explicit register() entry point (the generator now calls register()
+instead of importing the module for its body). Every emitted string
+is byte-identical to the pre-split body; the generated table proves
+it by byte-parity."""
 from .data_wrapper_bodies import WRAPPER_BODIES
 
 
@@ -22,33 +28,38 @@ _ARRAY_PRIMS = [
     ("Double", "jdouble", "D", ""),
 ]
 
-for _name, _cty, _kind, _note in _ARRAY_PRIMS:
-    _k = f"crate::jni::arrays::PrimKind::{_kind}"
-    _slot_no = 175 + _ARRAY_PRIMS.index((_name, _cty, _kind, _note))
+
+def _new_array_body(name, cty, kind, note):
+    _k = f"crate::jni::arrays::PrimKind::{kind}"
+    _slot_no = 175 + _ARRAY_PRIMS.index((name, cty, kind, note))
     _new_doc = [
-        f"/// `New{_name}Array` (slot {_slot_no}): the slot IS one primitive — no descriptor",
+        f"/// `New{name}Array` (slot {_slot_no}): the slot IS one primitive — no descriptor",
         "/// parsing (design §5) — T10 slice 3b. Negative length aborts",
         "/// loudly (NegativeArraySizeException, the v1 failure law).",
     ]
-    if _note:
-        _new_doc.insert(1, f"/// Element width: {_note}.")
-    WRAPPER_BODIES[f"New{_name}Array"] = _new_doc + [
-        f'extern "system" fn jni_new_{_name.lower()}_array(_env: JNIEnv, len: jsize) -> jobject {{',
+    if note:
+        _new_doc.insert(1, f"/// Element width: {note}.")
+    return _new_doc + [
+        f'extern "system" fn jni_new_{name.lower()}_array(_env: JNIEnv, len: jsize) -> jobject {{',
         f"    let tag = crate::jni::arrays::slot_new_prim_array({_k}, len);",
         "    crate::jni::bridge::tag_to_jobject(tag)",
         "}",
     ]
-    WRAPPER_BODIES[f"Get{_name}ArrayElements"] = [
-        f"/// `Get{_name}ArrayElements` (slot {183 + _ARRAY_PRIMS.index((_name, _cty, _kind, _note))}):"
+
+
+def _get_elements_body(name, cty, kind, note):
+    _k = f"crate::jni::arrays::PrimKind::{kind}"
+    return [
+        f"/// `Get{name}ArrayElements` (slot {183 + _ARRAY_PRIMS.index((name, cty, kind, note))}):"
         " hands out a caller-owned registry-pinned COPY",
         "/// (design §5) — T10 slice 3b. isCopy, when asked, is JNI_TRUE",
         "/// through the audited write_u8_out primitive. Null array → NULL",
         "/// (isCopy untouched, v1 NPE gap).",
-        f'extern "system" fn jni_get_{_name.lower()}_array_elements(',
+        f'extern "system" fn jni_get_{name.lower()}_array_elements(',
         "    _env: JNIEnv,",
         "    array: jobject,",
         "    is_copy: *mut jboolean,",
-        f") -> *mut {_cty} {{",
+        f") -> *mut {cty} {{",
         "    let tag = crate::jni::bridge::jobject_to_tag(array);",
         "    if tag == 0 {",
         "        return std::ptr::null_mut();",
@@ -57,20 +68,24 @@ for _name, _cty, _kind, _note in _ARRAY_PRIMS:
         "    if !is_copy.is_null() {",
         "        j2r_jni_ffi::ffi::write_u8_out(is_copy, 1); // JNI_TRUE — always a copy",
         "    }",
-        f"    addr as *mut {_cty}",
+        f"    addr as *mut {cty}",
         "}",
     ]
-    WRAPPER_BODIES[f"Release{_name}ArrayElements"] = [
-        f"/// `Release{_name}ArrayElements` (slot {191 + _ARRAY_PRIMS.index((_name, _cty, _kind, _note))}):"
+
+
+def _release_elements_body(name, cty, kind, note):
+    _k = f"crate::jni::arrays::PrimKind::{kind}"
+    return [
+        f"/// `Release{name}ArrayElements` (slot {191 + _ARRAY_PRIMS.index((name, cty, kind, note))}):"
         " the mode law — JNI_COMMIT (1) copies",
         "/// back without freeing; 0 copies back and frees; JNI_ABORT (2)",
         "/// frees without copying back — T10 slice 3b. A foreign pointer,",
         "/// a wrong-family release, or an array mismatch aborts loudly.",
         "/// Null array → no-op (v1 NPE gap).",
-        f'extern "system" fn jni_release_{_name.lower()}_array_elements(',
+        f'extern "system" fn jni_release_{name.lower()}_array_elements(',
         "    _env: JNIEnv,",
         "    array: jobject,",
-        f"    elems: *mut {_cty},",
+        f"    elems: *mut {cty},",
         "    mode: jint,",
         ") {",
         "    let tag = crate::jni::bridge::jobject_to_tag(array);",
@@ -85,18 +100,22 @@ for _name, _cty, _kind, _note in _ARRAY_PRIMS:
         "    );",
         "}",
     ]
-    WRAPPER_BODIES[f"Get{_name}ArrayRegion"] = [
-        f"/// `Get{_name}ArrayRegion` (slot {199 + _ARRAY_PRIMS.index((_name, _cty, _kind, _note))}):"
+
+
+def _get_region_body(name, cty, kind, note):
+    _k = f"crate::jni::arrays::PrimKind::{kind}"
+    return [
+        f"/// `Get{name}ArrayRegion` (slot {199 + _ARRAY_PRIMS.index((name, cty, kind, note))}):"
         " bulk copy into the caller's buffer,",
         "/// bounds checked UP FRONT — a violation aborts loudly with the",
         "/// ArrayIndexOutOfBoundsException name (design §5) — T10 slice",
         "/// 3b. Null array → no-op (v1 NPE gap).",
-        f'extern "system" fn jni_get_{_name.lower()}_array_region(',
+        f'extern "system" fn jni_get_{name.lower()}_array_region(',
         "    _env: JNIEnv,",
         "    array: jobject,",
         "    start: jsize,",
         "    len: jsize,",
-        f"    buf: *mut {_cty},",
+        f"    buf: *mut {cty},",
         ") {",
         "    let tag = crate::jni::bridge::jobject_to_tag(array);",
         "    if tag == 0 {",
@@ -111,18 +130,22 @@ for _name, _cty, _kind, _note in _ARRAY_PRIMS:
         "    );",
         "}",
     ]
-    WRAPPER_BODIES[f"Set{_name}ArrayRegion"] = [
-        f"/// `Set{_name}ArrayRegion` (slot {207 + _ARRAY_PRIMS.index((_name, _cty, _kind, _note))}):"
+
+
+def _set_region_body(name, cty, kind, note):
+    _k = f"crate::jni::arrays::PrimKind::{kind}"
+    return [
+        f"/// `Set{name}ArrayRegion` (slot {207 + _ARRAY_PRIMS.index((name, cty, kind, note))}):"
         " bulk copy from the caller's buffer,",
         "/// bounds checked UP FRONT; narrowing follows the ARRAY",
         "/// descriptor (design §5) — T10 slice 3b. Null array → no-op",
         "/// (v1 NPE gap).",
-        f'extern "system" fn jni_set_{_name.lower()}_array_region(',
+        f'extern "system" fn jni_set_{name.lower()}_array_region(',
         "    _env: JNIEnv,",
         "    array: jobject,",
         "    start: jsize,",
         "    len: jsize,",
-        f"    buf: *const {_cty},",
+        f"    buf: *const {cty},",
         ") {",
         "    let tag = crate::jni::bridge::jobject_to_tag(array);",
         "    if tag == 0 {",
@@ -137,6 +160,15 @@ for _name, _cty, _kind, _note in _ARRAY_PRIMS:
         "    );",
         "}",
     ]
+
+
+def _array_families():
+    for _name, _cty, _kind, _note in _ARRAY_PRIMS:
+        WRAPPER_BODIES[f"New{_name}Array"] = _new_array_body(_name, _cty, _kind, _note)
+        WRAPPER_BODIES[f"Get{_name}ArrayElements"] = _get_elements_body(_name, _cty, _kind, _note)
+        WRAPPER_BODIES[f"Release{_name}ArrayElements"] = _release_elements_body(_name, _cty, _kind, _note)
+        WRAPPER_BODIES[f"Get{_name}ArrayRegion"] = _get_region_body(_name, _cty, _kind, _note)
+        WRAPPER_BODIES[f"Set{_name}ArrayRegion"] = _set_region_body(_name, _cty, _kind, _note)
 
 
 # ---------------------------------------------------------------- T11 slice 11b: the virtual Call*MethodA family (programmatic)
@@ -165,46 +197,53 @@ _CALL_A_KINDS = [
     ("Void", None, "slot_call_void_method_a"),
 ]
 
-for _name, _ret_cty, _slot_fn in _CALL_A_KINDS:
-    _ret_decl = f" -> {_ret_cty}" if _ret_cty else ""
-    # The Object kind answers a handle-table TAG: the wrapper dresses it
-    # as a jobject on the way out (tag_to_jobject), the C-kind slots
-    # return the number directly.
-    WRAPPER_BODIES[f"Call{_name}MethodA"] = [
-        f"/// `Call{_name}MethodA` (slot {_A_SLOT_NOS[_name]}): the A-form — the v1",
-        "/// workhorse (design of record: docs/M5_JNI_CALLS.md §3): the",
-        "/// jvalue words are decoded per the method's own descriptor and",
-        "/// the call dispatches by the receiver's runtime class. A thrown",
-        "/// answer is PENDED (ExceptionOccurred/Check/Clear) and the zero",
-        "/// value returned — the JNI-faithful shape. A null mid is a",
-        "/// loud foreign-side bug (the T09 registry law).",
-        f'extern "system" fn jni_call_{_name.lower()}_method_a(',
-        "    _env: JNIEnv,",
-        "    obj: jobject,",
-        "    mid: jmethodID,",
-        "    args: *const c_void,",
-        f"){_ret_decl} {{",
-        "    let tag = crate::jni::bridge::jobject_to_tag(obj);",
-        *(
-            [
-                f"    crate::jni::calls::{_slot_fn}(",
-                "        crate::jni::classes::method_id_from_ptr(mid),",
-                "        tag,",
-                "        args as usize,",
-                "    )",
-            ]
-            if _ret_cty != "jobject"
-            else [
-                "    crate::jni::bridge::tag_to_jobject(",
-                f"        crate::jni::calls::{_slot_fn}(",
-                "            crate::jni::classes::method_id_from_ptr(mid),",
-                "            tag,",
-                "            args as usize,",
-                "        ),",
-                "    )",
-            ]
-        ),
-        "}",
-    ]
+
+def _call_a_families():
+    for _name, _ret_cty, _slot_fn in _CALL_A_KINDS:
+        _ret_decl = f" -> {_ret_cty}" if _ret_cty else ""
+        # The Object kind answers a handle-table TAG: the wrapper dresses it
+        # as a jobject on the way out (tag_to_jobject), the C-kind slots
+        # return the number directly.
+        WRAPPER_BODIES[f"Call{_name}MethodA"] = [
+            f"/// `Call{_name}MethodA` (slot {_A_SLOT_NOS[_name]}): the A-form — the v1",
+            "/// workhorse (design of record: docs/M5_JNI_CALLS.md §3): the",
+            "/// jvalue words are decoded per the method's own descriptor and",
+            "/// the call dispatches by the receiver's runtime class. A thrown",
+            "/// answer is PENDED (ExceptionOccurred/Check/Clear) and the zero",
+            "/// value returned — the JNI-faithful shape. A null mid is a",
+            "/// loud foreign-side bug (the T09 registry law).",
+            f'extern "system" fn jni_call_{_name.lower()}_method_a(',
+            "    _env: JNIEnv,",
+            "    obj: jobject,",
+            "    mid: jmethodID,",
+            "    args: *const c_void,",
+            f"){_ret_decl} {{",
+            "    let tag = crate::jni::bridge::jobject_to_tag(obj);",
+            *(
+                [
+                    f"    crate::jni::calls::{_slot_fn}(",
+                    "        crate::jni::classes::method_id_from_ptr(mid),",
+                    "        tag,",
+                    "        args as usize,",
+                    "    )",
+                ]
+                if _ret_cty != "jobject"
+                else [
+                    "    crate::jni::bridge::tag_to_jobject(",
+                    f"        crate::jni::calls::{_slot_fn}(",
+                    "            crate::jni::classes::method_id_from_ptr(mid),",
+                    "            tag,",
+                    "            args as usize,",
+                    "        ),",
+                    "    )",
+                ]
+            ),
+            "}",
+        ]
 
 
+def register():
+    """The explicit entry point the generator calls for the module's
+    WRAPPER_BODIES side effect (was: import-time module body)."""
+    _array_families()
+    _call_a_families()

@@ -133,14 +133,15 @@ _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from jni_env_table.mapping import rust_sig, rust_stub  # noqa: E402
 from jni_env_table.data_real_slots import REAL_SLOTS  # noqa: E402
 from jni_env_table.data_wrapper_bodies import WRAPPER_BODIES  # noqa: E402
-from jni_env_table import families_arrays  # noqa: E402,F401
+from jni_env_table.families_arrays import register  # noqa: E402
 from jni_env_table import families_calls  # noqa: E402,F401
 from jni_env_table import families_fields  # noqa: E402,F401
 
-# the import ran the array module body (it extends WRAPPER_BODIES at
-# import time); the field + call families take the parsed slot index -
-# same key-set mutations, order-insensitive bytes because the emit
-# iterates REAL_SLOTS, never WRAPPER_BODIES
+# register() runs the array family emitters (the pre-r9 code extended
+# WRAPPER_BODIES at import time); the field + call families take the
+# parsed slot index - same key-set mutations, order-insensitive bytes
+# because the emit iterates REAL_SLOTS, never WRAPPER_BODIES
+register()
 families_fields.build(slots)
 _idx_of = {name: i for (i, kind, name, r, a) in slots if kind == "func"}
 families_calls.build(_idx_of)
