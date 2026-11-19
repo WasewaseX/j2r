@@ -5352,3 +5352,16 @@ roadmap" on the A-graded tree.
   natives.rs `le::` paths working unchanged). PROOFS: fmt + clippy
   --all-targets -D warnings, j2r-runtime 308, diff_suite 130 fixtures
   zero-diff 4/4 shards (191-199s). PR HOLD unchanged.
+- round-8 file-split pass, slice-o (this commit): io.rs (2171) -> a
+  115-line parent (doc + the shared missing/stream_field/
+  stream_field_pair/check_write_range helpers) over five children —
+  writer (310, StringWriter + Writer + OutputStream), reader (537,
+  StringReader + FileReader/File/InputStream + the skip default),
+  bytearray (480, BAOS + BIS), buffered (364, BufferedInputStream /
+  BufferedOutputStream), pushback (275, PushbackInputStream).
+  Cross-child bumps: bis_buf/bis_inner/bis_state/bis_set (bytearray)
+  + bis_fill/bis_read1/bis_load_byte (buffered) — the Buffered layer
+  reaches the BIS state machine, exactly like the pre-split file's
+  internal calls. PROOFS: fmt + clippy --all-targets -D warnings,
+  j2r-runtime 308, j2r-codegen 172 + e2e green, diff_suite 130
+  fixtures zero-diff 4/4 shards (190-201s). PR HOLD unchanged.
