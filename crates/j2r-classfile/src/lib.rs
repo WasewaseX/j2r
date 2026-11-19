@@ -17,6 +17,7 @@ use std::fmt;
 pub mod crc32;
 pub mod inflate;
 pub mod remap;
+pub mod remap_pass;
 pub mod zip;
 pub mod flags {
     pub const ACC_PUBLIC: u16 = 0x0001;
