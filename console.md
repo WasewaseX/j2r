@@ -5341,3 +5341,14 @@ roadmap" on the A-graded tree.
   bumps: invoke_a/invoke_v (vform), tag_or_zero (slots_a). PROOFS:
   fmt + clippy --all-targets -D warnings, j2r-runtime 308, diff_suite
   130 fixtures zero-diff 4/4 shards (190-192s). PR HOLD unchanged.
+- round-8 file-split pass, slice-n (this commit): langext.rs (1848) ->
+  a 67-line parent (doc + the shared str/utf16/arg helpers) over six
+  children — string (441), stringbuilder (219), math (454), numbers
+  (292, Integer/Long compare + bit ops + the radix parse), char (175,
+  the Character family), tests (76, char_array_rep_tests unwrapped).
+  ONE macro journey: int_radix_fns moved from the math child into its
+  only consumer numbers.rs (macro_rules are textually scoped, the glob
+  re-exports cannot carry them; the generated pub fns keep the
+  natives.rs `le::` paths working unchanged). PROOFS: fmt + clippy
+  --all-targets -D warnings, j2r-runtime 308, diff_suite 130 fixtures
+  zero-diff 4/4 shards (191-199s). PR HOLD unchanged.
