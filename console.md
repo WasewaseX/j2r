@@ -5051,3 +5051,18 @@ roadmap" on the A-graded tree.
   module const (content byte-identical, the emitted statics.rs is
   unchanged by construction) + a 3-line accessor; the emitted bytes are
   identical because the raw-string body moved verbatim.
+- round-6 slice-d (this commit): the emit.rs pair reshaped — emit_crate
+  (548) -> a 115-line orchestrator over verbatim-verb helpers
+  (manifest_reuse_gate returning the reuse map + surface + prior, the
+  Cargo.toml/lib.rs writers, the four registry table builders, the jmm
+  sidecar, the per-class render/write loop, main.rs + stale removal, the
+  orphan sweep, the manifest refresh; write order and every template byte
+  identical), emit_instr (616) -> a 74-line slim exhaustive dispatch over
+  twelve family helpers (const_local/array/shuffle/branch/field/
+  invoke_virtual/invoke_static/invoke_dynamic/monitor/alloc/map_prim/
+  throw_cast), each re-matching only its own variants with every arm body
+  verbatim and the loud unreachable tail (the slice-b2 typed.rs shape).
+  PROOFS: fmt + clippy --all-targets -D warnings, diff_suite 130 fixtures
+  zero-diff 4/4 shards (195-200s each), corpus_suite 6/6 (55.3s),
+  cfg_equiv PASS (447.1s), gate-11 in sync (fixtures=130 tests=619);
+  engine baseline-mode scan blocking=0 grade=A CLEAN. PR HOLD unchanged.
