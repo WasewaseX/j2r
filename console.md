@@ -5672,3 +5672,48 @@ roadmap" on the A-graded tree.
   committed vector carries either) + the hosted-CI watch on PR #8,
   then T15.3 (the remap driver wiring). The t15-remap PR stays HELD
   until the owner says otherwise.
+
+## Session cont. — 2026-11-20: T15.2c (the Code-internal variable tables) LANDED — T15.2 COMPLETE across all three layers — PR #8 updated
+
+- STATE RESEARCH FIRST (the standing protocol): the scheduled standing
+  run 3 had already executed the merge (PR #7 -> main at 10eeb15 on
+  all-34-gates green — the owner's fix -> check -> merge order), opened
+  t15-remap as HELD PR #8, and landed T15.2b through a TWO-AGENT
+  RECONCILIATION (two concurrent agents built it twice; the standalone
+  remap_attrs module won, the composed layer was reverted, the survivor's
+  RemapStats hooks + pub(crate) Interner helpers reconstructed, an R4b
+  signature-bound fix landed on the descriptor walker's T arm — the
+  bound <T:Ljava/lang/Object;> no longer swallows to the wrong ';').
+  VERIFIED against the tree before continuing: classfile 70/0, gate-11
+  fixtures=130 tests=637, R4b present (refsig_end), PR #8 open head
+  7c8cd43 — the boards' claims all held.
+- T15.2c (the last text layer): LocalVariableTable descriptors +
+  LocalVariableTypeTable signatures INSIDE Code payloads — a local
+  variable is a member of NOTHING, so the layer needs no owner lookups
+  and plans+applies AFTER the pool pass (the texts live in Utf8 slots
+  no ref points at). New module remap_code.rs (remap_attrs.rs sits at
+  1024 lines, at the advisory limit — it does not grow). Every rewrite
+  is a u2 index swap at entry offset 6; payload lengths stable; the
+  exception table + StackMapTable ride byte-identical.
+- PROBE FACT PINNED AS LAW C5: no committed vector carries either
+  table (-g:vars only) — the laws ride a hand-built Code attribute,
+  whose first draft had the pool indexes shifted by one (the
+  law-caught red, fixed before landing: the laws READ the builder).
+- THE 6 LAWS: C1 both tables remap with payload length stable; C2 the
+  exception table + Code header ride byte-identical; C3 the empty-map
+  identity; C4 descriptor texts remap WITHOUT member rows; C5 the
+  no-vector pin; C6 remap_class provably includes the layer (the
+  resolver reads mapped/Syn through the full stack).
+- PROOFS: fmt + clippy --all-targets -D warnings (one unused-mut
+  caught), cargo doc -D warnings green, battery 600/0 (classfile
+  70 -> 76), diff_suite 130 zero-diff 4/4 shards (193.3/198.1/256.9/
+  191.6s), corpus_suite PASS, jar_suite 3 green, gate-11 exit 0
+  fixtures=130 tests=643 (README 637 -> 643 + the T15.2c roster
+  entry). Commit 0d753b3 pushed to t15-remap; PR #8 rides on with the
+  round-9 wave's gate-6 lesson held (doc gate ran locally first).
+- T15.2 IS NOW COMPLETE name-for-name across the pool (2a), the
+  non-Code attributes (2b) and the Code-internal tables (2c). QUEUE
+  HEAD: T15.3 — the CLI `remap` stage (j2r-cli gains the verb: load a
+  Tiny v2 map + a jar, remap every class through remap_class, write
+  the remapped jar; the acceptance differential is T16's real
+  intermediary load). The three dependabot branches stay HELD.
