@@ -5393,3 +5393,22 @@ roadmap" on the A-graded tree.
   PROOFS: fmt + clippy --all-targets -D warnings, j2r-classfile 52,
   j2r-codegen 172 + e2e + j2r-runtime 308 green, diff_suite 130
   fixtures zero-diff 4/4 shards (191-198s). PR HOLD unchanged.
+- round-8 file-split pass, slice-r (this commit): collections.rs (7613,
+  the biggest file in the repo) -> a 199-line parent (doc + the core
+  dispatch/hash/table helpers) over NINE family children — arraylist
+  (650) / hashmap (958) / treemap (1096) / treeviews (858, the
+  keySet/values/entrySet/subMap view surface) / linkedhashmap (501) /
+  hashset (128) / linkedlist (99) / unmod (98) / objects (113) — and a
+  TWO-STAGE tests split: the 2647-line tests mod unwrapped into a 22
+  -line parent + testsupport (69, the shared fixture helpers, pub
+  (crate)) + eight family test children (tests_al 186 / tests_core 92
+  / tests_hm 543 / tests_lhm 432 / tests_tm 511 / tests_submap 639 /
+  tests_hs 52 / tests_objects 52). The cross-family helper web the
+  compiler dictated (46 fns + 20 consts bumped pub(crate), the biggest
+  being hm_*/tm_*/sms_* internals reaching across hashmap/treemap/
+  treeviews); the pub globs carry the family API exactly like HEAD;
+  key/msg/lhm_new moved to testsupport for the cross-test-child
+  consumers. PROOFS: fmt + clippy --all-targets -D warnings,
+  j2r-runtime 308 (all family + view + materialization + red-black
+  laws still green), diff_suite 130 fixtures zero-diff 4/4 shards
+  (186-193s). PR HOLD unchanged.
