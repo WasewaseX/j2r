@@ -5558,3 +5558,67 @@ roadmap" on the A-graded tree.
   InnerClasses/NestHost/NestMembers/EnclosingMethod/Signature text/
   StackMapTable Object_variable_info/Record components) off a fresh
   main.
+
+## Session cont. — 2026-11-20: T15.2a (the MappingSet-driven remap pass) LANDED on the t15-remap branch — the pool pass + the descriptor remapper + 8 laws
+
+- PROBE FIRST (again the winning order): scripts/probe_vec_pool.py (a new
+  40-line cpool walker) measured the committed VEC2 pool BEFORE any law
+  was written: 16 Class entries (Object, ArrayList, String, Integer,
+  Map, List, System, PrintStream, IAE/ISE/RE/Throwable, RemapVec2$Box/
+  $Shape/$Inner), the members (ledger Ljava/util/List;, <init> ()V,
+  score (Ljava/lang/String;)I), every ref with its owner/nat. The first
+  law draft assumed a RemapVec2$Shape.area()D call in VEC2 — the probe
+  showed NO such ref exists there (area is called nowhere in the
+  vectors); the law was rebuilt on the REAL String.length MethodRef.
+  The law-caught red is recorded in the commit message.
+- THE SLICE: crates/j2r-classfile/src/remap_pass.rs (779 lines) — the
+  T15.2a pass over the T15.1 raw transport, TWO-PHASE by design: every
+  lookup (Class names via map_class; the NameAndType behind FieldRef/
+  MethodRef/InterfaceMethodRef via map_field/map_method; indy/condy
+  NameAndTypes descriptor-only; the class's own member names +
+  descriptors) resolves against the pool AS READ, and the mutations
+  land only after the plan is complete — owner-name lookups can never
+  see a mid-pass rename, the result is order-independent. The
+  descriptor remapper walks JVMS §4.3/§4.7.6.1 text: L class refs move
+  inside generics (recursive depth matching), primitives/arrays/
+  wildcards/T-type-variables/unmapped names ride verbatim, inner-class
+  '.' suffixes carried. Within-pass interning: distinct new names
+  share ONE appended Utf8 (three sources -> one x/One slot, law R6).
+  New crate edge: j2r-classfile depends on j2r-mappings (both leaf
+  crates, acyclic; the parser stays the only way production data
+  reaches the pass — law R7 consumes a REAL Tiny v2 doc).
+- THE 8 LAWS: R1 the empty-set identity is byte-exact on all 8 vectors
+  (zero stats, zero model mutation); R2 class renames flow (3 renamed,
+  3 appends, every unmapped slot byte-identical, resolver re-verifies
+  mapped/RemapVec2); R3 member-ref name-for-name on the probed facts
+  (String.length -> len, the owner Class retargeted through the SAME
+  slot index, the ()I desc slot KEPT, descriptors_rewritten == 3, the
+  appends == 4); R4 the descriptor unit (generics recurse, type vars
+  verbatim, inner suffix carried, no-ref descs untouched); R5 every
+  vector remapped to its own name re-verifies AND re-serializes
+  byte-stably; R6 the interning collapse; R7 a real Tiny v2 file
+  drives the pass end to end; R8 a malformed Tiny v2 row stays loud
+  at the seam. CLIPPY CAUGHT ONE: manual_range_patterns (9|10|11 ->
+  9..=11) — fixed, zero warnings.
+- PROOFS: fmt + clippy --all-targets -D warnings green, cargo doc
+  -D warnings green (the gate-6 lesson held), battery 584/0 (classfile
+  52 -> 60), diff_suite 130 zero-diff 4/4 shards (194.0/194.8/190.0/
+  194.3s), corpus_suite PASS, jar_suite 3 green, gate-11 exit 0
+  fixtures=130 tests=627 (README 619 -> 627 + the T15.2a roster entry).
+  The slice rides the t15-remap branch (cb747de + one commit), to be
+  rebased onto main the moment PR #7 merges and opened as its own PR
+  (PR-first; HELD until the owner orders otherwise).
+- SCHEDULER NOTE for the record: a scheduled standing run fired mid-
+  session and committed the in-flight working tree as t15.2a-wip
+  (57e54cc, pushed to origin) — the WIP captured the PROVEN state
+  byte-for-byte (the clippy fix and the corrected laws included), so
+  the branch was cleaned (the run-counter artifact un-tracked), amended
+  into the proper T15.2a commit (3fd619e), and renamed t15-remap. The
+  stale origin/t15.2a-wip is deleted after the rebase push. The
+  run-counter file lives OUTSIDE the repo from now on.
+- NEXT: merge PR #7 the moment gate-9-solo reports (33/34 green at
+  record time, the owner's fix -> check -> merge order); then the
+  rebase + the PR for t15-remap (HELD); then T15.2b — the non-Code
+  attribute pass (Exceptions, InnerClasses, NestHost/NestMembers,
+  EnclosingMethod, Signature text, StackMapTable Object_variable_info,
+  Record components).
