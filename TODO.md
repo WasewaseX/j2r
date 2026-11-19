@@ -3,43 +3,50 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-19 (standing run 1 of the new epoch, the scanaislop
-round-8 wave, slices h-t — **THE OWNER PASTED THE 20-WARNING RUST-CRATE
-LIST (11 file-too-large over 1100 + the scripts/probe/comment tail) AND
-ORDERED THEM FIXED with every PR held to the same standard.** ALL
-RESOLVED this run, every slice pushed with its full proof stack:
-slice-h runtime lib.rs (1334) + formatter.rs (1323) — the #[path]
-children pattern, 18 explicit pub re-exports (the e2e loop caught the
-visibility law: pub-at-root items under a pub(crate) glob lose the
-generated-crate path, E0603); slice-i the scripts wave (bench_suite.py
-main 199 -> 8 helpers; the 4 flagged evidence probes frozen to
-probe_sources_frozen_2026-11-19.tar.gz — 3 byte-identical to their
-suite fixtures, TreeMapProbe the one historical variant;
-InfBlocks.java's trivial comments); slice-j gen_jni_env_table.py (1714)
--> the scripts/jni_env_table/ package, output BYTE-IDENTICAL at a
-pinned seed, the committed tables.rs drift vs the generator documented
-(pre-existing, untouched); slices k-s the remaining nine Rust files —
-jdkutil 1588 (slice-k), reflect 1665 (slice-l), jni/calls 1769
-(slice-m), langext 1848 (slice-n, the int_radix_fns macro moved into
-its only consumer), io 2171 (slice-o), thread 2403 (slice-p), classfile
-lib 1974 (slice-q), collections 7613 (slice-r, nine family children +
-the 2647-line tests mod split two-stage into testsupport + eight family
-test children), natives 8764 (slice-s, nine children + the 4621-row
-NATIVES table verbatim in five unit-aligned parts as a slice of slices
-with one flat_map in lookup_exact); slice-t the four over-length
-test-harness fns (diff_suite 410 -> the wave history hoisted to file
-level + three verbatim filter helpers; e2e 187; jmm_boundary 223;
-jar_suite 181) — the naive brace-walk false positives (btrace 37,
-emit_default_prologue 70) documented and the scanner now string-aware.
-PROOF: fmt + clippy --all-targets -D warnings on every slice, runtime
-308 + codegen 172 + classfile 52 green on every slice, diff_suite 130
-fixtures zero-diff 4/4 shards on every slice, corpus_suite PASS over
-the InfBlocks edit, cfg_equiv PASS (441.3s), gen output byte-identical
-(cmp at PYTHONHASHSEED=1), gate-11 in sync (fixtures=130 tests=619).
-The scan surface is now CLEAN: zero .rs files over 1100 except
-jni/tables.rs (5408, the documented generated-data opt-out), zero fns
-over 132. QUEUE HEAD: T15.2 (the MappingSet-driven remap pass), then
-the master-ci engine re-sweep when the sandbox network allows.
+fix the board. Last updated: 2026-11-20 (standing run 2 of the new epoch, the round-9
+hosted-claims wave — **THE OWNER PASTED THE 20-WARNING LIST (the
+scripts/comment tail: too-many-params, the two families fn-too-long,
+the unused-import, 19 narrative/trivial comments) AND ORDERED THEM
+FIXED, WITH EVERY PR REQUESTED FIRST AND HELD UNMERGED.** ALL
+RESOLVED: bench_suite.py emit_row 7 -> 3 params (every fn <= 6 params,
+<= 48 lines); gen_jni_env_table.py's unused-import became the explicit
+families_arrays.register() call; families_calls.py build 348 -> 12 fns
+(max 47 lines) WITH THE LATENT BUG FIXED ON THE WAY (the module never
+imported sys, so the documented loud drift-abort would have died of
+NameError — proven SystemExit now, NameError on the pre-split code);
+families_fields.py build 129 -> 4 fns (max 41); families_arrays.py's
+import-time body wrapped in register() — the three modules
+re-registered under fake slot tables produce BYTE-IDENTICAL
+WRAPPER_BODIES to the pre-split HEAD code (73 + 56 + 70 entries, zero
+diffs) and the full generator reproduces BOTH artifacts byte-
+identically (tables.rs + jni_slot_list.txt, pre-vs-new over Temurin
+21.0.13's jni.h); the 23 corpus comment lines (JamaCorpus x10,
+StringsSimBench x4, JZlibCorpus, HashIndexTable, InfBlocks x5)
+deleted by exact text, licenses verbatim; the master-ci skills copy
+updated to 8298ac4 (v2.19.1+20) — the authoritative scan reports
+BLOCKING=0 grade B CLEAN (the stale local v1.3.0-era copy was the
+scan_duplicates ignore-bypass regressor; the fix already exists
+upstream), and the three genuine hand-code repetitions it surfaced
+were factored (14x string tail -> object::string_out, 12x test panic
+guard -> per-file catch_panicked, 10x arrays cleanup -> del_local)
+with .ai-integrity-ignore re-truthed for the engine's classes (probe
+matrices, fixture trees, frozen evidence, the one-main convention);
+the gate-11 suite-count guard the shard rewrite dropped is restored
+(fixtures.len() >= 129, checker exit 0). Stale claims verified
+resolved: the 4 evidence probes (files gone), bench_suite.py:113 (no
+fn over 80), the gen-table file-too-large (380 lines). MEASURED:
+runtime 308/0, codegen 172/0, classfile 52/0, jni-ffi 17/0, diff_suite
+130 zero-diff 4/4 shards (195.9/195.6/193.5/193.5s), corpus_suite
+PASS, jar_suite 3 green, fmt + clippy --all-targets -D warnings,
+gate-11 exit 0 (fixtures=130 tests=619). THE WAVE RIDES THE
+scanaislop-fixes-r9 BRANCH AS A HELD PR (the owner's PR-first rule;
+nothing merged — the four dependabot branches stay unmerged too).
+QUEUE HEAD: T15.2 (the MappingSet-driven remap pass).
+Previous: 2026-11-19 (standing run 1 — the round-8 wave, slices h-t:
+all 11 Rust file-too-large + the test-harness fns resolved, the scan
+surface CLEAN, the pre-existing tables.rs drift + the M1 corrupted
+attribute line recorded, gate-11 in sync, budget note: the epoch
+counter reset to 1).
 Previous: 2026-11-19 (the scanaislop round-4 wave, slice-j — the corpus complexity findings, fully resolved slices j-m + the sweep).
 
 Project: J2R — Java → Rust compiler, safe Rust (zero `unsafe` outside

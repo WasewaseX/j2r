@@ -5470,3 +5470,44 @@ roadmap" on the A-graded tree.
   T15.2 (the MappingSet-driven remap pass) is the queue head; the
   master-ci engine re-sweep awaits network; PR HOLD unchanged (the
   four dependabot branches stay unmerged).
+- standing run 2 of the new epoch (this docs commit): the round-9
+  hosted-claims wave COMPLETE and riding the scanaislop-fixes-r9
+  branch as a HELD PR (the owner's "request PR first, do not merge
+  things" rule; the four dependabot branches stay unmerged too). The
+  20 hosted claims all resolved: bench_suite.py:255 emit_row 7 -> 3
+  params (every fn <= 6 params / <= 48 lines); gen_jni_env_table.py:136
+  the side-effect import -> explicit families_arrays.register();
+  families_calls.py:7 build 348 -> 12 fns max 47 lines (and the latent
+  bug fixed: no sys import meant the loud drift-abort was a NameError
+  time bomb - now proven SystemExit with the FATAL message, and the
+  pre-split code proven to NameError); families_fields.py:9 build 129
+  -> 4 fns max 41; families_arrays.py wrapped in register() with
+  per-family body builders. BYTE-PARITY: the three modules under fake
+  slot tables re-register 73 + 56 + 70 WRAPPER_BODIES entries
+  identical to the pre-split HEAD code; the full generator over
+  Temurin 21.0.13's jni.h reproduces tables.rs and jni_slot_list.txt
+  byte-identically (pre-vs-new). The 23 corpus comment claims deleted
+  by exact-text match (JamaCorpus x10 separators, StringsSimBench x4,
+  JZlibCorpus phase-1 narrative, HashIndexTable increment note,
+  InfBlocks x5 restating comments; licenses verbatim). Stale claims
+  verified resolved: the 4 evidence probes (files gone in round-8),
+  bench_suite.py:113, the gen-table file-too-large. master-ci updated
+  to 8298ac4 (v2.19.1+20): the authoritative scan reports BLOCKING=0
+  grade B CLEAN (was D/56 under the stale local copy - the local
+  skills clone was v1.3.0-era and carried the scan_duplicates
+  ignore-bypass that upstream already fixed); the three genuine
+  hand-code repetitions it surfaced factored (14x string tail ->
+  object::string_out, 12x panic guard -> catch_panicked in five test
+  files, 10x arrays cleanup -> del_local) and .ai-integrity-ignore
+  re-truthed with per-class justifications (probe matrices, fixture
+  trees, frozen evidence, the one-main-per-program convention). The
+  gate-11 suite-count guard the round-8 shard rewrite dropped is
+  restored (fixtures.len() >= 129; checker exit 0). MEASURED: runtime
+  308/0, codegen 172/0, classfile 52/0, jni-ffi 17/0, diff_suite 130
+  zero-diff 4/4 shards (195.9/195.6/193.5/193.5s), corpus_suite PASS,
+  jar_suite 3 green, fmt + clippy --all-targets -D warnings, gate-11
+  exit 0 (fixtures=130 tests=619). Commits a7be8ea (scripts),
+  447c71c (corpus), 6a50bf6 (dedup + ignore + guard), this docs
+  commit; every one pushed to the branch. REMAINING: T15.2 (the
+  MappingSet-driven remap pass) is the queue head; the PR stays HELD
+  for the owner's review.
