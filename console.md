@@ -5159,3 +5159,12 @@ roadmap" on the A-graded tree.
   provenance: /home/z/my-project/scripts/r7_filesplit.py. PROOFS: fmt +
   clippy --all-targets -D warnings, codegen 172+12+11+1+1 tests green.
   PR HOLD unchanged.
+- round-7 file-split pass, slice-b (this commit): typed.rs (2876) -> an
+  846-line parent (plan(), impl Plan, the Ctx core + impl — kept in the
+  PARENT so the children reach its private fields/methods through the
+  descendant rule, and the tests mod) over four verbatim children —
+  plan (247, the Unsupported/Prim/Plan analysis with its fields+methods
+  bumped pub(crate) for sibling access), body (359, with Src pub(crate)),
+  instr (1041, the family dispatch), arith (446, the arith/convert/cmp/
+  getstatic arms + the write_invoke_result pair). PROOFS: fmt + clippy
+  --all-targets -D warnings, codegen tests green. PR HOLD unchanged.
