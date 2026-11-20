@@ -3,7 +3,38 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-20 (standing run 3 of the 10x30min
+fix the board. Last updated: 2026-11-20 (standing run 4 of the 10x30min
+epoch — **T15.2c VERIFIED INDEPENDENTLY; queue head T15.3 STARTED**). The
+concurrent agent landed T15.2c (0d753b3 + boards cc54376/1f9d896) while
+run 4's proof stack was mid-flight — the shared checkout made run 4's
+`git add` stage identical bytes (nothing to commit), which means run 4's
+FULL proof stack (fmt + clippy --all-targets -D warnings + cargo doc -D
+warnings, battery 600/0 with classfile 76 = 70+6 C-laws, diff_suite 130
+zero-diff 4/4 legs, gate-11 exit 0 fixtures=130 tests=643) ran against
+the exact landed content 0d753b3: an independent verification, two full
+proof stacks on the same tree, both green. OPS FACTS recorded (learn,
+never repeat): (1) J2R_DIFF_SHARD is 0-BASED (the `i < n` assert at
+diff_suite.rs:345) — legs are 0/4..3/4; a 4/4 spec panics "bad shard
+spec". (2) Detached (setsid nohup) processes do NOT survive between tool
+calls in this sandbox — shards must run to completion INSIDE one call.
+(3) The box cannot hold 4 concurrent javac legs inside the 10-minute
+tool window (timed out once) — run legs SEQUENTIALLY, ~195s each
+(measured 194.1/197.3/192.0/191.1s). PR #8 still HELD (open, checks
+green per the PR page at fetch time; gh CLI absent, REST rate-limited —
+PR state is watched via the PR HTML page). T15.3 PROBED: the zip module
+is reader-ONLY (no writer — the jar_suite round-trip helper
+build_stored_zip is test-local at zip.rs:526), so T15.3 = a stored-only
+zip WRITER (crc32 module already exists; no deflate encoder exists and
+none is needed — stored entries are legal jars) + the CLI `remap`
+subcommand (parse Tiny v2 -> MappingSet, Jar::parse the input jar,
+RawClassFile::parse -> remap_attrs::remap_class -> serialize per class
+entry, non-class entries byte-copied, StoredWriter emits the output) +
+end-to-end laws (empty map = byte-exact identity through the whole
+pipeline, non-class entries byte-identical, entry order preserved, the
+remapped classes read back with the mapped this_class). Budget: runs=3
+of 10. QUEUE HEAD: T15.3 implementation (the writer first, then the
+command, then the laws).
+Previous: 2026-11-20 (standing run 3 of the 10x30min
 epoch — **PR #7 MERGED** (10eeb157, all 34 hosted gates green incl.
 gate-9-solo and gate-8-all-gates-green; the owner's fix -> check -> merge
 order executed exactly). The T15.2a wave verified, rebased onto fresh
