@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 j2r-classfile = { path = "../j2r-classfile" }
 j2r-codegen = { path = "../j2r-codegen" }
+j2r-mappings = { path = "../j2r-mappings" }
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]

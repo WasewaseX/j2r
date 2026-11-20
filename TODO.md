@@ -3,7 +3,77 @@
 The live status board for the whole project. A box is checked ONLY with
 runnable evidence (test name, CI gate, fixture, commit). `[~]` = started,
 with the gap stated. If a claim and this board disagree, this board loses —
-fix the board. Last updated: 2026-11-20 (the gate-6 unblock + the merge
+fix the board. Last updated: 2026-11-20 (standing run 4 of the 10x30min
+epoch — **T15.3 LANDED (95a74eb): the CLI remap stage + the stored-only
+zip writer, 11 new laws, all proofs green; queue head T16**). T15.2c was
+verified independently earlier in the run (the concurrent agent landed
+0d753b3 while run 4's proof stack was mid-flight; run 4's full stack ran
+against the exact landed content — two full proof stacks, both green).
+T15.3 delivered in ONE run, probe-first: the zip module was reader-ONLY
+(probe fact) so the slice = zip_writer::write_stored (deterministic
+stored-only archives, loud 65,534-entry guard, no deflate encoder
+needed) + the j2r-cli remap_jar pipeline (Tiny v2 -> MappingSet, Jar::parse,
+class entries through remap_attrs::remap_class, non-class entries ride
+byte-identical, order preserved) + Cmd::Remap wiring (--map/--in/--out).
+LAWS (11): writer W1 round-trip through the REAL reader, W2 determinism,
+W3 byte-shape pins (sigs/method/counts/cd-offset), W4 empty archive, W5
+loud EOCD limit; pipeline E1 empty-map byte-exact identity through the
+whole pipeline, E2 non-class entries ride + order preserved, E3 the
+remapped class reads back with the MAPPED this_class through the
+resolver, E4/E5/E6 malformed map + one-namespace map + corrupt class
+entry all loud with the entry name. MEASURED at 95a74eb: fmt + clippy
+--all-targets -D warnings + cargo doc -D warnings green (the module
+doc's bare namespaces[0]/[1] brackets were the SAME
+rustdoc::broken-intra-doc-links mode as the round-9 wave — escaped
+locally, gate-6 lesson now reflexive), battery 605/0 (classfile 76 ->
+81), the 6 pipeline laws green in the j2r-cli bin tests, gate-11 exit 0
+fixtures=130 tests=654 (README 643 -> 654 + the T15.3 clause), diff_suite
+130 zero-diff 4/4 sequential legs (197.0/198.3/199.3/191.3s), CLI smokes
+over real binaries (real map 1-of-2 changed, empty map 0 changed +
+manifest identity, DEFLATED input remaps fine). OPS FACTS from run 4
+(all recorded, none repeated): J2R_DIFF_SHARD is 0-based (legs 0/4..3/4),
+detached processes die between tool calls, 4 concurrent javac legs
+exceed the 10-min tool window (sequential legs only), the REST API is
+rate-limited (PR watch via the HTML page: PR #8 HELD open, checks green
+at fetch). QUEUE HEAD: T16 (load the REAL Fabric intermediary map and
+drive the remapped-jar differential through the T15.3 stage). Budget:
+runs=3 of 10.
+Previous: 2026-11-20 (standing run 3 of the 10x30min
+epoch — **PR #7 MERGED** (10eeb157, all 34 hosted gates green incl.
+gate-9-solo and gate-8-all-gates-green; the owner's fix -> check -> merge
+order executed exactly). The T15.2a wave verified, rebased onto fresh
+main, opened as PR #8 (t15-remap -> main, HELD UNMERGED per the owner's
+PR-first rule). T15.2b LANDED on the same branch (63e58f2): the
+remap_attrs::remap_class non-Code attribute pass (Signature texts at
+class/field/method/Record-component level, Record component names +
+descriptors, the EnclosingMethod NameAndType; every class-referencing
+payload byte-identical by design fact A4, payload lengths stable by
+A7) + the signature-BOUND fix R4b (the descriptor walker's T arm
+swallowed <T:LBound;> bounds — refsig_end now measures one
+ReferenceTypeSignature). TWO CONCURRENT AGENTS built T15.2b twice; the
+module design won, the composed layer was reverted, the survivor's
+stat hooks + Interner helpers reconstructed, both law sets green
+together. MEASURED at 63e58f2: fmt + clippy --all-targets -D warnings
++ cargo doc -D warnings green, battery runtime 308/0 + codegen 172/0 +
+classfile 70/0 (61 remap_pass incl. R4b + 9 remap_attrs) + jni-ffi
+17/0, diff_suite 130 zero-diff 4/4 shards
+(340.9/255.8/188.9/189.3s — two agents shared the box), corpus_suite
+PASS, jar_suite 3 green, gate-11 exit 0 (fixtures=130 tests=637), the
+authoritative master-ci scan BLOCKING=0 grade B CLEAN. Budget: runs=2
+of 10. T15.2 COMPLETE (2a the pool pass + 2b the non-Code attributes +
+2c the Code-internal variable tables, all name-for-name with laws and
+proofs — riding HELD PR #8). QUEUE HEAD: T15.3 (the CLI `remap` stage:
+load a Tiny v2 map + a jar, remap every class through
+remap_attrs::remap_class, write the remapped jar; T16 then loads the
+REAL Fabric intermediary map for the remapped-jar differential).
+Previous: 2026-11-20 (standing run 3 + this interactive run — the
+gate-6 fix wave MERGED (PR #7, 34 gates green), the T15.2c slice
+landed 0d753b3 with 6 laws over the hand-built Code vector (the
+no-LVT probe fact pinned as C5), proofs battery 600/0 + diff_suite
+4 shards + gate-11 643; previous: no committed vector
+carries either, probe fact; synthetic-covered) + hosted CI watch on
+PR #8, then T15.3 (the remap driver wiring).
+Previous: 2026-11-20 (the gate-6 unblock + the merge
 authorization — **THE OWNER PASTED THE GREPTILE BLOCKER (gate-6-doc-lint
 red on PR #7) AND ORDERED FIX -> CHECK -> MERGE ("learn from mistakes
 and don't repeat them"). FIVE rustdoc lints from the round-9 dedup

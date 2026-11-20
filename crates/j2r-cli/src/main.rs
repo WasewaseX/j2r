@@ -10,6 +10,7 @@
 
 #![forbid(unsafe_code)]
 mod compare;
+mod remap_jar;
 
 use compare::{streams_match, RunResult};
 use std::path::{Path, PathBuf};
@@ -172,6 +173,21 @@ enum Cmd {
         /// Input .class files.
         inputs: Vec<PathBuf>,
     },
+    /// T15.3: remap every .class entry of a jar through a Tiny v2 map
+    /// (the M5 wave-3 mapping model drives remap_attrs::remap_class;
+    /// non-class entries ride byte-identical; output is a stored-only
+    /// jar). T16 loads the REAL Fabric intermediary map through this.
+    Remap {
+        /// The Tiny v2 mappings file (namespace 0 -> namespace 1).
+        #[arg(long)]
+        map: PathBuf,
+        /// The input jar (stored or deflated entries).
+        #[arg(long = "in")]
+        input: PathBuf,
+        /// The remapped output jar (stored entries).
+        #[arg(long = "out")]
+        output: PathBuf,
+    },
 }
 
 fn main() {
@@ -257,6 +273,7 @@ fn main() {
         }
         Cmd::ShapeReport { inputs } => cmd_shape_report(&inputs),
         Cmd::ReadinessReport { inputs } => cmd_readiness_report(&inputs),
+        Cmd::Remap { map, input, output } => cmd_remap(&map, &input, &output),
     };
     std::process::exit(code);
 }
@@ -387,6 +404,46 @@ fn cmd_readiness_report(inputs: &[PathBuf]) -> i32 {
         }
         Err(e) => {
             eprintln!("j2r: {e}");
+            1
+        }
+    }
+}
+
+/// T15.3: the CLI remap stage — load a Tiny v2 map + a jar, remap every
+/// class through remap_attrs::remap_class, write the remapped jar (see
+/// the remap_jar module; the laws live there).
+fn cmd_remap(map: &Path, input: &Path, output: &Path) -> i32 {
+    let map_text = match std::fs::read_to_string(map) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("j2r: cannot read map {}: {e}", map.display());
+            return 1;
+        }
+    };
+    let jar_bytes = match std::fs::read(input) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("j2r: cannot read jar {}: {e}", input.display());
+            return 1;
+        }
+    };
+    match remap_jar::remap_jar(&map_text, &jar_bytes) {
+        Ok((bytes, stats)) => {
+            if let Err(e) = std::fs::write(output, &bytes) {
+                eprintln!("j2r: cannot write jar {}: {e}", output.display());
+                return 1;
+            }
+            println!(
+                "remapped {} of {} class entries, {} changed, wrote {}",
+                stats.class_entries,
+                stats.entries_total,
+                stats.classes_remapped,
+                output.display()
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("j2r remap: {e}");
             1
         }
     }
