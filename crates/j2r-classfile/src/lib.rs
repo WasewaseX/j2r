@@ -21,6 +21,7 @@ pub mod remap_attrs;
 pub mod remap_code;
 pub mod remap_pass;
 pub mod zip;
+pub mod zip_writer;
 pub mod flags {
     pub const ACC_PUBLIC: u16 = 0x0001;
     pub const ACC_PRIVATE: u16 = 0x0002;

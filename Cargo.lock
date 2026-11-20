@@ -124,6 +124,7 @@ dependencies = [
  "clap",
  "j2r-classfile",
  "j2r-codegen",
+ "j2r-mappings",
  "j2r-runtime",
 ]
 
